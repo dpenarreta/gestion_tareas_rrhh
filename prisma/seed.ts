@@ -1,0 +1,41 @@
+import "dotenv/config";
+import { PrismaClient } from "@/generated/prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import bcrypt from "bcryptjs";
+
+const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
+const prisma = new PrismaClient({ adapter });
+
+async function main() {
+  const password = await bcrypt.hash("123456", 10);
+
+  const jefe = await prisma.user.upsert({
+    where: { email: "jefe@nexo.com" },
+    update: {},
+    create: {
+      email: "jefe@nexo.com",
+      name: "Jefe Nacional",
+      password,
+      role: "JEFE_NACIONAL",
+    },
+  });
+
+  const coordNacional = await prisma.user.upsert({
+    where: { email: "coord.nacional@nexo.com" },
+    update: {},
+    create: {
+      email: "coord.nacional@nexo.com",
+      name: "Coordinador Nacional",
+      password,
+      role: "COORDINADOR_NACIONAL",
+    },
+  });
+
+  console.log("Seed completado:");
+  console.log(`  Jefe Nacional:        ${jefe.email} / 123456`);
+  console.log(`  Coordinador Nacional: ${coordNacional.email} / 123456`);
+}
+
+main()
+  .catch(console.error)
+  .finally(() => prisma.$disconnect());
