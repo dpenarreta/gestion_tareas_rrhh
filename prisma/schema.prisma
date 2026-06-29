@@ -39,6 +39,20 @@ enum TaskFrequency {
   PUNTUAL
 }
 
+enum TaskType {
+  FIJA
+  SEGUIMIENTO
+}
+
+enum ActivityReason {
+  NOVEDADES_PAGO
+  RETENCION_PAGO
+  FACTURAS
+  CONSULTA_OPERACIONES
+  SOLICITUD_VACACIONES
+  SOLICITUD_PERMISO
+}
+
 model User {
   id              String   @id @default(cuid())
   email           String   @unique
@@ -52,6 +66,7 @@ model User {
   assignedTasks Task[]         @relation("AssignedTasks")
   createdTasks  Task[]         @relation("CreatedTasks")
   comments      Comment[]
+  activities    TaskActivity[]
   notifications Notification[]
 }
 
@@ -67,11 +82,13 @@ model Task {
   estimatedHours Float
   realHours      Float         @default(0)
   progress       Int           @default(0)
+  type           TaskType      @default(FIJA)
   assignedToId   String
   assignedTo     User          @relation("AssignedTasks", fields: [assignedToId], references: [id])
   createdById    String
   createdBy      User          @relation("CreatedTasks", fields: [createdById], references: [id])
   comments       Comment[]
+  activities     TaskActivity[]
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 }
@@ -95,4 +112,17 @@ model Notification {
   taskTitle String?
   read      Boolean  @default(false)
   createdAt DateTime @default(now())
+}
+
+model TaskActivity {
+  id        String         @id @default(cuid())
+  taskId    String
+  task      Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User           @relation(fields: [authorId], references: [id])
+  reason    ActivityReason
+  startTime String
+  endTime   String
+  duration  Int
+  createdAt DateTime       @default(now())
 }

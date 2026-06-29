@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import type { TaskStatus, TaskPriority, TaskFrequency } from "@/generated/prisma/client";
+import type { TaskStatus, TaskPriority, TaskFrequency, TaskType } from "@/generated/prisma/client";
 
 const taskSelect = {
   id: true,
   title: true,
   description: true,
+  type: true,
   status: true,
   priority: true,
   frequency: true,
@@ -44,7 +45,7 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json();
-  const { title, description, status, priority, frequency, startDate, endDate, estimatedHours, progress, assignedToId } = body;
+  const { title, description, type, status, priority, frequency, startDate, endDate, estimatedHours, progress, assignedToId } = body;
 
   if (!title || !priority || !frequency || !startDate || !endDate || estimatedHours == null || !assignedToId) {
     return NextResponse.json({ error: "Faltan campos requeridos" }, { status: 400 });
@@ -54,6 +55,7 @@ export async function POST(request: NextRequest) {
     data: {
       title,
       description: description || null,
+      type: (type as TaskType) ?? "FIJA",
       status: (status as TaskStatus) ?? "PENDIENTE",
       priority: priority as TaskPriority,
       frequency: frequency as TaskFrequency,

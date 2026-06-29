@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import type { TaskStatus, TaskPriority, TaskFrequency } from "@/generated/prisma/client";
+import type { TaskStatus, TaskPriority, TaskFrequency, TaskType } from "@/generated/prisma/client";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -9,6 +9,7 @@ const taskSelect = {
   id: true,
   title: true,
   description: true,
+  type: true,
   status: true,
   priority: true,
   frequency: true,
@@ -48,6 +49,7 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   const data: Record<string, unknown> = {};
   if ("title" in body) data.title = body.title;
   if ("description" in body) data.description = body.description;
+  if ("type" in body) data.type = body.type as TaskType;
   if ("status" in body) data.status = body.status as TaskStatus;
   if ("priority" in body) data.priority = body.priority as TaskPriority;
   if ("frequency" in body) data.frequency = body.frequency as TaskFrequency;

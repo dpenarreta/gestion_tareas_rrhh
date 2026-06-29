@@ -9,6 +9,7 @@ const taskSelect = {
   id: true,
   title: true,
   description: true,
+  type: true,
   status: true,
   priority: true,
   frequency: true,

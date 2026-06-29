@@ -14,6 +14,7 @@ import { useDroppable, useDraggable } from "@dnd-kit/core";
 import type { Task, TaskStatus } from "./types";
 import TaskCard from "./TaskCard";
 import CommentPanel from "./CommentPanel";
+import ActivityPanel from "./ActivityPanel";
 
 const COLUMNS: { id: TaskStatus; label: string; headerColor: string; dotColor: string }[] = [
   { id: "PENDIENTE", label: "Pendiente", headerColor: "text-slate-600", dotColor: "bg-slate-400" },
@@ -29,6 +30,7 @@ function DroppableColumn({
   onEditTask,
   onDeleteTask,
   onCommentClick,
+  onActivityClick,
 }: {
   column: (typeof COLUMNS)[0];
   tasks: Task[];
@@ -37,6 +39,7 @@ function DroppableColumn({
   onEditTask: (task: Task) => void;
   onDeleteTask: (id: string) => void;
   onCommentClick: (task: Task) => void;
+  onActivityClick: (task: Task) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
 
@@ -75,6 +78,7 @@ function DroppableColumn({
             onEdit={onEditTask}
             onDelete={onDeleteTask}
             onCommentClick={onCommentClick}
+            onActivityClick={onActivityClick}
           />
         ))}
         {tasks.length === 0 && (
@@ -96,12 +100,14 @@ function DraggableCard({
   onEdit,
   onDelete,
   onCommentClick,
+  onActivityClick,
 }: {
   task: Task;
   currentUserId: string;
   onEdit: (task: Task) => void;
   onDelete: (id: string) => void;
   onCommentClick: (task: Task) => void;
+  onActivityClick: (task: Task) => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: task.id,
@@ -122,6 +128,7 @@ function DraggableCard({
         onEdit={onEdit}
         onDelete={onDelete}
         onCommentClick={onCommentClick}
+        onActivityClick={onActivityClick}
       />
     </div>
   );
@@ -148,6 +155,7 @@ export default function KanbanView({
 }: Props) {
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [commentTask, setCommentTask] = useState<Task | null>(null);
+  const [activityTask, setActivityTask] = useState<Task | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
@@ -187,6 +195,7 @@ export default function KanbanView({
               onEditTask={onEditTask}
               onDeleteTask={onDeleteTask}
               onCommentClick={setCommentTask}
+              onActivityClick={setActivityTask}
             />
           ))}
         </div>
@@ -212,6 +221,14 @@ export default function KanbanView({
           currentUserId={currentUserId}
           onClose={() => setCommentTask(null)}
           onCommentAdded={() => onCommentAdded(commentTask.id)}
+        />
+      )}
+
+      {activityTask && (
+        <ActivityPanel
+          task={activityTask}
+          currentUserId={currentUserId}
+          onClose={() => setActivityTask(null)}
         />
       )}
     </>

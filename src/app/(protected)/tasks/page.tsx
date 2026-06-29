@@ -17,11 +17,12 @@ export default async function TasksPage() {
       select: { viewPreferences: true },
     }),
     prisma.task.findMany({
-      where: { assignedTo: { role: { in: visibleRoles } } },
+      where: { assignedToId: session.userId },
       select: {
         id: true,
         title: true,
         description: true,
+        type: true,
         status: true,
         priority: true,
         frequency: true,

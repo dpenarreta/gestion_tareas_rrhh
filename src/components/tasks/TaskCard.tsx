@@ -28,9 +28,10 @@ type Props = {
   onEdit: (task: Task) => void;
   onDelete: (id: string) => void;
   onCommentClick: (task: Task) => void;
+  onActivityClick?: (task: Task) => void;
 };
 
-export default function TaskCard({ task, currentUserId: _cu, isDragging, onEdit, onDelete, onCommentClick }: Props) {
+export default function TaskCard({ task, currentUserId: _cu, isDragging, onEdit, onDelete, onCommentClick, onActivityClick }: Props) {
   return (
     <div
       className={`bg-white rounded-xl border border-slate-200 p-3 shadow-sm select-none ${
@@ -70,7 +71,18 @@ export default function TaskCard({ task, currentUserId: _cu, isDragging, onEdit,
         </span>
       </div>
 
-      {task.progress > 0 && (
+      {task.type === "SEGUIMIENTO" && (
+        <div className="mb-2.5">
+          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-violet-700 bg-violet-50 border border-violet-200 px-1.5 py-0.5 rounded-full">
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Seguimiento
+          </span>
+        </div>
+      )}
+
+      {task.type === "FIJA" && task.progress > 0 && (
         <div className="mb-2.5">
           <div className="flex items-center justify-between mb-1">
             <span className="text-[10px] text-slate-500">Avance</span>
@@ -89,15 +101,28 @@ export default function TaskCard({ task, currentUserId: _cu, isDragging, onEdit,
         <span className="text-[10px] text-slate-500">
           Vence {formatDate(task.endDate)}
         </span>
-        <button
-          onClick={(e) => { e.stopPropagation(); onCommentClick(task); }}
-          className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-indigo-600 transition-colors"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-          </svg>
-          {task._count.comments}
-        </button>
+        <div className="flex items-center gap-2">
+          {task.type === "SEGUIMIENTO" && onActivityClick && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onActivityClick(task); }}
+              className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-violet-600 transition-colors"
+              title="Registro de actividades"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </button>
+          )}
+          <button
+            onClick={(e) => { e.stopPropagation(); onCommentClick(task); }}
+            className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-indigo-600 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            </svg>
+            {task._count.comments}
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import type { Task, AssignableUser } from "./types";
+import type { Task, AssignableUser, TaskType } from "./types";
 
 const STATUS_OPTIONS = [
   { value: "PENDIENTE", label: "Pendiente" },
@@ -40,6 +40,7 @@ type Props = {
 export default function TaskFormModal({ task, initialStatus, initialAssignedToId, users, currentUserId, onSave, onClose }: Props) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [type, setType] = useState<TaskType>("FIJA");
   const [status, setStatus] = useState<Task["status"]>(initialStatus);
   const [priority, setPriority] = useState<Task["priority"]>("MEDIA");
   const [frequency, setFrequency] = useState<Task["frequency"]>("MENSUAL");
@@ -55,6 +56,7 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
     if (task) {
       setTitle(task.title);
       setDescription(task.description ?? "");
+      setType(task.type);
       setStatus(task.status);
       setPriority(task.priority);
       setFrequency(task.frequency);
@@ -79,6 +81,7 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
       const body = {
         title: title.trim(),
         description: description.trim() || null,
+        type,
         status,
         priority,
         frequency,
@@ -151,6 +154,37 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
               rows={3}
               placeholder="Descripción opcional"
             />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Clasificación</label>
+            <div className="grid grid-cols-2 gap-2">
+              {(["FIJA", "SEGUIMIENTO"] as TaskType[]).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setType(t)}
+                  className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-sm font-medium transition-all ${
+                    type === t
+                      ? t === "FIJA"
+                        ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                        : "border-violet-500 bg-violet-50 text-violet-700"
+                      : "border-slate-200 text-slate-600 hover:border-slate-300"
+                  }`}
+                >
+                  {t === "FIJA" ? (
+                    <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
+                  ) : (
+                    <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                  )}
+                  {t === "FIJA" ? "Fija" : "Seguimiento"}
+                </button>
+              ))}
+            </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
@@ -227,19 +261,21 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
             />
           </div>
 
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">
-              Avance: {progress}%
-            </label>
-            <input
-              type="range"
-              min="0"
-              max="100"
-              value={progress}
-              onChange={(e) => setProgress(e.target.value)}
-              className="w-full accent-indigo-600"
-            />
-          </div>
+          {type === "FIJA" && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+                Avance: {progress}%
+              </label>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={progress}
+                onChange={(e) => setProgress(e.target.value)}
+                className="w-full accent-indigo-600"
+              />
+            </div>
+          )}
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">Asignado a *</label>
