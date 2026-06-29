@@ -29,19 +29,24 @@ async function recalcRealHours(taskId: string) {
 }
 
 export async function GET(_req: NextRequest, ctx: Ctx) {
-  const session = await getSession();
-  if (!session) {
-    return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+  try {
+    const session = await getSession();
+    if (!session) {
+      return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+    }
+
+    const { id } = await ctx.params;
+    const activities = await prisma.taskActivity.findMany({
+      where: { taskId: id },
+      select: activitySelect,
+      orderBy: { createdAt: "asc" },
+    });
+
+    return NextResponse.json(activities);
+  } catch (err) {
+    console.error("GET /activities error:", err);
+    return NextResponse.json([], { status: 200 });
   }
-
-  const { id } = await ctx.params;
-  const activities = await prisma.taskActivity.findMany({
-    where: { taskId: id },
-    select: activitySelect,
-    orderBy: { createdAt: "asc" },
-  });
-
-  return NextResponse.json(activities);
 }
 
 export async function POST(request: NextRequest, ctx: Ctx) {

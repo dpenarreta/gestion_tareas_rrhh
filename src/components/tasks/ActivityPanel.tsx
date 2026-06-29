@@ -83,8 +83,9 @@ export default function ActivityPanel({ task, currentUserId, onClose }: Props) {
 
   useEffect(() => {
     fetch(`/api/tasks/${task.id}/activities`)
-      .then((r) => r.json())
-      .then((data) => setActivities(data))
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => setActivities(Array.isArray(data) ? data : []))
+      .catch(() => setActivities([]))
       .finally(() => setLoading(false));
   }, [task.id]);
 
