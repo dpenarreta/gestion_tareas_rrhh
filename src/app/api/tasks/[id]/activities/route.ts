@@ -87,47 +87,29 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       );
     }
 
-    let task;
-    try {
-      task = await prisma.task.findUnique({ where: { id: taskId } });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      return NextResponse.json({ error: `[findTask] ${msg}` }, { status: 500 });
-    }
+    const task = await prisma.task.findUnique({ where: { id: taskId } });
     if (!task) {
       return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
     }
 
-    let activity;
-    try {
-      activity = await prisma.taskActivity.create({
-        data: {
-          taskId,
-          authorId: session.userId,
-          reason: reason as ActivityReason,
-          startTime,
-          endTime,
-          duration,
-          description: description?.trim() || null,
-        },
-        select: activitySelect,
-      });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      return NextResponse.json({ error: `[createActivity] ${msg}` }, { status: 500 });
-    }
+    const activity = await prisma.taskActivity.create({
+      data: {
+        taskId,
+        authorId: session.userId,
+        reason: reason as ActivityReason,
+        startTime,
+        endTime,
+        duration,
+        description: description?.trim() || null,
+      },
+      select: activitySelect,
+    });
 
-    try {
-      await recalcRealHours(taskId);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      return NextResponse.json({ error: `[recalcRealHours] ${msg}` }, { status: 500 });
-    }
+    await recalcRealHours(taskId);
 
     return NextResponse.json(activity, { status: 201 });
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    console.error("POST /activities outer catch:", message);
-    return NextResponse.json({ error: `[outer] ${message}` }, { status: 500 });
+    console.error("POST /activities error:", err);
+    return NextResponse.json({ error: "Error interno al registrar actividad" }, { status: 500 });
   }
 }
