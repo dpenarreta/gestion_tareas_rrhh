@@ -100,6 +100,9 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
   );
 
   const handleStatusChange = useCallback(async (id: string, status: Task["status"]) => {
+    setTasks((prev) =>
+      prev.map((t) => (t.id === id ? { ...t, status } : t))
+    );
     const res = await fetch(`/api/tasks/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -108,8 +111,10 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
     if (res.ok) {
       const updated: Task = await res.json();
       setTasks((prev) => prev.map((t) => (t.id === id ? updated : t)));
+    } else {
+      await refreshTasks();
     }
-  }, []);
+  }, [refreshTasks]);
 
   const handleFieldUpdate = useCallback(async (id: string, field: string, value: unknown) => {
     const res = await fetch(`/api/tasks/${id}`, {

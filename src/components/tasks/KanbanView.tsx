@@ -11,7 +11,6 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { useDroppable, useDraggable } from "@dnd-kit/core";
-import { CSS } from "@dnd-kit/utilities";
 import type { Task, TaskStatus } from "./types";
 import TaskCard from "./TaskCard";
 import CommentPanel from "./CommentPanel";
@@ -104,19 +103,22 @@ function DraggableCard({
   onDelete: (id: string) => void;
   onCommentClick: (task: Task) => void;
 }) {
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: task.id,
     data: { status: task.status },
   });
 
-  const style = { transform: CSS.Translate.toString(transform) };
-
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+    <div
+      ref={setNodeRef}
+      style={{ opacity: isDragging ? 0 : 1 }}
+      {...attributes}
+      {...listeners}
+    >
       <TaskCard
         task={task}
         currentUserId={currentUserId}
-        isDragging={isDragging}
+        isDragging={false}
         onEdit={onEdit}
         onDelete={onDelete}
         onCommentClick={onCommentClick}
