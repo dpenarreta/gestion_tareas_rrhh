@@ -15,14 +15,16 @@ const COOKIE_NAME = "nexo-session";
 const secret = new TextEncoder().encode(
   process.env.SESSION_SECRET ?? "nexo-default-secret-change-in-production"
 );
-const SESSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
+const DURATION_DEFAULT_MS = 7 * 24 * 60 * 60 * 1000;
+const DURATION_REMEMBER_MS = 30 * 24 * 60 * 60 * 1000;
 
-export async function encrypt(payload: Omit<SessionPayload, "expiresAt">) {
-  const expiresAt = new Date(Date.now() + SESSION_DURATION_MS).toISOString();
+async function encrypt(payload: Omit<SessionPayload, "expiresAt">, durationMs: number) {
+  const expiresAt = new Date(Date.now() + durationMs).toISOString();
+  const days = Math.round(durationMs / (24 * 60 * 60 * 1000));
   return new SignJWT({ ...payload, expiresAt })
     .setProtectedHeader({ alg: "HS256" })
     .setIssuedAt()
-    .setExpirationTime("7d")
+    .setExpirationTime(`${days}d`)
     .sign(secret);
 }
 
@@ -37,9 +39,13 @@ export async function decrypt(token: string): Promise<SessionPayload | null> {
   }
 }
 
-export async function createSession(data: Omit<SessionPayload, "expiresAt">) {
-  const expiresAt = new Date(Date.now() + SESSION_DURATION_MS);
-  const token = await encrypt(data);
+export async function createSession(
+  data: Omit<SessionPayload, "expiresAt">,
+  rememberMe = false
+) {
+  const durationMs = rememberMe ? DURATION_REMEMBER_MS : DURATION_DEFAULT_MS;
+  const expiresAt = new Date(Date.now() + durationMs);
+  const token = await encrypt(data, durationMs);
   const cookieStore = await cookies();
   cookieStore.set(COOKIE_NAME, token, {
     httpOnly: true,
