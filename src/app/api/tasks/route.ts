@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { getVisibleRoles } from "@/lib/roles";
 import type { TaskStatus, TaskPriority, TaskFrequency } from "@/generated/prisma/client";
 
 const taskSelect = {
@@ -29,10 +28,8 @@ export async function GET() {
     return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   }
 
-  const visibleRoles = getVisibleRoles(session.role);
-
   const tasks = await prisma.task.findMany({
-    where: { assignedTo: { role: { in: visibleRoles } } },
+    where: { assignedToId: session.userId },
     select: taskSelect,
     orderBy: { createdAt: "desc" },
   });
