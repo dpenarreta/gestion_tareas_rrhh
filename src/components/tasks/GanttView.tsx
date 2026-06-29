@@ -33,20 +33,48 @@ function getWeeksInRange(start: Date, end: Date) {
   return weeks;
 }
 
-type Props = { tasks: Task[] };
+type Props = { tasks: Task[]; onCreateTask: () => void };
 
-export default function GanttView({ tasks }: Props) {
+export default function GanttView({ tasks, onCreateTask }: Props) {
   if (tasks.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-64 text-slate-400">
         <svg className="w-12 h-12 mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
         </svg>
-        <p className="text-sm">No hay tareas para mostrar</p>
+        <p className="text-sm mb-4">No hay tareas para mostrar</p>
+        <button
+          onClick={onCreateTask}
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+          Nueva tarea
+        </button>
       </div>
     );
   }
 
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <button
+          onClick={onCreateTask}
+          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors"
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+          </svg>
+          Nueva tarea
+        </button>
+      </div>
+      <GanttChart tasks={tasks} />
+    </div>
+  );
+}
+
+function GanttChart({ tasks }: { tasks: Task[] }) {
   const allDates = tasks.flatMap((t) => [new Date(t.startDate), new Date(t.endDate)]);
   const rangeStart = new Date(Math.min(...allDates.map((d) => d.getTime())));
   const rangeEnd = new Date(Math.max(...allDates.map((d) => d.getTime())));

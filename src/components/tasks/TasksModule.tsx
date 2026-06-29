@@ -202,7 +202,7 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
             onRefresh={refreshTasks}
           />
         )}
-        {currentView === "GANTT" && <GanttView tasks={tasks} />}
+        {currentView === "GANTT" && <GanttView tasks={tasks} onCreateTask={() => openCreate()} />}
       </div>
 
       {formOpen && (
