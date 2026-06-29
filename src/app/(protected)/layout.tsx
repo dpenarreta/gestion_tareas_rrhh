@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { ROLE_LABEL } from "@/lib/roles";
 import NavMenu from "@/components/NavMenu";
+import NotificationBell from "@/components/NotificationBell";
 
 export default async function ProtectedLayout({
   children,
@@ -19,7 +20,8 @@ export default async function ProtectedLayout({
             <span className="text-lg font-bold text-indigo-700">Nexo</span>
             <NavMenu role={session.role} />
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            <NotificationBell />
             <div className="text-right hidden sm:block">
               <p className="text-sm font-medium text-slate-800">{session.name}</p>
               <p className="text-xs text-slate-500">{ROLE_LABEL[session.role]}</p>

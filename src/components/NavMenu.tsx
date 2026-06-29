@@ -12,6 +12,7 @@ export default function NavMenu({ role }: Props) {
 
   const links = [
     { href: "/dashboard", label: "Inicio" },
+    { href: "/tasks", label: "Tareas" },
     { href: "/profile", label: "Mi perfil" },
     ...(canManageUsers(role)
       ? [{ href: "/admin/users", label: "Usuarios" }]
