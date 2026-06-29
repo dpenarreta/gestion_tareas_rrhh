@@ -17,11 +17,11 @@ const activitySelect = {
 } as const;
 
 async function recalcRealHours(taskId: string) {
-  const agg = await prisma.taskActivity.aggregate({
+  const activities = await prisma.taskActivity.findMany({
     where: { taskId },
-    _sum: { duration: true },
+    select: { duration: true },
   });
-  const totalMins = agg._sum.duration ?? 0;
+  const totalMins = activities.reduce((sum, a) => sum + a.duration, 0);
   await prisma.task.update({
     where: { id: taskId },
     data: { realHours: totalMins / 60 },
