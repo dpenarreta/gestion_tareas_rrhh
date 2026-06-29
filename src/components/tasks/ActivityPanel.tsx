@@ -10,6 +10,9 @@ const REASON_OPTIONS: { value: ActivityReason; label: string }[] = [
   { value: "CONSULTA_OPERACIONES", label: "Consulta de Operaciones" },
   { value: "SOLICITUD_VACACIONES", label: "Solicitud de Vacaciones" },
   { value: "SOLICITUD_PERMISO", label: "Solicitud de Permiso" },
+  { value: "VISITA_DOMICILIARIA", label: "Visita Domiciliaria" },
+  { value: "SEGUIMIENTO_AUSENTISMOS", label: "Seguimiento de Ausentismos" },
+  { value: "RECLUTAMIENTO_SELECCION", label: "Reclutamiento y Selección" },
 ];
 
 function calcDuration(start: string, end: string): number | null {
@@ -43,6 +46,9 @@ const REASON_COLORS: Record<ActivityReason, string> = {
   CONSULTA_OPERACIONES: "bg-violet-50 text-violet-700 border-violet-200",
   SOLICITUD_VACACIONES: "bg-green-50 text-green-700 border-green-200",
   SOLICITUD_PERMISO: "bg-rose-50 text-rose-700 border-rose-200",
+  VISITA_DOMICILIARIA: "bg-teal-50 text-teal-700 border-teal-200",
+  SEGUIMIENTO_AUSENTISMOS: "bg-cyan-50 text-cyan-700 border-cyan-200",
+  RECLUTAMIENTO_SELECCION: "bg-indigo-50 text-indigo-700 border-indigo-200",
 };
 
 type Props = {
@@ -51,15 +57,17 @@ type Props = {
   onClose: () => void;
 };
 
-export default function ActivityPanel({ task, currentUserId: _cu, onClose }: Props) {
+export default function ActivityPanel({ task, currentUserId, onClose }: Props) {
   const [activities, setActivities] = useState<TaskActivity[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   const [reason, setReason] = useState<ActivityReason>("NOVEDADES_PAGO");
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
+  const [description, setDescription] = useState("");
 
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -96,13 +104,14 @@ export default function ActivityPanel({ task, currentUserId: _cu, onClose }: Pro
       const res = await fetch(`/api/tasks/${task.id}/activities`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason, startTime, endTime }),
+        body: JSON.stringify({ reason, startTime, endTime, description: description.trim() || null }),
       });
       if (res.ok) {
         const activity = await res.json();
         setActivities((prev) => [...prev, activity]);
         setStartTime("");
         setEndTime("");
+        setDescription("");
         setReason("NOVEDADES_PAGO");
       } else {
         const data = await res.json();
@@ -110,6 +119,20 @@ export default function ActivityPanel({ task, currentUserId: _cu, onClose }: Pro
       }
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  async function handleDelete(activityId: string) {
+    setDeletingId(activityId);
+    try {
+      const res = await fetch(`/api/tasks/${task.id}/activities/${activityId}`, {
+        method: "DELETE",
+      });
+      if (res.ok) {
+        setActivities((prev) => prev.filter((a) => a.id !== activityId));
+      }
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -157,13 +180,28 @@ export default function ActivityPanel({ task, currentUserId: _cu, onClose }: Pro
           {activities.map((a) => {
             const label = REASON_OPTIONS.find((o) => o.value === a.reason)?.label ?? a.reason;
             const colorClass = REASON_COLORS[a.reason];
+            const canDelete = a.author.id === currentUserId;
             return (
               <div key={a.id} className="bg-slate-50 rounded-xl p-3 space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${colorClass}`}>
                     {label}
                   </span>
-                  <span className="text-[10px] text-slate-400">{formatDate(a.createdAt)}</span>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-[10px] text-slate-400">{formatDate(a.createdAt)}</span>
+                    {canDelete && (
+                      <button
+                        onClick={() => handleDelete(a.id)}
+                        disabled={deletingId === a.id}
+                        className="p-0.5 text-slate-300 hover:text-red-500 transition-colors disabled:opacity-40"
+                        title="Eliminar actividad"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5 text-xs text-slate-600">
@@ -176,6 +214,9 @@ export default function ActivityPanel({ task, currentUserId: _cu, onClose }: Pro
                     {formatDuration(a.duration)}
                   </span>
                 </div>
+                {a.description && (
+                  <p className="text-xs text-slate-600 leading-relaxed">{a.description}</p>
+                )}
                 <p className="text-[10px] text-slate-400">{a.author.name}</p>
               </div>
             );
@@ -237,6 +278,19 @@ export default function ActivityPanel({ task, currentUserId: _cu, onClose }: Pro
             <span className="font-semibold">
               {previewDuration ? formatDuration(previewDuration) : "—"}
             </span>
+          </div>
+
+          <div>
+            <label className="block text-[10px] font-semibold text-slate-500 mb-1 uppercase tracking-wide">
+              Descripción <span className="normal-case font-normal">(opcional)</span>
+            </label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={2}
+              placeholder="Notas o detalles de la actividad…"
+              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 resize-none"
+            />
           </div>
 
           {error && (

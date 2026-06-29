@@ -9,7 +9,10 @@ export type ActivityReason =
   | "FACTURAS"
   | "CONSULTA_OPERACIONES"
   | "SOLICITUD_VACACIONES"
-  | "SOLICITUD_PERMISO";
+  | "SOLICITUD_PERMISO"
+  | "VISITA_DOMICILIARIA"
+  | "SEGUIMIENTO_AUSENTISMOS"
+  | "RECLUTAMIENTO_SELECCION";
 
 export type TaskUser = {
   id: string;
@@ -31,6 +34,7 @@ export type TaskActivity = {
   startTime: string;
   endTime: string;
   duration: number;
+  description: string | null;
   author: { id: string; name: string };
   createdAt: string;
 };

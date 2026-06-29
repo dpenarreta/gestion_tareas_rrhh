@@ -51,6 +51,9 @@ enum ActivityReason {
   CONSULTA_OPERACIONES
   SOLICITUD_VACACIONES
   SOLICITUD_PERMISO
+  VISITA_DOMICILIARIA
+  SEGUIMIENTO_AUSENTISMOS
+  RECLUTAMIENTO_SELECCION
 }
 
 model User {
@@ -115,14 +118,15 @@ model Notification {
 }
 
 model TaskActivity {
-  id        String         @id @default(cuid())
-  taskId    String
-  task      Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  authorId  String
-  author    User           @relation(fields: [authorId], references: [id])
-  reason    ActivityReason
-  startTime String
-  endTime   String
-  duration  Int
-  createdAt DateTime       @default(now())
+  id          String         @id @default(cuid())
+  taskId      String
+  task        Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  authorId    String
+  author      User           @relation(fields: [authorId], references: [id])
+  reason      ActivityReason
+  startTime   String
+  endTime     String
+  duration    Int
+  description String?
+  createdAt   DateTime       @default(now())
 }

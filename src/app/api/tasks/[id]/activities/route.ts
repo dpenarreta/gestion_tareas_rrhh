@@ -5,6 +5,29 @@ import type { ActivityReason } from "@/generated/prisma/client";
 
 type Ctx = { params: Promise<{ id: string }> };
 
+const activitySelect = {
+  id: true,
+  reason: true,
+  startTime: true,
+  endTime: true,
+  duration: true,
+  description: true,
+  author: { select: { id: true, name: true } },
+  createdAt: true,
+} as const;
+
+async function recalcRealHours(taskId: string) {
+  const agg = await prisma.taskActivity.aggregate({
+    where: { taskId },
+    _sum: { duration: true },
+  });
+  const totalMins = agg._sum.duration ?? 0;
+  await prisma.task.update({
+    where: { id: taskId },
+    data: { realHours: totalMins / 60 },
+  });
+}
+
 export async function GET(_req: NextRequest, ctx: Ctx) {
   const session = await getSession();
   if (!session) {
@@ -14,7 +37,7 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
   const { id } = await ctx.params;
   const activities = await prisma.taskActivity.findMany({
     where: { taskId: id },
-    include: { author: { select: { id: true, name: true } } },
+    select: activitySelect,
     orderBy: { createdAt: "asc" },
   });
 
@@ -28,7 +51,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   }
 
   const { id: taskId } = await ctx.params;
-  const { reason, startTime, endTime } = await request.json();
+  const { reason, startTime, endTime, description } = await request.json();
 
   if (!reason || !startTime || !endTime) {
     return NextResponse.json({ error: "Faltan campos requeridos" }, { status: 400 });
@@ -58,9 +81,12 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       startTime,
       endTime,
       duration,
+      description: description?.trim() || null,
     },
-    include: { author: { select: { id: true, name: true } } },
+    select: activitySelect,
   });
+
+  await recalcRealHours(taskId);
 
   return NextResponse.json(activity, { status: 201 });
 }
