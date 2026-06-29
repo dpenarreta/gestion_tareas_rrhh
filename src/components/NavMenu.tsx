@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Role } from "@/generated/prisma/client";
-import { canManageUsers } from "@/lib/roles";
+import { canManageUsers, canViewTeam } from "@/lib/roles";
 
 type Props = { role: Role };
 
@@ -13,6 +13,7 @@ export default function NavMenu({ role }: Props) {
   const links = [
     { href: "/dashboard", label: "Inicio" },
     { href: "/tasks", label: "Tareas" },
+    ...(canViewTeam(role) ? [{ href: "/team", label: "Equipo" }] : []),
     { href: "/profile", label: "Mi perfil" },
     ...(canManageUsers(role)
       ? [{ href: "/admin/users", label: "Usuarios" }]

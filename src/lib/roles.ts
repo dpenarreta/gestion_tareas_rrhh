@@ -101,4 +101,12 @@ export function getNotificationTargets(role: Role): Role[] {
   return NOTIFICATION_TARGETS[role];
 }
 
+export function getSubordinateRoles(role: Role): Role[] {
+  return VISIBLE_ROLES[role].filter((r) => r !== role);
+}
+
+export function canViewTeam(role: Role): boolean {
+  return ROLE_LEVEL[role] >= 2;
+}
+
 export const ALL_ROLES = Object.keys(ROLE_LABEL) as Role[];

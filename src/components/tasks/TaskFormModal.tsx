@@ -30,13 +30,14 @@ function toInputDate(iso: string) {
 type Props = {
   task: Task | null;
   initialStatus: Task["status"];
+  initialAssignedToId?: string;
   users: AssignableUser[];
   currentUserId: string;
   onSave: () => void;
   onClose: () => void;
 };
 
-export default function TaskFormModal({ task, initialStatus, users, currentUserId, onSave, onClose }: Props) {
+export default function TaskFormModal({ task, initialStatus, initialAssignedToId, users, currentUserId, onSave, onClose }: Props) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [status, setStatus] = useState<Task["status"]>(initialStatus);
@@ -46,7 +47,7 @@ export default function TaskFormModal({ task, initialStatus, users, currentUserI
   const [endDate, setEndDate] = useState("");
   const [estimatedHours, setEstimatedHours] = useState("");
   const [progress, setProgress] = useState("0");
-  const [assignedToId, setAssignedToId] = useState(currentUserId);
+  const [assignedToId, setAssignedToId] = useState(initialAssignedToId ?? currentUserId);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 

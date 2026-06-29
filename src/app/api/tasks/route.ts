@@ -70,5 +70,16 @@ export async function POST(request: NextRequest) {
     select: taskSelect,
   });
 
+  if (assignedToId !== session.userId) {
+    await prisma.notification.create({
+      data: {
+        userId: assignedToId,
+        message: `${session.name} te asignó la tarea "${title}"`,
+        taskId: task.id,
+        taskTitle: title,
+      },
+    });
+  }
+
   return NextResponse.json(task, { status: 201 });
 }
