@@ -2,6 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import type { Task, TaskComment } from "./types";
+import { ROLE_LABEL } from "@/lib/roles";
+import type { Role } from "@/generated/prisma/client";
 
 function formatRelative(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
@@ -12,6 +14,27 @@ function formatRelative(iso: string) {
   if (hrs < 24) return `hace ${hrs} h`;
   const days = Math.floor(hrs / 24);
   return `hace ${days} d`;
+}
+
+function initials(name: string) {
+  const parts = name.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0][0].toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+const AVATAR_COLORS = [
+  "bg-indigo-500",
+  "bg-violet-500",
+  "bg-sky-500",
+  "bg-emerald-500",
+  "bg-amber-500",
+  "bg-rose-500",
+];
+
+function avatarColor(name: string) {
+  let hash = 0;
+  for (let i = 0; i < name.length; i++) hash = name.charCodeAt(i) + ((hash << 5) - hash);
+  return AVATAR_COLORS[Math.abs(hash) % AVATAR_COLORS.length];
 }
 
 type Props = {
@@ -66,7 +89,7 @@ export default function CommentPanel({ task, currentUserId: _cu, onClose, onComm
         <div className="p-4 border-b border-slate-200 flex items-center justify-between gap-2">
           <div className="min-w-0">
             <h3 className="font-semibold text-slate-900 text-sm truncate">{task.title}</h3>
-            <p className="text-xs text-slate-500">Comentarios</p>
+            <p className="text-xs text-slate-500">Comentarios · {comments.length}</p>
           </div>
           <button
             onClick={onClose}
@@ -78,7 +101,7 @@ export default function CommentPanel({ task, currentUserId: _cu, onClose, onComm
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
           {loading && (
             <div className="text-center text-slate-400 text-sm py-8">Cargando...</div>
           )}
@@ -91,12 +114,22 @@ export default function CommentPanel({ task, currentUserId: _cu, onClose, onComm
             </div>
           )}
           {comments.map((c) => (
-            <div key={c.id} className="bg-slate-50 rounded-xl p-3">
-              <div className="flex items-center justify-between mb-1.5">
-                <span className="text-xs font-semibold text-slate-800">{c.author.name}</span>
-                <span className="text-[10px] text-slate-400">{formatRelative(c.createdAt)}</span>
+            <div key={c.id} className="flex gap-3">
+              <div className={`w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 ${avatarColor(c.author.name)}`}>
+                {initials(c.author.name)}
               </div>
-              <p className="text-sm text-slate-700 leading-relaxed">{c.text}</p>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-baseline gap-2 flex-wrap">
+                  <span className="text-xs font-semibold text-slate-900">{c.author.name}</span>
+                  <span className="text-[10px] text-slate-400">
+                    {ROLE_LABEL[c.author.role as Role] ?? c.author.role}
+                  </span>
+                  <span className="text-[10px] text-slate-400 ml-auto">{formatRelative(c.createdAt)}</span>
+                </div>
+                <div className="mt-1 bg-slate-50 rounded-xl rounded-tl-none px-3 py-2">
+                  <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{c.text}</p>
+                </div>
+              </div>
             </div>
           ))}
           <div ref={bottomRef} />
@@ -111,14 +144,14 @@ export default function CommentPanel({ task, currentUserId: _cu, onClose, onComm
             }}
             className="w-full border border-slate-200 rounded-xl p-3 text-sm text-slate-900 placeholder:text-slate-400 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400"
             rows={3}
-            placeholder="Escribe un comentario... (Ctrl+Enter para enviar)"
+            placeholder="Escribe un comentario… (Ctrl+Enter para enviar)"
           />
           <button
             onClick={submit}
             disabled={!text.trim() || submitting}
             className="mt-2 w-full bg-indigo-600 text-white rounded-xl py-2 text-sm font-medium hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
-            {submitting ? "Enviando..." : "Comentar"}
+            {submitting ? "Enviando…" : "Comentar"}
           </button>
         </div>
       </aside>

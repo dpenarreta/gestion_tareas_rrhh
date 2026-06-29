@@ -107,6 +107,7 @@ type Props = {
   onEditTask: (task: Task) => void;
   onDeleteTask: (id: string) => void;
   onRefresh: () => void;
+  onCommentAdded: (taskId: string) => void;
 };
 
 export default function TableView({
@@ -118,6 +119,7 @@ export default function TableView({
   onEditTask,
   onDeleteTask,
   onRefresh,
+  onCommentAdded,
 }: Props) {
   const [commentTask, setCommentTask] = useState<Task | null>(null);
   const [importing, setImporting] = useState(false);
@@ -343,9 +345,7 @@ export default function TableView({
           task={commentTask}
           currentUserId={currentUserId}
           onClose={() => setCommentTask(null)}
-          onCommentAdded={() => {
-            setCommentTask((prev) => prev ? { ...prev, _count: { comments: prev._count.comments + 1 } } : null);
-          }}
+          onCommentAdded={() => onCommentAdded(commentTask.id)}
         />
       )}
     </div>

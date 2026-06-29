@@ -52,10 +52,11 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     });
 
     if (targetUsers.length > 0) {
+      const preview = text.trim().slice(0, 60) + (text.trim().length > 60 ? "…" : "");
       await prisma.notification.createMany({
         data: targetUsers.map((u) => ({
           userId: u.id,
-          message: `${session.name} comentó en la tarea "${task.title}"`,
+          message: `${session.name} comentó en "${task.title}": ${preview}`,
           taskId,
           taskTitle: task.title,
         })),

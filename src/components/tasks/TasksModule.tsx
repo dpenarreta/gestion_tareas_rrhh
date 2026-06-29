@@ -99,6 +99,14 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
     [refreshTasks]
   );
 
+  const handleCommentAdded = useCallback((taskId: string) => {
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === taskId ? { ...t, _count: { comments: t._count.comments + 1 } } : t
+      )
+    );
+  }, []);
+
   const handleStatusChange = useCallback(async (id: string, status: Task["status"]) => {
     setTasks((prev) =>
       prev.map((t) => (t.id === id ? { ...t, status } : t))
@@ -193,6 +201,7 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
             onCreateTask={openCreate}
             onEditTask={openEdit}
             onDeleteTask={handleTaskDelete}
+            onCommentAdded={handleCommentAdded}
           />
         )}
         {currentView === "TABLA" && (
@@ -205,6 +214,7 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
             onEditTask={openEdit}
             onDeleteTask={handleTaskDelete}
             onRefresh={refreshTasks}
+            onCommentAdded={handleCommentAdded}
           />
         )}
         {currentView === "GANTT" && <GanttView tasks={tasks} onCreateTask={() => openCreate()} />}

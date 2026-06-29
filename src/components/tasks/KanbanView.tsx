@@ -134,6 +134,7 @@ type Props = {
   onCreateTask: (status: TaskStatus) => void;
   onEditTask: (task: Task) => void;
   onDeleteTask: (id: string) => void;
+  onCommentAdded: (taskId: string) => void;
 };
 
 export default function KanbanView({
@@ -143,6 +144,7 @@ export default function KanbanView({
   onCreateTask,
   onEditTask,
   onDeleteTask,
+  onCommentAdded,
 }: Props) {
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [commentTask, setCommentTask] = useState<Task | null>(null);
@@ -209,7 +211,7 @@ export default function KanbanView({
           task={commentTask}
           currentUserId={currentUserId}
           onClose={() => setCommentTask(null)}
-          onCommentAdded={() => {}}
+          onCommentAdded={() => onCommentAdded(commentTask.id)}
         />
       )}
     </>
