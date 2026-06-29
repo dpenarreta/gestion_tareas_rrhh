@@ -115,8 +115,12 @@ export default function ActivityPanel({ task, currentUserId, onClose }: Props) {
         setDescription("");
         setReason("NOVEDADES_PAGO");
       } else {
-        const data = await res.json();
-        setError(data.error ?? "Error al registrar");
+        let msg = "Error al registrar";
+        try {
+          const data = await res.json();
+          msg = data.error ?? msg;
+        } catch { /* respuesta sin body */ }
+        setError(msg);
       }
     } finally {
       setSubmitting(false);

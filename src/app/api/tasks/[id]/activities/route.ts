@@ -50,48 +50,66 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
 }
 
 export async function POST(request: NextRequest, ctx: Ctx) {
-  const session = await getSession();
-  if (!session) {
-    return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+  try {
+    const session = await getSession();
+    if (!session) {
+      return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+    }
+
+    const { id: taskId } = await ctx.params;
+
+    let body: Record<string, unknown>;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json({ error: "Cuerpo de la solicitud inválido" }, { status: 400 });
+    }
+
+    const { reason, startTime, endTime, description } = body as {
+      reason?: string;
+      startTime?: string;
+      endTime?: string;
+      description?: string;
+    };
+
+    if (!reason || !startTime || !endTime) {
+      return NextResponse.json({ error: "Faltan campos requeridos" }, { status: 400 });
+    }
+
+    const [sh, sm] = startTime.split(":").map(Number);
+    const [eh, em] = endTime.split(":").map(Number);
+    const duration = (eh * 60 + em) - (sh * 60 + sm);
+
+    if (duration <= 0) {
+      return NextResponse.json(
+        { error: "La hora de fin debe ser posterior a la hora de inicio" },
+        { status: 400 }
+      );
+    }
+
+    const task = await prisma.task.findUnique({ where: { id: taskId } });
+    if (!task) {
+      return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
+    }
+
+    const activity = await prisma.taskActivity.create({
+      data: {
+        taskId,
+        authorId: session.userId,
+        reason: reason as ActivityReason,
+        startTime,
+        endTime,
+        duration,
+        description: description?.trim() || null,
+      },
+      select: activitySelect,
+    });
+
+    await recalcRealHours(taskId);
+
+    return NextResponse.json(activity, { status: 201 });
+  } catch (err) {
+    console.error("POST /activities error:", err);
+    return NextResponse.json({ error: "Error interno al registrar actividad" }, { status: 500 });
   }
-
-  const { id: taskId } = await ctx.params;
-  const { reason, startTime, endTime, description } = await request.json();
-
-  if (!reason || !startTime || !endTime) {
-    return NextResponse.json({ error: "Faltan campos requeridos" }, { status: 400 });
-  }
-
-  const [sh, sm] = startTime.split(":").map(Number);
-  const [eh, em] = endTime.split(":").map(Number);
-  const duration = (eh * 60 + em) - (sh * 60 + sm);
-
-  if (duration <= 0) {
-    return NextResponse.json(
-      { error: "La hora de fin debe ser posterior a la hora de inicio" },
-      { status: 400 }
-    );
-  }
-
-  const task = await prisma.task.findUnique({ where: { id: taskId } });
-  if (!task) {
-    return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
-  }
-
-  const activity = await prisma.taskActivity.create({
-    data: {
-      taskId,
-      authorId: session.userId,
-      reason: reason as ActivityReason,
-      startTime,
-      endTime,
-      duration,
-      description: description?.trim() || null,
-    },
-    select: activitySelect,
-  });
-
-  await recalcRealHours(taskId);
-
-  return NextResponse.json(activity, { status: 201 });
 }
