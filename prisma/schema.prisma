@@ -66,12 +66,13 @@ model User {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  assignedTasks   Task[]          @relation("AssignedTasks")
-  createdTasks    Task[]          @relation("CreatedTasks")
-  comments        Comment[]
-  activities      TaskActivity[]
-  notifications   Notification[]
-  reports         MonthlyReport[] @relation("GeneratedReports")
+  assignedTasks      Task[]              @relation("AssignedTasks")
+  createdTasks       Task[]              @relation("CreatedTasks")
+  comments           Comment[]
+  activities         TaskActivity[]
+  notifications      Notification[]
+  reports            MonthlyReport[]     @relation("GeneratedReports")
+  knowledgeDocs      KnowledgeDocument[]
 }
 
 model Task {
@@ -149,4 +150,24 @@ model MonthlyReport {
   createdAt   DateTime    @default(now())
 
   @@unique([month, year, scope])
+}
+
+model KnowledgeDocument {
+  id           String          @id @default(cuid())
+  title        String
+  fileName     String
+  uploadedById String
+  uploadedBy   User            @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+  createdAt    DateTime        @default(now())
+  chunks       DocumentChunk[]
+}
+
+model DocumentChunk {
+  id          String            @id @default(cuid())
+  documentId  String
+  document    KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  content     String
+  embedding   Json
+  pageNumber  Int
+  chunkIndex  Int
 }
