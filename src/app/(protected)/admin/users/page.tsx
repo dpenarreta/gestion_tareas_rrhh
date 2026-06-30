@@ -16,7 +16,7 @@ export default async function AdminUsersPage() {
           Crear usuarios, resetear contraseñas y administrar roles
         </p>
       </div>
-      <UsersManager />
+      <UsersManager currentUserRole={session.role} />
     </div>
   );
 }

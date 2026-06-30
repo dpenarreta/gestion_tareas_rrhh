@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { ROLE_LABEL, ALL_ROLES } from "@/lib/roles";
+import { ROLE_LABEL, ALL_ROLES, ROLE_LEVEL } from "@/lib/roles";
 import type { Role } from "@/generated/prisma/client";
 
 type User = {
@@ -12,16 +12,39 @@ type User = {
   createdAt: string;
 };
 
-export default function UsersManager() {
+type Props = {
+  currentUserRole: Role;
+};
+
+export default function UsersManager({ currentUserRole }: Props) {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [resetMsg, setResetMsg] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
+  // Create form
   const [form, setForm] = useState({ name: "", email: "", role: "" as Role | "" });
   const [formError, setFormError] = useState("");
   const [formLoading, setFormLoading] = useState(false);
+
+  // Edit modal
+  const [editUser, setEditUser] = useState<User | null>(null);
+  const [editForm, setEditForm] = useState({ name: "", email: "", role: "" as Role });
+  const [editError, setEditError] = useState("");
+  const [editLoading, setEditLoading] = useState(false);
+  const [editSuccess, setEditSuccess] = useState(false);
+
+  // Roles that the current editor is allowed to assign
+  const assignableRoles = ALL_ROLES.filter(
+    (r) => ROLE_LEVEL[r] <= ROLE_LEVEL[currentUserRole]
+  );
+
+  function canEdit(user: User): boolean {
+    // COORDINADOR_NACIONAL no puede editar a JEFE_NACIONAL
+    if (user.role === "JEFE_NACIONAL" && currentUserRole !== "JEFE_NACIONAL") return false;
+    return true;
+  }
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
@@ -64,6 +87,46 @@ export default function UsersManager() {
       setFormError("Error de conexión");
     } finally {
       setFormLoading(false);
+    }
+  }
+
+  function openEdit(user: User) {
+    setEditUser(user);
+    setEditForm({ name: user.name, email: user.email, role: user.role });
+    setEditError("");
+    setEditSuccess(false);
+  }
+
+  function closeEdit() {
+    setEditUser(null);
+    setEditError("");
+    setEditSuccess(false);
+  }
+
+  async function handleEdit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editUser) return;
+    setEditError("");
+    setEditSuccess(false);
+    setEditLoading(true);
+    try {
+      const res = await fetch(`/api/users/${editUser.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(editForm),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setEditError(data.error ?? "Error al guardar cambios");
+      } else {
+        setEditSuccess(true);
+        setEditUser(data);
+        loadUsers();
+      }
+    } catch {
+      setEditError("Error de conexión");
+    } finally {
+      setEditLoading(false);
     }
   }
 
@@ -258,6 +321,14 @@ export default function UsersManager() {
                   </td>
                   <td className="px-5 py-3">
                     <div className="flex items-center justify-end gap-2">
+                      {canEdit(user) && (
+                        <button
+                          onClick={() => openEdit(user)}
+                          className="text-xs text-indigo-600 hover:text-indigo-800 font-medium px-2 py-1 rounded hover:bg-indigo-50 transition-colors"
+                        >
+                          Editar
+                        </button>
+                      )}
                       <button
                         onClick={() => handleReset(user)}
                         className="text-xs text-amber-600 hover:text-amber-800 font-medium px-2 py-1 rounded hover:bg-amber-50 transition-colors"
@@ -279,6 +350,115 @@ export default function UsersManager() {
           </table>
         )}
       </div>
+
+      {/* ── Edit modal ──────────────────────────────────────────────────────── */}
+      {editUser && (
+        <>
+          <div
+            className="fixed inset-0 z-40 bg-black/40"
+            onClick={closeEdit}
+          />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-md">
+              {/* Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+                <h2 className="text-base font-semibold text-slate-900">Editar usuario</h2>
+                <button
+                  onClick={closeEdit}
+                  className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Form */}
+              <form onSubmit={handleEdit} className="px-6 py-5 space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Nombre completo
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editForm.name}
+                    onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Correo electrónico
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    value={editForm.email}
+                    onChange={(e) => setEditForm({ ...editForm, email: e.target.value })}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Rol
+                  </label>
+                  <select
+                    value={editForm.role}
+                    onChange={(e) => setEditForm({ ...editForm, role: e.target.value as Role })}
+                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-white"
+                  >
+                    {assignableRoles.map((r) => (
+                      <option key={r} value={r}>
+                        {ROLE_LABEL[r]}
+                      </option>
+                    ))}
+                  </select>
+                  {currentUserRole !== "JEFE_NACIONAL" && (
+                    <p className="mt-1 text-[11px] text-slate-400">
+                      Solo el Jefe Nacional puede asignar ese rol.
+                    </p>
+                  )}
+                </div>
+
+                {editError && (
+                  <p className="text-sm text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded-lg">
+                    {editError}
+                  </p>
+                )}
+
+                {editSuccess && (
+                  <p className="text-sm text-green-700 bg-green-50 border border-green-200 px-3 py-2 rounded-lg flex items-center gap-2">
+                    <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    </svg>
+                    Cambios guardados exitosamente
+                  </p>
+                )}
+
+                <div className="flex items-center justify-end gap-3 pt-1">
+                  <button
+                    type="button"
+                    onClick={closeEdit}
+                    className="px-4 py-2 text-sm font-medium text-slate-700 border border-slate-300 rounded-lg hover:bg-slate-50 transition-colors"
+                  >
+                    Cerrar
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={editLoading}
+                    className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:bg-indigo-400 transition-colors"
+                  >
+                    {editLoading ? "Guardando..." : "Guardar cambios"}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

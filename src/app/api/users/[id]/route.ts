@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { canManageUsers } from "@/lib/roles";
+import { canManageUsers, ROLE_LEVEL } from "@/lib/roles";
 import type { Role } from "@/generated/prisma/client";
+
+const VALID_ROLES: Role[] = [
+  "JEFE_NACIONAL", "COORDINADOR_NACIONAL", "COORDINADOR_ZS",
+  "ANALISTA_CC", "ANALISTA_SELECCION", "ASISTENTE_SELECCION",
+  "ASISTENTE_GH", "ASISTENTE_GH_ZS", "TRABAJO_SOCIAL",
+];
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -38,19 +44,49 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   }
 
   const { id } = await ctx.params;
-  const { name, email, role } = await request.json();
 
-  const user = await prisma.user.update({
+  const target = await prisma.user.findUnique({
     where: { id },
-    data: {
-      ...(name && { name }),
-      ...(email && { email }),
-      ...(role && { role: role as Role }),
-    },
-    select: { id: true, name: true, email: true, role: true, createdAt: true },
+    select: { id: true, role: true },
   });
+  if (!target) {
+    return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
+  }
 
-  return NextResponse.json(user);
+  // Solo JEFE_NACIONAL puede editar a otro JEFE_NACIONAL
+  if (target.role === "JEFE_NACIONAL" && session.role !== "JEFE_NACIONAL") {
+    return NextResponse.json({ error: "Solo el Jefe Nacional puede editar a otro Jefe Nacional" }, { status: 403 });
+  }
+
+  const { name, email, role } = await request.json() as { name?: string; email?: string; role?: string };
+
+  // Validar que el rol destino no supere el nivel del editor
+  if (role !== undefined) {
+    if (!VALID_ROLES.includes(role as Role)) {
+      return NextResponse.json({ error: "Rol inválido" }, { status: 400 });
+    }
+    if (ROLE_LEVEL[role as Role] > ROLE_LEVEL[session.role]) {
+      return NextResponse.json({ error: "No puedes asignar un rol superior al tuyo" }, { status: 403 });
+    }
+  }
+
+  try {
+    const user = await prisma.user.update({
+      where: { id },
+      data: {
+        ...(name?.trim() && { name: name.trim() }),
+        ...(email?.trim() && { email: email.trim() }),
+        ...(role && { role: role as Role }),
+      },
+      select: { id: true, name: true, email: true, role: true, createdAt: true },
+    });
+    return NextResponse.json(user);
+  } catch (err: unknown) {
+    if (typeof err === "object" && err !== null && "code" in err && (err as { code: string }).code === "P2002") {
+      return NextResponse.json({ error: "El email ya está en uso por otro usuario" }, { status: 409 });
+    }
+    throw err;
+  }
 }
 
 export async function DELETE(_req: NextRequest, ctx: Ctx) {
