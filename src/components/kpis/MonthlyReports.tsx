@@ -1,9 +1,13 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  ResponsiveContainer, ReferenceLine,
+} from "recharts";
 import type { Role } from "@/generated/prisma/client";
 import { ROLE_LABEL } from "@/lib/roles";
-import type { MonthlyReportSummary, MonthlyReportFull, ReportData } from "./types";
+import type { MonthlyReportSummary, MonthlyReportFull, ReportData, RangeReportData } from "./types";
 import * as XLSX from "xlsx";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -32,6 +36,11 @@ function formatMonthYear(month: number, year: number) {
 function currentMonthParam() {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function formatMonthLabel(monthParam: string) {
+  const [y, m] = monthParam.split("-").map(Number);
+  return formatMonthYear(m, y);
 }
 
 function colorDot(pct: number, type: "cumplimiento" | "carga" = "cumplimiento") {
@@ -334,6 +343,186 @@ function MetricStat({
   );
 }
 
+// ── Range report helpers ──────────────────────────────────────────────────────
+
+const RANGE_LINE_COLORS = [
+  "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4",
+  "#f97316", "#84cc16", "#ec4899", "#0ea5e9", "#a78bfa",
+];
+
+function addMonths(base: string, n: number) {
+  let [y, m] = base.split("-").map(Number);
+  m += n;
+  while (m > 12) { m -= 12; y++; }
+  while (m <= 0) { m += 12; y--; }
+  return `${y}-${String(m).padStart(2, "0")}`;
+}
+
+function downloadRangeExcel(data: RangeReportData) {
+  const wb = XLSX.utils.book_new();
+  const fromLabel = formatMonthLabel(data.from);
+  const toLabel = formatMonthLabel(data.to);
+  const periodLabel = `${fromLabel} — ${toLabel}`;
+
+  // Sheet 1: Summary
+  const trendArrow = data.trends.cumplimientoTrend === "mejora" ? "▲" : data.trends.cumplimientoTrend === "deterioro" ? "▼" : "=";
+  const summaryRows = [
+    ["Informe de Rango Consolidado", ""],
+    ["Período", periodLabel],
+    ["Meses analizados", data.months.length],
+    [""],
+    ["RESUMEN ACUMULADO", ""],
+    ["Cumplimiento promedio", `${data.aggregated.teamSummary.avgCumplimiento}%`],
+    ["Tareas completadas", `${data.aggregated.teamSummary.totalCompletedTasks} / ${data.aggregated.teamSummary.totalTasks}`],
+    ["Horas reales totales", `${data.aggregated.teamSummary.totalRealHours}h`],
+    ["Horas estimadas totales", `${data.aggregated.teamSummary.totalEstimatedHours}h`],
+    ["Total consultas SEGUIMIENTO", data.aggregated.teamSummary.totalConsultas],
+    [""],
+    ["TENDENCIA", ""],
+    ["Dirección", `${trendArrow} ${data.trends.cumplimientoTrend.toUpperCase()}`],
+    ["Cumplimiento inicial", `${data.trends.firstMonthAvgCumplimiento}%`],
+    ["Cumplimiento final", `${data.trends.lastMonthAvgCumplimiento}%`],
+    ["Cambio", `${data.trends.cumplimientoChange > 0 ? "+" : ""}${data.trends.cumplimientoChange} pp`],
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryRows), "Resumen");
+
+  // Sheet 2: Evolution
+  const evoRows = [
+    ["Mes", "Cumpl. equipo %", "Tareas compl.", "Total tareas", "H. reales", "H. estim.", "Consultas"],
+    ...data.months.map((ms) => [
+      ms.label, ms.teamAvgCumplimiento, ms.totalCompletedTasks, ms.totalTasks,
+      ms.totalRealHours, ms.totalEstimatedHours, ms.totalConsultas,
+    ]),
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(evoRows), "Evolución mensual");
+
+  // Sheet 3: Ranking
+  const rankingRows = [
+    ["#", "Nombre", "Cargo", "Score prom.", "Cumplimiento prom."],
+    ...data.aggregated.ranking.map((m, i) => [
+      i + 1, m.name, ROLE_LABEL[m.role as Role] ?? m.role, m.avgScore, `${m.avgCumplimiento}%`,
+    ]),
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rankingRows), "Ranking");
+
+  // Sheet 4: Detail per person
+  const detailRows = [
+    ["Nombre", "Cargo", "Score prom.", "Cumpl.%", "Carga%", "Tareas", "Compl.", "H.Est.", "H.Real", "Consultas"],
+    ...data.aggregated.members.map((m) => [
+      m.name, ROLE_LABEL[m.role as Role] ?? m.role, m.score, m.completedPct,
+      m.cargaRatio, m.totalTasks, m.completedTasks, m.estimatedHours, m.realHours, m.seguimientoTotal,
+    ]),
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(detailRows), "Detalle");
+
+  if (data.aggregated.consultasByReason.length > 0) {
+    const consultasRows = [
+      ["Motivo", "Total consultas", "Total minutos"],
+      ...data.aggregated.consultasByReason.map((r) => [
+        REASON_LABEL[r.reason] ?? r.reason, r.count, r.totalMinutes,
+      ]),
+    ];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(consultasRows), "Consultas");
+  }
+
+  if (data.aiAnalysis) {
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["Análisis IA"], [data.aiAnalysis]]), "Análisis IA");
+  }
+
+  XLSX.writeFile(wb, `Informe_Rango_${fromLabel.replace(/\s/g, "_")}_${toLabel.replace(/\s/g, "_")}.xlsx`);
+}
+
+function downloadRangePDF(data: RangeReportData) {
+  const fromLabel = formatMonthLabel(data.from);
+  const toLabel = formatMonthLabel(data.to);
+  const periodLabel = `${fromLabel} — ${toLabel}`;
+  const trendArrow = data.trends.cumplimientoTrend === "mejora" ? "▲ Mejora" : data.trends.cumplimientoTrend === "deterioro" ? "▼ Deterioro" : "= Estancamiento";
+
+  const evoRows = data.months.map(
+    (ms) => `<tr>
+      <td>${ms.label}</td>
+      <td>${ms.teamAvgCumplimiento}%</td>
+      <td>${ms.totalCompletedTasks}/${ms.totalTasks}</td>
+      <td>${ms.totalRealHours}h/${ms.totalEstimatedHours}h</td>
+      <td>${ms.totalConsultas}</td>
+    </tr>`,
+  ).join("");
+
+  const rankingRows = data.aggregated.ranking.map(
+    (m, i) => `<tr>
+      <td>${i + 1}</td><td>${m.name}</td>
+      <td style="font-size:11px">${ROLE_LABEL[m.role as Role] ?? m.role}</td>
+      <td><strong>${m.avgScore}/100</strong></td>
+      <td>${m.avgCumplimiento}%</td>
+    </tr>`,
+  ).join("");
+
+  const alertsHtml = data.aggregated.alerts.length > 0
+    ? data.aggregated.alerts.map((a) =>
+        `<div class="alert">⚠️ <strong>${a.name}</strong>: ${
+          a.type === "cumplimiento"
+            ? `Cumplimiento promedio ${a.avgValue}% en ${a.monthsAffected} meses`
+            : `Sobrecarga promedio ${a.avgValue}% en ${a.monthsAffected} meses`
+        }</div>`,
+      ).join("")
+    : '<p style="color:#64748b">Sin alertas persistentes.</p>';
+
+  const aiHtml = data.aiAnalysis
+    ? `<h2>Análisis IA</h2><div class="ai-analysis">${data.aiAnalysis.replace(/\n/g, "<br>")}</div>`
+    : "";
+
+  const html = `<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8">
+<title>Informe Rango – ${periodLabel}</title>
+<style>
+  body{font-family:system-ui,sans-serif;padding:32px;color:#1e293b;max-width:900px;margin:0 auto;font-size:13px}
+  h1{color:#4f46e5;font-size:20px;margin-bottom:4px}
+  h2{margin-top:24px;margin-bottom:8px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#475569;border-bottom:1px solid #e2e8f0;padding-bottom:5px}
+  .meta{color:#64748b;font-size:12px;margin-bottom:16px}
+  .trend{display:inline-block;padding:6px 14px;border-radius:8px;font-weight:700;font-size:13px;margin-bottom:12px}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:10px 0}
+  .stat{border:1px solid #e2e8f0;border-radius:8px;padding:10px;text-align:center}
+  .stat-label{font-size:10px;text-transform:uppercase;color:#94a3b8}
+  .stat-value{font-size:18px;font-weight:700;color:#4f46e5;margin:3px 0}
+  .alert{background:#fef2f2;border:1px solid #fecaca;border-radius:6px;padding:7px 12px;margin:3px 0;font-size:12px}
+  .ai-analysis{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;font-size:12px;line-height:1.7;white-space:pre-wrap}
+  table{width:100%;border-collapse:collapse;font-size:11px;margin-top:6px}
+  th{background:#f8fafc;text-align:left;padding:6px 8px;border:1px solid #e2e8f0;font-size:10px;text-transform:uppercase;color:#64748b}
+  td{padding:6px 8px;border:1px solid #e2e8f0}
+  tr:nth-child(even) td{background:#fafafa}
+  @media print{body{padding:16px}}
+</style></head><body>
+  <h1>Informe de Rango Consolidado</h1>
+  <div class="meta">Período: <strong>${periodLabel}</strong> (${data.months.length} meses)</div>
+
+  <div class="trend" style="background:${data.trends.cumplimientoTrend === "mejora" ? "#dcfce7;color:#166534" : data.trends.cumplimientoTrend === "deterioro" ? "#fee2e2;color:#991b1b" : "#f1f5f9;color:#475569"}">
+    ${trendArrow} — ${data.trends.firstMonthAvgCumplimiento}% → ${data.trends.lastMonthAvgCumplimiento}% (${data.trends.cumplimientoChange > 0 ? "+" : ""}${data.trends.cumplimientoChange} pp)
+  </div>
+
+  <h2>Resumen Acumulado</h2>
+  <div class="stats">
+    <div class="stat"><div class="stat-label">Cumplimiento prom.</div><div class="stat-value">${data.aggregated.teamSummary.avgCumplimiento}%</div></div>
+    <div class="stat"><div class="stat-label">Tareas completadas</div><div class="stat-value">${data.aggregated.teamSummary.totalCompletedTasks}<span style="font-size:12px;color:#94a3b8">/${data.aggregated.teamSummary.totalTasks}</span></div></div>
+    <div class="stat"><div class="stat-label">Horas reales/estim.</div><div class="stat-value" style="font-size:14px">${data.aggregated.teamSummary.totalRealHours}h<span style="color:#94a3b8;font-size:11px">/${data.aggregated.teamSummary.totalEstimatedHours}h</span></div></div>
+  </div>
+
+  <h2>Alertas Persistentes</h2>${alertsHtml}
+
+  <h2>Evolución Mensual</h2>
+  <table><thead><tr><th>Mes</th><th>Cumpl.%</th><th>Tareas compl/total</th><th>Horas real/est.</th><th>Consultas</th></tr></thead>
+  <tbody>${evoRows}</tbody></table>
+
+  <h2>Ranking del Período</h2>
+  <table><thead><tr><th>#</th><th>Nombre</th><th>Cargo</th><th>Score prom.</th><th>Cumpl. prom.</th></tr></thead>
+  <tbody>${rankingRows}</tbody></table>
+
+  ${aiHtml}
+</body></html>`;
+
+  const win = window.open("", "_blank");
+  if (win) { win.document.write(html); win.document.close(); setTimeout(() => win.print(), 300); }
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 type Props = {
@@ -341,6 +530,9 @@ type Props = {
 };
 
 export default function MonthlyReports({ currentUserRole }: Props) {
+  const [viewMode, setViewMode] = useState<"individual" | "range">("individual");
+
+  // ── Individual month state ─────────────────────────────────────────────────
   const [reports, setReports] = useState<MonthlyReportSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [fullReport, setFullReport] = useState<MonthlyReportFull | null>(null);
@@ -349,6 +541,13 @@ export default function MonthlyReports({ currentUserRole }: Props) {
   const [generating, setGenerating] = useState(false);
   const [generateMonth, setGenerateMonth] = useState(currentMonthParam);
   const [error, setError] = useState<string | null>(null);
+
+  // ── Range state ────────────────────────────────────────────────────────────
+  const [rangeFrom, setRangeFrom] = useState(() => addMonths(currentMonthParam(), -5));
+  const [rangeTo, setRangeTo] = useState(currentMonthParam);
+  const [rangeReport, setRangeReport] = useState<RangeReportData | null>(null);
+  const [rangeLoading, setRangeLoading] = useState(false);
+  const [rangeError, setRangeError] = useState<string | null>(null);
 
   const fetchReports = useCallback(async () => {
     setLoading(true);
@@ -390,21 +589,40 @@ export default function MonthlyReports({ currentUserRole }: Props) {
     setGenerating(true);
     setError(null);
     try {
-      const res = await fetch(`/api/reports/generate?month=${generateMonth}`, {
-        method: "POST",
-      });
+      const res = await fetch(`/api/reports/generate?month=${generateMonth}`, { method: "POST" });
       if (!res.ok) {
         const err: { error?: string } = await res.json();
         setError(err.error ?? "Error al generar el informe");
         return;
       }
       const data: { report: MonthlyReportFull } = await res.json();
-      // Refresh list and select new report
       await fetchReports();
       setFullReport(data.report);
       setSelectedId(data.report.id);
     } finally {
       setGenerating(false);
+    }
+  }
+
+  async function handleGenerateRange() {
+    if (rangeFrom >= rangeTo) {
+      setRangeError("El mes de inicio debe ser anterior al mes de fin");
+      return;
+    }
+    setRangeLoading(true);
+    setRangeError(null);
+    setRangeReport(null);
+    try {
+      const res = await fetch(`/api/reports/range?from=${rangeFrom}&to=${rangeTo}`);
+      if (!res.ok) {
+        const err: { error?: string } = await res.json();
+        setRangeError(err.error ?? "Error al generar el informe de rango");
+        return;
+      }
+      const data: { report: RangeReportData } = await res.json();
+      setRangeReport(data.report);
+    } finally {
+      setRangeLoading(false);
     }
   }
 
@@ -419,8 +637,289 @@ export default function MonthlyReports({ currentUserRole }: Props) {
   const selectedSummary = reports.find((r) => r.id === selectedId);
   const data: ReportData | null = fullReport?.data ?? null;
 
+  // ── Evolution chart data for range report ─────────────────────────────────
+  const memberNames = rangeReport?.months[0]?.memberSnapshots.map((m) => m.name) ?? [];
+  const chartData = rangeReport?.months.map((ms) => {
+    const entry: Record<string, number | string> = { label: ms.label };
+    entry["Equipo"] = ms.teamAvgCumplimiento;
+    ms.memberSnapshots.forEach((m) => { entry[m.name] = m.completedPct; });
+    return entry;
+  }) ?? [];
+
   return (
     <div className="flex flex-col gap-4">
+      {/* Mode toggle */}
+      <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit self-start">
+        <button
+          onClick={() => setViewMode("individual")}
+          className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${viewMode === "individual" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+        >
+          Mes individual
+        </button>
+        <button
+          onClick={() => setViewMode("range")}
+          className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${viewMode === "range" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+        >
+          Rango personalizado
+        </button>
+      </div>
+
+      {/* ── RANGE VIEW ──────────────────────────────────────────────────────── */}
+      {viewMode === "range" && (
+        <div className="flex flex-col gap-4">
+          {/* Range selector */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-wrap items-end gap-4">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-slate-500 font-medium">Desde</label>
+              <input
+                type="month"
+                value={rangeFrom}
+                onChange={(e) => setRangeFrom(e.target.value)}
+                className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-slate-500 font-medium">Hasta</label>
+              <input
+                type="month"
+                value={rangeTo}
+                onChange={(e) => setRangeTo(e.target.value)}
+                className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              />
+            </div>
+            <button
+              onClick={handleGenerateRange}
+              disabled={rangeLoading}
+              className="flex items-center gap-1.5 px-5 py-2 text-sm bg-indigo-600 rounded-lg text-white hover:bg-indigo-700 transition-colors disabled:opacity-60"
+            >
+              {rangeLoading ? (
+                <>
+                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Generando...
+                </>
+              ) : (
+                <>
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
+                  Generar informe de rango
+                </>
+              )}
+            </button>
+            {rangeReport && !rangeLoading && (
+              <div className="flex items-center gap-2 ml-auto">
+                <button
+                  onClick={() => downloadRangeExcel(rangeReport)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  Excel
+                </button>
+                <button
+                  onClick={() => downloadRangePDF(rangeReport)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-600 rounded-lg text-white hover:bg-indigo-700 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                  </svg>
+                  PDF
+                </button>
+              </div>
+            )}
+          </div>
+
+          {rangeError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">{rangeError}</div>
+          )}
+
+          {rangeLoading && (
+            <div className="flex flex-col items-center justify-center py-24 gap-3 text-slate-400">
+              <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+              <p className="text-sm">Calculando KPIs mes a mes y generando análisis IA...</p>
+            </div>
+          )}
+
+          {!rangeLoading && !rangeReport && !rangeError && (
+            <div className="flex flex-col items-center justify-center py-24 text-slate-400">
+              <svg className="w-12 h-12 mb-4 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              <p className="text-sm">Selecciona un rango y genera el informe</p>
+            </div>
+          )}
+
+          {!rangeLoading && rangeReport && (
+            <div className="space-y-5">
+              {/* Trend banner */}
+              {(() => {
+                const t = rangeReport.trends;
+                const isUp = t.cumplimientoTrend === "mejora";
+                const isDown = t.cumplimientoTrend === "deterioro";
+                return (
+                  <div className={`rounded-2xl border px-5 py-4 flex items-center gap-4 ${isUp ? "bg-green-50 border-green-200" : isDown ? "bg-red-50 border-red-200" : "bg-slate-50 border-slate-200"}`}>
+                    <span className="text-3xl">{isUp ? "▲" : isDown ? "▼" : "="}</span>
+                    <div>
+                      <p className={`text-lg font-bold ${isUp ? "text-green-700" : isDown ? "text-red-700" : "text-slate-700"}`}>
+                        Tendencia: {t.cumplimientoTrend.toUpperCase()}
+                      </p>
+                      <p className={`text-sm ${isUp ? "text-green-600" : isDown ? "text-red-600" : "text-slate-500"}`}>
+                        Cumplimiento {t.firstMonthAvgCumplimiento}% → {t.lastMonthAvgCumplimiento}%
+                        {" "}({t.cumplimientoChange > 0 ? "+" : ""}{t.cumplimientoChange} pp en {rangeReport.months.length} meses)
+                      </p>
+                    </div>
+                    {rangeReport.aggregated.problematicMonths.length > 0 && (
+                      <div className="ml-auto text-right">
+                        <p className="text-xs text-red-600 font-semibold">Meses críticos (&lt;60%)</p>
+                        {rangeReport.aggregated.problematicMonths.map((pm) => (
+                          <p key={pm.month} className="text-xs text-red-500">{pm.label}: {pm.teamAvgCumplimiento}%</p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
+              {/* Summary stats */}
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+                <MetricStat label="Cumplimiento promedio" value={`${rangeReport.aggregated.teamSummary.avgCumplimiento}%`} sub={`${rangeReport.months.length} meses`} accent />
+                <MetricStat label="Tareas completadas" value={`${rangeReport.aggregated.teamSummary.totalCompletedTasks}`} sub={`de ${rangeReport.aggregated.teamSummary.totalTasks} totales`} />
+                <MetricStat label="Horas acumuladas" value={`${rangeReport.aggregated.teamSummary.totalRealHours}h`} sub={`de ${rangeReport.aggregated.teamSummary.totalEstimatedHours}h estimadas`} />
+                <MetricStat label="Total consultas" value={`${rangeReport.aggregated.teamSummary.totalConsultas}`} sub="SEGUIMIENTO acumuladas" />
+                <MetricStat label="Alertas persistentes" value={`${rangeReport.aggregated.alerts.length}`} sub="personas con incidencia recurrente" />
+                <MetricStat label="Colaboradores" value={`${rangeReport.aggregated.members.length}`} sub="incluidos en el rango" />
+              </div>
+
+              {/* Persistent alerts */}
+              {rangeReport.aggregated.alerts.length > 0 && (
+                <div className="bg-white rounded-2xl border border-slate-200 p-5">
+                  <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-3">Alertas Persistentes</h3>
+                  <div className="space-y-2">
+                    {rangeReport.aggregated.alerts.map((a, i) => (
+                      <div key={i} className={`flex items-start gap-3 px-4 py-3 rounded-xl border ${a.type === "cumplimiento" ? "bg-red-50 border-red-200" : "bg-amber-50 border-amber-200"}`}>
+                        <span className="text-lg leading-none mt-0.5">⚠️</span>
+                        <div>
+                          <p className={`text-sm font-semibold ${a.type === "cumplimiento" ? "text-red-700" : "text-amber-700"}`}>{a.name}</p>
+                          <p className={`text-xs ${a.type === "cumplimiento" ? "text-red-600" : "text-amber-600"}`}>
+                            {a.type === "cumplimiento"
+                              ? `Cumplimiento promedio ${a.avgValue}% en ${a.monthsAffected} de los meses analizados`
+                              : `Sobrecarga promedio ${a.avgValue}% en ${a.monthsAffected} de los meses analizados`}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Evolution line chart */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-5">
+                <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">
+                  Evolución de Cumplimiento — {rangeReport.months.length} meses
+                </h3>
+                <ResponsiveContainer width="100%" height={260}>
+                  <LineChart data={chartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <XAxis dataKey="label" tick={{ fontSize: 11 }} tickFormatter={(v: string) => v.split(" ")[0].substring(0, 3) + " " + v.split(" ").slice(-1)[0].slice(-2)} />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} unit="%" />
+                    <Tooltip formatter={(v) => (v != null ? `${v}%` : "")} />
+                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <ReferenceLine y={80} stroke="#22c55e" strokeDasharray="4 2" label={{ value: "80%", fontSize: 10, fill: "#16a34a" }} />
+                    <ReferenceLine y={60} stroke="#f59e0b" strokeDasharray="4 2" label={{ value: "60%", fontSize: 10, fill: "#b45309" }} />
+                    <Line type="monotone" dataKey="Equipo" stroke="#4f46e5" strokeWidth={3} dot={{ r: 4 }} activeDot={{ r: 6 }} />
+                    {memberNames.map((name, i) => (
+                      <Line key={name} type="monotone" dataKey={name} stroke={RANGE_LINE_COLORS[i % RANGE_LINE_COLORS.length]} strokeWidth={1.5} strokeDasharray="4 2" dot={{ r: 2 }} />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Monthly breakdown table */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-5">
+                <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">Detalle Mensual</h3>
+                <div className="overflow-x-auto -mx-5 px-5">
+                  <table className="w-full text-sm min-w-[500px]">
+                    <thead>
+                      <tr className="border-b border-slate-200">
+                        {["Mes", "Cumpl. equipo", "Tareas", "Horas", "Consultas"].map((h) => (
+                          <th key={h} className="text-left py-2 pr-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {rangeReport.months.map((ms) => (
+                        <tr key={ms.month} className={`hover:bg-slate-50 ${ms.totalTasks > 0 && ms.teamAvgCumplimiento < 60 ? "bg-red-50/40" : ""}`}>
+                          <td className="py-2 pr-4 text-sm font-medium text-slate-800">{ms.label}</td>
+                          <td className="py-2 pr-4">
+                            <span className="flex items-center gap-1.5">
+                              <div className={`w-2 h-2 rounded-full ${colorDot(ms.teamAvgCumplimiento)}`} />
+                              {ms.teamAvgCumplimiento}%
+                            </span>
+                          </td>
+                          <td className="py-2 pr-4 text-slate-600">{ms.totalCompletedTasks}/{ms.totalTasks}</td>
+                          <td className="py-2 pr-4 text-slate-600 text-xs">{ms.totalRealHours}h/{ms.totalEstimatedHours}h</td>
+                          <td className="py-2 pr-4 text-slate-600">{ms.totalConsultas}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Ranking */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-5">
+                <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">Ranking del Período (Promedio)</h3>
+                <div className="space-y-2">
+                  {rangeReport.aggregated.ranking.map((m, i) => (
+                    <div key={m.id} className="flex items-center gap-3 py-2 border-b border-slate-100 last:border-0">
+                      <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${i === 0 ? "bg-amber-100 text-amber-700" : i === 1 ? "bg-slate-100 text-slate-600" : i === 2 ? "bg-orange-100 text-orange-600" : "bg-slate-50 text-slate-400"}`}>{i + 1}</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-slate-800 truncate">{m.name}</p>
+                        <p className="text-[11px] text-slate-400">{ROLE_LABEL[m.role as Role] ?? m.role}</p>
+                      </div>
+                      <div className="flex items-center gap-3 shrink-0">
+                        <p className="text-sm font-bold text-slate-700">{m.avgScore}<span className="text-slate-400 font-normal">/100</span></p>
+                        <div className="w-24 bg-slate-100 rounded-full h-2">
+                          <div className={`h-2 rounded-full ${m.avgCumplimiento >= 80 ? "bg-green-500" : m.avgCumplimiento >= 60 ? "bg-amber-400" : "bg-red-500"}`} style={{ width: `${m.avgCumplimiento}%` }} />
+                        </div>
+                        <span className="text-sm text-slate-600 w-10 text-right">{m.avgCumplimiento}%</span>
+                        <div className={`w-2 h-2 rounded-full ${colorDot(m.avgCumplimiento)}`} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* AI Analysis */}
+              {rangeReport.aiAnalysis ? (
+                <div className="bg-white rounded-2xl border border-slate-200 p-5">
+                  <div className="flex items-center gap-2 mb-4">
+                    <div className="p-1.5 bg-indigo-50 rounded-lg">
+                      <svg className="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                      </svg>
+                    </div>
+                    <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider">Análisis IA — Rango Personalizado</h3>
+                    <span className="text-[11px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full font-medium">llama-3.3-70b · Groq</span>
+                  </div>
+                  <div className="text-slate-700 leading-relaxed whitespace-pre-wrap text-[13px]">{rangeReport.aiAnalysis}</div>
+                </div>
+              ) : (
+                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5">
+                  <p className="text-sm text-amber-700">
+                    <strong>Análisis IA no disponible.</strong> Configura <code className="bg-amber-100 px-1 rounded">GROQ_API_KEY</code> en <code className="bg-amber-100 px-1 rounded">.env</code>.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── INDIVIDUAL VIEW ──────────────────────────────────────────────────── */}
+      {viewMode === "individual" && (
+      <div className="flex flex-col gap-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -779,6 +1278,8 @@ export default function MonthlyReports({ currentUserRole }: Props) {
           )}
         </div>
       </div>
+      </div>
+      )}
     </div>
   );
 }

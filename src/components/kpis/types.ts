@@ -47,6 +47,55 @@ export type MonthlyReportFull = MonthlyReportSummary & {
   aiAnalysis: string | null;
 };
 
+export type MonthSnapshot = {
+  month: string;
+  label: string;
+  teamAvgCumplimiento: number;
+  totalCompletedTasks: number;
+  totalTasks: number;
+  totalRealHours: number;
+  totalEstimatedHours: number;
+  totalConsultas: number;
+  memberSnapshots: Array<{
+    id: string;
+    name: string;
+    role: string;
+    completedPct: number;
+    cargaRatio: number;
+    score: number;
+    totalTasks: number;
+  }>;
+};
+
+export type RangeReportData = {
+  from: string;
+  to: string;
+  scope: string;
+  months: MonthSnapshot[];
+  aggregated: {
+    teamSummary: {
+      avgCumplimiento: number;
+      totalCompletedTasks: number;
+      totalTasks: number;
+      totalRealHours: number;
+      totalEstimatedHours: number;
+      totalConsultas: number;
+    };
+    members: ReportMemberKpi[];
+    ranking: Array<{ id: string; name: string; role: string; avgScore: number; avgCumplimiento: number }>;
+    consultasByReason: Array<{ reason: string; count: number; totalMinutes: number }>;
+    alerts: Array<{ userId: string; name: string; type: "cumplimiento" | "sobrecarga"; avgValue: number; monthsAffected: number }>;
+    problematicMonths: Array<{ month: string; label: string; teamAvgCumplimiento: number }>;
+  };
+  trends: {
+    cumplimientoTrend: "mejora" | "deterioro" | "estancamiento";
+    cumplimientoChange: number;
+    firstMonthAvgCumplimiento: number;
+    lastMonthAvgCumplimiento: number;
+  };
+  aiAnalysis: string;
+};
+
 export type TeamMemberKpi = {
   id: string;
   name: string;

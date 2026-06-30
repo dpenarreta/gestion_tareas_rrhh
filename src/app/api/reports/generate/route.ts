@@ -63,9 +63,22 @@ type ReportData = {
   alerts: Array<{ userId: string; name: string; type: "cumplimiento" | "sobrecarga"; value: number }>;
 };
 
+const SYSTEM_PROMPT_OBJECTIVITY = `Eres un analista de Recursos Humanos que genera informes ejecutivos estrictamente basados en datos.
+
+REGLAS OBLIGATORIAS — aplica todas sin excepción:
+1. Sé directo y objetivo. Si el cumplimiento es bajo, nómbralo sin minimizar. Ejemplo correcto: "El cumplimiento del 25% está muy por debajo del umbral mínimo del 60% y representa un riesgo operativo concreto." Ejemplo incorrecto: "Hay espacio para crecer."
+2. No uses lenguaje motivacional vacío ni frases condescendientes como "el equipo tiene potencial" si los números no lo respaldan.
+3. Cada fortaleza debe estar respaldada por un número real del informe. Si no hay fortalezas reales, di "No se identifican fortalezas destacables en el período analizado."
+4. Si los datos son insuficientes (0 tareas, 0 horas), dilo explícitamente en lugar de generar conclusiones vagas.
+5. Las recomendaciones deben ser específicas y accionables con un responsable o área clara. No generes generalidades.
+6. Si hay personas con 0 tareas asignadas, señálalo como un posible problema de planificación o registro, no lo ignores.
+7. El tono es profesional y directo. No es ni alarmista ni condescendiente. Es honesto.`;
+
 async function buildAiAnalysis(data: ReportData): Promise<string> {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return "";
+
+  const period = monthLabel(parseInt(data.month.split("-")[0]), parseInt(data.month.split("-")[1]));
 
   const rankingText = data.ranking
     .map((m, i) => `${i + 1}. ${m.name} (${ROLE_LABEL[m.role as Role] ?? m.role}): Score ${m.score}/100, Cumplimiento ${m.completedPct}%`)
@@ -74,33 +87,35 @@ async function buildAiAnalysis(data: ReportData): Promise<string> {
   const membersText = data.members
     .map(
       (m) =>
-        `- ${m.name} (${ROLE_LABEL[m.role as Role] ?? m.role}): Score ${m.score}/100 | Cumplimiento ${m.completedPct}% | Carga ${m.cargaRatio}% | Tareas ${m.completedTasks}/${m.totalTasks} | Vencidas ${m.overdueCount} | Horas ${m.realHours}h/${m.estimatedHours}h estimadas | Consultas ${m.seguimientoTotal}`,
+        `- ${m.name} (${ROLE_LABEL[m.role as Role] ?? m.role}): Score ${m.score}/100 | Cumplimiento ${m.completedPct}% | Carga ${m.cargaRatio}% | Tareas ${m.completedTasks}/${m.totalTasks} | Vencidas ${m.overdueCount} | Horas ${m.realHours}h/${m.estimatedHours}h est. | Consultas SEGUIMIENTO ${m.seguimientoTotal}`,
     )
     .join("\n");
 
-  const consultasText = data.consultasByReason
-    .map((r) => `  - ${REASON_LABEL[r.reason] ?? r.reason}: ${r.count} consultas, ${r.totalMinutes} min totales`)
-    .join("\n");
+  const consultasText = data.consultasByReason.length > 0
+    ? data.consultasByReason
+        .map((r) => `  - ${REASON_LABEL[r.reason] ?? r.reason}: ${r.count} consultas, ${r.totalMinutes} min totales`)
+        .join("\n")
+    : "  Sin consultas SEGUIMIENTO registradas.";
 
   const alertsText = data.alerts.length > 0
     ? data.alerts
         .map((a) =>
           a.type === "cumplimiento"
-            ? `  ⚠️ ${a.name}: Cumplimiento crítico (${a.value}%)`
-            : `  ⚠️ ${a.name}: Sobrecarga laboral (${a.value}% de carga)`,
+            ? `  - ${a.name}: cumplimiento ${a.value}% (umbral: 60%)`
+            : `  - ${a.name}: carga laboral ${a.value}% (umbral: 120%)`,
         )
         .join("\n")
-    : "  Sin alertas críticas este mes.";
+    : "  Ninguna.";
 
-  const prompt = `Eres un experto en Recursos Humanos. Analiza los siguientes KPIs consolidados del equipo para el período: ${monthLabel(parseInt(data.month.split("-")[0]), parseInt(data.month.split("-")[1]))}.
+  const userPrompt = `Analiza los KPIs consolidados del equipo para el período: ${period}.
 
 RESUMEN DEL EQUIPO:
-- Promedio de cumplimiento: ${data.teamSummary.avgCumplimiento}%
+- Promedio de cumplimiento: ${data.teamSummary.avgCumplimiento}% (objetivo mínimo: 60%, objetivo ideal: 80%)
 - Total tareas completadas: ${data.teamSummary.totalCompletedTasks} de ${data.teamSummary.totalTasks}
 - Horas totales: ${data.teamSummary.totalRealHours}h reales / ${data.teamSummary.totalEstimatedHours}h estimadas
 - Total consultas SEGUIMIENTO atendidas: ${data.teamSummary.totalConsultas}
 
-RANKING DE CUMPLIMIENTO:
+RANKING DE CUMPLIMIENTO (de mayor a menor):
 ${rankingText}
 
 DETALLE POR PERSONA:
@@ -109,34 +124,35 @@ ${membersText}
 CONSULTAS SEGUIMIENTO POR MOTIVO:
 ${consultasText}
 
-ALERTAS:
+ALERTAS (personas bajo umbral):
 ${alertsText}
 
-Genera un análisis ejecutivo completo en español con el siguiente formato:
+Genera el análisis con exactamente este formato:
 
 ## Resumen Ejecutivo
-[2-3 párrafos sobre el desempeño general del equipo]
+[2-3 párrafos. Nombra el porcentaje de cumplimiento real y evalúa si es aceptable o no. Si hay 0 tareas, dilo.]
 
-## Fortalezas del Equipo
-[Lista de puntos positivos identificados]
+## Fortalezas Identificadas
+[Solo fortalezas respaldadas por números reales. Si no hay, escribe "No se identifican fortalezas destacables en este período."]
 
-## Áreas de Mejora
-[Sugerencias concretas por persona o área, sin mencionar al Jefe Nacional si el informe es de Coordinador]
+## Áreas de Mejora por Persona
+[Una línea por persona con cumplimiento < 80% o carga > 100%. Incluye el número específico y una acción concreta.]
 
 ## Alertas de Gestión
-[Situaciones que requieren atención inmediata]
+[Una línea por alerta. Si no hay, escribe "Sin alertas críticas."]
 
-## Recomendaciones Estratégicas para el Próximo Mes
-[Acciones concretas y priorizadas]
-
-Usa un tono profesional de RRHH, empático y orientado al desarrollo. Escribe en español formal.`;
+## Recomendaciones para el Próximo Mes
+[3-5 recomendaciones concretas, con acción específica y responsable o área clara.]`;
 
   try {
     const client = new Groq({ apiKey });
     const response = await client.chat.completions.create({
       model: "llama-3.3-70b-versatile",
       max_tokens: 2048,
-      messages: [{ role: "user", content: prompt }],
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT_OBJECTIVITY },
+        { role: "user", content: userPrompt },
+      ],
     });
 
     return response.choices[0]?.message?.content ?? "";
