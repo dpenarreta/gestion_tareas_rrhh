@@ -16,7 +16,7 @@ export default function NavMenu({ role }: Props) {
     ...(canViewTeam(role) ? [{ href: "/team", label: "Equipo" }] : []),
     ...(canViewTeam(role) ? [{ href: "/kpis", label: "KPIs" }] : []),
     { href: "/my-kpis", label: "Mis KPIs" },
-    { href: "/assistant", label: "Asistente IA" },
+    { href: "/assistant", label: "Nova" },
     { href: "/profile", label: "Mi perfil" },
     ...(canManageUsers(role)
       ? [{ href: "/admin/users", label: "Usuarios" }]

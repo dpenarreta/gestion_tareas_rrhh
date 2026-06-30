@@ -27,7 +27,7 @@ type KnowledgeDoc = {
 const MODE_CONFIG: Record<Mode, { label: string; description: string; color: string }> = {
   general: {
     label: "General",
-    description: "Asistente de propósito general",
+    description: "Consultas generales sobre Nexo y RRHH",
     color: "indigo",
   },
   tasks: {
@@ -37,7 +37,7 @@ const MODE_CONFIG: Record<Mode, { label: string; description: string; color: str
   },
   hr: {
     label: "RRHH",
-    description: "Gestión de equipo y base de conocimiento",
+    description: "Consulta políticas, procedimientos y gestión de personal",
     color: "emerald",
   },
 };
@@ -54,9 +54,9 @@ const SUGGESTIONS: Record<Mode, string[]> = {
     "¿Cuál es mi carga de trabajo actual?",
   ],
   hr: [
-    "¿Qué hacer con un bajo cumplimiento en el equipo?",
-    "¿Cómo redistribuyo la carga laboral de manera equitativa?",
-    "¿Qué consultas de seguimiento toman más tiempo?",
+    "¿Cómo manejar un conflicto entre dos colaboradores?",
+    "¿Cuál es el procedimiento para solicitar una licencia médica?",
+    "¿Qué pasos seguir ante un caso de bajo desempeño reiterado?",
   ],
 };
 
@@ -258,7 +258,7 @@ export default function AssistantModule({
           {MODE_CONFIG[mode].description}
         </span>
         <span className="ml-auto text-[10px] text-slate-400 bg-slate-50 border border-slate-200 px-2 py-1 rounded-lg">
-          llama-3.3-70b · Groq
+          Nova · llama-3.3-70b · Groq
         </span>
       </div>
 
@@ -409,7 +409,7 @@ export default function AssistantModule({
                 </svg>
               </div>
               <div className="text-center">
-                <p className="text-base font-semibold text-slate-800">Asistente IA — {MODE_CONFIG[mode].label}</p>
+                <p className="text-base font-semibold text-slate-800">Nova — {MODE_CONFIG[mode].label}</p>
                 <p className="text-sm text-slate-500 mt-1">{MODE_CONFIG[mode].description}</p>
               </div>
               <div className="flex flex-col gap-2 w-full max-w-md">
@@ -440,7 +440,7 @@ export default function AssistantModule({
                   ? "bg-violet-100 text-violet-700"
                   : "bg-indigo-100 text-indigo-700"
               }`}>
-                {msg.role === "user" ? "Tú" : "IA"}
+                {msg.role === "user" ? "Tú" : "N"}
               </div>
               <div className={`max-w-[78%] space-y-1.5 ${msg.role === "user" ? "items-end" : "items-start"} flex flex-col`}>
                 <div className={`px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${
@@ -465,7 +465,7 @@ export default function AssistantModule({
             <div className="flex gap-3">
               <div className={`w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-xs font-bold ${
                 mode === "hr" ? "bg-emerald-100 text-emerald-700" : mode === "tasks" ? "bg-violet-100 text-violet-700" : "bg-indigo-100 text-indigo-700"
-              }`}>IA</div>
+              }`}>N</div>
               <div className="bg-slate-100 rounded-2xl rounded-tl-sm">
                 <TypingDots />
               </div>
@@ -492,7 +492,7 @@ export default function AssistantModule({
                   sendMessage();
                 }
               }}
-              placeholder={`Escribe un mensaje… (${mode === "hr" ? "analiza tu equipo" : mode === "tasks" ? "pregunta sobre tus tareas" : "cualquier pregunta"})`}
+              placeholder={`Escribe un mensaje… (${mode === "hr" ? "políticas, procedimientos, gestión de personal…" : mode === "tasks" ? "pregunta sobre tus tareas" : "cualquier pregunta"})`}
               className="flex-1 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none overflow-hidden leading-relaxed"
               style={{ minHeight: "42px" }}
               disabled={loading}
