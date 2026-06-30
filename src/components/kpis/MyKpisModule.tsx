@@ -1,17 +1,54 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, ReferenceLine,
+} from "recharts";
+import * as XLSX from "xlsx";
 import type { Role } from "@/generated/prisma/client";
 import { ROLE_LABEL } from "@/lib/roles";
 import type { KpiData, KpiColor } from "./types";
-import {
-  DonutChart,
-  WeeklyHoursChart,
-  CumplimientoLineChart,
-  REASON_LABEL,
-} from "./KpiCharts";
+import { DonutChart, WeeklyHoursChart, CumplimientoLineChart, REASON_LABEL } from "./KpiCharts";
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+type PersonalMonthSnapshot = {
+  month: string;
+  label: string;
+  completedPct: number;
+  totalTasks: number;
+  completedTasks: number;
+  overdueCount: number;
+  realHours: number;
+  estimatedHours: number;
+  seguimientoTotal: number;
+  score: number;
+};
+
+type PersonalRangeReport = {
+  from: string;
+  to: string;
+  months: PersonalMonthSnapshot[];
+  aggregated: {
+    avgCumplimiento: number;
+    avgScore: number;
+    totalTasks: number;
+    totalCompletedTasks: number;
+    totalRealHours: number;
+    totalEstimatedHours: number;
+    totalSeguimiento: number;
+    consultasByReason: Array<{ reason: string; count: number; totalMinutes: number }>;
+  };
+  trends: {
+    cumplimientoTrend: "mejora" | "deterioro" | "estancamiento";
+    cumplimientoChange: number;
+    firstMonthCumplimiento: number;
+    lastMonthCumplimiento: number;
+  };
+};
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function currentMonthParam() {
   const now = new Date();
@@ -24,6 +61,14 @@ function formatMonthLabel(m: string) {
     month: "long",
     year: "numeric",
   });
+}
+
+function addMonths(base: string, n: number) {
+  let [y, m] = base.split("-").map(Number);
+  m += n;
+  while (m > 12) { m -= 12; y++; }
+  while (m <= 0) { m += 12; y--; }
+  return `${y}-${String(m).padStart(2, "0")}`;
 }
 
 const DOT_CLASS: Record<KpiColor, string> = {
@@ -60,54 +105,374 @@ const TYPE_LABEL: Record<string, string> = {
   PROYECTO: "Proyecto",
   REUNION: "Reunión",
   CAPACITACION: "Capacitación",
+  FIJA: "Fija",
 };
 
-function DeltaBadge({ current, prev, suffix = "%" }: { current: number; prev: number; suffix?: string }) {
-  if (prev === 0 && current === 0) return null;
-  const delta = current - prev;
-  if (delta === 0) return <span className="text-[11px] text-slate-400">sin cambio</span>;
-  const positive = delta > 0;
-  return (
-    <span className={`text-[11px] font-medium ${positive ? "text-green-600" : "text-red-500"}`}>
-      {positive ? "▲" : "▼"} {Math.abs(delta)}{suffix} vs mes anterior
-    </span>
-  );
-}
-
-function motivationalMessage(pct: number, tasks: number): { icon: string; text: string; bg: string } {
+function motivationalMessage(
+  pct: number,
+  tasks: number,
+  trend?: "mejora" | "deterioro" | "estancamiento",
+): { icon: string; text: string; bg: string } {
   if (tasks === 0) {
     return {
       icon: "📋",
-      text: "No tienes tareas asignadas este mes. Consulta con tu coordinador si hay actividades pendientes de registrar.",
+      text: "No hay tareas registradas en este período. Consulta con tu coordinador si hay actividades pendientes de asignar.",
       bg: "bg-slate-50 border-slate-200",
     };
   }
+  const trendSuffix =
+    trend === "mejora"
+      ? " La tendencia general es positiva."
+      : trend === "deterioro"
+        ? " Se observa una baja en la tendencia. Identifica qué meses fueron más exigentes."
+        : "";
+
   if (pct >= 90) {
     return {
       icon: "🌟",
-      text: "Desempeño sobresaliente. Mantener este nivel de cumplimiento tiene un impacto directo en los resultados del equipo.",
+      text: `Desempeño sobresaliente en el período analizado.${trendSuffix}`,
       bg: "bg-green-50 border-green-200",
     };
   }
   if (pct >= 80) {
     return {
       icon: "✅",
-      text: "Buen mes. Estás cumpliendo con el objetivo y contribuyendo al desempeño general. Sigue así.",
+      text: `Buen desempeño. Estás cumpliendo con el objetivo en este período.${trendSuffix}`,
       bg: "bg-green-50 border-green-200",
     };
   }
   if (pct >= 60) {
     return {
       icon: "📈",
-      text: "Estás dentro del rango aceptable, aunque hay tareas pendientes que pueden afectar el resultado final. Prioriza las que están próximas a vencer.",
+      text: `Cumplimiento dentro del rango aceptable, con margen para mejorar.${trendSuffix}`,
       bg: "bg-amber-50 border-amber-200",
     };
   }
   return {
     icon: "⚠️",
-    text: "Este mes presenta un cumplimiento bajo. Revisa las tareas vencidas y coordina con tu supervisor si necesitas apoyo o redistribución de carga.",
+    text: `El cumplimiento promedio del período está por debajo del mínimo esperado (60%). Revisa las tareas vencidas y coordina con tu supervisor si necesitas apoyo.${trendSuffix}`,
     bg: "bg-red-50 border-red-200",
   };
+}
+
+// ── PDF/Excel — individual month ──────────────────────────────────────────────
+
+function downloadKpisExcel(kpi: KpiData, month: string, name: string, role: string) {
+  const wb = XLSX.utils.book_new();
+  const period = formatMonthLabel(month);
+
+  const summaryRows = [
+    ["Mis KPIs personales", ""],
+    ["Nombre", name],
+    ["Cargo", ROLE_LABEL[role as Role] ?? role],
+    ["Período", period],
+    [""],
+    ["INDICADORES CLAVE", ""],
+    ["Score global", `${kpi.score}/100`],
+    ["Cumplimiento", `${kpi.cumplimiento.completedPct}%`],
+    ["Carga laboral", `${kpi.cargaLaboral.ratio}%`],
+    ["Horas reales / estimadas", `${kpi.cargaLaboral.realHours}h / ${kpi.cargaLaboral.estimatedHours}h`],
+    ["Total tareas", kpi.cumplimiento.total],
+    ["Completadas", kpi.cumplimiento.completed],
+    ["Vencidas", kpi.cumplimiento.overdue],
+    ["Consultas SEGUIMIENTO", kpi.seguimiento.total],
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryRows), "Resumen");
+
+  if (kpi.tasks.length > 0) {
+    const taskRows = [
+      ["Tarea", "Tipo", "Estado", "Fecha venc.", "Retraso (días)"],
+      ...kpi.tasks.map((t) => [
+        t.title,
+        TYPE_LABEL[t.type] ?? t.type,
+        STATUS_LABEL[t.status] ?? t.status,
+        new Date(t.endDate).toLocaleDateString("es-CL"),
+        t.delayDays > 0 ? t.delayDays : "—",
+      ]),
+    ];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(taskRows), "Tareas");
+  }
+
+  if (kpi.seguimiento.byReason.length > 0) {
+    const reasonRows = [
+      ["Motivo", "Consultas", "Total minutos"],
+      ...kpi.seguimiento.byReason.map((r) => [
+        REASON_LABEL[r.reason] ?? r.reason,
+        r.count,
+        r.totalMinutes,
+      ]),
+    ];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(reasonRows), "Consultas");
+  }
+
+  if (kpi.horasByWeek.length > 0) {
+    const horasRows = [
+      ["Semana", "Horas estimadas", "Horas reales"],
+      ...kpi.horasByWeek.map((w) => [w.week, w.estimated, w.real]),
+    ];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(horasRows), "Horas semanales");
+  }
+
+  XLSX.writeFile(wb, `MisKPIs_${period.replace(/\s/g, "_")}.xlsx`);
+}
+
+function downloadKpisPDF(kpi: KpiData, month: string, name: string, role: string) {
+  const period = formatMonthLabel(month);
+  const msg = motivationalMessage(kpi.cumplimiento.completedPct, kpi.cumplimiento.total);
+
+  const taskRows = kpi.tasks
+    .sort((a, b) => {
+      const o = { red: 0, yellow: 1, green: 2 } as Record<KpiColor, number>;
+      return o[a.color] - o[b.color];
+    })
+    .map(
+      (t) => `<tr>
+        <td>${t.title}</td>
+        <td style="font-size:11px">${TYPE_LABEL[t.type] ?? t.type}</td>
+        <td><span style="font-size:11px">${STATUS_LABEL[t.status] ?? t.status}</span></td>
+        <td>${new Date(t.endDate).toLocaleDateString("es-CL", { day: "2-digit", month: "short" })}</td>
+        <td>${t.delayDays > 0 ? `<span style="color:#dc2626">${t.delayDays}d</span>` : "—"}</td>
+      </tr>`,
+    )
+    .join("");
+
+  const reasonRows = kpi.seguimiento.byReason
+    .sort((a, b) => b.count - a.count)
+    .map(
+      (r) => `<tr>
+        <td>${REASON_LABEL[r.reason] ?? r.reason}</td>
+        <td>${r.count}</td>
+        <td>${r.totalMinutes} min</td>
+      </tr>`,
+    )
+    .join("");
+
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+<title>Mis KPIs — ${period}</title>
+<style>
+  body{font-family:system-ui,sans-serif;padding:32px;color:#1e293b;max-width:820px;margin:0 auto;font-size:13px}
+  h1{color:#4f46e5;font-size:20px;margin-bottom:2px}
+  .meta{color:#64748b;font-size:12px;margin-bottom:20px}
+  h2{margin-top:22px;margin-bottom:8px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#475569;border-bottom:1px solid #e2e8f0;padding-bottom:4px}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:10px 0}
+  .stat{border:1px solid #e2e8f0;border-radius:8px;padding:10px;text-align:center}
+  .stat-label{font-size:10px;text-transform:uppercase;color:#94a3b8}
+  .stat-value{font-size:20px;font-weight:700;color:#4f46e5;margin:2px 0}
+  .msg{border-radius:8px;padding:10px 14px;font-size:12px;margin-top:10px}
+  table{width:100%;border-collapse:collapse;font-size:11px;margin-top:6px}
+  th{background:#f8fafc;text-align:left;padding:6px 8px;border:1px solid #e2e8f0;font-size:10px;text-transform:uppercase;color:#64748b}
+  td{padding:6px 8px;border:1px solid #e2e8f0}
+  tr:nth-child(even) td{background:#fafafa}
+  @media print{body{padding:16px}}
+</style></head><body>
+  <h1>Mis KPIs personales</h1>
+  <div class="meta">${name} — ${ROLE_LABEL[role as Role] ?? role} &bull; Período: <strong>${period}</strong></div>
+
+  <h2>Indicadores clave</h2>
+  <div class="stats">
+    <div class="stat"><div class="stat-label">Score global</div><div class="stat-value">${kpi.score}<span style="font-size:13px;color:#94a3b8">/100</span></div></div>
+    <div class="stat"><div class="stat-label">Cumplimiento</div><div class="stat-value">${kpi.cumplimiento.completedPct}%</div></div>
+    <div class="stat"><div class="stat-label">Carga laboral</div><div class="stat-value">${kpi.cargaLaboral.ratio}%</div></div>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="stat-label">Tareas</div><div class="stat-value">${kpi.cumplimiento.completed}<span style="font-size:13px;color:#94a3b8">/${kpi.cumplimiento.total}</span></div></div>
+    <div class="stat"><div class="stat-label">Horas real/est.</div><div class="stat-value" style="font-size:15px">${kpi.cargaLaboral.realHours}h<span style="font-size:11px;color:#94a3b8">/${kpi.cargaLaboral.estimatedHours}h</span></div></div>
+    <div class="stat"><div class="stat-label">Consultas</div><div class="stat-value">${kpi.seguimiento.total}</div></div>
+  </div>
+
+  <div class="msg" style="background:${kpi.cumplimiento.completedPct >= 80 ? "#f0fdf4;border:1px solid #bbf7d0" : kpi.cumplimiento.completedPct >= 60 ? "#fffbeb;border:1px solid #fde68a" : "#fef2f2;border:1px solid #fecaca"}">
+    ${msg.icon} ${msg.text}
+  </div>
+
+  ${kpi.tasks.length > 0 ? `
+  <h2>Mis tareas</h2>
+  <table>
+    <thead><tr><th>Tarea</th><th>Tipo</th><th>Estado</th><th>Vence</th><th>Retraso</th></tr></thead>
+    <tbody>${taskRows}</tbody>
+  </table>` : ""}
+
+  ${kpi.seguimiento.byReason.length > 0 ? `
+  <h2>Consultas SEGUIMIENTO por motivo</h2>
+  <table>
+    <thead><tr><th>Motivo</th><th>Consultas</th><th>Tiempo</th></tr></thead>
+    <tbody>${reasonRows}</tbody>
+  </table>` : ""}
+</body></html>`;
+
+  const win = window.open("", "_blank");
+  if (win) { win.document.write(html); win.document.close(); setTimeout(() => win.print(), 300); }
+}
+
+// ── PDF/Excel — range ─────────────────────────────────────────────────────────
+
+function downloadRangeExcel(
+  data: PersonalRangeReport,
+  name: string,
+  role: string,
+) {
+  const wb = XLSX.utils.book_new();
+  const fromLabel = formatMonthLabel(data.from);
+  const toLabel = formatMonthLabel(data.to);
+  const trendArrow =
+    data.trends.cumplimientoTrend === "mejora"
+      ? "▲"
+      : data.trends.cumplimientoTrend === "deterioro"
+        ? "▼"
+        : "=";
+
+  const summaryRows = [
+    ["Informe de Rango Personal", ""],
+    ["Nombre", name],
+    ["Cargo", ROLE_LABEL[role as Role] ?? role],
+    ["Período", `${fromLabel} — ${toLabel}`],
+    ["Meses analizados", data.months.length],
+    [""],
+    ["RESUMEN ACUMULADO", ""],
+    ["Cumplimiento promedio", `${data.aggregated.avgCumplimiento}%`],
+    ["Score promedio", `${data.aggregated.avgScore}/100`],
+    ["Tareas completadas", `${data.aggregated.totalCompletedTasks} / ${data.aggregated.totalTasks}`],
+    ["Horas reales", `${data.aggregated.totalRealHours}h`],
+    ["Horas estimadas", `${data.aggregated.totalEstimatedHours}h`],
+    ["Total consultas SEGUIMIENTO", data.aggregated.totalSeguimiento],
+    [""],
+    ["TENDENCIA", ""],
+    ["Dirección", `${trendArrow} ${data.trends.cumplimientoTrend.toUpperCase()}`],
+    ["Cumplimiento inicial", `${data.trends.firstMonthCumplimiento}%`],
+    ["Cumplimiento final", `${data.trends.lastMonthCumplimiento}%`],
+    ["Cambio", `${data.trends.cumplimientoChange > 0 ? "+" : ""}${data.trends.cumplimientoChange} pp`],
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryRows), "Resumen");
+
+  const evoRows = [
+    ["Mes", "Cumpl.%", "Score", "Completadas", "Total tareas", "H. reales", "H. estim.", "Consultas"],
+    ...data.months.map((m) => [
+      m.label, m.completedPct, m.score, m.completedTasks,
+      m.totalTasks, m.realHours, m.estimatedHours, m.seguimientoTotal,
+    ]),
+  ];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(evoRows), "Evolución mensual");
+
+  if (data.aggregated.consultasByReason.length > 0) {
+    const consultasRows = [
+      ["Motivo", "Total consultas", "Total minutos"],
+      ...data.aggregated.consultasByReason.map((r) => [
+        REASON_LABEL[r.reason] ?? r.reason, r.count, r.totalMinutes,
+      ]),
+    ];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(consultasRows), "Consultas");
+  }
+
+  XLSX.writeFile(
+    wb,
+    `MisKPIs_Rango_${fromLabel.replace(/\s/g, "_")}_${toLabel.replace(/\s/g, "_")}.xlsx`,
+  );
+}
+
+function downloadRangePDF(data: PersonalRangeReport, name: string, role: string) {
+  const fromLabel = formatMonthLabel(data.from);
+  const toLabel = formatMonthLabel(data.to);
+  const trendArrow =
+    data.trends.cumplimientoTrend === "mejora"
+      ? "▲ Mejora"
+      : data.trends.cumplimientoTrend === "deterioro"
+        ? "▼ Deterioro"
+        : "= Estancamiento";
+
+  const msg = motivationalMessage(
+    data.aggregated.avgCumplimiento,
+    data.aggregated.totalTasks,
+    data.trends.cumplimientoTrend,
+  );
+
+  const evoRows = data.months
+    .map(
+      (m) => `<tr>
+        <td>${m.label}</td>
+        <td>${m.completedPct}%</td>
+        <td>${m.score}/100</td>
+        <td>${m.completedTasks}/${m.totalTasks}</td>
+        <td>${m.realHours}h/${m.estimatedHours}h</td>
+        <td>${m.seguimientoTotal}</td>
+      </tr>`,
+    )
+    .join("");
+
+  const reasonRows = data.aggregated.consultasByReason
+    .map(
+      (r) => `<tr>
+        <td>${REASON_LABEL[r.reason] ?? r.reason}</td>
+        <td>${r.count}</td>
+        <td>${r.totalMinutes} min</td>
+      </tr>`,
+    )
+    .join("");
+
+  const trendBg =
+    data.trends.cumplimientoTrend === "mejora"
+      ? "#dcfce7;color:#166534"
+      : data.trends.cumplimientoTrend === "deterioro"
+        ? "#fee2e2;color:#991b1b"
+        : "#f1f5f9;color:#475569";
+
+  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
+<title>Mis KPIs Rango — ${fromLabel} / ${toLabel}</title>
+<style>
+  body{font-family:system-ui,sans-serif;padding:32px;color:#1e293b;max-width:820px;margin:0 auto;font-size:13px}
+  h1{color:#4f46e5;font-size:20px;margin-bottom:2px}
+  .meta{color:#64748b;font-size:12px;margin-bottom:16px}
+  h2{margin-top:22px;margin-bottom:8px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#475569;border-bottom:1px solid #e2e8f0;padding-bottom:4px}
+  .trend{display:inline-block;padding:5px 14px;border-radius:8px;font-weight:700;font-size:13px;margin-bottom:10px}
+  .stats{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin:10px 0}
+  .stat{border:1px solid #e2e8f0;border-radius:8px;padding:10px;text-align:center}
+  .stat-label{font-size:10px;text-transform:uppercase;color:#94a3b8}
+  .stat-value{font-size:18px;font-weight:700;color:#4f46e5;margin:2px 0}
+  .msg{border-radius:8px;padding:10px 14px;font-size:12px;margin-top:10px}
+  table{width:100%;border-collapse:collapse;font-size:11px;margin-top:6px}
+  th{background:#f8fafc;text-align:left;padding:6px 8px;border:1px solid #e2e8f0;font-size:10px;text-transform:uppercase;color:#64748b}
+  td{padding:6px 8px;border:1px solid #e2e8f0}
+  tr:nth-child(even) td{background:#fafafa}
+  @media print{body{padding:16px}}
+</style></head><body>
+  <h1>Informe de Rango Personal</h1>
+  <div class="meta">${name} — ${ROLE_LABEL[role as Role] ?? role} &bull; ${fromLabel} — ${toLabel} (${data.months.length} meses)</div>
+
+  <div class="trend" style="background:${trendBg}">${trendArrow} — ${data.trends.firstMonthCumplimiento}% → ${data.trends.lastMonthCumplimiento}% (${data.trends.cumplimientoChange > 0 ? "+" : ""}${data.trends.cumplimientoChange} pp)</div>
+
+  <h2>Resumen acumulado</h2>
+  <div class="stats">
+    <div class="stat"><div class="stat-label">Cumplimiento prom.</div><div class="stat-value">${data.aggregated.avgCumplimiento}%</div></div>
+    <div class="stat"><div class="stat-label">Score promedio</div><div class="stat-value">${data.aggregated.avgScore}<span style="font-size:13px;color:#94a3b8">/100</span></div></div>
+    <div class="stat"><div class="stat-label">Tareas completadas</div><div class="stat-value">${data.aggregated.totalCompletedTasks}<span style="font-size:13px;color:#94a3b8">/${data.aggregated.totalTasks}</span></div></div>
+  </div>
+  <div class="stats">
+    <div class="stat"><div class="stat-label">Horas real/est.</div><div class="stat-value" style="font-size:14px">${data.aggregated.totalRealHours}h<span style="font-size:11px;color:#94a3b8">/${data.aggregated.totalEstimatedHours}h</span></div></div>
+    <div class="stat"><div class="stat-label">Consultas SEGUIMIENTO</div><div class="stat-value">${data.aggregated.totalSeguimiento}</div></div>
+    <div class="stat"><div class="stat-label">Meses analizados</div><div class="stat-value">${data.months.length}</div></div>
+  </div>
+
+  <div class="msg" style="background:${data.aggregated.avgCumplimiento >= 80 ? "#f0fdf4;border:1px solid #bbf7d0" : data.aggregated.avgCumplimiento >= 60 ? "#fffbeb;border:1px solid #fde68a" : "#fef2f2;border:1px solid #fecaca"}">
+    ${msg.icon} ${msg.text}
+  </div>
+
+  <h2>Evolución mensual</h2>
+  <table>
+    <thead><tr><th>Mes</th><th>Cumpl.%</th><th>Score</th><th>Compl./Total</th><th>Horas</th><th>Consultas</th></tr></thead>
+    <tbody>${evoRows}</tbody>
+  </table>
+
+  ${
+    reasonRows
+      ? `<h2>Consultas SEGUIMIENTO por motivo</h2>
+  <table>
+    <thead><tr><th>Motivo</th><th>Consultas</th><th>Tiempo</th></tr></thead>
+    <tbody>${reasonRows}</tbody>
+  </table>`
+      : ""
+  }
+</body></html>`;
+
+  const win = window.open("", "_blank");
+  if (win) { win.document.write(html); win.document.close(); setTimeout(() => win.print(), 300); }
 }
 
 // ── Stat card ─────────────────────────────────────────────────────────────────
@@ -132,15 +497,36 @@ function StatCard({
   );
 }
 
+function DeltaBadge({ current, prev, suffix = "%" }: { current: number; prev: number; suffix?: string }) {
+  if (prev === 0 && current === 0) return null;
+  const delta = current - prev;
+  if (delta === 0) return <span className="text-[11px] text-slate-400">sin cambio</span>;
+  const positive = delta > 0;
+  return (
+    <span className={`text-[11px] font-medium ${positive ? "text-green-600" : "text-red-500"}`}>
+      {positive ? "▲" : "▼"} {Math.abs(delta)}{suffix} vs mes anterior
+    </span>
+  );
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 type Props = { currentUserName: string; currentUserRole: string };
 
 export default function MyKpisModule({ currentUserName, currentUserRole }: Props) {
+  // ── Individual state ──────────────────────────────────────────────────────
+  const [viewMode, setViewMode] = useState<"individual" | "range">("individual");
   const [month, setMonth] = useState(currentMonthParam);
   const [kpi, setKpi] = useState<KpiData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // ── Range state ───────────────────────────────────────────────────────────
+  const [rangeFrom, setRangeFrom] = useState(() => addMonths(currentMonthParam(), -5));
+  const [rangeTo, setRangeTo] = useState(currentMonthParam);
+  const [rangeReport, setRangeReport] = useState<PersonalRangeReport | null>(null);
+  const [rangeLoading, setRangeLoading] = useState(false);
+  const [rangeError, setRangeError] = useState<string | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -156,281 +542,558 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [month]);
 
+  async function handleGenerateRange() {
+    if (rangeFrom >= rangeTo) {
+      setRangeError("El mes de inicio debe ser anterior al mes de fin");
+      return;
+    }
+    setRangeLoading(true);
+    setRangeError(null);
+    setRangeReport(null);
+    try {
+      const res = await fetch(`/api/kpis/me/range?from=${rangeFrom}&to=${rangeTo}`);
+      if (!res.ok) {
+        const err: { error?: string } = await res.json();
+        setRangeError(err.error ?? "Error al generar el informe");
+        return;
+      }
+      const data: { report: PersonalRangeReport } = await res.json();
+      setRangeReport(data.report);
+    } finally {
+      setRangeLoading(false);
+    }
+  }
+
+  // ── Chart data for range ──────────────────────────────────────────────────
+  const rangeChartData =
+    rangeReport?.months.map((m) => ({ label: m.label, Cumplimiento: m.completedPct })) ?? [];
+
   return (
     <div className="flex flex-col gap-6">
       {/* Page header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900">Mis KPIs</h1>
-          <p className="text-sm text-slate-500 mt-0.5">
-            {currentUserName} — {ROLE_LABEL[currentUserRole as Role] ?? currentUserRole}
-          </p>
-        </div>
-        <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-4 py-2 w-fit">
-          <label className="text-sm text-slate-500 whitespace-nowrap">Mes:</label>
-          <input
-            type="month"
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-            className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
-          />
-        </div>
+      <div>
+        <h1 className="text-2xl font-bold text-slate-900">Mis KPIs</h1>
+        <p className="text-sm text-slate-500 mt-0.5">
+          {currentUserName} — {ROLE_LABEL[currentUserRole as Role] ?? currentUserRole}
+        </p>
       </div>
 
-      {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">{error}</div>
-      )}
+      {/* Mode toggle */}
+      <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit">
+        <button
+          onClick={() => setViewMode("individual")}
+          className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${viewMode === "individual" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+        >
+          Mes individual
+        </button>
+        <button
+          onClick={() => setViewMode("range")}
+          className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${viewMode === "range" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+        >
+          Rango personalizado
+        </button>
+      </div>
 
-      {loading && (
-        <div className="flex justify-center py-32">
-          <div className="w-7 h-7 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+      {/* ── INDIVIDUAL VIEW ─────────────────────────────────────────────────── */}
+      {viewMode === "individual" && (
+        <div className="flex flex-col gap-5">
+          {/* Month picker + downloads */}
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-4 py-2">
+              <label className="text-sm text-slate-500 whitespace-nowrap">Mes:</label>
+              <input
+                type="month"
+                value={month}
+                onChange={(e) => setMonth(e.target.value)}
+                className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              />
+            </div>
+            {kpi && !loading && (
+              <>
+                <button
+                  onClick={() => downloadKpisExcel(kpi, month, currentUserName, currentUserRole)}
+                  className="flex items-center gap-1.5 px-3 py-2 text-sm border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 bg-white transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  Excel
+                </button>
+                <button
+                  onClick={() => downloadKpisPDF(kpi, month, currentUserName, currentUserRole)}
+                  className="flex items-center gap-1.5 px-3 py-2 text-sm bg-indigo-600 rounded-xl text-white hover:bg-indigo-700 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                  </svg>
+                  PDF
+                </button>
+              </>
+            )}
+          </div>
+
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">{error}</div>
+          )}
+
+          {loading && (
+            <div className="flex justify-center py-32">
+              <div className="w-7 h-7 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+            </div>
+          )}
+
+          {!loading && kpi && (
+            <div className="space-y-5">
+              <p className="text-sm font-medium text-slate-500">
+                Período: <span className="text-slate-800">{formatMonthLabel(month)}</span>
+              </p>
+
+              {/* Score + Donuts */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="bg-white rounded-2xl border border-slate-200 p-5 flex flex-col items-center justify-center gap-2">
+                  <p className="text-[11px] text-slate-400 uppercase tracking-wider font-medium">Score global</p>
+                  <div className="relative w-28 h-28 flex items-center justify-center">
+                    <svg className="w-28 h-28 -rotate-90" viewBox="0 0 100 100">
+                      <circle cx="50" cy="50" r="42" fill="none" stroke="#f1f5f9" strokeWidth="10" />
+                      <circle
+                        cx="50" cy="50" r="42" fill="none"
+                        stroke={kpi.score >= 80 ? "#22c55e" : kpi.score >= 60 ? "#f59e0b" : "#ef4444"}
+                        strokeWidth="10"
+                        strokeDasharray={`${(kpi.score / 100) * 2 * Math.PI * 42} ${2 * Math.PI * 42}`}
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                    <span className="absolute text-3xl font-bold text-slate-800">{kpi.score}</span>
+                  </div>
+                  <p className="text-xs text-slate-400">/ 100 puntos</p>
+                  {kpi.prevMonth && (
+                    <DeltaBadge
+                      current={kpi.score}
+                      prev={Math.round(
+                        (kpi.prevMonth.completedPct / 100) * 40 +
+                        Math.max(0, 20 - Math.max(0, kpi.prevMonth.cargaRatio - 100) * 0.5),
+                      )}
+                      suffix=" pts"
+                    />
+                  )}
+                </div>
+
+                <div className={`rounded-2xl border p-5 flex flex-col items-center gap-3 ${CARD_BG[kpi.cumplimiento.color]}`}>
+                  <p className="text-[11px] text-slate-500 uppercase tracking-wider font-medium self-start">Cumplimiento</p>
+                  <DonutChart
+                    pct={kpi.cumplimiento.completedPct}
+                    color={kpi.cumplimiento.color}
+                    label={`${kpi.cumplimiento.completedPct}%`}
+                    sublabel={`${kpi.cumplimiento.completed}/${kpi.cumplimiento.total} tareas`}
+                  />
+                  <div className="w-full space-y-1 text-xs text-slate-600">
+                    <div className="flex justify-between">
+                      <span>Vencidas</span>
+                      <span className={kpi.cumplimiento.overdue > 0 ? "text-red-600 font-semibold" : "text-slate-400"}>
+                        {kpi.cumplimiento.overdue}
+                        {kpi.cumplimiento.overdue > 0 && kpi.cumplimiento.avgDelayDays > 0
+                          ? ` (${kpi.cumplimiento.avgDelayDays}d prom.)`
+                          : ""}
+                      </span>
+                    </div>
+                  </div>
+                  {kpi.prevMonth && (
+                    <DeltaBadge current={kpi.cumplimiento.completedPct} prev={kpi.prevMonth.completedPct} />
+                  )}
+                </div>
+
+                <div className={`rounded-2xl border p-5 flex flex-col items-center gap-3 ${CARD_BG[kpi.cargaLaboral.color]}`}>
+                  <p className="text-[11px] text-slate-500 uppercase tracking-wider font-medium self-start">Carga laboral</p>
+                  <DonutChart
+                    pct={Math.min(kpi.cargaLaboral.ratio, 200)}
+                    color={kpi.cargaLaboral.color}
+                    label={`${kpi.cargaLaboral.ratio}%`}
+                    sublabel={`${kpi.cargaLaboral.realHours}h / ${kpi.cargaLaboral.estimatedHours}h est.`}
+                  />
+                  {kpi.prevMonth && (
+                    <DeltaBadge current={kpi.cargaLaboral.ratio} prev={kpi.prevMonth.cargaRatio} />
+                  )}
+                </div>
+              </div>
+
+              {/* Stats */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <StatCard label="Total tareas" value={kpi.cumplimiento.total} sub={formatMonthLabel(month)} />
+                <StatCard label="Completadas" value={kpi.cumplimiento.completed} sub={`${kpi.cumplimiento.completedPct}% del total`} accent />
+                <StatCard
+                  label="Vencidas"
+                  value={kpi.cumplimiento.overdue}
+                  sub={kpi.cumplimiento.overdue > 0 ? `Prom. ${kpi.cumplimiento.avgDelayDays}d retraso` : "Sin retrasos"}
+                />
+                <StatCard label="Consultas SEGUIMIENTO" value={kpi.seguimiento.total} sub={`${kpi.seguimiento.byReason.length} motivos distintos`} />
+              </div>
+
+              {/* Motivational message */}
+              {(() => {
+                const msg = motivationalMessage(kpi.cumplimiento.completedPct, kpi.cumplimiento.total);
+                return (
+                  <div className={`rounded-2xl border px-5 py-4 flex items-start gap-3 ${msg.bg}`}>
+                    <span className="text-2xl leading-none mt-0.5">{msg.icon}</span>
+                    <p className="text-sm text-slate-700 leading-relaxed">{msg.text}</p>
+                  </div>
+                );
+              })()}
+
+              {/* Charts */}
+              {(kpi.horasByWeek.length > 0 || kpi.cumplimientoHistory.length > 0) && (
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {kpi.horasByWeek.length > 0 && (
+                    <div className="bg-white rounded-2xl border border-slate-200 p-5">
+                      <p className="text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-4">Horas por semana</p>
+                      <WeeklyHoursChart data={kpi.horasByWeek} />
+                    </div>
+                  )}
+                  <div className="bg-white rounded-2xl border border-slate-200 p-5">
+                    <p className="text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-4">Evolución cumplimiento (6 meses)</p>
+                    <CumplimientoLineChart data={kpi.cumplimientoHistory} />
+                  </div>
+                </div>
+              )}
+
+              {/* Seguimiento by reason */}
+              {kpi.seguimiento.byReason.length > 0 && (
+                <div className="bg-white rounded-2xl border border-slate-200 p-5">
+                  <h3 className="text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-4">Consultas SEGUIMIENTO por motivo</h3>
+                  <div className="space-y-2">
+                    {kpi.seguimiento.byReason
+                      .sort((a, b) => b.count - a.count)
+                      .map((r) => {
+                        const maxCount = Math.max(...kpi.seguimiento.byReason.map((x) => x.count));
+                        const pct = Math.round((r.count / maxCount) * 100);
+                        return (
+                          <div key={r.reason} className="flex items-center gap-3">
+                            <span className="text-xs text-slate-600 w-44 shrink-0 truncate" title={REASON_LABEL[r.reason] ?? r.reason}>
+                              {REASON_LABEL[r.reason] ?? r.reason}
+                            </span>
+                            <div className="flex-1 bg-slate-100 rounded-full h-2">
+                              <div className="bg-indigo-500 h-2 rounded-full" style={{ width: `${pct}%` }} />
+                            </div>
+                            <span className="text-xs font-semibold text-slate-700 w-6 text-right">{r.count}</span>
+                            <span className="text-[11px] text-slate-400 w-20 text-right">{r.totalMinutes} min total</span>
+                          </div>
+                        );
+                      })}
+                  </div>
+                </div>
+              )}
+
+              {/* Calidad + actividad */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="bg-white rounded-xl border border-slate-200 p-4">
+                  <p className="text-[11px] text-slate-400 uppercase tracking-wider font-medium mb-1">Progreso prom.</p>
+                  <p className="text-2xl font-bold text-slate-800">{kpi.calidad.avgProgress}%</p>
+                  <p className="text-xs text-slate-400 mt-0.5">tareas en progreso</p>
+                </div>
+                <div className="bg-white rounded-xl border border-slate-200 p-4">
+                  <p className="text-[11px] text-slate-400 uppercase tracking-wider font-medium mb-1">Tareas recurrentes</p>
+                  <p className="text-2xl font-bold text-slate-800">{kpi.calidad.recurringPct}%</p>
+                  <p className="text-xs text-slate-400 mt-0.5">{kpi.calidad.recurringCompleted}/{kpi.calidad.recurringTotal} completadas</p>
+                </div>
+                <div className="bg-white rounded-xl border border-slate-200 p-4">
+                  <p className="text-[11px] text-slate-400 uppercase tracking-wider font-medium mb-1">Asignadas por otros</p>
+                  <p className="text-2xl font-bold text-slate-800">{kpi.actividad.assignedByOthers}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">de {kpi.cumplimiento.total} tareas</p>
+                </div>
+                <div className="bg-white rounded-xl border border-slate-200 p-4">
+                  <p className="text-[11px] text-slate-400 uppercase tracking-wider font-medium mb-1">Comentarios</p>
+                  <p className="text-2xl font-bold text-slate-800">{kpi.actividad.totalComments}</p>
+                  <p className="text-xs text-slate-400 mt-0.5">registrados en el período</p>
+                </div>
+              </div>
+
+              {/* Task table */}
+              {kpi.tasks.length > 0 ? (
+                <div className="bg-white rounded-2xl border border-slate-200 p-5">
+                  <h3 className="text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-4">
+                    Mis tareas — {formatMonthLabel(month)}
+                  </h3>
+                  <div className="overflow-x-auto -mx-5 px-5">
+                    <table className="w-full text-sm min-w-[580px]">
+                      <thead>
+                        <tr className="border-b border-slate-200">
+                          {["Tarea", "Tipo", "Estado", "Vence", "Retraso"].map((h) => (
+                            <th key={h} className="text-left py-2 pr-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {kpi.tasks
+                          .sort((a, b) => {
+                            const o = { red: 0, yellow: 1, green: 2 } as Record<KpiColor, number>;
+                            return o[a.color] - o[b.color];
+                          })
+                          .map((t) => (
+                            <tr key={t.id} className="hover:bg-slate-50 transition-colors">
+                              <td className="py-2.5 pr-4">
+                                <div className="flex items-center gap-2">
+                                  <div className={`w-2 h-2 rounded-full shrink-0 ${DOT_CLASS[t.color]}`} />
+                                  <span className="text-sm text-slate-800 leading-snug">{t.title}</span>
+                                </div>
+                              </td>
+                              <td className="py-2.5 pr-4">
+                                <span className="text-[11px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                                  {TYPE_LABEL[t.type] ?? t.type}
+                                </span>
+                              </td>
+                              <td className="py-2.5 pr-4">
+                                <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${STATUS_BADGE[t.status] ?? "bg-slate-100 text-slate-500"}`}>
+                                  {STATUS_LABEL[t.status] ?? t.status}
+                                </span>
+                              </td>
+                              <td className="py-2.5 pr-4 text-xs text-slate-500">
+                                {new Date(t.endDate).toLocaleDateString("es-CL", { day: "2-digit", month: "short" })}
+                              </td>
+                              <td className="py-2.5 pr-4">
+                                {t.delayDays > 0 ? (
+                                  <span className="text-xs text-red-600 font-medium">{t.delayDays}d</span>
+                                ) : (
+                                  <span className="text-slate-300 text-xs">—</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+                  <svg className="w-10 h-10 mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                  </svg>
+                  <p className="text-sm">Sin tareas asignadas en este período</p>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
 
-      {!loading && kpi && (
-        <div className="space-y-5">
-          {/* Period label */}
-          <p className="text-sm font-medium text-slate-500">
-            Período: <span className="text-slate-800">{formatMonthLabel(month)}</span>
-          </p>
-
-          {/* Score + Donuts row */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {/* Score */}
-            <div className="bg-white rounded-2xl border border-slate-200 p-5 flex flex-col items-center justify-center gap-2">
-              <p className="text-[11px] text-slate-400 uppercase tracking-wider font-medium">Score global</p>
-              <div className="relative w-28 h-28 flex items-center justify-center">
-                <svg className="w-28 h-28 -rotate-90" viewBox="0 0 100 100">
-                  <circle cx="50" cy="50" r="42" fill="none" stroke="#f1f5f9" strokeWidth="10" />
-                  <circle
-                    cx="50" cy="50" r="42" fill="none"
-                    stroke={kpi.score >= 80 ? "#22c55e" : kpi.score >= 60 ? "#f59e0b" : "#ef4444"}
-                    strokeWidth="10"
-                    strokeDasharray={`${(kpi.score / 100) * 2 * Math.PI * 42} ${2 * Math.PI * 42}`}
-                    strokeLinecap="round"
-                  />
-                </svg>
-                <span className="absolute text-3xl font-bold text-slate-800">{kpi.score}</span>
-              </div>
-              <p className="text-xs text-slate-400">/ 100 puntos</p>
-              {kpi.prevMonth && (
-                <DeltaBadge current={kpi.score} prev={Math.round(
-                  ((kpi.prevMonth.completedPct / 100) * 40) +
-                  Math.max(0, 20 - Math.max(0, kpi.prevMonth.cargaRatio - 100) * 0.5)
-                )} suffix=" pts" />
-              )}
-            </div>
-
-            {/* Cumplimiento donut */}
-            <div className={`rounded-2xl border p-5 flex flex-col items-center gap-3 ${CARD_BG[kpi.cumplimiento.color]}`}>
-              <p className="text-[11px] text-slate-500 uppercase tracking-wider font-medium self-start">Cumplimiento</p>
-              <DonutChart
-                pct={kpi.cumplimiento.completedPct}
-                color={kpi.cumplimiento.color}
-                label={`${kpi.cumplimiento.completedPct}%`}
-                sublabel={`${kpi.cumplimiento.completed}/${kpi.cumplimiento.total} tareas`}
+      {/* ── RANGE VIEW ──────────────────────────────────────────────────────── */}
+      {viewMode === "range" && (
+        <div className="flex flex-col gap-5">
+          {/* Range selector */}
+          <div className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-wrap items-end gap-4">
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-slate-500 font-medium">Desde</label>
+              <input
+                type="month"
+                value={rangeFrom}
+                onChange={(e) => setRangeFrom(e.target.value)}
+                className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
               />
-              <div className="w-full space-y-1 text-xs text-slate-600">
-                <div className="flex justify-between">
-                  <span>Vencidas</span>
-                  <span className={kpi.cumplimiento.overdue > 0 ? "text-red-600 font-semibold" : "text-slate-400"}>
-                    {kpi.cumplimiento.overdue}
-                    {kpi.cumplimiento.overdue > 0 && kpi.cumplimiento.avgDelayDays > 0
-                      ? ` (${kpi.cumplimiento.avgDelayDays}d prom.)`
-                      : ""}
-                  </span>
-                </div>
-              </div>
-              {kpi.prevMonth && (
-                <DeltaBadge current={kpi.cumplimiento.completedPct} prev={kpi.prevMonth.completedPct} />
-              )}
             </div>
-
-            {/* Carga laboral donut */}
-            <div className={`rounded-2xl border p-5 flex flex-col items-center gap-3 ${CARD_BG[kpi.cargaLaboral.color]}`}>
-              <p className="text-[11px] text-slate-500 uppercase tracking-wider font-medium self-start">Carga laboral</p>
-              <DonutChart
-                pct={Math.min(kpi.cargaLaboral.ratio, 200)}
-                color={kpi.cargaLaboral.color}
-                label={`${kpi.cargaLaboral.ratio}%`}
-                sublabel={`${kpi.cargaLaboral.realHours}h / ${kpi.cargaLaboral.estimatedHours}h est.`}
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-slate-500 font-medium">Hasta</label>
+              <input
+                type="month"
+                value={rangeTo}
+                onChange={(e) => setRangeTo(e.target.value)}
+                className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
               />
-              {kpi.prevMonth && (
-                <DeltaBadge current={kpi.cargaLaboral.ratio} prev={kpi.prevMonth.cargaRatio} />
-              )}
             </div>
+            <button
+              onClick={handleGenerateRange}
+              disabled={rangeLoading}
+              className="flex items-center gap-1.5 px-5 py-2 text-sm bg-indigo-600 rounded-lg text-white hover:bg-indigo-700 transition-colors disabled:opacity-60"
+            >
+              {rangeLoading ? (
+                <>
+                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Calculando...
+                </>
+              ) : (
+                "Generar informe de rango"
+              )}
+            </button>
+            {rangeReport && !rangeLoading && (
+              <div className="flex items-center gap-2 ml-auto">
+                <button
+                  onClick={() => downloadRangeExcel(rangeReport, currentUserName, currentUserRole)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  Excel
+                </button>
+                <button
+                  onClick={() => downloadRangePDF(rangeReport, currentUserName, currentUserRole)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-600 rounded-lg text-white hover:bg-indigo-700 transition-colors"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                  </svg>
+                  PDF
+                </button>
+              </div>
+            )}
           </div>
 
-          {/* Stats row */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard label="Total tareas" value={kpi.cumplimiento.total} sub={formatMonthLabel(month)} />
-            <StatCard
-              label="Completadas"
-              value={kpi.cumplimiento.completed}
-              sub={`${kpi.cumplimiento.completedPct}% del total`}
-              accent
-            />
-            <StatCard
-              label="Vencidas"
-              value={kpi.cumplimiento.overdue}
-              sub={kpi.cumplimiento.overdue > 0 ? `Prom. ${kpi.cumplimiento.avgDelayDays}d retraso` : "Sin retrasos"}
-            />
-            <StatCard
-              label="Consultas SEGUIMIENTO"
-              value={kpi.seguimiento.total}
-              sub={`${kpi.seguimiento.byReason.length} motivos distintos`}
-            />
-          </div>
+          {rangeError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">{rangeError}</div>
+          )}
 
-          {/* Motivational message */}
-          {(() => {
-            const msg = motivationalMessage(kpi.cumplimiento.completedPct, kpi.cumplimiento.total);
-            return (
-              <div className={`rounded-2xl border px-5 py-4 flex items-start gap-3 ${msg.bg}`}>
-                <span className="text-2xl leading-none mt-0.5">{msg.icon}</span>
-                <p className="text-sm text-slate-700 leading-relaxed">{msg.text}</p>
+          {rangeLoading && (
+            <div className="flex flex-col items-center justify-center py-24 gap-3 text-slate-400">
+              <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+              <p className="text-sm">Calculando KPIs mes a mes...</p>
+            </div>
+          )}
+
+          {!rangeLoading && !rangeReport && !rangeError && (
+            <div className="flex flex-col items-center justify-center py-24 text-slate-400">
+              <svg className="w-12 h-12 mb-4 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+              <p className="text-sm">Selecciona un rango y genera el informe</p>
+            </div>
+          )}
+
+          {!rangeLoading && rangeReport && (
+            <div className="space-y-5">
+              {/* Trend banner */}
+              {(() => {
+                const t = rangeReport.trends;
+                const isUp = t.cumplimientoTrend === "mejora";
+                const isDown = t.cumplimientoTrend === "deterioro";
+                return (
+                  <div className={`rounded-2xl border px-5 py-4 flex items-center gap-4 ${isUp ? "bg-green-50 border-green-200" : isDown ? "bg-red-50 border-red-200" : "bg-slate-50 border-slate-200"}`}>
+                    <span className="text-3xl">{isUp ? "▲" : isDown ? "▼" : "="}</span>
+                    <div>
+                      <p className={`text-lg font-bold ${isUp ? "text-green-700" : isDown ? "text-red-700" : "text-slate-700"}`}>
+                        Tendencia: {t.cumplimientoTrend.toUpperCase()}
+                      </p>
+                      <p className={`text-sm ${isUp ? "text-green-600" : isDown ? "text-red-600" : "text-slate-500"}`}>
+                        {t.firstMonthCumplimiento}% → {t.lastMonthCumplimiento}%
+                        {" "}({t.cumplimientoChange > 0 ? "+" : ""}{t.cumplimientoChange} pp en {rangeReport.months.length} meses)
+                      </p>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Summary stats */}
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+                <StatCard label="Cumplimiento promedio" value={`${rangeReport.aggregated.avgCumplimiento}%`} sub={`${rangeReport.months.length} meses`} accent />
+                <StatCard label="Score promedio" value={`${rangeReport.aggregated.avgScore}/100`} sub="sin considerar comentarios" />
+                <StatCard label="Tareas completadas" value={`${rangeReport.aggregated.totalCompletedTasks}`} sub={`de ${rangeReport.aggregated.totalTasks} totales`} />
+                <StatCard label="Horas acumuladas" value={`${rangeReport.aggregated.totalRealHours}h`} sub={`de ${rangeReport.aggregated.totalEstimatedHours}h estimadas`} />
+                <StatCard label="Consultas SEGUIMIENTO" value={`${rangeReport.aggregated.totalSeguimiento}`} sub="acumuladas en el período" />
+                <StatCard label="Meses analizados" value={rangeReport.months.length} sub={`${formatMonthLabel(rangeReport.from)} — ${formatMonthLabel(rangeReport.to)}`} />
               </div>
-            );
-          })()}
 
-          {/* Charts row */}
-          {(kpi.horasByWeek.length > 0 || kpi.cumplimientoHistory.length > 0) && (
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {kpi.horasByWeek.length > 0 && (
-                <div className="bg-white rounded-2xl border border-slate-200 p-5">
-                  <p className="text-sm font-semibold text-slate-700 uppercase tracking-wider text-[11px] mb-4">
-                    Horas por semana
-                  </p>
-                  <WeeklyHoursChart data={kpi.horasByWeek} />
-                </div>
-              )}
+              {/* Motivational message */}
+              {(() => {
+                const msg = motivationalMessage(
+                  rangeReport.aggregated.avgCumplimiento,
+                  rangeReport.aggregated.totalTasks,
+                  rangeReport.trends.cumplimientoTrend,
+                );
+                return (
+                  <div className={`rounded-2xl border px-5 py-4 flex items-start gap-3 ${msg.bg}`}>
+                    <span className="text-2xl leading-none mt-0.5">{msg.icon}</span>
+                    <p className="text-sm text-slate-700 leading-relaxed">{msg.text}</p>
+                  </div>
+                );
+              })()}
+
+              {/* Line chart */}
               <div className="bg-white rounded-2xl border border-slate-200 p-5">
-                <p className="text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-4">
-                  Evolución cumplimiento (6 meses)
-                </p>
-                <CumplimientoLineChart data={kpi.cumplimientoHistory} />
+                <h3 className="text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-4">
+                  Evolución de cumplimiento — {rangeReport.months.length} meses
+                </h3>
+                <ResponsiveContainer width="100%" height={220}>
+                  <LineChart data={rangeChartData} margin={{ top: 5, right: 20, left: 0, bottom: 5 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+                    <XAxis
+                      dataKey="label"
+                      tick={{ fontSize: 11 }}
+                      tickFormatter={(v: string) => {
+                        const parts = v.split(" ");
+                        return parts[0].substring(0, 3) + " " + parts[parts.length - 1].slice(-2);
+                      }}
+                    />
+                    <YAxis domain={[0, 100]} tick={{ fontSize: 11 }} unit="%" />
+                    <Tooltip formatter={(v) => (v != null ? `${v}%` : "")} />
+                    <ReferenceLine y={80} stroke="#22c55e" strokeDasharray="4 2" label={{ value: "80%", fontSize: 10, fill: "#16a34a" }} />
+                    <ReferenceLine y={60} stroke="#f59e0b" strokeDasharray="4 2" label={{ value: "60%", fontSize: 10, fill: "#b45309" }} />
+                    <Line
+                      type="monotone"
+                      dataKey="Cumplimiento"
+                      stroke="#4f46e5"
+                      strokeWidth={2.5}
+                      dot={{ r: 4 }}
+                      activeDot={{ r: 6 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
               </div>
-            </div>
-          )}
 
-          {/* Seguimiento by reason */}
-          {kpi.seguimiento.byReason.length > 0 && (
-            <div className="bg-white rounded-2xl border border-slate-200 p-5">
-              <h3 className="text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-4">
-                Consultas SEGUIMIENTO por motivo
-              </h3>
-              <div className="space-y-2">
-                {kpi.seguimiento.byReason
-                  .sort((a, b) => b.count - a.count)
-                  .map((r) => {
-                    const maxCount = Math.max(...kpi.seguimiento.byReason.map((x) => x.count));
-                    const pct = Math.round((r.count / maxCount) * 100);
-                    return (
-                      <div key={r.reason} className="flex items-center gap-3">
-                        <span className="text-xs text-slate-600 w-44 shrink-0 truncate" title={REASON_LABEL[r.reason] ?? r.reason}>
-                          {REASON_LABEL[r.reason] ?? r.reason}
-                        </span>
-                        <div className="flex-1 bg-slate-100 rounded-full h-2">
-                          <div className="bg-indigo-500 h-2 rounded-full" style={{ width: `${pct}%` }} />
-                        </div>
-                        <span className="text-xs font-semibold text-slate-700 w-6 text-right">{r.count}</span>
-                        <span className="text-[11px] text-slate-400 w-20 text-right">{r.totalMinutes} min total</span>
-                      </div>
-                    );
-                  })}
-              </div>
-            </div>
-          )}
-
-          {/* Calidad y actividad */}
-          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-            <div className="bg-white rounded-xl border border-slate-200 p-4">
-              <p className="text-[11px] text-slate-400 uppercase tracking-wider font-medium mb-1">Progreso prom.</p>
-              <p className="text-2xl font-bold text-slate-800">{kpi.calidad.avgProgress}%</p>
-              <p className="text-xs text-slate-400 mt-0.5">tareas en progreso</p>
-            </div>
-            <div className="bg-white rounded-xl border border-slate-200 p-4">
-              <p className="text-[11px] text-slate-400 uppercase tracking-wider font-medium mb-1">Tareas recurrentes</p>
-              <p className="text-2xl font-bold text-slate-800">{kpi.calidad.recurringPct}%</p>
-              <p className="text-xs text-slate-400 mt-0.5">{kpi.calidad.recurringCompleted}/{kpi.calidad.recurringTotal} completadas</p>
-            </div>
-            <div className="bg-white rounded-xl border border-slate-200 p-4">
-              <p className="text-[11px] text-slate-400 uppercase tracking-wider font-medium mb-1">Asignadas por otros</p>
-              <p className="text-2xl font-bold text-slate-800">{kpi.actividad.assignedByOthers}</p>
-              <p className="text-xs text-slate-400 mt-0.5">de {kpi.cumplimiento.total} tareas</p>
-            </div>
-            <div className="bg-white rounded-xl border border-slate-200 p-4">
-              <p className="text-[11px] text-slate-400 uppercase tracking-wider font-medium mb-1">Comentarios</p>
-              <p className="text-2xl font-bold text-slate-800">{kpi.actividad.totalComments}</p>
-              <p className="text-xs text-slate-400 mt-0.5">registrados en el período</p>
-            </div>
-          </div>
-
-          {/* Task detail table */}
-          {kpi.tasks.length > 0 && (
-            <div className="bg-white rounded-2xl border border-slate-200 p-5">
-              <h3 className="text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-4">
-                Mis tareas — {formatMonthLabel(month)}
-              </h3>
-              <div className="overflow-x-auto -mx-5 px-5">
-                <table className="w-full text-sm min-w-[580px]">
-                  <thead>
-                    <tr className="border-b border-slate-200">
-                      {["Tarea", "Tipo", "Estado", "Vence", "Retraso"].map((h) => (
-                        <th key={h} className="text-left py-2 pr-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">
-                          {h}
-                        </th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {kpi.tasks
-                      .sort((a, b) => {
-                        const order = { red: 0, yellow: 1, green: 2 } as Record<KpiColor, number>;
-                        return order[a.color] - order[b.color];
-                      })
-                      .map((t) => (
-                        <tr key={t.id} className="hover:bg-slate-50 transition-colors">
-                          <td className="py-2.5 pr-4">
-                            <div className="flex items-center gap-2">
-                              <div className={`w-2 h-2 rounded-full shrink-0 ${DOT_CLASS[t.color]}`} />
-                              <span className="text-sm text-slate-800 leading-snug">{t.title}</span>
-                            </div>
-                          </td>
-                          <td className="py-2.5 pr-4">
-                            <span className="text-[11px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
-                              {TYPE_LABEL[t.type] ?? t.type}
+              {/* Monthly table */}
+              <div className="bg-white rounded-2xl border border-slate-200 p-5">
+                <h3 className="text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-4">Detalle mensual</h3>
+                <div className="overflow-x-auto -mx-5 px-5">
+                  <table className="w-full text-sm min-w-[520px]">
+                    <thead>
+                      <tr className="border-b border-slate-200">
+                        {["Mes", "Cumpl.", "Score", "Tareas", "Horas", "Consultas"].map((h) => (
+                          <th key={h} className="text-left py-2 pr-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {rangeReport.months.map((m) => (
+                        <tr key={m.month} className={`hover:bg-slate-50 ${m.totalTasks > 0 && m.completedPct < 60 ? "bg-red-50/40" : ""}`}>
+                          <td className="py-2 pr-4 text-sm font-medium text-slate-800">{m.label}</td>
+                          <td className="py-2 pr-4">
+                            <span className="flex items-center gap-1.5">
+                              <div className={`w-2 h-2 rounded-full ${m.completedPct >= 80 ? "bg-green-500" : m.completedPct >= 60 ? "bg-amber-400" : "bg-red-500"}`} />
+                              {m.completedPct}%
                             </span>
                           </td>
-                          <td className="py-2.5 pr-4">
-                            <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${STATUS_BADGE[t.status] ?? "bg-slate-100 text-slate-500"}`}>
-                              {STATUS_LABEL[t.status] ?? t.status}
-                            </span>
-                          </td>
-                          <td className="py-2.5 pr-4 text-xs text-slate-500">
-                            {new Date(t.endDate).toLocaleDateString("es-CL", { day: "2-digit", month: "short" })}
-                          </td>
-                          <td className="py-2.5 pr-4">
-                            {t.delayDays > 0 ? (
-                              <span className="text-xs text-red-600 font-medium">{t.delayDays}d</span>
-                            ) : (
-                              <span className="text-slate-300 text-xs">—</span>
-                            )}
-                          </td>
+                          <td className="py-2 pr-4 text-slate-600">{m.score}/100</td>
+                          <td className="py-2 pr-4 text-slate-600">{m.completedTasks}/{m.totalTasks}</td>
+                          <td className="py-2 pr-4 text-slate-600 text-xs">{m.realHours}h/{m.estimatedHours}h</td>
+                          <td className="py-2 pr-4 text-slate-600">{m.seguimientoTotal}</td>
                         </tr>
                       ))}
-                  </tbody>
-                </table>
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-          )}
 
-          {kpi.tasks.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-16 text-slate-400">
-              <svg className="w-10 h-10 mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-              </svg>
-              <p className="text-sm">Sin tareas asignadas en este período</p>
+              {/* Seguimiento by reason (range) */}
+              {rangeReport.aggregated.consultasByReason.length > 0 && (
+                <div className="bg-white rounded-2xl border border-slate-200 p-5">
+                  <h3 className="text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-4">
+                    Consultas SEGUIMIENTO acumuladas por motivo
+                  </h3>
+                  <div className="space-y-2">
+                    {rangeReport.aggregated.consultasByReason.map((r) => {
+                      const maxCount = rangeReport.aggregated.consultasByReason[0].count;
+                      const pct = Math.round((r.count / maxCount) * 100);
+                      return (
+                        <div key={r.reason} className="flex items-center gap-3">
+                          <span className="text-xs text-slate-600 w-44 shrink-0 truncate" title={REASON_LABEL[r.reason] ?? r.reason}>
+                            {REASON_LABEL[r.reason] ?? r.reason}
+                          </span>
+                          <div className="flex-1 bg-slate-100 rounded-full h-2">
+                            <div className="bg-indigo-500 h-2 rounded-full" style={{ width: `${pct}%` }} />
+                          </div>
+                          <span className="text-xs font-semibold text-slate-700 w-6 text-right">{r.count}</span>
+                          <span className="text-[11px] text-slate-400 w-20 text-right">{r.totalMinutes} min</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
