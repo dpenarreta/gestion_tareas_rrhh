@@ -37,6 +37,10 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("es-CL");
 }
 
+function fmtH(n: number) {
+  return Math.round(n * 100) / 100;
+}
+
 function InlineEdit({
   value,
   type = "text",
@@ -322,10 +326,10 @@ export default function TableView({
                   </td>
                   <td className="px-3 py-3 whitespace-nowrap text-slate-600">{formatDate(task.startDate)}</td>
                   <td className="px-3 py-3 whitespace-nowrap text-slate-600">{formatDate(task.endDate)}</td>
-                  <td className="px-3 py-3 text-right text-slate-600">{task.estimatedHours}h</td>
+                  <td className="px-3 py-3 text-right text-slate-600">{fmtH(task.estimatedHours)}h</td>
                   <td className="px-3 py-3 text-right">
                     <InlineEdit
-                      value={String(task.realHours)}
+                      value={String(fmtH(task.realHours))}
                       type="number"
                       readOnly={!isOwner}
                       onSave={(v) => onFieldUpdate(task.id, "realHours", v)}

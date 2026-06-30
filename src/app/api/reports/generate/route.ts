@@ -222,8 +222,8 @@ export async function POST(request: NextRequest) {
     const completed = tasks.filter((t) => t.status === "COMPLETADA").length;
     const overdue = tasks.filter((t) => t.status !== "COMPLETADA" && t.endDate < refDate).length;
     const completedPct = tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0;
-    const totalEst = Math.round(tasks.reduce((s, t) => s + t.estimatedHours, 0) * 10) / 10;
-    const totalReal = Math.round(tasks.reduce((s, t) => s + t.realHours, 0) * 10) / 10;
+    const totalEst = Math.round(tasks.reduce((s, t) => s + t.estimatedHours, 0) * 100) / 100;
+    const totalReal = Math.round(tasks.reduce((s, t) => s + t.realHours, 0) * 100) / 100;
     const cargaRatio =
       totalEst > 0 ? Math.round((totalReal / totalEst) * 100) : totalReal > 0 ? 200 : 0;
 
@@ -281,9 +281,9 @@ export async function POST(request: NextRequest) {
   const totalTasks = allTasks.length;
   const totalCompletedTasks = allTasks.filter((t) => t.status === "COMPLETADA").length;
   const totalEstimatedHours =
-    Math.round(allTasks.reduce((s, t) => s + t.estimatedHours, 0) * 10) / 10;
+    Math.round(allTasks.reduce((s, t) => s + t.estimatedHours, 0) * 100) / 100;
   const totalRealHours =
-    Math.round(allTasks.reduce((s, t) => s + t.realHours, 0) * 10) / 10;
+    Math.round(allTasks.reduce((s, t) => s + t.realHours, 0) * 100) / 100;
   const avgCumplimiento =
     members.length > 0
       ? Math.round(members.reduce((s, m) => s + m.completedPct, 0) / members.length)

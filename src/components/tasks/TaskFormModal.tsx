@@ -62,7 +62,7 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
       setFrequency(task.frequency);
       setStartDate(toInputDate(task.startDate));
       setEndDate(toInputDate(task.endDate));
-      setEstimatedHours(String(task.estimatedHours));
+      setEstimatedHours(String(Math.round(task.estimatedHours * 100) / 100));
       setProgress(String(task.progress));
       setAssignedToId(task.assignedTo.id);
     }

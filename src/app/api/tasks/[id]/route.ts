@@ -55,8 +55,8 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   if ("frequency" in body) data.frequency = body.frequency as TaskFrequency;
   if ("startDate" in body) data.startDate = new Date(body.startDate);
   if ("endDate" in body) data.endDate = new Date(body.endDate);
-  if ("estimatedHours" in body) data.estimatedHours = parseFloat(body.estimatedHours);
-  if ("realHours" in body) data.realHours = parseFloat(body.realHours);
+  if ("estimatedHours" in body) data.estimatedHours = Math.round(parseFloat(body.estimatedHours) * 100) / 100;
+  if ("realHours" in body) data.realHours = Math.round(parseFloat(body.realHours) * 100) / 100;
   if ("progress" in body) data.progress = parseInt(body.progress);
   if ("assignedToId" in body) data.assignedToId = body.assignedToId;
 

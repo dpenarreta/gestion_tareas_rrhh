@@ -118,8 +118,8 @@ export async function GET(request: NextRequest) {
       totalTasks: tasks.length,
       completedTasks: completed,
       overdueCount,
-      realHours: Math.round(totalReal * 10) / 10,
-      estimatedHours: Math.round(totalEstimated * 10) / 10,
+      realHours: Math.round(totalReal * 100) / 100,
+      estimatedHours: Math.round(totalEstimated * 100) / 100,
       seguimientoTotal: activities.length,
       score,
     };
@@ -138,9 +138,9 @@ export async function GET(request: NextRequest) {
   const totalTasks = monthSnapshots.reduce((s, m) => s + m.totalTasks, 0);
   const totalCompletedTasks = monthSnapshots.reduce((s, m) => s + m.completedTasks, 0);
   const totalRealHours =
-    Math.round(monthSnapshots.reduce((s, m) => s + m.realHours, 0) * 10) / 10;
+    Math.round(monthSnapshots.reduce((s, m) => s + m.realHours, 0) * 100) / 100;
   const totalEstimatedHours =
-    Math.round(monthSnapshots.reduce((s, m) => s + m.estimatedHours, 0) * 10) / 10;
+    Math.round(monthSnapshots.reduce((s, m) => s + m.estimatedHours, 0) * 100) / 100;
   const totalSeguimiento = monthSnapshots.reduce((s, m) => s + m.seguimientoTotal, 0);
 
   const byReasonMap: Record<string, { count: number; totalMinutes: number }> = {};

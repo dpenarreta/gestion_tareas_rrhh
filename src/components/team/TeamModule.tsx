@@ -48,6 +48,10 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("es-CL");
 }
 
+function fmtH(n: number) {
+  return Math.round(n * 100) / 100;
+}
+
 function formatRelativeDate(iso: string) {
   const d = new Date(iso);
   return d.toLocaleDateString("es-CL", { day: "2-digit", month: "short" });
@@ -216,8 +220,8 @@ function MemberTasksTable({
                   {formatRelativeDate(task.endDate)}
                 </span>
               </td>
-              <td className="px-3 py-3 text-right text-slate-600 text-xs">{task.estimatedHours}h</td>
-              <td className="px-3 py-3 text-right text-slate-500 text-xs">{task.realHours}h</td>
+              <td className="px-3 py-3 text-right text-slate-600 text-xs">{fmtH(task.estimatedHours)}h</td>
+              <td className="px-3 py-3 text-right text-slate-500 text-xs">{fmtH(task.realHours)}h</td>
               <td className="px-3 py-3">
                 <div className="flex items-center gap-2 min-w-[70px]">
                   <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">

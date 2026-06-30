@@ -255,8 +255,8 @@ export async function GET(request: NextRequest) {
         teamAvgCumplimiento,
         totalCompletedTasks: monthTasks.filter((t) => t.status === "COMPLETADA").length,
         totalTasks: monthTasks.length,
-        totalRealHours: Math.round(monthTasks.reduce((s, t) => s + t.realHours, 0) * 10) / 10,
-        totalEstimatedHours: Math.round(monthTasks.reduce((s, t) => s + t.estimatedHours, 0) * 10) / 10,
+        totalRealHours: Math.round(monthTasks.reduce((s, t) => s + t.realHours, 0) * 100) / 100,
+        totalEstimatedHours: Math.round(monthTasks.reduce((s, t) => s + t.estimatedHours, 0) * 100) / 100,
         totalConsultas: monthActs.length,
         memberSnapshots: memberSnapshots.map(({ overdueCount: _oc, ...rest }) => rest),
       };
@@ -268,8 +268,8 @@ export async function GET(request: NextRequest) {
       const userActs = allActivities.filter((a) => a.authorId === user.id);
 
       const completedTasks = userTasks.filter((t) => t.status === "COMPLETADA").length;
-      const totalEst = Math.round(userTasks.reduce((s, t) => s + t.estimatedHours, 0) * 10) / 10;
-      const totalReal = Math.round(userTasks.reduce((s, t) => s + t.realHours, 0) * 10) / 10;
+      const totalEst = Math.round(userTasks.reduce((s, t) => s + t.estimatedHours, 0) * 100) / 100;
+      const totalReal = Math.round(userTasks.reduce((s, t) => s + t.realHours, 0) * 100) / 100;
       const cargaRatio =
         totalEst > 0 ? Math.round((totalReal / totalEst) * 100) : totalReal > 0 ? 200 : 0;
 
@@ -330,8 +330,8 @@ export async function GET(request: NextRequest) {
       activeMonths.length > 0
         ? Math.round(activeMonths.reduce((s, ms) => s + ms.teamAvgCumplimiento, 0) / activeMonths.length)
         : 0;
-    const totalEstimatedHours = Math.round(allTasks.reduce((s, t) => s + t.estimatedHours, 0) * 10) / 10;
-    const totalRealHours = Math.round(allTasks.reduce((s, t) => s + t.realHours, 0) * 10) / 10;
+    const totalEstimatedHours = Math.round(allTasks.reduce((s, t) => s + t.estimatedHours, 0) * 100) / 100;
+    const totalRealHours = Math.round(allTasks.reduce((s, t) => s + t.realHours, 0) * 100) / 100;
 
     // Consultas by reason
     const reasonMap: Record<string, { count: number; totalMinutes: number }> = {};

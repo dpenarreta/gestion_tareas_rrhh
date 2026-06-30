@@ -216,8 +216,8 @@ export async function GET(request: NextRequest, ctx: Ctx) {
       color: cumplimientoColor(completedPct),
     },
     cargaLaboral: {
-      estimatedHours: Math.round(totalEstimated * 10) / 10,
-      realHours: Math.round(totalReal * 10) / 10,
+      estimatedHours: Math.round(totalEstimated * 100) / 100,
+      realHours: Math.round(totalReal * 100) / 100,
       ratio: cargaRatio,
       color: cargaColor(cargaRatio),
     },
