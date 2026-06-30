@@ -23,16 +23,21 @@ function round2(n: number) {
   return Math.round(n * 100) / 100;
 }
 
-const SYSTEM_HR = `Eres un consultor experto en recursos humanos que analiza datos reales de un equipo de trabajo para Nexo.
+function buildSystemHR(userName: string, userRole: Role): string {
+  return `Eres un consultor experto en recursos humanos que analiza datos reales de un equipo de trabajo para Nexo.
+
+CONTEXTO DEL USUARIO:
+Estás respondiendo a ${userName}, quien ocupa el cargo de ${ROLE_LABEL[userRole]}. Todas tus recomendaciones deben estar dirigidas a esta persona específica y ser apropiadas para su nivel de responsabilidad y el equipo que tiene a cargo según su rol.
 
 REGLAS ESTRICTAS:
 1. Análisis objetivo y basado únicamente en los datos proporcionados.
 2. Nunca complaciente — si hay problemas, nómbralos con claridad.
-3. Recomendaciones concretas y accionables con responsable o área específica.
+3. Recomendaciones concretas y accionables enfocadas en el área o proceso, nunca en señalar a una persona individual por nombre como "responsable" de un problema. Puedes mencionar cargos o áreas (ej. "el área de selección", "los coordinadores ZS"), pero no culpar ni señalar directamente a un individuo.
 4. Lenguaje profesional y directo. Sin rodeos ni eufemismos.
 5. Si usas información de los documentos base, cita la fuente al final del párrafo relevante con el formato exacto: (Fuente: Nombre del documento, pág. N)
 6. Si la pregunta no tiene relación con los documentos disponibles, responde con tu conocimiento general de RRHH e indica: "No encontré información específica sobre esto en los documentos disponibles."
 7. Responde siempre en español.`;
+}
 
 const SYSTEM_TASKS = `Eres un asistente especializado en gestión de tareas para Nexo.
 Analizas las tareas del usuario y das recomendaciones concretas de priorización, gestión del tiempo y productividad.
@@ -77,46 +82,82 @@ ${lines.join("\n\n")}`;
 async function buildTeamContext(userId: string, userRole: Role): Promise<string> {
   if (!canViewTeam(userRole)) return "";
 
+  console.log("[buildTeamContext] userRole:", userRole);
   const subordinateRoles = getSubordinateRoles(userRole);
+  console.log("[buildTeamContext] subordinateRoles:", subordinateRoles);
   if (subordinateRoles.length === 0) return "No hay subordinados asignados.";
 
   const today = new Date();
-  const members = await prisma.user.findMany({
-    where: { role: { in: subordinateRoles } },
-    select: {
-      name: true, role: true,
-      assignedTasks: {
-        select: {
-          status: true, priority: true,
-          estimatedHours: true, realHours: true,
-          endDate: true, progress: true,
-        },
-      },
-    },
-  });
 
-  const memberLines = members.map((m) => {
-    const tasks = m.assignedTasks;
+  // Fetch members without nested relation first to isolate query issues
+  let members: Array<{
+    id: string;
+    name: string;
+    role: Role;
+  }>;
+  try {
+    members = await prisma.user.findMany({
+      where: { role: { in: subordinateRoles } },
+      select: { id: true, name: true, role: true },
+    });
+    console.log("[buildTeamContext] miembros encontrados:", members.length);
+  } catch (err) {
+    console.error("[buildTeamContext] ERROR en consulta de usuarios:", err);
+    throw new Error(`Consulta de usuarios falló: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  if (members.length === 0) return "No hay miembros en el equipo con los roles subordinados.";
+
+  // Fetch tasks per member separately to avoid nested select issues
+  const memberLines: string[] = [];
+  for (const m of members) {
+    let tasks: Array<{
+      status: string;
+      estimatedHours: number;
+      realHours: number;
+      endDate: Date;
+      progress: number;
+    }>;
+    try {
+      tasks = await prisma.task.findMany({
+        where: { assignedToId: m.id },
+        select: {
+          status: true,
+          estimatedHours: true,
+          realHours: true,
+          endDate: true,
+          progress: true,
+        },
+      });
+    } catch (err) {
+      console.error(`[buildTeamContext] ERROR obteniendo tareas de ${m.name}:`, err);
+      tasks = [];
+    }
+
     const completed = tasks.filter((t) => t.status === "COMPLETADA").length;
     const inProgress = tasks.filter((t) => t.status === "EN_PROGRESO").length;
     const overdue = tasks.filter(
       (t) => t.status !== "COMPLETADA" && new Date(t.endDate) < today
     ).length;
     const pct = tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0;
-    const estH = round2(tasks.reduce((s, t) => s + t.estimatedHours, 0));
-    const realH = round2(tasks.reduce((s, t) => s + t.realHours, 0));
+    const estH = round2(tasks.reduce((s, t) => s + (t.estimatedHours ?? 0), 0));
+    const realH = round2(tasks.reduce((s, t) => s + (t.realHours ?? 0), 0));
     const carga = estH > 0 ? Math.round((realH / estH) * 100) : 0;
     const avgProg =
       inProgress > 0
         ? Math.round(
-            tasks.filter((t) => t.status === "EN_PROGRESO").reduce((s, t) => s + t.progress, 0) / inProgress
+            tasks
+              .filter((t) => t.status === "EN_PROGRESO")
+              .reduce((s, t) => s + (t.progress ?? 0), 0) / inProgress
           )
         : 0;
 
-    return `${m.name} (${ROLE_LABEL[m.role]}):
+    memberLines.push(
+      `${m.name} (${ROLE_LABEL[m.role] ?? m.role}):
   Tareas: ${tasks.length} total | ${completed} completadas (${pct}%) | ${inProgress} en curso | ${overdue} vencidas
-  Horas: ${estH}h estimadas / ${realH}h reales → Carga: ${carga}%${inProgress > 0 ? ` | Avance prom. en curso: ${avgProg}%` : ""}`;
-  });
+  Horas: ${estH}h estimadas / ${realH}h reales → Carga: ${carga}%${inProgress > 0 ? ` | Avance prom. en curso: ${avgProg}%` : ""}`
+    );
+  }
 
   return `EQUIPO A CARGO (rol del usuario: ${ROLE_LABEL[userRole]}):
 ${memberLines.join("\n\n")}`;
@@ -170,6 +211,7 @@ export async function POST(request: NextRequest) {
   }
 
   const apiKey = process.env.GROQ_API_KEY;
+  console.log("[assistant/chat] GROQ_API_KEY presente:", !!apiKey);
   if (!apiKey) {
     return NextResponse.json({ error: "GROQ_API_KEY no configurado" }, { status: 503 });
   }
@@ -186,42 +228,78 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Mensaje vacío" }, { status: 400 });
   }
 
+  console.log(`[assistant/chat] modo=${mode} userId=${session.userId} role=${session.role}`);
+
   // Build system prompt + context
   let systemContent = SYSTEM_GENERAL;
   let contextBlock = "";
   let sources: Array<{ title: string; fileName: string; pageNumber: number }> = [];
 
-  if (mode === "tasks") {
-    systemContent = SYSTEM_TASKS;
-    const taskCtx = await buildTaskContext(session.userId);
-    contextBlock = `\n\n${taskCtx}`;
-  } else if (mode === "hr") {
-    systemContent = SYSTEM_HR;
-    const teamCtx = await buildTeamContext(session.userId, session.role as Role);
-    const chunks = await findRelevantChunks(message);
+  try {
+    if (mode === "tasks") {
+      systemContent = SYSTEM_TASKS;
+      console.log("[assistant/chat] Construyendo contexto de tareas...");
+      const taskCtx = await buildTaskContext(session.userId);
+      contextBlock = `\n\n${taskCtx}`;
+      console.log("[assistant/chat] Contexto tareas OK, chars:", taskCtx.length);
+    } else if (mode === "hr") {
+      systemContent = buildSystemHR(session.name, session.role as Role);
 
-    let docBlock = "";
-    if (chunks.length > 0) {
-      sources = chunks.map((c) => ({
-        title: c.docTitle,
-        fileName: c.docFileName,
-        pageNumber: c.pageNumber,
-      }));
-      docBlock =
-        "DOCUMENTOS BASE RELEVANTES:\n" +
-        chunks
-          .map(
-            (c) =>
-              `[Fuente: "${c.docTitle}", pág. ${c.pageNumber}]\n${c.content}`
-          )
-          .join("\n\n") +
-        "\n\n---";
+      console.log("[assistant/chat] Construyendo contexto de equipo...");
+      let teamCtx = "";
+      try {
+        teamCtx = await buildTeamContext(session.userId, session.role as Role);
+        console.log("[assistant/chat] Contexto equipo OK, chars:", teamCtx.length);
+      } catch (teamErr) {
+        const msg = teamErr instanceof Error ? teamErr.message : String(teamErr);
+        console.error("[assistant/chat] ERROR en buildTeamContext:", msg);
+        teamCtx = `[No se pudo cargar el contexto del equipo: ${msg}]`;
+      }
+
+      console.log("[assistant/chat] Buscando chunks relevantes...");
+      let chunks: RelevantChunk[] = [];
+      try {
+        chunks = await findRelevantChunks(message);
+        console.log("[assistant/chat] Chunks encontrados:", chunks.length);
+      } catch (chunkErr) {
+        const msg = chunkErr instanceof Error ? chunkErr.message : String(chunkErr);
+        console.error("[assistant/chat] ERROR en findRelevantChunks:", msg);
+        // Non-fatal: proceed without document context
+      }
+
+      let docBlock = "";
+      if (chunks.length > 0) {
+        sources = chunks.map((c) => ({
+          title: c.docTitle,
+          fileName: c.docFileName,
+          pageNumber: c.pageNumber,
+        }));
+        docBlock =
+          "DOCUMENTOS BASE RELEVANTES:\n" +
+          chunks
+            .map(
+              (c) =>
+                `[Fuente: "${c.docTitle}", pág. ${c.pageNumber}]\n${c.content}`
+            )
+            .join("\n\n") +
+          "\n\n---";
+      }
+
+      contextBlock = `\n\n${docBlock}\n${teamCtx}`;
     }
-
-    contextBlock = `\n\n${docBlock}\n${teamCtx}`;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    const stack = err instanceof Error ? err.stack : undefined;
+    console.error("[assistant/chat] ERROR construyendo contexto:", msg);
+    if (stack) console.error(stack);
+    return NextResponse.json(
+      { error: `Error al preparar el contexto: ${msg}` },
+      { status: 500 }
+    );
   }
 
   const systemMessage = systemContent + contextBlock;
+  console.log("[assistant/chat] System message chars:", systemMessage.length, "| History messages:", history.length);
 
   const messages: Groq.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: systemMessage },
@@ -233,6 +311,7 @@ export async function POST(request: NextRequest) {
   ];
 
   try {
+    console.log("[assistant/chat] Llamando a Groq...");
     const client = new Groq({ apiKey });
     const response = await client.chat.completions.create({
       model: "llama-3.3-70b-versatile",
@@ -240,9 +319,18 @@ export async function POST(request: NextRequest) {
       messages,
     });
     const content = response.choices[0]?.message?.content ?? "";
+    console.log("[assistant/chat] Respuesta Groq OK, chars:", content.length);
     return NextResponse.json({ content, sources });
   } catch (err) {
-    console.error("Groq error:", err);
+    console.error("[assistant/chat] ERROR Groq:", err);
+    // Detectar error de límite de tokens
+    const errMsg = err instanceof Error ? err.message : String(err);
+    if (errMsg.includes("token") || errMsg.includes("limit") || errMsg.includes("context_length")) {
+      return NextResponse.json(
+        { error: "El contexto es demasiado extenso para el modelo. Intenta una pregunta más específica." },
+        { status: 422 }
+      );
+    }
     return NextResponse.json({ error: "Error al contactar al asistente IA" }, { status: 502 });
   }
 }
