@@ -66,11 +66,12 @@ model User {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
-  assignedTasks Task[]         @relation("AssignedTasks")
-  createdTasks  Task[]         @relation("CreatedTasks")
-  comments      Comment[]
-  activities    TaskActivity[]
-  notifications Notification[]
+  assignedTasks   Task[]          @relation("AssignedTasks")
+  createdTasks    Task[]          @relation("CreatedTasks")
+  comments        Comment[]
+  activities      TaskActivity[]
+  notifications   Notification[]
+  reports         MonthlyReport[] @relation("GeneratedReports")
 }
 
 model Task {
@@ -129,4 +130,23 @@ model TaskActivity {
   duration    Int
   description String?
   createdAt   DateTime       @default(now())
+}
+
+enum ReportScope {
+  JEFE
+  COORDINADOR
+}
+
+model MonthlyReport {
+  id          String      @id @default(cuid())
+  month       Int
+  year        Int
+  generatedBy String
+  generator   User        @relation("GeneratedReports", fields: [generatedBy], references: [id])
+  scope       ReportScope
+  data        Json
+  aiAnalysis  String?
+  createdAt   DateTime    @default(now())
+
+  @@unique([month, year, scope])
 }

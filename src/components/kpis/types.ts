@@ -1,5 +1,52 @@
 export type KpiColor = "green" | "yellow" | "red";
 
+export type ReportMemberKpi = {
+  id: string;
+  name: string;
+  role: string;
+  score: number;
+  completedPct: number;
+  cargaRatio: number;
+  totalTasks: number;
+  completedTasks: number;
+  overdueCount: number;
+  estimatedHours: number;
+  realHours: number;
+  seguimientoTotal: number;
+  byReason: Array<{ reason: string; count: number; totalMinutes: number }>;
+};
+
+export type ReportData = {
+  month: string;
+  scope: string;
+  teamSummary: {
+    avgCumplimiento: number;
+    totalEstimatedHours: number;
+    totalRealHours: number;
+    totalCompletedTasks: number;
+    totalConsultas: number;
+    totalTasks: number;
+  };
+  members: ReportMemberKpi[];
+  ranking: Array<{ id: string; name: string; role: string; score: number; completedPct: number }>;
+  consultasByReason: Array<{ reason: string; count: number; totalMinutes: number }>;
+  alerts: Array<{ userId: string; name: string; type: "cumplimiento" | "sobrecarga"; value: number }>;
+};
+
+export type MonthlyReportSummary = {
+  id: string;
+  month: number;
+  year: number;
+  scope: string;
+  generatedBy: string;
+  createdAt: string;
+};
+
+export type MonthlyReportFull = MonthlyReportSummary & {
+  data: ReportData;
+  aiAnalysis: string | null;
+};
+
 export type TeamMemberKpi = {
   id: string;
   name: string;

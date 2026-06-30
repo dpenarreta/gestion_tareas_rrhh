@@ -109,4 +109,10 @@ export function canViewTeam(role: Role): boolean {
   return ROLE_LEVEL[role] >= 2;
 }
 
+export const CAN_ACCESS_REPORTS: Role[] = ["JEFE_NACIONAL", "COORDINADOR_NACIONAL"];
+
+export function canAccessReports(role: Role): boolean {
+  return CAN_ACCESS_REPORTS.includes(role);
+}
+
 export const ALL_ROLES = Object.keys(ROLE_LABEL) as Role[];
