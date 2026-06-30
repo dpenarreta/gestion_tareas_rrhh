@@ -55,9 +55,10 @@ type Props = {
   task: Task;
   currentUserId: string;
   onClose: () => void;
+  readOnly?: boolean;
 };
 
-export default function ActivityPanel({ task, currentUserId, onClose }: Props) {
+export default function ActivityPanel({ task, currentUserId, onClose, readOnly = false }: Props) {
   const [activities, setActivities] = useState<TaskActivity[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -149,7 +150,7 @@ export default function ActivityPanel({ task, currentUserId, onClose }: Props) {
         <div className="p-4 border-b border-slate-200 flex items-center justify-between gap-2">
           <div className="min-w-0">
             <h3 className="font-semibold text-slate-900 text-sm truncate">{task.title}</h3>
-            <p className="text-xs text-slate-500">Registro de actividades</p>
+            <p className="text-xs text-slate-500">{readOnly ? "Actividades de seguimiento" : "Registro de actividades"}</p>
           </div>
           <button
             onClick={onClose}
@@ -230,7 +231,7 @@ export default function ActivityPanel({ task, currentUserId, onClose }: Props) {
         </div>
 
         {/* Add form */}
-        <div className="p-4 border-t border-slate-200 space-y-3">
+        {!readOnly && <div className="p-4 border-t border-slate-200 space-y-3">
           <p className="text-xs font-semibold text-slate-700">Agregar actividad</p>
 
           <div>
@@ -311,7 +312,7 @@ export default function ActivityPanel({ task, currentUserId, onClose }: Props) {
           >
             {submitting ? "Registrando…" : "Agregar actividad"}
           </button>
-        </div>
+        </div>}
       </aside>
     </>
   );

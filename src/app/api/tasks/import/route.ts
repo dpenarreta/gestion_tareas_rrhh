@@ -2,10 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import type { TaskPriority, TaskFrequency } from "@/generated/prisma/client";
+import type { TaskPriority, TaskFrequency, TaskType } from "@/generated/prisma/client";
 
 const VALID_PRIORITIES = ["ALTA", "MEDIA", "BAJA"];
 const VALID_FREQUENCIES = ["MENSUAL", "SEMANAL", "DIARIA", "QUINCENAL", "PUNTUAL"];
+const VALID_TYPES = ["FIJA", "SEGUIMIENTO"];
 
 function parseDate(value: unknown): Date | null {
   if (!value) return null;
@@ -42,8 +43,11 @@ export async function POST(request: NextRequest) {
 
   for (let i = 0; i < dataRows.length; i++) {
     const rowNum = i + 2;
-    const [title, description, priority, frequency, startDateRaw, endDateRaw, estimatedHoursRaw, assignedEmail] =
+    const [title, description, priority, frequency, startDateRaw, endDateRaw, estimatedHoursRaw, assignedEmail, typeRaw] =
       dataRows[i] as string[];
+
+    const typeNorm = String(typeRaw ?? "").trim().toUpperCase();
+    const taskType: TaskType = VALID_TYPES.includes(typeNorm) ? (typeNorm as TaskType) : "FIJA";
 
     if (!title?.trim()) {
       errors.push({ row: rowNum, error: "Título requerido" });
@@ -98,6 +102,7 @@ export async function POST(request: NextRequest) {
           estimatedHours,
           assignedToId,
           createdById: session.userId,
+          type: taskType,
         },
       });
       imported++;

@@ -5,6 +5,7 @@ import type { Role } from "@/generated/prisma/client";
 import { ROLE_LABEL } from "@/lib/roles";
 import type { Task } from "@/components/tasks/types";
 import CommentPanel from "@/components/tasks/CommentPanel";
+import ActivityPanel from "@/components/tasks/ActivityPanel";
 import TaskFormModal from "@/components/tasks/TaskFormModal";
 
 // ─── types ────────────────────────────────────────────────────────────────────
@@ -143,11 +144,13 @@ function MemberTasksTable({
   currentUserId,
   onStatusChange,
   onCommentClick,
+  onActivityClick,
 }: {
   tasks: Task[];
   currentUserId: string;
   onStatusChange: (id: string, status: Task["status"]) => void;
   onCommentClick: (task: Task) => void;
+  onActivityClick: (task: Task) => void;
 }) {
   if (tasks.length === 0) {
     return (
@@ -227,15 +230,28 @@ function MemberTasksTable({
                 </div>
               </td>
               <td className="px-3 py-3 text-center">
-                <button
-                  onClick={() => onCommentClick(task)}
-                  className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-indigo-600 transition-colors"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                  </svg>
-                  {task._count.comments}
-                </button>
+                <div className="inline-flex items-center gap-2">
+                  {task.type === "SEGUIMIENTO" && (
+                    <button
+                      onClick={() => onActivityClick(task)}
+                      className="text-slate-400 hover:text-violet-600 transition-colors"
+                      title="Ver actividades"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                    </button>
+                  )}
+                  <button
+                    onClick={() => onCommentClick(task)}
+                    className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-indigo-600 transition-colors"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+                    </svg>
+                    {task._count.comments}
+                  </button>
+                </div>
               </td>
             </tr>
           ))}
@@ -261,6 +277,7 @@ export default function TeamModule({ currentUserId, currentUserRole: _role }: Pr
   const [memberTasksLoading, setMemberTasksLoading] = useState(false);
 
   const [commentTask, setCommentTask] = useState<Task | null>(null);
+  const [activityTask, setActivityTask] = useState<Task | null>(null);
 
   // assign modal
   const [showAssignModal, setShowAssignModal] = useState(false);
@@ -439,6 +456,7 @@ export default function TeamModule({ currentUserId, currentUserRole: _role }: Pr
               currentUserId={currentUserId}
               onStatusChange={handleStatusChange}
               onCommentClick={setCommentTask}
+              onActivityClick={setActivityTask}
             />
           )}
         </div>
@@ -451,6 +469,16 @@ export default function TeamModule({ currentUserId, currentUserRole: _role }: Pr
           currentUserId={currentUserId}
           onClose={() => setCommentTask(null)}
           onCommentAdded={() => handleCommentAdded(commentTask.id)}
+        />
+      )}
+
+      {/* ── Activity panel (read-only for superiors) ──────────────────────── */}
+      {activityTask && (
+        <ActivityPanel
+          task={activityTask}
+          currentUserId={currentUserId}
+          onClose={() => setActivityTask(null)}
+          readOnly
         />
       )}
 

@@ -19,6 +19,7 @@ export async function GET() {
       "Fecha Fin",
       "Horas Estimadas",
       "Asignado a (email)",
+      "Tipo",
     ],
     [
       "Ejemplo: Informe mensual",
@@ -29,6 +30,7 @@ export async function GET() {
       "31/07/2026",
       "8",
       "usuario@nexo.com",
+      "FIJA",
     ],
   ];
 
@@ -42,6 +44,7 @@ export async function GET() {
     { wch: 18 },
     { wch: 18 },
     { wch: 30 },
+    { wch: 15 },
   ];
   XLSX.utils.book_append_sheet(wb, ws, "Tareas");
 

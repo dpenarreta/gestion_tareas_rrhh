@@ -1,7 +1,9 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useMemo } from "react";
 import type { Task, AssignableUser } from "./types";
+
+type SortKey = "title" | "frequency" | "status" | "priority" | "startDate" | "endDate" | "estimatedHours" | "realHours" | "progress";
 import CommentPanel from "./CommentPanel";
 import ActivityPanel from "./ActivityPanel";
 
@@ -125,6 +127,45 @@ export default function TableView({
   const [commentTask, setCommentTask] = useState<Task | null>(null);
   const [activityTask, setActivityTask] = useState<Task | null>(null);
   const [importing, setImporting] = useState(false);
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+
+  function handleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  }
+
+  const sortedTasks = useMemo(() => {
+    if (!sortKey) return tasks;
+    const PRIORITY_ORDER: Record<string, number> = { ALTA: 0, MEDIA: 1, BAJA: 2 };
+    return [...tasks].sort((a, b) => {
+      let av: string | number = "";
+      let bv: string | number = "";
+      switch (sortKey) {
+        case "title": av = a.title.toLowerCase(); bv = b.title.toLowerCase(); break;
+        case "frequency": av = a.frequency; bv = b.frequency; break;
+        case "status": av = a.status; bv = b.status; break;
+        case "priority": av = PRIORITY_ORDER[a.priority] ?? 9; bv = PRIORITY_ORDER[b.priority] ?? 9; break;
+        case "startDate": av = a.startDate; bv = b.startDate; break;
+        case "endDate": av = a.endDate; bv = b.endDate; break;
+        case "estimatedHours": av = a.estimatedHours; bv = b.estimatedHours; break;
+        case "realHours": av = a.realHours; bv = b.realHours; break;
+        case "progress": av = a.progress; bv = b.progress; break;
+      }
+      if (av < bv) return sortDir === "asc" ? -1 : 1;
+      if (av > bv) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+  }, [tasks, sortKey, sortDir]);
+
+  function SortIcon({ col }: { col: SortKey }) {
+    if (sortKey !== col) return null;
+    return <span className="ml-1 text-indigo-500">{sortDir === "asc" ? "▲" : "▼"}</span>;
+  }
   const [importResult, setImportResult] = useState<{ imported: number; errors: { row: number; error: string }[] } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -214,15 +255,15 @@ export default function TableView({
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50">
-              <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Título</th>
-              <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Frecuencia</th>
-              <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Estado</th>
-              <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Prioridad</th>
-              <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Inicio</th>
-              <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Fin</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">H. Est.</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">H. Reales</th>
-              <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Avance</th>
+              <th onDoubleClick={() => handleSort("title")} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer select-none hover:text-slate-700" title="Doble clic para ordenar">Título<SortIcon col="title" /></th>
+              <th onDoubleClick={() => handleSort("frequency")} className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer select-none hover:text-slate-700" title="Doble clic para ordenar">Frecuencia<SortIcon col="frequency" /></th>
+              <th onDoubleClick={() => handleSort("status")} className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer select-none hover:text-slate-700" title="Doble clic para ordenar">Estado<SortIcon col="status" /></th>
+              <th onDoubleClick={() => handleSort("priority")} className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer select-none hover:text-slate-700" title="Doble clic para ordenar">Prioridad<SortIcon col="priority" /></th>
+              <th onDoubleClick={() => handleSort("startDate")} className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer select-none hover:text-slate-700" title="Doble clic para ordenar">Inicio<SortIcon col="startDate" /></th>
+              <th onDoubleClick={() => handleSort("endDate")} className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer select-none hover:text-slate-700" title="Doble clic para ordenar">Fin<SortIcon col="endDate" /></th>
+              <th onDoubleClick={() => handleSort("estimatedHours")} className="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer select-none hover:text-slate-700" title="Doble clic para ordenar">H. Est.<SortIcon col="estimatedHours" /></th>
+              <th onDoubleClick={() => handleSort("realHours")} className="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer select-none hover:text-slate-700" title="Doble clic para ordenar">H. Reales<SortIcon col="realHours" /></th>
+              <th onDoubleClick={() => handleSort("progress")} className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer select-none hover:text-slate-700" title="Doble clic para ordenar">Avance<SortIcon col="progress" /></th>
               <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Coment.</th>
               <th className="px-3 py-3" />
             </tr>
@@ -235,7 +276,7 @@ export default function TableView({
                 </td>
               </tr>
             )}
-            {tasks.map((task) => {
+            {sortedTasks.map((task) => {
               const isOwner = task.assignedTo.id === currentUserId;
               return (
                 <tr key={task.id} className="hover:bg-slate-50 transition-colors group">
