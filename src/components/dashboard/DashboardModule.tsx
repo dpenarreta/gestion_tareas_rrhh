@@ -630,30 +630,56 @@ export default function DashboardModule({
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
   );
 
-  const fetchData = useCallback(async () => {
-    const res = await fetch("/api/dashboard");
-    if (res.ok) {
-      const d: DashboardData = await res.json();
-      setData(d);
+  const emptyData: DashboardData = {
+    workloadPct: 0, completedPct: 0, overdue: 0,
+    priorityTasks: [], stats: {
+      today: { pending: 0, inProgress: 0, completed: 0 },
+      week: { pending: 0, inProgress: 0, completed: 0 },
+      month: { pending: 0, inProgress: 0, completed: 0 },
+    },
+    areaActivity: [], teamAlerts: 0, announcements: [],
+    lastLoginAt: null, badges: [], upcomingMeetings: [],
+  };
 
-      // Fetch Nova message with dashboard context
-      setNovaLoading(true);
-      fetch("/api/dashboard/nova-message", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          usuario: userName,
-          rol: ROLE_LABEL[userRole],
-          cargaLaboral: d.workloadPct,
-          tareasVencidas: d.overdue,
-          cumplimientoMes: d.completedPct,
-          reunionesHoy: 0,
-        }),
-      })
-        .then((r) => r.json())
-        .then((n) => setNovaMessage(n.message))
-        .finally(() => setNovaLoading(false));
+  const fetchData = useCallback(async () => {
+    try {
+      const res = await fetch("/api/dashboard");
+      if (res.ok) {
+        const d: DashboardData = await res.json();
+        setData(d);
+
+        // Fetch Nova message (non-blocking — failures don't affect the rest)
+        const NOVA_FALLBACK = "Bienvenido a Nexo. Revisa tus tareas pendientes para comenzar el día.";
+        setNovaLoading(true);
+        fetch("/api/dashboard/nova-message", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            usuario: userName,
+            rol: ROLE_LABEL[userRole],
+            cargaLaboral: d.workloadPct,
+            tareasVencidas: d.overdue,
+            cumplimientoMes: d.completedPct,
+            reunionesHoy: d.upcomingMeetings.filter((m) => {
+              const date = new Date(m.meetingDate);
+              const today = new Date();
+              return date.toDateString() === today.toDateString();
+            }).length,
+          }),
+        })
+          .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${r.status}`))))
+          .then((n) => setNovaMessage(n.message || NOVA_FALLBACK))
+          .catch(() => setNovaMessage(NOVA_FALLBACK))
+          .finally(() => setNovaLoading(false));
+      } else {
+        setData(emptyData);
+        setNovaLoading(false);
+      }
+    } catch {
+      setData(emptyData);
+      setNovaLoading(false);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [userName, userRole]);
 
   useEffect(() => {
@@ -804,6 +830,7 @@ export default function DashboardModule({
         <MeetingFormModalDashboard
           onClose={() => setShowMeetingModal(false)}
           onSaved={() => { setShowMeetingModal(false); fetchData(); }}
+          currentUserId={userId}
         />
       )}
     </div>

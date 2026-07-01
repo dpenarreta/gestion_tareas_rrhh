@@ -38,7 +38,7 @@ export async function POST(request: NextRequest) {
     });
 
     const message =
-      completion.choices[0]?.message?.content?.trim() ??
+      completion.choices[0]?.message?.content?.trim() ||
       "Revisa tus tareas pendientes y mantén el enfoque en tus prioridades del día.";
 
     cache.set(session.userId, { message, expiresAt: Date.now() + CACHE_TTL_MS });

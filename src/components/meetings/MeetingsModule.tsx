@@ -102,24 +102,28 @@ function Avatar({ name, size = "sm" }: { name: string; size?: "sm" | "md" }) {
 function MeetingFormModal({
   onClose,
   onSaved,
+  currentUserId,
 }: {
   onClose: () => void;
   onSaved: (m: Meeting) => void;
+  currentUserId: string;
 }) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [date, setDate] = useState("");
   const [time, setTime] = useState("09:00");
-  const [duration, setDuration] = useState(60);
+  const [duration, setDuration] = useState(40);
   const [users, setUsers] = useState<AssignableUser[]>([]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetch("/api/users/assignable").then((r) => r.json()).then(setUsers);
-    // Default date = today
+    fetch("/api/users/assignable")
+      .then((r) => r.json())
+      .then((all: AssignableUser[]) => setUsers(all.filter((u) => u.id !== currentUserId)));
     setDate(new Date().toISOString().slice(0, 10));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function toggleUser(id: string) {
@@ -188,13 +192,17 @@ function MeetingFormModal({
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1.5">Duración</label>
             <div className="flex gap-2">
-              {[30, 60, 90, 120].map((d) => (
-                <button key={d} type="button" onClick={() => setDuration(d)}
-                  className={`flex-1 py-2 text-xs font-medium rounded-xl border transition-colors ${duration === d ? "bg-indigo-600 text-white border-indigo-600" : "text-slate-600 border-slate-200 hover:border-slate-300"}`}>
-                  {fmtDuration(d)}
+              {([
+                { value: 30, label: "30 min" },
+                { value: 40, label: "40 min (máx. recomendado)" },
+              ] as { value: number; label: string }[]).map(({ value, label }) => (
+                <button key={value} type="button" onClick={() => setDuration(value)}
+                  className={`flex-1 py-2 text-xs font-medium rounded-xl border transition-colors ${duration === value ? "bg-indigo-600 text-white border-indigo-600" : "text-slate-600 border-slate-200 hover:border-slate-300"}`}>
+                  {label}
                 </button>
               ))}
             </div>
+            <p className="mt-1.5 text-[11px] text-amber-600">⚠️ Plan Zoom gratuito: máximo 40 minutos con más de 2 participantes</p>
           </div>
 
           <div>
@@ -663,7 +671,7 @@ export default function MeetingsModule({
         </div>
       )}
 
-      {showForm && <MeetingFormModal onClose={() => setShowForm(false)} onSaved={handleSaved} />}
+      {showForm && <MeetingFormModal onClose={() => setShowForm(false)} onSaved={handleSaved} currentUserId={currentUserId} />}
       {selected && (
         <MeetingDetailModal
           meeting={selected}

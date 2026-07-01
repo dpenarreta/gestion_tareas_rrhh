@@ -50,6 +50,8 @@ export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
+  try {
+
   const now = new Date();
   const { start: monthStart, end: monthEnd } = monthBounds(now);
   const { start: todayStart, end: todayEnd } = dayBounds(now);
@@ -246,4 +248,8 @@ export async function GET() {
       hostName: m.host.name,
     })),
   });
+  } catch (err) {
+    console.error("[GET /api/dashboard]", err);
+    return NextResponse.json({ error: "Error al cargar el dashboard" }, { status: 500 });
+  }
 }

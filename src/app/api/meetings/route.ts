@@ -53,43 +53,51 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Sin permisos para crear reuniones" }, { status: 403 });
   }
 
-  const { title, description, meetingDate, duration, inviteeIds } = await request.json();
-  if (!title?.trim() || !meetingDate || !duration) {
-    return NextResponse.json({ error: "Faltan campos requeridos" }, { status: 400 });
-  }
+  try {
+    const body = await request.json().catch(() => null);
+    if (!body) return NextResponse.json({ error: "Cuerpo de solicitud inválido" }, { status: 400 });
 
-  const zoomId = String(Math.floor(Math.random() * 9_000_000_000) + 1_000_000_000);
-  const zoomJoinUrl = `https://zoom.us/j/${zoomId}`;
-  const zoomPassword = Math.random().toString(36).slice(2, 8).toUpperCase();
+    const { title, description, meetingDate, duration, inviteeIds } = body;
+    if (!title?.trim() || !meetingDate || !duration) {
+      return NextResponse.json({ error: "Faltan campos requeridos" }, { status: 400 });
+    }
 
-  const ids: string[] = Array.isArray(inviteeIds)
-    ? inviteeIds.filter((id: string) => id !== session.userId)
-    : [];
+    const zoomId = String(Math.floor(Math.random() * 9_000_000_000) + 1_000_000_000);
+    const zoomJoinUrl = `https://zoom.us/j/${zoomId}`;
+    const zoomPassword = Math.random().toString(36).slice(2, 8).toUpperCase();
 
-  const meeting = await prisma.meeting.create({
-    data: {
-      title: title.trim(),
-      description: description?.trim() || null,
-      hostId: session.userId,
-      meetingDate: new Date(meetingDate),
-      duration: Number(duration),
-      zoomMeetingId: zoomId,
-      zoomJoinUrl,
-      zoomPassword,
-      invitees: ids.length > 0 ? { create: ids.map((userId) => ({ userId })) } : undefined,
-    },
-    include: meetingInclude,
-  });
+    const ids: string[] = Array.isArray(inviteeIds)
+      ? inviteeIds.filter((id: string) => id !== session.userId)
+      : [];
 
-  if (ids.length > 0) {
-    await prisma.notification.createMany({
-      data: ids.map((userId) => ({
-        userId,
-        message: `Te invitaron a la reunión "${meeting.title}"`,
-        taskTitle: meeting.title,
-      })),
+    const meeting = await prisma.meeting.create({
+      data: {
+        title: title.trim(),
+        description: description?.trim() || null,
+        hostId: session.userId,
+        meetingDate: new Date(meetingDate),
+        duration: Number(duration),
+        zoomMeetingId: zoomId,
+        zoomJoinUrl,
+        zoomPassword,
+        invitees: ids.length > 0 ? { create: ids.map((userId) => ({ userId })) } : undefined,
+      },
+      include: meetingInclude,
     });
-  }
 
-  return NextResponse.json(serialize(meeting), { status: 201 });
+    if (ids.length > 0) {
+      await prisma.notification.createMany({
+        data: ids.map((userId) => ({
+          userId,
+          message: `Te invitaron a la reunión "${meeting.title}"`,
+          taskTitle: meeting.title,
+        })),
+      });
+    }
+
+    return NextResponse.json(serialize(meeting), { status: 201 });
+  } catch (err) {
+    console.error("[POST /api/meetings]", err);
+    return NextResponse.json({ error: "Error al crear la reunión" }, { status: 500 });
+  }
 }
