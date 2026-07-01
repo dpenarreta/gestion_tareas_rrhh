@@ -17,9 +17,10 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { Role } from "@/generated/prisma/client";
-import { ROLE_LABEL } from "@/lib/roles";
+import { ROLE_LABEL, canCreateMeetings } from "@/lib/roles";
 import TaskFormModal from "@/components/tasks/TaskFormModal";
 import type { AssignableUser } from "@/components/tasks/types";
+import MeetingFormModalDashboard from "@/components/meetings/MeetingFormModalDashboard";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -45,6 +46,15 @@ type Announcement = {
   authorName: string;
 };
 
+type UpcomingMeeting = {
+  id: string;
+  title: string;
+  meetingDate: string;
+  duration: number;
+  status: string;
+  hostName: string;
+};
+
 type DashboardData = {
   workloadPct: number;
   completedPct: number;
@@ -56,6 +66,7 @@ type DashboardData = {
   announcements: Announcement[];
   lastLoginAt: string | null;
   badges: string[];
+  upcomingMeetings: UpcomingMeeting[];
 };
 
 type Props = {
@@ -257,21 +268,63 @@ function PrioridadesCard({ tasks }: { tasks: PriorityTask[] }) {
   );
 }
 
-function AgendaCard() {
+function AgendaCard({
+  meetings,
+  canCreate,
+  onNewMeeting,
+}: {
+  meetings: UpcomingMeeting[];
+  canCreate: boolean;
+  onNewMeeting: () => void;
+}) {
+  function fmtTime(iso: string) {
+    return new Date(iso).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" });
+  }
+  function fmtDateShort(iso: string) {
+    return new Date(iso).toLocaleDateString("es-CL", { weekday: "short", day: "numeric", month: "short" });
+  }
+  function fmtDur(min: number) {
+    return min < 60 ? `${min}min` : `${Math.floor(min / 60)}h${min % 60 > 0 ? `${min % 60}min` : ""}`;
+  }
+
   return (
     <Card>
       <CardTitle>Agenda</CardTitle>
-      <div className="text-center py-8">
-        <p className="text-3xl mb-3">📅</p>
-        <p className="text-sm text-slate-500 mb-1">Sin reuniones próximas</p>
-        <p className="text-xs text-slate-400">Integración con Zoom disponible próximamente</p>
-      </div>
-      <button
-        onClick={() => alert("Próximamente")}
-        className="w-full mt-2 text-xs font-medium text-slate-500 border border-slate-200 rounded-xl py-2 hover:bg-slate-50 transition-colors"
-      >
-        + Nueva reunión · Próximamente
-      </button>
+      {meetings.length === 0 ? (
+        <div className="text-center py-6">
+          <p className="text-2xl mb-2">📅</p>
+          <p className="text-sm text-slate-500">Sin reuniones próximas</p>
+        </div>
+      ) : (
+        <ul className="space-y-2 mb-3">
+          {meetings.map((m) => (
+            <li key={m.id}>
+              <a href="/meetings" className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 transition-colors">
+                <div className="w-10 text-center shrink-0">
+                  <p className="text-xs font-bold text-indigo-600">{fmtTime(m.meetingDate)}</p>
+                  <p className="text-[10px] text-slate-400">{fmtDur(m.duration)}</p>
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-800 truncate">{m.title}</p>
+                  <p className="text-xs text-slate-400">{fmtDateShort(m.meetingDate)} · {m.hostName}</p>
+                </div>
+              </a>
+            </li>
+          ))}
+        </ul>
+      )}
+      {canCreate ? (
+        <button
+          onClick={onNewMeeting}
+          className="w-full text-xs font-medium text-indigo-600 border border-indigo-200 rounded-xl py-2 hover:bg-indigo-50 transition-colors"
+        >
+          + Nueva reunión
+        </button>
+      ) : (
+        <a href="/meetings" className="block text-center text-xs font-medium text-indigo-600 hover:text-indigo-800 py-2 rounded-xl hover:bg-indigo-50 transition-colors">
+          Ver todas las reuniones →
+        </a>
+      )}
     </Card>
   );
 }
@@ -438,12 +491,24 @@ function ComunicadosCard({
   );
 }
 
-function AccionesRapidasCard({ onNewTask }: { onNewTask: () => Promise<void> }) {
+function AccionesRapidasCard({
+  onNewTask,
+  onNewMeeting,
+  canCreateMeeting,
+}: {
+  onNewTask: () => Promise<void>;
+  onNewMeeting: () => void;
+  canCreateMeeting: boolean;
+}) {
   const actions = [
     { icon: "📋", label: "Nueva tarea", onClick: onNewTask },
     { icon: "🤖", label: "Consultar Nova", onClick: () => (window.location.href = "/assistant") },
     { icon: "💡", label: "Nueva idea", onClick: () => alert("Próximamente: Laboratorio de ideas") },
-    { icon: "📅", label: "Nueva reunión", onClick: () => alert("Próximamente: Reuniones Zoom") },
+    {
+      icon: "📅",
+      label: canCreateMeeting ? "Nueva reunión" : "Ver reuniones",
+      onClick: canCreateMeeting ? onNewMeeting : () => (window.location.href = "/meetings"),
+    },
   ];
 
   return (
@@ -558,6 +623,7 @@ export default function DashboardModule({
   const [novaLoading, setNovaLoading] = useState(true);
   const [cardOrder, setCardOrder] = useState<string[]>(initialCardOrder);
   const [showTaskModal, setShowTaskModal] = useState(false);
+  const [showMeetingModal, setShowMeetingModal] = useState(false);
   const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
 
   const sensors = useSensors(
@@ -660,7 +726,13 @@ export default function DashboardModule({
       case "prioridades":
         return <PrioridadesCard tasks={data.priorityTasks} />;
       case "agenda":
-        return <AgendaCard />;
+        return (
+          <AgendaCard
+            meetings={data.upcomingMeetings}
+            canCreate={canCreateMeetings(userRole)}
+            onNewMeeting={() => setShowMeetingModal(true)}
+          />
+        );
       case "actividad":
         return <ActividadAreaCard events={data.areaActivity} lastLoginAt={data.lastLoginAt} />;
       case "comunicados":
@@ -675,6 +747,8 @@ export default function DashboardModule({
       case "acciones":
         return (
           <AccionesRapidasCard
+            canCreateMeeting={canCreateMeetings(userRole)}
+            onNewMeeting={() => setShowMeetingModal(true)}
             onNewTask={async () => {
               if (assignableUsers.length === 0) {
                 const res = await fetch("/api/users/assignable");
@@ -724,6 +798,12 @@ export default function DashboardModule({
           currentUserId={userId}
           onClose={() => setShowTaskModal(false)}
           onSave={() => { setShowTaskModal(false); fetchData(); }}
+        />
+      )}
+      {showMeetingModal && (
+        <MeetingFormModalDashboard
+          onClose={() => setShowMeetingModal(false)}
+          onSaved={() => { setShowMeetingModal(false); fetchData(); }}
         />
       )}
     </div>

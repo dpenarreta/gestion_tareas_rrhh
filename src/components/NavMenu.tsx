@@ -15,12 +15,14 @@ export default function NavMenu({ role }: Props) {
     ? [
         { href: "/dashboard", label: "Inicio" },
         { href: "/tasks", label: "Tareas" },
+        { href: "/meetings", label: "Reuniones" },
         { href: "/my-kpis", label: "Mi actividad" },
         { href: "/assistant", label: "Asistente" },
       ]
     : [
         { href: "/dashboard", label: "Inicio" },
         { href: "/tasks", label: "Tareas" },
+        { href: "/meetings", label: "Reuniones" },
         { href: "/team", label: "Equipo" },
         { href: "/kpis", label: "Analytics" },
         { href: "/assistant", label: "Asistente" },

@@ -197,6 +197,27 @@ export async function GET() {
     orderBy: [{ pinned: "desc" }, { createdAt: "desc" }],
   });
 
+  // Upcoming meetings (next 5)
+  const upcomingMeetings = await prisma.meeting.findMany({
+    where: {
+      meetingDate: { gte: now_ },
+      OR: [
+        { hostId: session.userId },
+        { invitees: { some: { userId: session.userId } } },
+      ],
+    },
+    orderBy: { meetingDate: "asc" },
+    take: 5,
+    select: {
+      id: true,
+      title: true,
+      meetingDate: true,
+      duration: true,
+      status: true,
+      host: { select: { name: true } },
+    },
+  });
+
   return NextResponse.json({
     workloadPct,
     completedPct,
@@ -216,5 +237,13 @@ export async function GET() {
     })),
     lastLoginAt: user?.lastLoginAt?.toISOString() ?? null,
     badges: user?.badges ?? [],
+    upcomingMeetings: upcomingMeetings.map((m: { id: string; title: string; meetingDate: Date; duration: number; status: string; host: { name: string } }) => ({
+      id: m.id,
+      title: m.title,
+      meetingDate: m.meetingDate.toISOString(),
+      duration: m.duration,
+      status: m.status,
+      hostName: m.host.name,
+    })),
   });
 }

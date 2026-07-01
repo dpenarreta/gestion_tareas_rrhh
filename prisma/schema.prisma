@@ -76,6 +76,8 @@ model User {
   reports            MonthlyReport[]     @relation("GeneratedReports")
   knowledgeDocs      KnowledgeDocument[]
   announcements      Announcement[]      @relation("AnnouncementAuthor")
+  hostedMeetings     Meeting[]           @relation("HostedMeetings")
+  meetingInvites     MeetingInvitee[]    @relation("MeetingInvitations")
 }
 
 model Announcement {
@@ -184,4 +186,41 @@ model DocumentChunk {
   embedding   Json
   pageNumber  Int
   chunkIndex  Int
+}
+
+enum MeetingStatus {
+  PROGRAMADA
+  EN_CURSO
+  FINALIZADA
+}
+
+model Meeting {
+  id                 String        @id @default(cuid())
+  title              String
+  description        String?
+  hostId             String
+  host               User          @relation("HostedMeetings", fields: [hostId], references: [id])
+  meetingDate        DateTime
+  duration           Int
+  zoomMeetingId      String?
+  zoomJoinUrl        String?
+  zoomPassword       String?
+  status             MeetingStatus @default(PROGRAMADA)
+  otterInvited       Boolean       @default(false)
+  otterSummary       String?
+  otterTranscriptUrl String?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  invitees           MeetingInvitee[]
+}
+
+model MeetingInvitee {
+  id        String  @id @default(cuid())
+  meetingId String
+  meeting   Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User    @relation("MeetingInvitations", fields: [userId], references: [id])
+  attended  Boolean @default(false)
+
+  @@unique([meetingId, userId])
 }
