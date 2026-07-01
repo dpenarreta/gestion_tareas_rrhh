@@ -17,7 +17,7 @@ export default function NavMenu({ role }: Props) {
         { href: "/tasks", label: "Tareas" },
         { href: "/meetings", label: "Reuniones" },
         { href: "/my-kpis", label: "Mi actividad" },
-        { href: "/assistant", label: "Asistente" },
+        { href: "/assistant", label: "Nova" },
       ]
     : [
         { href: "/dashboard", label: "Inicio" },
@@ -25,7 +25,7 @@ export default function NavMenu({ role }: Props) {
         { href: "/meetings", label: "Reuniones" },
         { href: "/team", label: "Equipo" },
         { href: "/kpis", label: "Analytics" },
-        { href: "/assistant", label: "Asistente" },
+        { href: "/assistant", label: "Nova" },
         ...(canManageUsers(role) ? [{ href: "/admin/users", label: "Usuarios" }] : []),
       ];
 
