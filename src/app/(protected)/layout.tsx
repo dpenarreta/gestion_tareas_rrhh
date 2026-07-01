@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { ROLE_LABEL } from "@/lib/roles";
@@ -22,10 +23,10 @@ export default async function ProtectedLayout({
           </div>
           <div className="flex items-center gap-2">
             <NotificationBell />
-            <div className="text-right hidden sm:block">
+            <Link href="/profile" className="text-right hidden sm:block hover:opacity-80 transition-opacity">
               <p className="text-sm font-medium text-slate-800">{session.name}</p>
               <p className="text-xs text-slate-500">{ROLE_LABEL[session.role]}</p>
-            </div>
+            </Link>
             <LogoutButton />
           </div>
         </div>

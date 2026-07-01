@@ -57,14 +57,16 @@ enum ActivityReason {
 }
 
 model User {
-  id              String   @id @default(cuid())
-  email           String   @unique
+  id              String    @id @default(cuid())
+  email           String    @unique
   name            String
   password        String
   role            Role
-  viewPreferences String[] @default(["KANBAN", "TABLA"])
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  viewPreferences String[]  @default(["KANBAN", "TABLA"])
+  lastLoginAt     DateTime?
+  badges          String[]  @default([])
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
   assignedTasks      Task[]              @relation("AssignedTasks")
   createdTasks       Task[]              @relation("CreatedTasks")
@@ -73,6 +75,18 @@ model User {
   notifications      Notification[]
   reports            MonthlyReport[]     @relation("GeneratedReports")
   knowledgeDocs      KnowledgeDocument[]
+  announcements      Announcement[]      @relation("AnnouncementAuthor")
+}
+
+model Announcement {
+  id        String   @id @default(cuid())
+  title     String
+  content   String
+  authorId  String
+  author    User     @relation("AnnouncementAuthor", fields: [authorId], references: [id])
+  expiresAt DateTime
+  pinned    Boolean  @default(false)
+  createdAt DateTime @default(now())
 }
 
 model Task {

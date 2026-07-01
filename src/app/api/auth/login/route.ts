@@ -30,6 +30,11 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { lastLoginAt: new Date() },
+    });
+
     await createSession(
       { userId: user.id, role: user.role, name: user.name, email: user.email },
       Boolean(rememberMe)

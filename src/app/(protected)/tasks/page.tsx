@@ -54,12 +54,17 @@ export default async function TasksPage() {
     updatedAt: t.updatedAt.toISOString(),
   }));
 
+  const VALID_VIEWS: ViewType[] = ["KANBAN", "TABLA", "GANTT"];
+  const taskViews = (user?.viewPreferences ?? ["KANBAN", "TABLA"]).filter((v) =>
+    VALID_VIEWS.includes(v as ViewType)
+  ) as ViewType[];
+
   return (
     <div>
       <h1 className="text-2xl font-bold text-slate-900 mb-6">Tareas</h1>
       <TasksModule
         initialTasks={serializedTasks}
-        initialViews={(user?.viewPreferences ?? ["KANBAN", "TABLA"]) as ViewType[]}
+        initialViews={taskViews.length > 0 ? taskViews : ["KANBAN", "TABLA"]}
         initialUsers={assignableUsers}
         currentUserId={session.userId}
       />

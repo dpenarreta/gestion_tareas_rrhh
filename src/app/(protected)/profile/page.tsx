@@ -12,6 +12,21 @@ type UserInfo = {
   createdAt: string;
 };
 
+type Badge = {
+  id: string;
+  icon: string;
+  name: string;
+  description: string;
+  earned: boolean;
+};
+
+type BadgeStats = {
+  totalCompleted: number;
+  totalComments: number;
+  currentStreak: number;
+  earnedCount: number;
+};
+
 const AVATAR_COLORS = [
   "from-indigo-500 to-violet-500",
   "from-sky-500 to-indigo-500",
@@ -43,6 +58,8 @@ function formatDate(iso: string) {
 
 export default function ProfilePage() {
   const [user, setUser] = useState<UserInfo | null>(null);
+  const [badges, setBadges] = useState<Badge[]>([]);
+  const [badgeStats, setBadgeStats] = useState<BadgeStats | null>(null);
 
   // Personal info edit state
   const [editing, setEditing] = useState(false);
@@ -67,6 +84,13 @@ export default function ProfilePage() {
         setUser(data);
         setNameInput(data.name);
         setEmailInput(data.email);
+      });
+
+    fetch("/api/profile/badges")
+      .then((r) => r.json())
+      .then(({ badges: b, stats }) => {
+        setBadges(b);
+        setBadgeStats(stats);
       });
   }, []);
 
@@ -266,6 +290,45 @@ export default function ProfilePage() {
         )}
       </div>
 
+      {/* Reconocimientos */}
+      {badges.length > 0 && (
+        <div className="bg-white rounded-2xl border border-slate-200 p-6">
+          <h2 className="font-semibold text-slate-900 mb-1">Reconocimientos</h2>
+          <p className="text-xs text-slate-400 mb-5">Insignias obtenidas automáticamente según tu actividad</p>
+
+          {badgeStats && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+              <StatChip label="Tareas completadas" value={badgeStats.totalCompleted} />
+              <StatChip label="Comentarios" value={badgeStats.totalComments} />
+              <StatChip label="Racha actual" value={`${badgeStats.currentStreak} días`} />
+              <StatChip label="Insignias" value={`${badgeStats.earnedCount} / 6`} />
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+            {badges.map((b) => (
+              <div
+                key={b.id}
+                className={`p-4 rounded-2xl border text-center transition-all ${
+                  b.earned
+                    ? "border-indigo-200 bg-indigo-50"
+                    : "border-slate-100 bg-slate-50 opacity-40 grayscale"
+                }`}
+              >
+                <span className="text-3xl block mb-2">{b.icon}</span>
+                <p className="text-sm font-semibold text-slate-800">{b.name}</p>
+                <p className="text-xs text-slate-500 mt-1">{b.description}</p>
+                {b.earned && (
+                  <span className="inline-block mt-2 text-xs font-medium text-indigo-600 bg-indigo-100 px-2 py-0.5 rounded-full">
+                    Obtenida ✓
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* Change password */}
       <div className="bg-white rounded-2xl border border-slate-200 p-6">
         <h2 className="font-semibold text-slate-900 mb-5">Cambiar contraseña</h2>
@@ -340,6 +403,15 @@ function ReadField({ label, value }: { label: string; value: string }) {
         {label}
       </p>
       <p className="text-sm font-medium text-slate-900">{value}</p>
+    </div>
+  );
+}
+
+function StatChip({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="bg-slate-50 border border-slate-100 rounded-xl p-3 text-center">
+      <p className="text-lg font-bold text-indigo-700">{value}</p>
+      <p className="text-xs text-slate-500 mt-0.5">{label}</p>
     </div>
   );
 }
