@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { Role } from "@/generated/prisma/client";
-import { canViewTeam, canManageUsers } from "@/lib/roles";
+import { canManageUsers } from "@/lib/roles";
 
 type Mode = "general" | "tasks" | "hr";
 
@@ -94,7 +94,6 @@ export default function AssistantModule({
 }: {
   currentUserRole: Role;
 }) {
-  const canHR = canViewTeam(currentUserRole);
   const canUpload = canManageUsers(currentUserRole);
 
   const [mode, setMode] = useState<Mode>("general");
@@ -212,7 +211,7 @@ export default function AssistantModule({
     setDocs((prev) => prev.filter((d) => d.id !== id));
   }
 
-  const availableModes: Mode[] = ["general", "tasks", ...(canHR ? (["hr"] as Mode[]) : [])];
+  const availableModes: Mode[] = ["general", "tasks", "hr"];
 
   return (
     <div className="flex flex-col h-full gap-4">
