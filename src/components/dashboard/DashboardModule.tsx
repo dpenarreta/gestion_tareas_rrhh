@@ -503,7 +503,7 @@ function AccionesRapidasCard({
   const actions = [
     { icon: "📋", label: "Nueva tarea", onClick: onNewTask },
     { icon: "🤖", label: "Consultar Nova", onClick: () => (window.location.href = "/assistant") },
-    { icon: "💡", label: "Nueva idea", onClick: () => alert("Próximamente: Laboratorio de ideas") },
+    { icon: "💡", label: "Nueva idea", onClick: () => (window.location.href = "/mejora-continua") },
     {
       icon: "📅",
       label: canCreateMeeting ? "Nueva reunión" : "Ver reuniones",

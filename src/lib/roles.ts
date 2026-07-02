@@ -115,4 +115,10 @@ export function canAccessReports(role: Role): boolean {
   return CAN_ACCESS_REPORTS.includes(role);
 }
 
+export const CAN_REVIEW_IDEAS: Role[] = ["JEFE_NACIONAL", "COORDINADOR_NACIONAL"];
+
+export function canReviewIdeas(role: Role): boolean {
+  return CAN_REVIEW_IDEAS.includes(role);
+}
+
 export const ALL_ROLES = Object.keys(ROLE_LABEL) as Role[];

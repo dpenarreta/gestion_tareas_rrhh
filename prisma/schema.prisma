@@ -79,6 +79,8 @@ model User {
   hostedMeetings     Meeting[]           @relation("HostedMeetings")
   meetingInvites     MeetingInvitee[]    @relation("MeetingInvitations")
   closedMonths       MonthClosure[]      @relation("MonthClosures")
+  proposedIdeas      ImprovementIdea[]   @relation("IdeaAuthor")
+  ideaStatusChanges  IdeaStatusHistory[] @relation("IdeaStatusChanger")
 }
 
 model Announcement {
@@ -184,6 +186,58 @@ model MonthClosure {
   summary        Json
 
   @@unique([month, year])
+}
+
+enum IdeaArea {
+  SELECCION
+  GESTION_HUMANA
+  CLIMA_CULTURA
+  NOMINA
+  OPERACIONES
+  OTRO
+}
+
+enum IdeaImpact {
+  ALTO
+  MEDIO
+  BAJO
+}
+
+enum IdeaStatus {
+  PROPUESTA
+  EN_REVISION
+  APROBADA
+  EN_DESARROLLO
+  EN_PRUEBAS
+  IMPLEMENTADA
+  RECHAZADA
+}
+
+model ImprovementIdea {
+  id            String     @id @default(cuid())
+  title         String
+  description   String
+  area          IdeaArea
+  impact        IdeaImpact
+  status        IdeaStatus @default(PROPUESTA)
+  authorId      String
+  author        User       @relation("IdeaAuthor", fields: [authorId], references: [id])
+  attachmentUrl String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+  history       IdeaStatusHistory[]
+}
+
+model IdeaStatusHistory {
+  id         String          @id @default(cuid())
+  ideaId     String
+  idea       ImprovementIdea @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+  fromStatus IdeaStatus
+  toStatus   IdeaStatus
+  changedBy  String
+  changer    User            @relation("IdeaStatusChanger", fields: [changedBy], references: [id])
+  comment    String?
+  createdAt  DateTime        @default(now())
 }
 
 model KnowledgeDocument {

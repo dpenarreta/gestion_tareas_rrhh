@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { getVisibleRoles, ROLE_LEVEL } from "@/lib/roles";
+import { getVisibleIdeaAuthorIds } from "@/lib/ideas";
 
 function dayBounds(d: Date) {
   const start = new Date(d); start.setHours(0, 0, 0, 0);
@@ -167,6 +168,32 @@ export async function GET() {
     }
     for (const t of recentAssignments) {
       activityEvents.push({ time: t.createdAt, text: `${nameMap[t.assignedToId]} fue asignado a "${t.title}"` });
+    }
+  }
+
+  const ideaVisibleIds = (await getVisibleIdeaAuthorIds(session)).filter((id) => id !== session.userId);
+
+  if (ideaVisibleIds.length > 0) {
+    const [recentIdeas, recentImplemented] = await Promise.all([
+      prisma.improvementIdea.findMany({
+        where: { authorId: { in: ideaVisibleIds }, createdAt: { gte: since } },
+        select: { authorId: true, title: true, createdAt: true },
+        orderBy: { createdAt: "desc" },
+        take: 10,
+      }),
+      prisma.improvementIdea.findMany({
+        where: { authorId: { in: ideaVisibleIds }, status: "IMPLEMENTADA", updatedAt: { gte: since } },
+        select: { authorId: true, title: true, updatedAt: true },
+        orderBy: { updatedAt: "desc" },
+        take: 10,
+      }),
+    ]);
+
+    for (const i of recentIdeas) {
+      activityEvents.push({ time: i.createdAt, text: `${nameMap[i.authorId]} propuso la idea "${i.title}"` });
+    }
+    for (const i of recentImplemented) {
+      activityEvents.push({ time: i.updatedAt, text: `${nameMap[i.authorId]} implementó la idea "${i.title}"` });
     }
   }
 

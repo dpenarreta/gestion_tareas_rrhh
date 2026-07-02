@@ -97,7 +97,7 @@ export async function GET() {
       id: "innovador",
       icon: "💡",
       name: "Innovador",
-      description: "Tiene una idea aprobada (próximamente con Laboratorio)",
+      description: "Tiene una idea implementada",
       earned: existingBadges.includes("innovador"),
     },
     {

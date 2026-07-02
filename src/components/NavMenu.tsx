@@ -16,6 +16,7 @@ export default function NavMenu({ role }: Props) {
         { href: "/dashboard", label: "Inicio" },
         { href: "/tasks", label: "Trabajo" },
         { href: "/meetings", label: "Reuniones" },
+        { href: "/mejora-continua", label: "Mejora Continua" },
         { href: "/my-kpis", label: "Mi actividad" },
         { href: "/assistant", label: "Nova" },
       ]
@@ -23,6 +24,7 @@ export default function NavMenu({ role }: Props) {
         { href: "/dashboard", label: "Inicio" },
         { href: "/tasks", label: "Trabajo" },
         { href: "/meetings", label: "Reuniones" },
+        { href: "/mejora-continua", label: "Mejora Continua" },
         { href: "/team", label: "Equipo" },
         { href: "/kpis", label: "Analytics" },
         { href: "/assistant", label: "Nova" },
