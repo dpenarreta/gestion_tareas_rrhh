@@ -17,7 +17,7 @@ export default async function TasksPage() {
       select: { viewPreferences: true },
     }),
     prisma.task.findMany({
-      where: { assignedToId: session.userId },
+      where: { assignedToId: session.userId, archivedMonth: null },
       select: {
         id: true,
         title: true,
@@ -31,6 +31,7 @@ export default async function TasksPage() {
         estimatedHours: true,
         realHours: true,
         progress: true,
+        color: true,
         assignedTo: { select: { id: true, name: true, email: true, role: true } },
         createdBy: { select: { id: true, name: true } },
         _count: { select: { comments: true } },
@@ -61,12 +62,13 @@ export default async function TasksPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-slate-900 mb-6">Tareas</h1>
+      <h1 className="text-2xl font-bold text-slate-900 mb-6">Trabajo</h1>
       <TasksModule
         initialTasks={serializedTasks}
         initialViews={taskViews.length > 0 ? taskViews : ["KANBAN", "TABLA"]}
         initialUsers={assignableUsers}
         currentUserId={session.userId}
+        currentUserRole={session.role}
       />
     </div>
   );

@@ -52,6 +52,7 @@ export type Task = {
   estimatedHours: number;
   realHours: number;
   progress: number;
+  color: string | null;
   assignedTo: TaskUser;
   createdBy: { id: string; name: string };
   _count: { comments: number };

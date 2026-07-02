@@ -67,7 +67,7 @@ export async function GET() {
   });
 
   const allMyTasks = await prisma.task.findMany({
-    where: { assignedToId: session.userId },
+    where: { assignedToId: session.userId, archivedMonth: null },
     select: { id: true, title: true, status: true, endDate: true, estimatedHours: true, realHours: true },
     orderBy: { endDate: "asc" },
   });

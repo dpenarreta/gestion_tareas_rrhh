@@ -18,6 +18,7 @@ const taskSelect = {
   estimatedHours: true,
   realHours: true,
   progress: true,
+  color: true,
   assignedTo: { select: { id: true, name: true, email: true, role: true } },
   createdBy: { select: { id: true, name: true } },
   _count: { select: { comments: true } },
@@ -37,11 +38,22 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
   }
 
+  if (task.archivedMonth) {
+    return NextResponse.json({ error: "Tarea archivada, de solo lectura" }, { status: 403 });
+  }
+
   const body = await request.json();
 
   if ("realHours" in body && task.assignedToId !== session.userId) {
     return NextResponse.json(
       { error: "Solo el responsable puede actualizar horas reales" },
+      { status: 403 }
+    );
+  }
+
+  if ("color" in body && task.assignedToId !== session.userId) {
+    return NextResponse.json(
+      { error: "Solo el responsable puede cambiar el color" },
       { status: 403 }
     );
   }
@@ -59,6 +71,7 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   if ("realHours" in body) data.realHours = Math.round(parseFloat(body.realHours) * 100) / 100;
   if ("progress" in body) data.progress = parseInt(body.progress);
   if ("assignedToId" in body) data.assignedToId = body.assignedToId;
+  if ("color" in body) data.color = body.color;
 
   const updated = await prisma.task.update({ where: { id }, data, select: taskSelect });
   return NextResponse.json(updated);
@@ -74,6 +87,10 @@ export async function DELETE(_req: NextRequest, ctx: Ctx) {
   const task = await prisma.task.findUnique({ where: { id } });
   if (!task) {
     return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
+  }
+
+  if (task.archivedMonth) {
+    return NextResponse.json({ error: "Tarea archivada, de solo lectura" }, { status: 403 });
   }
 
   const isAdmin = ["JEFE_NACIONAL", "COORDINADOR_NACIONAL"].includes(session.role);

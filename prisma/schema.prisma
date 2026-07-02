@@ -78,6 +78,7 @@ model User {
   announcements      Announcement[]      @relation("AnnouncementAuthor")
   hostedMeetings     Meeting[]           @relation("HostedMeetings")
   meetingInvites     MeetingInvitee[]    @relation("MeetingInvitations")
+  closedMonths       MonthClosure[]      @relation("MonthClosures")
 }
 
 model Announcement {
@@ -110,6 +111,9 @@ model Task {
   createdBy      User          @relation("CreatedTasks", fields: [createdById], references: [id])
   comments       Comment[]
   activities     TaskActivity[]
+  color          String?
+  archivedMonth  String?
+  archivedAt     DateTime?
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 }
@@ -166,6 +170,20 @@ model MonthlyReport {
   createdAt   DateTime    @default(now())
 
   @@unique([month, year, scope])
+}
+
+model MonthClosure {
+  id             String   @id @default(cuid())
+  month          Int
+  year           Int
+  closedBy       String
+  closer         User     @relation("MonthClosures", fields: [closedBy], references: [id])
+  closedAt       DateTime @default(now())
+  totalTasks     Int
+  completedTasks Int
+  summary        Json
+
+  @@unique([month, year])
 }
 
 model KnowledgeDocument {

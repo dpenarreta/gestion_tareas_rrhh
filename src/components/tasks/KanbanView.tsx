@@ -15,6 +15,7 @@ import type { Task, TaskStatus } from "./types";
 import TaskCard from "./TaskCard";
 import CommentPanel from "./CommentPanel";
 import ActivityPanel from "./ActivityPanel";
+import { fireCelebrationConfetti } from "@/lib/confetti";
 
 const COLUMNS: { id: TaskStatus; label: string; headerColor: string; dotColor: string }[] = [
   { id: "PENDIENTE", label: "Pendiente", headerColor: "text-slate-600", dotColor: "bg-slate-400" },
@@ -31,6 +32,7 @@ function DroppableColumn({
   onDeleteTask,
   onCommentClick,
   onActivityClick,
+  onColorChange,
 }: {
   column: (typeof COLUMNS)[0];
   tasks: Task[];
@@ -40,6 +42,7 @@ function DroppableColumn({
   onDeleteTask: (id: string) => void;
   onCommentClick: (task: Task) => void;
   onActivityClick: (task: Task) => void;
+  onColorChange: (id: string, color: string | null) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
 
@@ -79,6 +82,7 @@ function DroppableColumn({
             onDelete={onDeleteTask}
             onCommentClick={onCommentClick}
             onActivityClick={onActivityClick}
+            onColorChange={onColorChange}
           />
         ))}
         {tasks.length === 0 && (
@@ -101,6 +105,7 @@ function DraggableCard({
   onDelete,
   onCommentClick,
   onActivityClick,
+  onColorChange,
 }: {
   task: Task;
   currentUserId: string;
@@ -108,6 +113,7 @@ function DraggableCard({
   onDelete: (id: string) => void;
   onCommentClick: (task: Task) => void;
   onActivityClick: (task: Task) => void;
+  onColorChange: (id: string, color: string | null) => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: task.id,
@@ -129,6 +135,7 @@ function DraggableCard({
         onDelete={onDelete}
         onCommentClick={onCommentClick}
         onActivityClick={onActivityClick}
+        onColorChange={onColorChange}
       />
     </div>
   );
@@ -142,6 +149,7 @@ type Props = {
   onEditTask: (task: Task) => void;
   onDeleteTask: (id: string) => void;
   onCommentAdded: (taskId: string) => void;
+  onColorChange: (id: string, color: string | null) => void;
 };
 
 export default function KanbanView({
@@ -152,6 +160,7 @@ export default function KanbanView({
   onEditTask,
   onDeleteTask,
   onCommentAdded,
+  onColorChange,
 }: Props) {
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [commentTask, setCommentTask] = useState<Task | null>(null);
@@ -173,6 +182,10 @@ export default function KanbanView({
     const newStatus = over.id as TaskStatus;
     const task = tasks.find((t) => t.id === active.id);
     if (task && task.status !== newStatus) {
+      if (newStatus === "COMPLETADA" && task.assignedTo.id === currentUserId) {
+        const rect = active.rect.current.translated ?? active.rect.current.initial;
+        if (rect) fireCelebrationConfetti(rect);
+      }
       await onStatusChange(String(active.id), newStatus);
     }
   }
@@ -196,6 +209,7 @@ export default function KanbanView({
               onDeleteTask={onDeleteTask}
               onCommentClick={setCommentTask}
               onActivityClick={setActivityTask}
+              onColorChange={onColorChange}
             />
           ))}
         </div>

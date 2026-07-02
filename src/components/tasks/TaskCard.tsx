@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import type { Task } from "./types";
+import { TASK_COLORS, taskColorHex } from "./colors";
 
 const PRIORITY_STYLES: Record<Task["priority"], string> = {
   ALTA: "bg-red-100 text-red-700",
@@ -21,6 +23,39 @@ function formatDate(iso: string) {
   return d.toLocaleDateString("es-CL", { day: "2-digit", month: "short" });
 }
 
+function ColorPicker({ current, onSelect, onClose }: { current: string | null; onSelect: (color: string | null) => void; onClose: () => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [onClose]);
+
+  return (
+    <div
+      ref={ref}
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+      className="absolute top-8 right-0 z-20 bg-white border border-slate-200 rounded-xl shadow-xl p-2.5 grid grid-cols-5 gap-1.5 w-[152px]"
+    >
+      {TASK_COLORS.map((c) => (
+        <button
+          key={c.value}
+          title={c.label}
+          onClick={() => { onSelect(c.value === current ? null : c.value); onClose(); }}
+          className={`w-5 h-5 rounded-full border-2 transition-transform hover:scale-110 ${
+            current === c.value ? "border-slate-900" : "border-white"
+          }`}
+          style={{ backgroundColor: c.hex, boxShadow: "0 0 0 1px rgba(0,0,0,0.1)" }}
+        />
+      ))}
+    </div>
+  );
+}
+
 type Props = {
   task: Task;
   currentUserId: string;
@@ -29,18 +64,37 @@ type Props = {
   onDelete: (id: string) => void;
   onCommentClick: (task: Task) => void;
   onActivityClick?: (task: Task) => void;
+  onColorChange?: (id: string, color: string | null) => void;
 };
 
-export default function TaskCard({ task, currentUserId: _cu, isDragging, onEdit, onDelete, onCommentClick, onActivityClick }: Props) {
+export default function TaskCard({ task, currentUserId, isDragging, onEdit, onDelete, onCommentClick, onActivityClick, onColorChange }: Props) {
+  const [showColorPicker, setShowColorPicker] = useState(false);
+  const isOwner = task.assignedTo.id === currentUserId;
+  const hex = taskColorHex(task.color);
+
   return (
     <div
-      className={`bg-white rounded-xl border border-slate-200 p-3 shadow-sm select-none ${
+      className={`relative bg-white rounded-xl border border-slate-200 p-3 shadow-sm select-none ${
         isDragging ? "shadow-lg rotate-1 opacity-90" : "hover:shadow-md"
       } transition-all`}
+      style={hex ? { borderLeft: `4px solid ${hex}`, backgroundColor: `${hex}0d` } : undefined}
     >
       <div className="flex items-start justify-between gap-2 mb-2">
         <p className="text-sm font-medium text-slate-900 leading-snug line-clamp-2 flex-1">{task.title}</p>
         <div className="flex items-center gap-1 shrink-0">
+          {isOwner && onColorChange && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setShowColorPicker((v) => !v); }}
+              onPointerDown={(e) => e.stopPropagation()}
+              className="p-1 text-slate-400 hover:text-indigo-600 rounded"
+              aria-label="Color de tarjeta"
+              title="Color de tarjeta"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21a4 4 0 01-4-4V5a2 2 0 012-2h4a2 2 0 012 2v12a4 4 0 01-4 4zm0 0h10a2 2 0 002-2v-2a2 2 0 00-2-2h-2.5M7 21a3.999 3.999 0 003.998-4H7v4z" />
+              </svg>
+            </button>
+          )}
           <button
             onClick={(e) => { e.stopPropagation(); onEdit(task); }}
             className="p-1 text-slate-400 hover:text-indigo-600 rounded"
@@ -60,6 +114,13 @@ export default function TaskCard({ task, currentUserId: _cu, isDragging, onEdit,
             </svg>
           </button>
         </div>
+        {showColorPicker && isOwner && onColorChange && (
+          <ColorPicker
+            current={task.color}
+            onSelect={(color) => onColorChange(task.id, color)}
+            onClose={() => setShowColorPicker(false)}
+          />
+        )}
       </div>
 
       <div className="flex flex-wrap gap-1.5 mb-2.5">

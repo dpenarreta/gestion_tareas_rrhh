@@ -16,6 +16,7 @@ const taskSelect = {
   estimatedHours: true,
   realHours: true,
   progress: true,
+  color: true,
   assignedTo: { select: { id: true, name: true, email: true, role: true } },
   createdBy: { select: { id: true, name: true } },
   _count: { select: { comments: true } },
@@ -30,7 +31,7 @@ export async function GET() {
   }
 
   const tasks = await prisma.task.findMany({
-    where: { assignedToId: session.userId },
+    where: { assignedToId: session.userId, archivedMonth: null },
     select: taskSelect,
     orderBy: { createdAt: "desc" },
   });

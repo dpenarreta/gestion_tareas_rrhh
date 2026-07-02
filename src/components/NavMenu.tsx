@@ -14,14 +14,14 @@ export default function NavMenu({ role }: Props) {
   const links = isLevel1
     ? [
         { href: "/dashboard", label: "Inicio" },
-        { href: "/tasks", label: "Tareas" },
+        { href: "/tasks", label: "Trabajo" },
         { href: "/meetings", label: "Reuniones" },
         { href: "/my-kpis", label: "Mi actividad" },
         { href: "/assistant", label: "Nova" },
       ]
     : [
         { href: "/dashboard", label: "Inicio" },
-        { href: "/tasks", label: "Tareas" },
+        { href: "/tasks", label: "Trabajo" },
         { href: "/meetings", label: "Reuniones" },
         { href: "/team", label: "Equipo" },
         { href: "/kpis", label: "Analytics" },
