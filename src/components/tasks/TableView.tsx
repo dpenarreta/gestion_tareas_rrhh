@@ -17,7 +17,7 @@ const STATUS_LABELS: Record<Task["status"], string> = {
 };
 
 const STATUS_STYLES: Record<Task["status"], string> = {
-  PENDIENTE: "bg-slate-100 text-slate-700",
+  PENDIENTE: "bg-orange-100 text-orange-700",
   EN_PROGRESO: "bg-blue-100 text-blue-700",
   COMPLETADA: "bg-green-100 text-green-700",
 };
@@ -64,12 +64,14 @@ function InlineEdit({
   options,
   readOnly,
   onSave,
+  renderDisplay,
 }: {
   value: string;
   type?: "text" | "number" | "date" | "select";
   options?: { value: string; label: string }[];
   readOnly?: boolean;
   onSave: (v: string) => void;
+  renderDisplay?: (value: string) => React.ReactNode;
 }) {
   const [editing, setEditing] = useState(false);
   const [local, setLocal] = useState(value);
@@ -87,10 +89,14 @@ function InlineEdit({
     return (
       <span
         onClick={() => { setLocal(value); setEditing(true); }}
-        className="text-sm text-slate-800 cursor-pointer hover:text-indigo-700 hover:underline underline-offset-2"
+        className="cursor-pointer"
         title="Clic para editar"
       >
-        {value || "—"}
+        {renderDisplay ? renderDisplay(value) : (
+          <span className="text-sm text-slate-800 hover:text-indigo-700 hover:underline underline-offset-2">
+            {value || "—"}
+          </span>
+        )}
       </span>
     );
   }
@@ -124,6 +130,7 @@ function InlineEdit({
 
 function TaskRow({
   task,
+  index,
   currentUserId,
   onFieldUpdate,
   onStatusChange,
@@ -133,6 +140,7 @@ function TaskRow({
   onActivityClick,
 }: {
   task: Task;
+  index: number;
   currentUserId: string;
   onFieldUpdate: (id: string, field: string, value: unknown) => Promise<void>;
   onStatusChange: (id: string, status: TaskStatus) => Promise<void>;
@@ -162,10 +170,10 @@ function TaskRow({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ type: "spring", stiffness: 500, damping: 40 }}
-      className="hover:bg-slate-50 transition-colors group"
+      className={`${index % 2 === 1 ? "bg-gray-50" : "bg-white"} hover:bg-indigo-50/40 transition-colors group`}
     >
       <td className="w-1 p-0" style={{ backgroundColor: hex ?? "transparent" }} />
-      <td className="px-4 py-3 max-w-[200px]">
+      <td className="border border-gray-200 px-4 py-3.5 max-w-[200px]">
         <InlineEdit
           value={task.title}
           onSave={(v) => onFieldUpdate(task.id, "title", v)}
@@ -174,7 +182,7 @@ function TaskRow({
           <p className="text-[10px] text-slate-400 mt-0.5">{task.assignedTo.name}</p>
         )}
       </td>
-      <td className="px-3 py-3">
+      <td className="border border-gray-200 px-4 py-3.5">
         <InlineEdit
           value={task.frequency}
           type="select"
@@ -188,7 +196,7 @@ function TaskRow({
           onSave={(v) => onFieldUpdate(task.id, "frequency", v)}
         />
       </td>
-      <td className="px-3 py-3">
+      <td className="border border-gray-200 px-4 py-3.5">
         <InlineEdit
           value={task.status}
           type="select"
@@ -198,17 +206,22 @@ function TaskRow({
             { value: "COMPLETADA", label: "Completada" },
           ]}
           onSave={handleStatusSave}
+          renderDisplay={(v) => (
+            <span className={`inline-block text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_STYLES[v as TaskStatus]}`}>
+              {STATUS_LABELS[v as TaskStatus]}
+            </span>
+          )}
         />
       </td>
-      <td className="px-3 py-3">
+      <td className="border border-gray-200 px-4 py-3.5">
         <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${PRIORITY_STYLES[task.priority]}`}>
           {task.priority}
         </span>
       </td>
-      <td className="px-3 py-3 whitespace-nowrap text-slate-600">{formatDate(task.startDate)}</td>
-      <td className="px-3 py-3 whitespace-nowrap text-slate-600">{formatDate(task.endDate)}</td>
-      <td className="px-3 py-3 text-right text-slate-600">{fmtH(task.estimatedHours)}h</td>
-      <td className="px-3 py-3 text-right">
+      <td className="border border-gray-200 px-4 py-3.5 whitespace-nowrap text-slate-600">{formatDate(task.startDate)}</td>
+      <td className="border border-gray-200 px-4 py-3.5 whitespace-nowrap text-slate-600">{formatDate(task.endDate)}</td>
+      <td className="border border-gray-200 px-4 py-3.5 text-right text-slate-600">{fmtH(task.estimatedHours)}h</td>
+      <td className="border border-gray-200 px-4 py-3.5 text-right">
         <InlineEdit
           value={String(fmtH(task.realHours))}
           type="number"
@@ -217,7 +230,7 @@ function TaskRow({
         />
         <span className="text-slate-400 ml-0.5 text-xs">h</span>
       </td>
-      <td className="px-3 py-3">
+      <td className="border border-gray-200 px-4 py-3.5">
         <div className="flex items-center gap-2 min-w-[80px]">
           <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
             <div
@@ -228,7 +241,7 @@ function TaskRow({
           <span className="text-[10px] text-slate-500 w-7 text-right">{task.progress}%</span>
         </div>
       </td>
-      <td className="px-3 py-3 text-center">
+      <td className="border border-gray-200 px-4 py-3.5 text-center">
         <div className="inline-flex items-center gap-2">
           {task.type === "SEGUIMIENTO" && (
             <button
@@ -252,7 +265,7 @@ function TaskRow({
           </button>
         </div>
       </td>
-      <td className="px-3 py-3">
+      <td className="border border-gray-200 px-4 py-3.5">
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
             onClick={() => onEditTask(task)}
@@ -446,7 +459,7 @@ export default function TableView({
         const sectionTasks = tasksBySection[section.id];
         const isCollapsed = section.collapsible && collapsed[section.id];
         return (
-          <div key={section.id} className={`rounded-2xl border ${section.border} bg-white overflow-hidden`}>
+          <div key={section.id} className={`rounded-2xl border ${section.border} bg-white overflow-hidden shadow-sm`}>
             <div className={`flex items-center justify-between px-4 py-2.5 ${section.headerBg}`}>
               <button
                 onClick={() => section.collapsible && setCollapsed((c) => ({ ...c, [section.id]: !c[section.id] }))}
@@ -470,24 +483,24 @@ export default function TableView({
 
             {!isCollapsed && (
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full text-sm border-collapse">
                   <thead>
-                    <tr className="border-b border-slate-200 bg-slate-50">
+                    <tr className="border-b border-gray-200 bg-gray-100">
                       <th className="w-1 px-0" />
-                      <th onDoubleClick={() => handleSort("title")} className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer select-none hover:text-slate-700" title="Doble clic para ordenar">Título<SortIcon col="title" /></th>
-                      <th onDoubleClick={() => handleSort("frequency")} className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer select-none hover:text-slate-700" title="Doble clic para ordenar">Frecuencia<SortIcon col="frequency" /></th>
-                      <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Estado</th>
-                      <th onDoubleClick={() => handleSort("priority")} className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer select-none hover:text-slate-700" title="Doble clic para ordenar">Prioridad<SortIcon col="priority" /></th>
-                      <th onDoubleClick={() => handleSort("startDate")} className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer select-none hover:text-slate-700" title="Doble clic para ordenar">Inicio<SortIcon col="startDate" /></th>
-                      <th onDoubleClick={() => handleSort("endDate")} className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer select-none hover:text-slate-700" title="Doble clic para ordenar">Fin<SortIcon col="endDate" /></th>
-                      <th onDoubleClick={() => handleSort("estimatedHours")} className="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer select-none hover:text-slate-700" title="Doble clic para ordenar">H. Est.<SortIcon col="estimatedHours" /></th>
-                      <th onDoubleClick={() => handleSort("realHours")} className="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer select-none hover:text-slate-700" title="Doble clic para ordenar">H. Reales<SortIcon col="realHours" /></th>
-                      <th onDoubleClick={() => handleSort("progress")} className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider cursor-pointer select-none hover:text-slate-700" title="Doble clic para ordenar">Avance<SortIcon col="progress" /></th>
-                      <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Coment.</th>
-                      <th className="px-3 py-3" />
+                      <th onDoubleClick={() => handleSort("title")} className="border border-gray-200 text-left px-4 py-3 text-[11px] font-semibold text-slate-600 uppercase tracking-wider cursor-pointer select-none hover:text-slate-900" title="Doble clic para ordenar">Título<SortIcon col="title" /></th>
+                      <th onDoubleClick={() => handleSort("frequency")} className="border border-gray-200 text-left px-4 py-3 text-[11px] font-semibold text-slate-600 uppercase tracking-wider cursor-pointer select-none hover:text-slate-900" title="Doble clic para ordenar">Frecuencia<SortIcon col="frequency" /></th>
+                      <th className="border border-gray-200 text-left px-4 py-3 text-[11px] font-semibold text-slate-600 uppercase tracking-wider">Estado</th>
+                      <th onDoubleClick={() => handleSort("priority")} className="border border-gray-200 text-left px-4 py-3 text-[11px] font-semibold text-slate-600 uppercase tracking-wider cursor-pointer select-none hover:text-slate-900" title="Doble clic para ordenar">Prioridad<SortIcon col="priority" /></th>
+                      <th onDoubleClick={() => handleSort("startDate")} className="border border-gray-200 text-left px-4 py-3 text-[11px] font-semibold text-slate-600 uppercase tracking-wider cursor-pointer select-none hover:text-slate-900" title="Doble clic para ordenar">Inicio<SortIcon col="startDate" /></th>
+                      <th onDoubleClick={() => handleSort("endDate")} className="border border-gray-200 text-left px-4 py-3 text-[11px] font-semibold text-slate-600 uppercase tracking-wider cursor-pointer select-none hover:text-slate-900" title="Doble clic para ordenar">Fin<SortIcon col="endDate" /></th>
+                      <th onDoubleClick={() => handleSort("estimatedHours")} className="border border-gray-200 text-right px-4 py-3 text-[11px] font-semibold text-slate-600 uppercase tracking-wider cursor-pointer select-none hover:text-slate-900" title="Doble clic para ordenar">H. Est.<SortIcon col="estimatedHours" /></th>
+                      <th onDoubleClick={() => handleSort("realHours")} className="border border-gray-200 text-right px-4 py-3 text-[11px] font-semibold text-slate-600 uppercase tracking-wider cursor-pointer select-none hover:text-slate-900" title="Doble clic para ordenar">H. Reales<SortIcon col="realHours" /></th>
+                      <th onDoubleClick={() => handleSort("progress")} className="border border-gray-200 text-center px-4 py-3 text-[11px] font-semibold text-slate-600 uppercase tracking-wider cursor-pointer select-none hover:text-slate-900" title="Doble clic para ordenar">Avance<SortIcon col="progress" /></th>
+                      <th className="border border-gray-200 text-center px-4 py-3 text-[11px] font-semibold text-slate-600 uppercase tracking-wider">Coment.</th>
+                      <th className="border border-gray-200 px-4 py-3" />
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody>
                     <AnimatePresence initial={false}>
                       {sectionTasks.length === 0 && (
                         <tr>
@@ -496,10 +509,11 @@ export default function TableView({
                           </td>
                         </tr>
                       )}
-                      {sectionTasks.map((task) => (
+                      {sectionTasks.map((task, index) => (
                         <TaskRow
                           key={task.id}
                           task={task}
+                          index={index}
                           currentUserId={currentUserId}
                           onFieldUpdate={onFieldUpdate}
                           onStatusChange={onStatusChange}
