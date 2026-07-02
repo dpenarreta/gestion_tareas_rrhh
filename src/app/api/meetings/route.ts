@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canCreateMeetings } from "@/lib/roles";
+import { createZoomMeeting } from "@/lib/zoom";
 
 const meetingInclude = {
   host: { select: { id: true, name: true, role: true } },
@@ -62,9 +63,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Faltan campos requeridos" }, { status: 400 });
     }
 
-    const zoomId = String(Math.floor(Math.random() * 9_000_000_000) + 1_000_000_000);
-    const zoomJoinUrl = `https://zoom.us/j/${zoomId}`;
-    const zoomPassword = Math.random().toString(36).slice(2, 8).toUpperCase();
+    let zoomMeetingId: string;
+    let zoomJoinUrl: string;
+    let zoomPassword: string;
+    let zoomWarning: string | null = null;
+
+    try {
+      const zoomMeeting = await createZoomMeeting(title.trim(), new Date(meetingDate), 40);
+      zoomMeetingId = zoomMeeting.zoomMeetingId;
+      zoomJoinUrl = zoomMeeting.zoomJoinUrl;
+      zoomPassword = zoomMeeting.zoomPassword;
+    } catch (zoomErr) {
+      console.error("[POST /api/meetings] Zoom API falló, usando link simulado", zoomErr);
+      zoomMeetingId = String(Math.floor(Math.random() * 9_000_000_000) + 1_000_000_000);
+      zoomJoinUrl = `https://zoom.us/j/${zoomMeetingId}`;
+      zoomPassword = Math.random().toString(36).slice(2, 8).toUpperCase();
+      zoomWarning = "No se pudo conectar con Zoom. Se generó un enlace simulado.";
+    }
 
     const ids: string[] = Array.isArray(inviteeIds)
       ? inviteeIds.filter((id: string) => id !== session.userId)
@@ -77,7 +92,7 @@ export async function POST(request: NextRequest) {
         hostId: session.userId,
         meetingDate: new Date(meetingDate),
         duration: Number(duration),
-        zoomMeetingId: zoomId,
+        zoomMeetingId,
         zoomJoinUrl,
         zoomPassword,
         invitees: ids.length > 0 ? { create: ids.map((userId) => ({ userId })) } : undefined,
@@ -95,7 +110,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    return NextResponse.json(serialize(meeting), { status: 201 });
+    return NextResponse.json({ ...serialize(meeting), zoomWarning }, { status: 201 });
   } catch (err) {
     console.error("[POST /api/meetings]", err);
     return NextResponse.json({ error: "Error al crear la reunión" }, { status: 500 });

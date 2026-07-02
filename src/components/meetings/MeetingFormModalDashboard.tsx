@@ -62,7 +62,10 @@ export default function MeetingFormModalDashboard({
       });
       const data = await res.json();
       if (!res.ok) setError(data.error ?? "Error al crear reunión");
-      else onSaved();
+      else {
+        if (data.zoomWarning) alert(data.zoomWarning);
+        onSaved();
+      }
     } catch { setError("Error de conexión"); }
     finally { setSaving(false); }
   }
