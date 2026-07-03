@@ -2,6 +2,7 @@ import "server-only";
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import type { Role } from "@/generated/prisma/client";
+import { SESSION_SECRET } from "@/lib/session-secret";
 
 export type SessionPayload = {
   userId: string;
@@ -12,9 +13,7 @@ export type SessionPayload = {
 };
 
 const COOKIE_NAME = "nexo-session";
-const secret = new TextEncoder().encode(
-  process.env.SESSION_SECRET ?? "nexo-default-secret-change-in-production"
-);
+const secret = new TextEncoder().encode(SESSION_SECRET);
 const DURATION_DEFAULT_MS = 7 * 24 * 60 * 60 * 1000;
 const DURATION_REMEMBER_MS = 30 * 24 * 60 * 60 * 1000;
 
@@ -51,7 +50,7 @@ export async function createSession(
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     expires: expiresAt,
-    sameSite: "lax",
+    sameSite: "strict",
     path: "/",
   });
 }

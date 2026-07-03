@@ -7,6 +7,15 @@ export async function getVisibleIdeaAuthorIds(session: SessionPayload): Promise<
   if (ROLE_LEVEL[session.role] === 1) {
     return [session.userId];
   }
+
+  // Mejora Continua es una excepción a la regla general de jerarquía: el
+  // Coordinador Nacional sí ve las ideas del Jefe Nacional (a diferencia de
+  // KPIs/Analytics/Informes, donde esa visibilidad está restringida).
+  if (session.role === "JEFE_NACIONAL" || session.role === "COORDINADOR_NACIONAL") {
+    const allUsers = await prisma.user.findMany({ select: { id: true } });
+    return allUsers.map((u) => u.id);
+  }
+
   const visibleRoles = getVisibleRoles(session.role);
   const visibleUsers = await prisma.user.findMany({
     where: { role: { in: visibleRoles } },

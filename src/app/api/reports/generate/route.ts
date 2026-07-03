@@ -368,7 +368,7 @@ export async function POST(request: NextRequest) {
     },
   });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    console.error("[POST /api/reports/generate]", err);
+    return NextResponse.json({ error: "Error al generar el informe" }, { status: 500 });
   }
 }

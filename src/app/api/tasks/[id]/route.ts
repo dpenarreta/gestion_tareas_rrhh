@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { getVisibleRoles } from "@/lib/roles";
 import type { TaskStatus, TaskPriority, TaskFrequency, TaskType } from "@/generated/prisma/client";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -33,9 +34,20 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   }
 
   const { id } = await ctx.params;
-  const task = await prisma.task.findUnique({ where: { id } });
+  const task = await prisma.task.findUnique({
+    where: { id },
+    include: { assignedTo: { select: { role: true } } },
+  });
   if (!task) {
     return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
+  }
+
+  const canEdit =
+    task.assignedToId === session.userId ||
+    task.createdById === session.userId ||
+    getVisibleRoles(session.role).includes(task.assignedTo.role);
+  if (!canEdit) {
+    return NextResponse.json({ error: "Sin permisos para editar esta tarea" }, { status: 403 });
   }
 
   if (task.archivedMonth) {

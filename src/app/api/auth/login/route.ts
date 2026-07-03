@@ -2,9 +2,19 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { createSession } from "@/lib/session";
+import { isRateLimited, registerFailedAttempt, clearAttempts, getClientIp } from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
+  const clientIp = getClientIp(request.headers);
+
   try {
+    if (isRateLimited(clientIp)) {
+      return NextResponse.json(
+        { error: "Demasiados intentos fallidos. Intenta nuevamente en 15 minutos" },
+        { status: 429 }
+      );
+    }
+
     const { email, password, rememberMe = false } = await request.json();
 
     if (!email || !password) {
@@ -16,6 +26,7 @@ export async function POST(request: NextRequest) {
 
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
+      registerFailedAttempt(clientIp);
       return NextResponse.json(
         { error: "Credenciales inválidas" },
         { status: 401 }
@@ -24,11 +35,14 @@ export async function POST(request: NextRequest) {
 
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) {
+      registerFailedAttempt(clientIp);
       return NextResponse.json(
         { error: "Credenciales inválidas" },
         { status: 401 }
       );
     }
+
+    clearAttempts(clientIp);
 
     await prisma.user.update({
       where: { id: user.id },

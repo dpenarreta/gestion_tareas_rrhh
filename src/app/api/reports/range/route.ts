@@ -426,7 +426,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ report: reportData });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    console.error("[GET /api/reports/range]", err);
+    return NextResponse.json({ error: "Error al generar el informe de rango" }, { status: 500 });
   }
 }

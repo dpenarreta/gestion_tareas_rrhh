@@ -305,12 +305,9 @@ export async function POST(request: NextRequest) {
       contextBlock = `\n\n${docBlock}\n${teamCtx}`;
     }
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    const stack = err instanceof Error ? err.stack : undefined;
-    console.error("[assistant/chat] ERROR construyendo contexto:", msg);
-    if (stack) console.error(stack);
+    console.error("[assistant/chat] ERROR construyendo contexto:", err);
     return NextResponse.json(
-      { error: `Error al preparar el contexto: ${msg}` },
+      { error: "Error al preparar el contexto de la conversación" },
       { status: 500 }
     );
   }

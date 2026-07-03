@@ -10,6 +10,8 @@ interface PdfPageData {
   getTextContent: () => Promise<{ items: Array<{ str: string }> }>;
 }
 
+const MAX_SIZE_BYTES = 10 * 1024 * 1024;
+
 function chunkText(
   pages: Array<{ text: string; pageNumber: number }>,
   chunkSize = 1800,
@@ -69,7 +71,12 @@ export async function POST(request: NextRequest) {
   const title = (formData.get("title") as string | null)?.trim();
   if (!file) return NextResponse.json({ error: "Archivo requerido" }, { status: 400 });
   if (!title) return NextResponse.json({ error: "Título requerido" }, { status: 400 });
-  if (!file.name.toLowerCase().endsWith(".pdf")) {
+  if (file.size > MAX_SIZE_BYTES) {
+    return NextResponse.json({ error: "El archivo supera el tamaño máximo permitido (10MB)" }, { status: 400 });
+  }
+  const isPdfExtension = file.name.toLowerCase().endsWith(".pdf");
+  const isPdfMimeType = !file.type || file.type === "application/pdf";
+  if (!isPdfExtension || !isPdfMimeType) {
     return NextResponse.json({ error: "Solo se aceptan archivos PDF" }, { status: 400 });
   }
 
