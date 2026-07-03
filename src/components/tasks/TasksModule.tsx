@@ -106,6 +106,14 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
     [refreshTasks]
   );
 
+  const handleBulkDelete = useCallback(
+    async (ids: string[]) => {
+      await Promise.all(ids.map((id) => fetch(`/api/tasks/${id}`, { method: "DELETE" })));
+      refreshTasks();
+    },
+    [refreshTasks]
+  );
+
   const handleCommentAdded = useCallback((taskId: string) => {
     setTasks((prev) =>
       prev.map((t) =>
@@ -257,6 +265,7 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
             onCreateTask={() => openCreate()}
             onEditTask={openEdit}
             onDeleteTask={handleTaskDelete}
+            onBulkDelete={handleBulkDelete}
             onRefresh={refreshTasks}
             onCommentAdded={handleCommentAdded}
           />

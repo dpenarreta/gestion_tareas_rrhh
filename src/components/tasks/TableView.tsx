@@ -2,6 +2,7 @@
 
 import { useState, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import * as XLSX from "xlsx";
 import type { Task, AssignableUser, TaskStatus } from "./types";
 import { taskColorHex } from "./colors";
 import { fireCelebrationConfetti } from "@/lib/confetti";
@@ -132,6 +133,8 @@ function TaskRow({
   task,
   index,
   currentUserId,
+  isSelected,
+  onToggleSelect,
   onFieldUpdate,
   onStatusChange,
   onEditTask,
@@ -142,6 +145,8 @@ function TaskRow({
   task: Task;
   index: number;
   currentUserId: string;
+  isSelected: boolean;
+  onToggleSelect: (id: string) => void;
   onFieldUpdate: (id: string, field: string, value: unknown) => Promise<void>;
   onStatusChange: (id: string, status: TaskStatus) => Promise<void>;
   onEditTask: (task: Task) => void;
@@ -170,8 +175,17 @@ function TaskRow({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ type: "spring", stiffness: 500, damping: 40 }}
-      className={`${index % 2 === 1 ? "bg-gray-50" : "bg-white"} hover:bg-indigo-50/40 transition-colors group`}
+      className={`${isSelected ? "bg-indigo-50" : index % 2 === 1 ? "bg-gray-50" : "bg-white"} hover:bg-indigo-50/40 transition-colors group`}
     >
+      <td className="border border-gray-200 px-3 py-3.5 text-center">
+        <input
+          type="checkbox"
+          checked={isSelected}
+          onChange={() => onToggleSelect(task.id)}
+          className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-400 cursor-pointer"
+          aria-label={`Seleccionar tarea ${task.title}`}
+        />
+      </td>
       <td className="w-1 p-0" style={{ backgroundColor: hex ?? "transparent" }} />
       <td className="border border-gray-200 px-4 py-3.5 max-w-[200px]">
         <InlineEdit
@@ -301,9 +315,39 @@ type Props = {
   onCreateTask: () => void;
   onEditTask: (task: Task) => void;
   onDeleteTask: (id: string) => void;
+  onBulkDelete: (ids: string[]) => Promise<void>;
   onRefresh: () => void;
   onCommentAdded: (taskId: string) => void;
 };
+
+function exportTasksToExcel(tasks: Task[]) {
+  const wb = XLSX.utils.book_new();
+  const rows = [
+    ["Título", "Descripción", "Estado", "Prioridad", "Frecuencia", "Fecha Inicio", "Fecha Fin", "Horas Estimadas", "Horas Reales", "Avance (%)", "Asignado a", "Email"],
+    ...tasks.map((t) => [
+      t.title,
+      t.description ?? "",
+      STATUS_LABELS[t.status],
+      t.priority,
+      FREQUENCY_LABELS[t.frequency],
+      formatDate(t.startDate),
+      formatDate(t.endDate),
+      fmtH(t.estimatedHours),
+      fmtH(t.realHours),
+      t.progress,
+      t.assignedTo.name,
+      t.assignedTo.email,
+    ]),
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws["!cols"] = [
+    { wch: 30 }, { wch: 30 }, { wch: 14 }, { wch: 10 }, { wch: 12 },
+    { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 12 }, { wch: 24 }, { wch: 28 },
+  ];
+  XLSX.utils.book_append_sheet(wb, ws, "Tareas");
+  const dateStr = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `Tareas_seleccionadas_${dateStr}.xlsx`);
+}
 
 export default function TableView({
   tasks,
@@ -314,6 +358,7 @@ export default function TableView({
   onCreateTask,
   onEditTask,
   onDeleteTask,
+  onBulkDelete,
   onRefresh,
   onCommentAdded,
 }: Props) {
@@ -323,6 +368,63 @@ export default function TableView({
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({ COMPLETADA: true });
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAllInSection(sectionTasks: Task[]) {
+    const allSelected = sectionTasks.length > 0 && sectionTasks.every((t) => selected.has(t.id));
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const t of sectionTasks) {
+        if (allSelected) next.delete(t.id);
+        else next.add(t.id);
+      }
+      return next;
+    });
+  }
+
+  const selectedTasks = useMemo(() => tasks.filter((t) => selected.has(t.id)), [tasks, selected]);
+
+  function handleExportSelected() {
+    if (selectedTasks.length === 0) return;
+    exportTasksToExcel(selectedTasks);
+    setSelected(new Set());
+  }
+
+  async function handleBulkDeleteClick() {
+    if (selectedTasks.length === 0) return;
+    const ownTasks = selectedTasks.filter((t) => t.createdBy.id === currentUserId);
+    const othersCount = selectedTasks.length - ownTasks.length;
+
+    if (ownTasks.length === 0) {
+      alert("No puedes eliminar tareas de otros usuarios.");
+      return;
+    }
+
+    const confirmMsg =
+      `¿Eliminar ${ownTasks.length} tarea${ownTasks.length !== 1 ? "s" : ""} seleccionada${ownTasks.length !== 1 ? "s" : ""}?` +
+      (othersCount > 0
+        ? ` (${othersCount} tarea${othersCount !== 1 ? "s" : ""} de otro${othersCount !== 1 ? "s" : ""} usuario${othersCount !== 1 ? "s" : ""} se omitirá${othersCount !== 1 ? "n" : ""})`
+        : "");
+    if (!confirm(confirmMsg)) return;
+
+    await onBulkDelete(ownTasks.map((t) => t.id));
+    setSelected(new Set());
+
+    if (othersCount > 0) {
+      alert(
+        `Se eliminaron ${ownTasks.length} tarea${ownTasks.length !== 1 ? "s" : ""}. ${othersCount} tarea${othersCount !== 1 ? "s" : ""} de otros usuarios no se eliminó${othersCount !== 1 ? "aron" : ""} porque solo el dueño puede eliminarlas.`
+      );
+    }
+  }
 
   function handleSort(key: SortKey) {
     if (sortKey === key) {
@@ -486,6 +588,15 @@ export default function TableView({
                 <table className="w-full text-sm border-collapse">
                   <thead>
                     <tr className="border-b border-gray-200 bg-gray-100">
+                      <th className="border border-gray-200 px-3 py-3 text-center">
+                        <input
+                          type="checkbox"
+                          checked={sectionTasks.length > 0 && sectionTasks.every((t) => selected.has(t.id))}
+                          onChange={() => toggleSelectAllInSection(sectionTasks)}
+                          className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-400 cursor-pointer"
+                          aria-label={`Seleccionar todas las tareas de ${section.label}`}
+                        />
+                      </th>
                       <th className="w-1 px-0" />
                       <th onDoubleClick={() => handleSort("title")} className="border border-gray-200 text-left px-4 py-3 text-[11px] font-semibold text-slate-600 uppercase tracking-wider cursor-pointer select-none hover:text-slate-900" title="Doble clic para ordenar">Título<SortIcon col="title" /></th>
                       <th onDoubleClick={() => handleSort("frequency")} className="border border-gray-200 text-left px-4 py-3 text-[11px] font-semibold text-slate-600 uppercase tracking-wider cursor-pointer select-none hover:text-slate-900" title="Doble clic para ordenar">Frecuencia<SortIcon col="frequency" /></th>
@@ -504,7 +615,7 @@ export default function TableView({
                     <AnimatePresence initial={false}>
                       {sectionTasks.length === 0 && (
                         <tr>
-                          <td colSpan={12} className="text-center py-6 text-slate-400 text-xs">
+                          <td colSpan={13} className="text-center py-6 text-slate-400 text-xs">
                             Sin tareas en esta sección
                           </td>
                         </tr>
@@ -515,6 +626,8 @@ export default function TableView({
                           task={task}
                           index={index}
                           currentUserId={currentUserId}
+                          isSelected={selected.has(task.id)}
+                          onToggleSelect={toggleSelect}
                           onFieldUpdate={onFieldUpdate}
                           onStatusChange={onStatusChange}
                           onEditTask={onEditTask}
@@ -548,6 +661,43 @@ export default function TableView({
           onClose={() => setActivityTask(null)}
         />
       )}
+
+      <AnimatePresence>
+        {selectedTasks.length > 0 && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 20 }}
+            transition={{ type: "spring", stiffness: 500, damping: 40 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 bg-slate-900 text-white rounded-2xl shadow-2xl px-5 py-3"
+          >
+            <span className="text-sm font-medium whitespace-nowrap">
+              {selectedTasks.length} tarea{selectedTasks.length !== 1 ? "s" : ""} seleccionada{selectedTasks.length !== 1 ? "s" : ""}
+            </span>
+            <div className="w-px h-5 bg-slate-700" />
+            <button
+              onClick={handleExportSelected}
+              className="flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-colors whitespace-nowrap"
+            >
+              📥 Exportar seleccionadas
+            </button>
+            <button
+              onClick={handleBulkDeleteClick}
+              className="flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg text-red-300 hover:bg-red-950/50 transition-colors whitespace-nowrap"
+            >
+              🗑️ Eliminar seleccionadas
+            </button>
+            <button
+              onClick={() => setSelected(new Set())}
+              className="text-slate-400 hover:text-white ml-1 px-1"
+              title="Cancelar selección"
+              aria-label="Cancelar selección"
+            >
+              ✕
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
