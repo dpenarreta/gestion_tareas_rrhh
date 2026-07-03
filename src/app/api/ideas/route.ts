@@ -3,13 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { getVisibleIdeaAuthorIds } from "@/lib/ideas";
 import { saveIdeaAttachment, AttachmentError } from "@/lib/storage";
-import type { IdeaArea, IdeaImpact } from "@/generated/prisma/client";
+import type { IdeaImpact } from "@/generated/prisma/client";
 
 const ideaListSelect = {
   id: true,
   title: true,
   description: true,
-  area: true,
   impact: true,
   status: true,
   attachmentUrl: true,
@@ -28,7 +27,6 @@ const ideaSelect = {
   id: true,
   title: true,
   description: true,
-  area: true,
   impact: true,
   status: true,
   attachmentUrl: true,
@@ -37,7 +35,6 @@ const ideaSelect = {
   author: { select: { id: true, name: true, role: true } },
 } as const;
 
-const VALID_AREAS: IdeaArea[] = ["SELECCION", "GESTION_HUMANA", "CLIMA_CULTURA", "NOMINA", "OPERACIONES", "OTRO"];
 const VALID_IMPACTS: IdeaImpact[] = ["ALTO", "MEDIO", "BAJO"];
 
 export async function GET() {
@@ -66,11 +63,10 @@ export async function POST(request: NextRequest) {
   const formData = await request.formData();
   const title = String(formData.get("title") ?? "").trim();
   const description = String(formData.get("description") ?? "").trim();
-  const area = String(formData.get("area") ?? "") as IdeaArea;
   const impact = String(formData.get("impact") ?? "") as IdeaImpact;
   const file = formData.get("file");
 
-  if (!title || !description || !VALID_AREAS.includes(area) || !VALID_IMPACTS.includes(impact)) {
+  if (!title || !description || !VALID_IMPACTS.includes(impact)) {
     return NextResponse.json({ error: "Faltan campos requeridos o son inválidos" }, { status: 400 });
   }
 
@@ -87,7 +83,7 @@ export async function POST(request: NextRequest) {
   }
 
   const idea = await prisma.improvementIdea.create({
-    data: { title, description, area, impact, authorId: session.userId, attachmentUrl },
+    data: { title, description, impact, authorId: session.userId, attachmentUrl },
     select: ideaSelect,
   });
 

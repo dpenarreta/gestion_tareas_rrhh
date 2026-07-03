@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import type { Role } from "@/generated/prisma/client";
 import { canReviewIdeas, ROLE_LABEL } from "@/lib/roles";
 import type { IdeaDetail, Idea } from "./types";
-import { AREA_LABELS, IMPACT_LABELS, IMPACT_STYLES, STATUS_INFO } from "./constants";
+import { IMPACT_LABELS, IMPACT_STYLES, STATUS_INFO } from "./constants";
 
 type Props = {
   ideaId: string;
@@ -118,9 +118,6 @@ export default function IdeaDetailModal({ ideaId, currentUserRole, onClose, onUp
             <div className="flex flex-wrap items-center gap-1.5">
               <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${IMPACT_STYLES[idea.impact]}`}>
                 Impacto {IMPACT_LABELS[idea.impact]}
-              </span>
-              <span className="text-[10px] text-slate-500 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200">
-                {AREA_LABELS[idea.area]}
               </span>
               <span className="text-[10px] text-slate-400">Propuesta el {formatDateTime(idea.createdAt)}</span>
             </div>

@@ -1,13 +1,4 @@
-import type { IdeaArea, IdeaImpact, IdeaStatus } from "./types";
-
-export const AREA_LABELS: Record<IdeaArea, string> = {
-  SELECCION: "Selección",
-  GESTION_HUMANA: "Gestión Humana",
-  CLIMA_CULTURA: "Clima y Cultura",
-  NOMINA: "Nómina",
-  OPERACIONES: "Operaciones",
-  OTRO: "Otro",
-};
+import type { IdeaImpact, IdeaStatus } from "./types";
 
 export const IMPACT_LABELS: Record<IdeaImpact, string> = {
   ALTO: "Alto",

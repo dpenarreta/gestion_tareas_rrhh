@@ -1,7 +1,7 @@
 "use client";
 
 import type { Idea } from "./types";
-import { AREA_LABELS, IMPACT_LABELS, IMPACT_STYLES } from "./constants";
+import { IMPACT_LABELS, IMPACT_STYLES } from "./constants";
 
 type Props = {
   idea: Idea;
@@ -28,9 +28,6 @@ export default function IdeaCard({ idea, currentUserId, onClick }: Props) {
       <div className="flex flex-wrap gap-1.5 mb-2">
         <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${IMPACT_STYLES[idea.impact]}`}>
           {IMPACT_LABELS[idea.impact]}
-        </span>
-        <span className="text-[10px] text-slate-500 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200">
-          {AREA_LABELS[idea.area]}
         </span>
       </div>
       <p className="text-[10px] text-slate-400">{idea.author.name}</p>

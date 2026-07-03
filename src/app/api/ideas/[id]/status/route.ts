@@ -14,7 +14,6 @@ const ideaSelect = {
   id: true,
   title: true,
   description: true,
-  area: true,
   impact: true,
   status: true,
   attachmentUrl: true,

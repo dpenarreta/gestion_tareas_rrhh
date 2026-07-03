@@ -188,15 +188,6 @@ model MonthClosure {
   @@unique([month, year])
 }
 
-enum IdeaArea {
-  SELECCION
-  GESTION_HUMANA
-  CLIMA_CULTURA
-  NOMINA
-  OPERACIONES
-  OTRO
-}
-
 enum IdeaImpact {
   ALTO
   MEDIO
@@ -217,7 +208,6 @@ model ImprovementIdea {
   id            String     @id @default(cuid())
   title         String
   description   String
-  area          IdeaArea
   impact        IdeaImpact
   status        IdeaStatus @default(PROPUESTA)
   authorId      String

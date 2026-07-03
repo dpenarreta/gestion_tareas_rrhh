@@ -3,8 +3,8 @@
 import { useMemo, useState } from "react";
 import type { Role } from "@/generated/prisma/client";
 import { ROLE_LEVEL } from "@/lib/roles";
-import type { Idea, IdeaArea, IdeaImpact } from "./types";
-import { AREA_LABELS, IMPACT_LABELS, STATUS_INFO, BOARD_COLUMNS } from "./constants";
+import type { Idea, IdeaImpact } from "./types";
+import { IMPACT_LABELS, STATUS_INFO, BOARD_COLUMNS } from "./constants";
 import IdeaCard from "./IdeaCard";
 
 type Props = {
@@ -15,7 +15,6 @@ type Props = {
 };
 
 export default function IdeasBoard({ ideas, currentUserId, currentUserRole, onCardClick }: Props) {
-  const [areaFilter, setAreaFilter] = useState<IdeaArea | "">("");
   const [impactFilter, setImpactFilter] = useState<IdeaImpact | "">("");
   const [authorFilter, setAuthorFilter] = useState<string>("");
   const [hideRejected, setHideRejected] = useState(false);
@@ -30,12 +29,11 @@ export default function IdeasBoard({ ideas, currentUserId, currentUserRole, onCa
 
   const filtered = useMemo(() => {
     return ideas.filter((i) => {
-      if (areaFilter && i.area !== areaFilter) return false;
       if (impactFilter && i.impact !== impactFilter) return false;
       if (canFilterByAuthor && authorFilter && i.author.id !== authorFilter) return false;
       return true;
     });
-  }, [ideas, areaFilter, impactFilter, authorFilter, canFilterByAuthor]);
+  }, [ideas, impactFilter, authorFilter, canFilterByAuthor]);
 
   const columns = hideRejected ? BOARD_COLUMNS.filter((c) => c !== "RECHAZADA") : BOARD_COLUMNS;
 
@@ -49,16 +47,6 @@ export default function IdeasBoard({ ideas, currentUserId, currentUserRole, onCa
   return (
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-center gap-2">
-        <select
-          value={areaFilter}
-          onChange={(e) => setAreaFilter(e.target.value as IdeaArea | "")}
-          className="text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white text-slate-700"
-        >
-          <option value="">Todas las áreas</option>
-          {Object.entries(AREA_LABELS).map(([v, l]) => (
-            <option key={v} value={v}>{l}</option>
-          ))}
-        </select>
         <select
           value={impactFilter}
           onChange={(e) => setImpactFilter(e.target.value as IdeaImpact | "")}

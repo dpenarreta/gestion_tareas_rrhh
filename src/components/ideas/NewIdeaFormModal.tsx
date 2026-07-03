@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import type { IdeaArea, IdeaImpact } from "./types";
-import { AREA_LABELS, IMPACT_LABELS } from "./constants";
+import type { IdeaImpact } from "./types";
+import { IMPACT_LABELS } from "./constants";
 
 type Props = {
   onClose: () => void;
@@ -12,7 +12,6 @@ type Props = {
 export default function NewIdeaFormModal({ onClose, onCreated }: Props) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [area, setArea] = useState<IdeaArea>("SELECCION");
   const [impact, setImpact] = useState<IdeaImpact>("MEDIO");
   const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
@@ -30,7 +29,6 @@ export default function NewIdeaFormModal({ onClose, onCreated }: Props) {
       const formData = new FormData();
       formData.append("title", title.trim());
       formData.append("description", description.trim());
-      formData.append("area", area);
       formData.append("impact", impact);
       if (file) formData.append("file", file);
 
@@ -87,31 +85,17 @@ export default function NewIdeaFormModal({ onClose, onCreated }: Props) {
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">Área o proceso</label>
-              <select
-                value={area}
-                onChange={(e) => setArea(e.target.value as IdeaArea)}
-                className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
-              >
-                {Object.entries(AREA_LABELS).map(([v, l]) => (
-                  <option key={v} value={v}>{l}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">Impacto esperado</label>
-              <select
-                value={impact}
-                onChange={(e) => setImpact(e.target.value as IdeaImpact)}
-                className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
-              >
-                {Object.entries(IMPACT_LABELS).map(([v, l]) => (
-                  <option key={v} value={v}>{l}</option>
-                ))}
-              </select>
-            </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Impacto esperado</label>
+            <select
+              value={impact}
+              onChange={(e) => setImpact(e.target.value as IdeaImpact)}
+              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            >
+              {Object.entries(IMPACT_LABELS).map(([v, l]) => (
+                <option key={v} value={v}>{l}</option>
+              ))}
+            </select>
           </div>
 
           <div>

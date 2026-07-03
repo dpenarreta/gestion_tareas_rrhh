@@ -1,4 +1,3 @@
-export type IdeaArea = "SELECCION" | "GESTION_HUMANA" | "CLIMA_CULTURA" | "NOMINA" | "OPERACIONES" | "OTRO";
 export type IdeaImpact = "ALTO" | "MEDIO" | "BAJO";
 export type IdeaStatus =
   | "PROPUESTA"
@@ -15,7 +14,6 @@ export type Idea = {
   id: string;
   title: string;
   description: string;
-  area: IdeaArea;
   impact: IdeaImpact;
   status: IdeaStatus;
   attachmentUrl: string | null;
