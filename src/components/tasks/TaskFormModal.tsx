@@ -252,8 +252,8 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
             <label className="block text-xs font-semibold text-main mb-1.5">Horas estimadas *</label>
             <input
               type="number"
-              min="0"
-              step="0.5"
+              min={task ? "0" : "0.1"}
+              step="0.1"
               value={estimatedHours}
               onChange={(e) => setEstimatedHours(e.target.value)}
               className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"

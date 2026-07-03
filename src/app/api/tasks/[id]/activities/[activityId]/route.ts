@@ -12,7 +12,7 @@ async function recalcRealHours(taskId: string) {
   const totalMins = activities.reduce((sum, a) => sum + a.duration, 0);
   await prisma.task.update({
     where: { id: taskId },
-    data: { realHours: totalMins / 60 },
+    data: { realHours: Math.round((totalMins / 60) * 100) / 100 },
   });
 }
 

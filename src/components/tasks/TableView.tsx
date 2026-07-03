@@ -45,11 +45,10 @@ const STATUS_SECTIONS: {
   headerText: string;
   border: string;
   dot: string;
-  collapsible?: boolean;
 }[] = [
   { id: "PENDIENTE", label: "Pendientes", headerBg: "bg-amber-50", headerText: "text-amber-700", border: "border-amber-200", dot: "bg-amber-400" },
   { id: "EN_PROGRESO", label: "En Progreso", headerBg: "bg-blue-50", headerText: "text-blue-700", border: "border-blue-200", dot: "bg-blue-500" },
-  { id: "COMPLETADA", label: "Completadas", headerBg: "bg-green-50", headerText: "text-green-700", border: "border-green-200", dot: "bg-green-500", collapsible: true },
+  { id: "COMPLETADA", label: "Completadas", headerBg: "bg-green-50", headerText: "text-green-700", border: "border-green-200", dot: "bg-green-500" },
 ];
 
 function fmtH(n: number) {
@@ -61,6 +60,8 @@ function InlineEdit({
   type = "text",
   options,
   readOnly,
+  min,
+  step,
   onSave,
   renderDisplay,
 }: {
@@ -68,6 +69,8 @@ function InlineEdit({
   type?: "text" | "number" | "date" | "select";
   options?: { value: string; label: string }[];
   readOnly?: boolean;
+  min?: string;
+  step?: string;
   onSave: (v: string) => void;
   renderDisplay?: (value: string) => React.ReactNode;
 }) {
@@ -118,6 +121,8 @@ function InlineEdit({
       autoFocus
       type={type}
       value={local}
+      min={min}
+      step={step}
       onChange={(e) => setLocal(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") setEditing(false); }}
@@ -236,6 +241,8 @@ function TaskRow({
         <InlineEdit
           value={String(fmtH(task.realHours))}
           type="number"
+          min="0"
+          step="0.1"
           readOnly={!isOwner}
           onSave={(v) => onFieldUpdate(task.id, "realHours", v)}
         />
@@ -556,23 +563,20 @@ export default function TableView({
 
       {tasks.length > 0 && STATUS_SECTIONS.map((section) => {
         const sectionTasks = tasksBySection[section.id];
-        const isCollapsed = section.collapsible && collapsed[section.id];
+        const isCollapsed = collapsed[section.id];
         return (
           <div key={section.id} className={`rounded-2xl border ${section.border} bg-surface overflow-hidden shadow-sm`}>
             <div className={`flex items-center justify-between px-4 py-2.5 ${section.headerBg}`}>
               <button
-                onClick={() => section.collapsible && setCollapsed((c) => ({ ...c, [section.id]: !c[section.id] }))}
-                disabled={!section.collapsible}
-                className="flex items-center gap-2 disabled:cursor-default"
+                onClick={() => setCollapsed((c) => ({ ...c, [section.id]: !c[section.id] }))}
+                className="flex items-center gap-2"
               >
-                {section.collapsible && (
-                  <svg
-                    className={`w-3.5 h-3.5 ${section.headerText} transition-transform ${isCollapsed ? "-rotate-90" : ""}`}
-                    fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                  >
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                )}
+                <svg
+                  className={`w-3.5 h-3.5 ${section.headerText} transition-transform ${isCollapsed ? "-rotate-90" : ""}`}
+                  fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                >
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
                 <span className={`w-2 h-2 rounded-full ${section.dot}`} />
                 <span className={`text-sm font-semibold ${section.headerText}`}>
                   {section.label} ({sectionTasks.length})
@@ -580,64 +584,75 @@ export default function TableView({
               </button>
             </div>
 
-            {!isCollapsed && (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm border-collapse">
-                  <thead>
-                    <tr className="border-b border-border bg-background">
-                      <th className="border border-border px-3 py-3 text-center">
-                        <input
-                          type="checkbox"
-                          checked={sectionTasks.length > 0 && sectionTasks.every((t) => selected.has(t.id))}
-                          onChange={() => toggleSelectAllInSection(sectionTasks)}
-                          className="w-4 h-4 rounded border-border text-primary focus:ring-primary cursor-pointer"
-                          aria-label={`Seleccionar todas las tareas de ${section.label}`}
-                        />
-                      </th>
-                      <th className="w-1 px-0" />
-                      <th onDoubleClick={() => handleSort("title")} className="border border-border text-left px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Título<SortIcon col="title" /></th>
-                      <th onDoubleClick={() => handleSort("frequency")} className="border border-border text-left px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Frecuencia<SortIcon col="frequency" /></th>
-                      <th className="border border-border text-left px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider">Estado</th>
-                      <th onDoubleClick={() => handleSort("priority")} className="border border-border text-left px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Prioridad<SortIcon col="priority" /></th>
-                      <th onDoubleClick={() => handleSort("startDate")} className="border border-border text-left px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Inicio<SortIcon col="startDate" /></th>
-                      <th onDoubleClick={() => handleSort("endDate")} className="border border-border text-left px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Fin<SortIcon col="endDate" /></th>
-                      <th onDoubleClick={() => handleSort("estimatedHours")} className="border border-border text-right px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">H. Est.<SortIcon col="estimatedHours" /></th>
-                      <th onDoubleClick={() => handleSort("realHours")} className="border border-border text-right px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">H. Reales<SortIcon col="realHours" /></th>
-                      <th onDoubleClick={() => handleSort("progress")} className="border border-border text-center px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Avance<SortIcon col="progress" /></th>
-                      <th className="border border-border text-center px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider">Coment.</th>
-                      <th className="border border-border px-4 py-3" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <AnimatePresence initial={false}>
-                      {sectionTasks.length === 0 && (
-                        <tr>
-                          <td colSpan={13} className="text-center py-6 text-disabled text-xs">
-                            Sin tareas en esta sección
-                          </td>
+            <AnimatePresence initial={false}>
+              {!isCollapsed && (
+                <motion.div
+                  key="content"
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2, ease: "easeInOut" }}
+                  style={{ overflow: "hidden" }}
+                >
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm border-collapse">
+                      <thead>
+                        <tr className="border-b border-border bg-background">
+                          <th className="border border-border px-3 py-3 text-center">
+                            <input
+                              type="checkbox"
+                              checked={sectionTasks.length > 0 && sectionTasks.every((t) => selected.has(t.id))}
+                              onChange={() => toggleSelectAllInSection(sectionTasks)}
+                              className="w-4 h-4 rounded border-border text-primary focus:ring-primary cursor-pointer"
+                              aria-label={`Seleccionar todas las tareas de ${section.label}`}
+                            />
+                          </th>
+                          <th className="w-1 px-0" />
+                          <th onDoubleClick={() => handleSort("title")} className="border border-border text-left px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Título<SortIcon col="title" /></th>
+                          <th onDoubleClick={() => handleSort("frequency")} className="border border-border text-left px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Frecuencia<SortIcon col="frequency" /></th>
+                          <th className="border border-border text-left px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider">Estado</th>
+                          <th onDoubleClick={() => handleSort("priority")} className="border border-border text-left px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Prioridad<SortIcon col="priority" /></th>
+                          <th onDoubleClick={() => handleSort("startDate")} className="border border-border text-left px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Inicio<SortIcon col="startDate" /></th>
+                          <th onDoubleClick={() => handleSort("endDate")} className="border border-border text-left px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Fin<SortIcon col="endDate" /></th>
+                          <th onDoubleClick={() => handleSort("estimatedHours")} className="border border-border text-right px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">H. Est.<SortIcon col="estimatedHours" /></th>
+                          <th onDoubleClick={() => handleSort("realHours")} className="border border-border text-right px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">H. Reales<SortIcon col="realHours" /></th>
+                          <th onDoubleClick={() => handleSort("progress")} className="border border-border text-center px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Avance<SortIcon col="progress" /></th>
+                          <th className="border border-border text-center px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider">Coment.</th>
+                          <th className="border border-border px-4 py-3" />
                         </tr>
-                      )}
-                      {sectionTasks.map((task, index) => (
-                        <TaskRow
-                          key={task.id}
-                          task={task}
-                          index={index}
-                          currentUserId={currentUserId}
-                          isSelected={selected.has(task.id)}
-                          onToggleSelect={toggleSelect}
-                          onFieldUpdate={onFieldUpdate}
-                          onStatusChange={onStatusChange}
-                          onEditTask={onEditTask}
-                          onDeleteTask={onDeleteTask}
-                          onCommentClick={setCommentTask}
-                          onActivityClick={setActivityTask}
-                        />
-                      ))}
-                    </AnimatePresence>
-                  </tbody>
-                </table>
-              </div>
-            )}
+                      </thead>
+                      <tbody>
+                        <AnimatePresence initial={false}>
+                          {sectionTasks.length === 0 && (
+                            <tr>
+                              <td colSpan={13} className="text-center py-6 text-disabled text-xs">
+                                Sin tareas en esta sección
+                              </td>
+                            </tr>
+                          )}
+                          {sectionTasks.map((task, index) => (
+                            <TaskRow
+                              key={task.id}
+                              task={task}
+                              index={index}
+                              currentUserId={currentUserId}
+                              isSelected={selected.has(task.id)}
+                              onToggleSelect={toggleSelect}
+                              onFieldUpdate={onFieldUpdate}
+                              onStatusChange={onStatusChange}
+                              onEditTask={onEditTask}
+                              onDeleteTask={onDeleteTask}
+                              onCommentClick={setCommentTask}
+                              onActivityClick={setActivityTask}
+                            />
+                          ))}
+                        </AnimatePresence>
+                      </tbody>
+                    </table>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         );
       })}
