@@ -13,6 +13,7 @@ import {
 } from "./KpiCharts";
 import MonthlyReports from "./MonthlyReports";
 import * as XLSX from "xlsx";
+import { formatDate } from "@/lib/utils";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -853,10 +854,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
                               </span>
                             </td>
                             <td className="py-2.5 pr-4 text-sm text-slate-600 whitespace-nowrap">
-                              {new Date(t.endDate).toLocaleDateString("es-CL", {
-                                day: "2-digit",
-                                month: "short",
-                              })}
+                              {formatDate(t.endDate)}
                             </td>
                             <td className="py-2.5 pr-4 text-sm">
                               {t.delayDays > 0 ? (

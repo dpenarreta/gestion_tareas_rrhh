@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Task } from "./types";
 import { TASK_COLORS, taskColorHex } from "./colors";
+import { formatDate } from "@/lib/utils";
 
 const PRIORITY_STYLES: Record<Task["priority"], string> = {
   ALTA: "bg-red-100 text-red-700",
@@ -17,11 +18,6 @@ const FREQUENCY_LABELS: Record<Task["frequency"], string> = {
   QUINCENAL: "Quincenal",
   PUNTUAL: "Puntual",
 };
-
-function formatDate(iso: string) {
-  const d = new Date(iso);
-  return d.toLocaleDateString("es-CL", { day: "2-digit", month: "short" });
-}
 
 function ColorPicker({ current, onSelect, onClose }: { current: string | null; onSelect: (color: string | null) => void; onClose: () => void }) {
   const ref = useRef<HTMLDivElement>(null);

@@ -10,6 +10,7 @@ import type { Role } from "@/generated/prisma/client";
 import { ROLE_LABEL } from "@/lib/roles";
 import type { KpiData, KpiColor } from "./types";
 import { DonutChart, WeeklyHoursChart, CumplimientoLineChart, REASON_LABEL } from "./KpiCharts";
+import { formatDate } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -846,7 +847,7 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
                                 </span>
                               </td>
                               <td className="py-2.5 pr-4 text-xs text-slate-500">
-                                {new Date(t.endDate).toLocaleDateString("es-CL", { day: "2-digit", month: "short" })}
+                                {formatDate(t.endDate)}
                               </td>
                               <td className="py-2.5 pr-4">
                                 {t.delayDays > 0 ? (

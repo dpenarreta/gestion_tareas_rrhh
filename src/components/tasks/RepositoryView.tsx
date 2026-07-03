@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Task } from "./types";
 import { taskColorHex } from "./colors";
+import { formatDate } from "@/lib/utils";
 
 type RepositoryMonth = { year: number; month: number; totalTasks: number; completedTasks: number; totalHours: number };
 
@@ -35,10 +36,6 @@ const FREQUENCY_LABELS: Record<Task["frequency"], string> = {
 function monthLabel(year: number, month: number) {
   const label = new Date(year, month - 1, 1).toLocaleDateString("es-CL", { month: "long" });
   return label.charAt(0).toUpperCase() + label.slice(1);
-}
-
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("es-CL");
 }
 
 function fmtH(n: number) {

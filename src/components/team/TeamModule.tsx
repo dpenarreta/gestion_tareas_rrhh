@@ -7,6 +7,7 @@ import type { Task } from "@/components/tasks/types";
 import CommentPanel from "@/components/tasks/CommentPanel";
 import ActivityPanel from "@/components/tasks/ActivityPanel";
 import TaskFormModal from "@/components/tasks/TaskFormModal";
+import { formatDate } from "@/lib/utils";
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -44,17 +45,8 @@ function initials(name: string) {
     : (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("es-CL");
-}
-
 function fmtH(n: number) {
   return Math.round(n * 100) / 100;
-}
-
-function formatRelativeDate(iso: string) {
-  const d = new Date(iso);
-  return d.toLocaleDateString("es-CL", { day: "2-digit", month: "short" });
 }
 
 // ─── MemberCard ───────────────────────────────────────────────────────────────
@@ -217,7 +209,7 @@ function MemberTasksTable({
               <td className="px-3 py-3 text-slate-600 whitespace-nowrap text-xs">{formatDate(task.startDate)}</td>
               <td className="px-3 py-3 whitespace-nowrap text-xs">
                 <span className={new Date(task.endDate) < new Date() && task.status !== "COMPLETADA" ? "text-red-600 font-medium" : "text-slate-600"}>
-                  {formatRelativeDate(task.endDate)}
+                  {formatDate(task.endDate)}
                 </span>
               </td>
               <td className="px-3 py-3 text-right text-slate-600 text-xs">{fmtH(task.estimatedHours)}h</td>

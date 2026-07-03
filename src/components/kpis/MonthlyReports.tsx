@@ -9,6 +9,7 @@ import type { Role } from "@/generated/prisma/client";
 import { ROLE_LABEL } from "@/lib/roles";
 import type { MonthlyReportSummary, MonthlyReportFull, ReportData, RangeReportData } from "./types";
 import * as XLSX from "xlsx";
+import { formatDate } from "@/lib/utils";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -1021,7 +1022,7 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                   </h2>
                   <p className="text-sm text-slate-500">
                     Generado por {selectedSummary.generatedBy} el{" "}
-                    {new Date(selectedSummary.createdAt).toLocaleDateString("es-CL")}
+                    {formatDate(selectedSummary.createdAt)}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">

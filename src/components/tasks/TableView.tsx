@@ -6,6 +6,7 @@ import * as XLSX from "xlsx";
 import type { Task, AssignableUser, TaskStatus } from "./types";
 import { taskColorHex } from "./colors";
 import { fireCelebrationConfetti } from "@/lib/confetti";
+import { formatDate } from "@/lib/utils";
 
 type SortKey = "title" | "frequency" | "status" | "priority" | "startDate" | "endDate" | "estimatedHours" | "realHours" | "progress";
 import CommentPanel from "./CommentPanel";
@@ -50,10 +51,6 @@ const STATUS_SECTIONS: {
   { id: "EN_PROGRESO", label: "En Progreso", headerBg: "bg-blue-50", headerText: "text-blue-700", border: "border-blue-200", dot: "bg-blue-500" },
   { id: "COMPLETADA", label: "Completadas", headerBg: "bg-green-50", headerText: "text-green-700", border: "border-green-200", dot: "bg-green-500", collapsible: true },
 ];
-
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("es-CL");
-}
 
 function fmtH(n: number) {
   return Math.round(n * 100) / 100;

@@ -8,15 +8,52 @@ const VALID_PRIORITIES = ["ALTA", "MEDIA", "BAJA"];
 const VALID_FREQUENCIES = ["MENSUAL", "SEMANAL", "DIARIA", "QUINCENAL", "PUNTUAL"];
 const VALID_TYPES = ["FIJA", "SEGUIMIENTO"];
 
-function parseDate(value: unknown): Date | null {
-  if (!value) return null;
-  const str = String(value).trim();
-  const parts = str.split("/");
-  if (parts.length !== 3) return null;
-  const [d, m, y] = parts.map(Number);
-  if (!d || !m || !y) return null;
-  const date = new Date(y, m - 1, d);
+// Task.startDate/endDate are stored as UTC-midnight calendar days (see project
+// convention); always build parsed dates with Date.UTC, never the local Date
+// constructor, or the stored day silently shifts depending on server timezone.
+function isValidUTCDate(y: number, month: number, day: number): boolean {
+  if (![y, month, day].every(Number.isInteger)) return false;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+  const date = new Date(Date.UTC(y, month - 1, day));
+  return date.getUTCFullYear() === y && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+// Excel serial date numbers count days since 1899-12-30; this offset converts
+// to a Unix-epoch UTC timestamp.
+function excelSerialToUTCDate(serial: number): Date | null {
+  if (!Number.isFinite(serial)) return null;
+  const ms = Math.round((serial - 25569) * 86400 * 1000);
+  const date = new Date(ms);
   return isNaN(date.getTime()) ? null : date;
+}
+
+function parseDate(value: unknown): Date | null {
+  if (value === null || value === undefined || value === "") return null;
+
+  if (typeof value === "number") {
+    return excelSerialToUTCDate(value);
+  }
+
+  const str = String(value).trim();
+  if (!str) return null;
+
+  // YYYY-MM-DD (primary format)
+  let m = str.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (m) {
+    const y = Number(m[1]), mo = Number(m[2]), d = Number(m[3]);
+    return isValidUTCDate(y, mo, d) ? new Date(Date.UTC(y, mo - 1, d)) : null;
+  }
+
+  // DD/MM/YYYY or MM/DD/YYYY — ambiguous, try DD/MM first then fall back to MM/DD
+  m = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+  if (m) {
+    const a = Number(m[1]), b = Number(m[2]), y = Number(m[3]);
+    if (isValidUTCDate(y, b, a)) return new Date(Date.UTC(y, b - 1, a));
+    if (isValidUTCDate(y, a, b)) return new Date(Date.UTC(y, a - 1, b));
+    return null;
+  }
+
+  return null;
 }
 
 export async function POST(request: NextRequest) {
@@ -62,15 +99,23 @@ export async function POST(request: NextRequest) {
       continue;
     }
 
+    if (startDateRaw === undefined || startDateRaw === null || String(startDateRaw).trim() === "") {
+      errors.push({ row: rowNum, error: "la fecha de inicio es obligatoria" });
+      continue;
+    }
     const startDate = parseDate(startDateRaw);
     if (!startDate) {
-      errors.push({ row: rowNum, error: `Fecha inicio inválida: "${startDateRaw}". Use formato DD/MM/YYYY` });
+      errors.push({ row: rowNum, error: "formato de fecha inválido, usar YYYY-MM-DD" });
       continue;
     }
 
+    if (endDateRaw === undefined || endDateRaw === null || String(endDateRaw).trim() === "") {
+      errors.push({ row: rowNum, error: "la fecha de fin es obligatoria" });
+      continue;
+    }
     const endDate = parseDate(endDateRaw);
     if (!endDate) {
-      errors.push({ row: rowNum, error: `Fecha fin inválida: "${endDateRaw}". Use formato DD/MM/YYYY` });
+      errors.push({ row: rowNum, error: "formato de fecha inválido, usar YYYY-MM-DD" });
       continue;
     }
 

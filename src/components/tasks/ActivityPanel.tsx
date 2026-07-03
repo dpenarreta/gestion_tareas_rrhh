@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import type { Task, TaskActivity, ActivityReason } from "./types";
+import { formatDate } from "@/lib/utils";
 
 const REASON_OPTIONS: { value: ActivityReason; label: string }[] = [
   { value: "NOVEDADES_PAGO", label: "Novedades de Pago" },
@@ -29,14 +30,6 @@ function formatDuration(mins: number): string {
   if (h === 0) return `${m} min`;
   if (m === 0) return `${h}h`;
   return `${h}h ${m}min`;
-}
-
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("es-CL", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
 }
 
 const REASON_COLORS: Record<ActivityReason, string> = {

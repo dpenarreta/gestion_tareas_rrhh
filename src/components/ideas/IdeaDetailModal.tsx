@@ -5,6 +5,7 @@ import type { Role } from "@/generated/prisma/client";
 import { canReviewIdeas, ROLE_LABEL } from "@/lib/roles";
 import type { IdeaDetail, Idea } from "./types";
 import { IMPACT_LABELS, IMPACT_STYLES, STATUS_INFO } from "./constants";
+import { formatDate } from "@/lib/utils";
 
 type Props = {
   ideaId: string;
@@ -14,13 +15,8 @@ type Props = {
 };
 
 function formatDateTime(iso: string) {
-  return new Date(iso).toLocaleString("es-CL", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  const time = new Date(iso).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" });
+  return `${formatDate(iso)} ${time}`;
 }
 
 export default function IdeaDetailModal({ ideaId, currentUserRole, onClose, onUpdated }: Props) {

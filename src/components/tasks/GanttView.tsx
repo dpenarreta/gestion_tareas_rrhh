@@ -1,6 +1,7 @@
 "use client";
 
 import type { Task } from "./types";
+import { formatDate } from "@/lib/utils";
 
 const STATUS_BAR: Record<Task["status"], string> = {
   PENDIENTE: "bg-slate-400",
@@ -163,16 +164,18 @@ function GanttChart({ tasks }: { tasks: Task[] }) {
                 style={{ width: labelWidth }}
                 className="shrink-0 flex items-center px-4 border-r border-slate-200"
               >
-                <div className="min-w-0">
+                <div className="min-w-0" title={`${task.assignedTo.name} · ${formatDate(task.startDate)} → ${formatDate(task.endDate)}`}>
                   <p className="text-xs font-medium text-slate-800 truncate">{task.title}</p>
-                  <p className="text-[10px] text-slate-400">{task.assignedTo.name}</p>
+                  <p className="text-[10px] text-slate-400 truncate">
+                    {task.assignedTo.name} · {formatDate(task.startDate)} → {formatDate(task.endDate)}
+                  </p>
                 </div>
               </div>
               <div className="relative flex-1" style={{ width: totalWidth }}>
                 <div
                   className={`absolute top-1/2 -translate-y-1/2 rounded-lg overflow-hidden ${STATUS_BAR[task.status]}`}
                   style={{ left: barLeft, width: Math.max(barWidth, 20), height: 24 }}
-                  title={`${task.title} — ${task.progress}%`}
+                  title={`${task.title}: ${formatDate(task.startDate)} → ${formatDate(task.endDate)} (${task.progress}%)`}
                 >
                   {task.progress > 0 && (
                     <div
