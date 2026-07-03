@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo } from "react";
 import type { Role } from "@/generated/prisma/client";
 import type { Task, ViewType, AssignableUser } from "./types";
 import { canManageUsers } from "@/lib/roles";
@@ -37,6 +37,16 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
   const [initialStatus, setInitialStatus] = useState<Task["status"]>("PENDIENTE");
   const [showRepository, setShowRepository] = useState(false);
   const [showCloseMonth, setShowCloseMonth] = useState(false);
+  const [search, setSearch] = useState("");
+
+  const filteredTasks = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return tasks;
+    return tasks.filter((t) => t.title.toLowerCase().includes(q));
+  }, [tasks, search]);
+
+  const searchActive = search.trim() !== "";
+  const noSearchResults = searchActive && filteredTasks.length === 0;
 
   const refreshTasks = useCallback(async () => {
     const res = await fetch("/api/tasks");
@@ -161,6 +171,32 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
 
   return (
     <div className="flex flex-col min-h-0">
+      {/* Search */}
+      <div className="mb-4 relative max-w-sm">
+        <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-disabled" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35M17 10a7 7 0 11-14 0 7 7 0 0114 0z" />
+        </svg>
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Buscar tarea por nombre..."
+          className="w-full pl-9 pr-9 py-2 text-sm rounded-xl border border-border bg-surface text-title placeholder-disabled focus:outline-none focus:ring-2 focus:ring-primary"
+        />
+        {searchActive && (
+          <button
+            onClick={() => setSearch("")}
+            className="absolute right-2.5 top-1/2 -translate-y-1/2 text-disabled hover:text-title p-0.5"
+            aria-label="Limpiar búsqueda"
+            title="Limpiar búsqueda"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        )}
+      </div>
+
       {/* Tab bar */}
       <div className="flex items-end justify-between gap-2 border-b border-border mb-5 relative">
         <div className="flex items-end gap-0.5">
@@ -242,9 +278,14 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
       {/* Active view */}
       <div className="flex-1">
         {showRepository && <RepositoryView />}
-        {!showRepository && currentView === "KANBAN" && (
+        {!showRepository && noSearchResults && (
+          <div className="text-center py-16 text-secondary text-sm rounded-2xl border border-border bg-surface">
+            No se encontraron tareas con ese nombre
+          </div>
+        )}
+        {!showRepository && !noSearchResults && currentView === "KANBAN" && (
           <KanbanView
-            tasks={tasks}
+            tasks={filteredTasks}
             currentUserId={currentUserId}
             onStatusChange={handleStatusChange}
             onCreateTask={openCreate}
@@ -254,9 +295,9 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
             onColorChange={handleColorChange}
           />
         )}
-        {!showRepository && currentView === "TABLA" && (
+        {!showRepository && !noSearchResults && currentView === "TABLA" && (
           <TableView
-            tasks={tasks}
+            tasks={filteredTasks}
             currentUserId={currentUserId}
             users={initialUsers}
             onFieldUpdate={handleFieldUpdate}
@@ -270,7 +311,7 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
             onCommentAdded={handleCommentAdded}
           />
         )}
-        {!showRepository && currentView === "GANTT" && <GanttView tasks={tasks} onCreateTask={() => openCreate()} />}
+        {!showRepository && !noSearchResults && currentView === "GANTT" && <GanttView tasks={filteredTasks} onCreateTask={() => openCreate()} />}
       </div>
 
       {showCloseMonth && (

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canAccessReports, ROLE_LABEL } from "@/lib/roles";
+import { isTaskOverdue } from "@/lib/utils";
 import Groq from "groq-sdk";
 import type { Role, ReportScope } from "@/generated/prisma/client";
 
@@ -220,7 +221,7 @@ export async function POST(request: NextRequest) {
   const members: MemberKpi[] = users.map((user) => {
     const tasks = allTasks.filter((t) => t.assignedToId === user.id);
     const completed = tasks.filter((t) => t.status === "COMPLETADA").length;
-    const overdue = tasks.filter((t) => t.status !== "COMPLETADA" && t.endDate < refDate).length;
+    const overdue = tasks.filter((t) => isTaskOverdue(t.endDate, t.status, refDate)).length;
     const completedPct = tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0;
     const totalEst = Math.round(tasks.reduce((s, t) => s + t.estimatedHours, 0) * 100) / 100;
     const totalReal = Math.round(tasks.reduce((s, t) => s + t.realHours, 0) * 100) / 100;

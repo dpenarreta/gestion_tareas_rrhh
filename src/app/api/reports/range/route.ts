@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canAccessReports, ROLE_LABEL } from "@/lib/roles";
+import { isTaskOverdue } from "@/lib/utils";
 import Groq from "groq-sdk";
 import type { Role } from "@/generated/prisma/client";
 import type { MonthSnapshot, RangeReportData, ReportMemberKpi } from "@/components/kpis/types";
@@ -234,7 +235,7 @@ export async function GET(request: NextRequest) {
           inProgress.length > 0
             ? Math.round(inProgress.reduce((s, t) => s + t.progress, 0) / inProgress.length)
             : 0;
-        const overdue = tasks.filter((t) => t.status !== "COMPLETADA" && t.endDate < refDate).length;
+        const overdue = tasks.filter((t) => isTaskOverdue(t.endDate, t.status, refDate)).length;
         const score = Math.round(
           (completedPct / 100) * 40 +
             Math.max(0, 20 - Math.max(0, cargaRatio - 100) * 0.5) +

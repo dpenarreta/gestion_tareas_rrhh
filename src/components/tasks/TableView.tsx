@@ -6,7 +6,7 @@ import * as XLSX from "xlsx";
 import type { Task, AssignableUser, TaskStatus } from "./types";
 import { taskColorHex } from "./colors";
 import { fireCelebrationConfetti } from "@/lib/confetti";
-import { formatDate } from "@/lib/utils";
+import { formatDate, isTaskOverdue } from "@/lib/utils";
 
 type SortKey = "title" | "frequency" | "status" | "priority" | "startDate" | "endDate" | "estimatedHours" | "realHours" | "progress";
 import CommentPanel from "./CommentPanel";
@@ -230,7 +230,7 @@ function TaskRow({
         </span>
       </td>
       <td className="border border-border px-4 py-3.5 whitespace-nowrap text-main">{formatDate(task.startDate)}</td>
-      <td className="border border-border px-4 py-3.5 whitespace-nowrap text-main">{formatDate(task.endDate)}</td>
+      <td className={`border border-border px-4 py-3.5 whitespace-nowrap ${isTaskOverdue(task.endDate, task.status) ? "text-danger font-semibold" : "text-main"}`}>{formatDate(task.endDate)}</td>
       <td className="border border-border px-4 py-3.5 text-right text-main">{fmtH(task.estimatedHours)}h</td>
       <td className="border border-border px-4 py-3.5 text-right">
         <InlineEdit

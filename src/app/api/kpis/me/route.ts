@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { isTaskOverdue } from "@/lib/utils";
 import type { KpiColor } from "@/components/kpis/types";
 
 function cumplimientoColor(pct: number): KpiColor {
@@ -56,9 +57,7 @@ export async function GET(request: NextRequest) {
 
   // ── Cumplimiento ──────────────────────────────────────────────────────────
   const completed = tasks.filter((t) => t.status === "COMPLETADA");
-  const overdueTasks = tasks.filter(
-    (t) => t.status !== "COMPLETADA" && t.endDate < refDate,
-  );
+  const overdueTasks = tasks.filter((t) => isTaskOverdue(t.endDate, t.status, refDate));
   const completedPct =
     tasks.length > 0 ? Math.round((completed.length / tasks.length) * 100) : 0;
   const overduePct =
@@ -216,7 +215,7 @@ export async function GET(request: NextRequest) {
     horasByWeek,
     cumplimientoHistory,
     tasks: tasks.map((t) => {
-      const isOverdue = t.status !== "COMPLETADA" && t.endDate < refDate;
+      const isOverdue = isTaskOverdue(t.endDate, t.status, refDate);
       const delayDays = isOverdue
         ? Math.max(0, Math.floor((refDate.getTime() - t.endDate.getTime()) / 86400000))
         : 0;

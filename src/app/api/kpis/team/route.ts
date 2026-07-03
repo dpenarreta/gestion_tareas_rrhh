@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canViewTeam, getSubordinateRoles } from "@/lib/roles";
+import { isTaskOverdue } from "@/lib/utils";
 import type { KpiColor } from "@/components/kpis/types";
 
 function monthBounds(year: number, month: number) {
@@ -71,9 +72,7 @@ export async function GET(request: NextRequest) {
   const users = subordinates.map((sub) => {
     const tasks = allTasks.filter((t) => t.assignedToId === sub.id);
     const completed = tasks.filter((t) => t.status === "COMPLETADA").length;
-    const overdueCount = tasks.filter(
-      (t) => t.status !== "COMPLETADA" && t.endDate < refDate,
-    ).length;
+    const overdueCount = tasks.filter((t) => isTaskOverdue(t.endDate, t.status, refDate)).length;
     const completedPct =
       tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0;
     const totalEst = tasks.reduce((s, t) => s + t.estimatedHours, 0);

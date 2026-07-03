@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Task } from "./types";
 import { TASK_COLORS, taskColorHex } from "./colors";
-import { formatDate } from "@/lib/utils";
+import { formatDate, isTaskOverdue } from "@/lib/utils";
 
 const PRIORITY_STYLES: Record<Task["priority"], string> = {
   ALTA: "bg-red-100 text-red-700",
@@ -67,6 +67,7 @@ export default function TaskCard({ task, currentUserId, isDragging, onEdit, onDe
   const [showColorPicker, setShowColorPicker] = useState(false);
   const isOwner = task.assignedTo.id === currentUserId;
   const hex = taskColorHex(task.color);
+  const overdue = isTaskOverdue(task.endDate, task.status);
 
   return (
     <div
@@ -139,7 +140,7 @@ export default function TaskCard({ task, currentUserId, isDragging, onEdit, onDe
         </div>
       )}
 
-      {task.type === "FIJA" && task.progress > 0 && (
+      {task.progress > 0 && (
         <div className="mb-2.5">
           <div className="flex items-center justify-between mb-1">
             <span className="text-[10px] text-secondary">Avance</span>
@@ -155,8 +156,13 @@ export default function TaskCard({ task, currentUserId, isDragging, onEdit, onDe
       )}
 
       <div className="flex items-center justify-between">
-        <span className="text-[10px] text-secondary">
+        <span className={`flex items-center gap-1 text-[10px] ${overdue ? "text-danger font-semibold" : "text-secondary"}`}>
           Vence {formatDate(task.endDate)}
+          {overdue && (
+            <span className="text-[9px] font-bold uppercase tracking-wide bg-danger/10 text-danger px-1.5 py-0.5 rounded-full">
+              Vencida
+            </span>
+          )}
         </span>
         <div className="flex items-center gap-2">
           {task.type === "SEGUIMIENTO" && onActivityClick && (

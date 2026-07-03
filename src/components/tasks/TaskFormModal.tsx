@@ -261,21 +261,19 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
             />
           </div>
 
-          {type === "FIJA" && (
-            <div>
-              <label className="block text-xs font-semibold text-main mb-1.5">
-                Avance: {progress}%
-              </label>
-              <input
-                type="range"
-                min="0"
-                max="100"
-                value={progress}
-                onChange={(e) => setProgress(e.target.value)}
-                className="w-full accent-primary"
-              />
-            </div>
-          )}
+          <div>
+            <label className="block text-xs font-semibold text-main mb-1.5">
+              Avance: {progress}%
+            </label>
+            <input
+              type="range"
+              min="0"
+              max="100"
+              value={progress}
+              onChange={(e) => setProgress(e.target.value)}
+              className="w-full accent-primary"
+            />
+          </div>
 
           <div>
             <label className="block text-xs font-semibold text-main mb-1.5">Asignado a *</label>

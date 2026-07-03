@@ -7,7 +7,7 @@ import type { Task } from "@/components/tasks/types";
 import CommentPanel from "@/components/tasks/CommentPanel";
 import ActivityPanel from "@/components/tasks/ActivityPanel";
 import TaskFormModal from "@/components/tasks/TaskFormModal";
-import { formatDate } from "@/lib/utils";
+import { formatDate, isTaskOverdue } from "@/lib/utils";
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -208,7 +208,7 @@ function MemberTasksTable({
               </td>
               <td className="px-3 py-3 text-main whitespace-nowrap text-xs">{formatDate(task.startDate)}</td>
               <td className="px-3 py-3 whitespace-nowrap text-xs">
-                <span className={new Date(task.endDate) < new Date() && task.status !== "COMPLETADA" ? "text-red-600 font-medium" : "text-main"}>
+                <span className={isTaskOverdue(task.endDate, task.status) ? "text-danger font-semibold" : "text-main"}>
                   {formatDate(task.endDate)}
                 </span>
               </td>

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { isTaskOverdue } from "@/lib/utils";
 
 function monthBounds(year: number, month: number) {
   return {
@@ -107,9 +108,7 @@ export async function GET(request: NextRequest) {
     const score = Math.round(scoreC + scoreL + scoreA);
 
     // Flag if this month had no real deadline tasks
-    const overdueCount = tasks.filter(
-      (t) => t.status !== "COMPLETADA" && t.endDate < refDate,
-    ).length;
+    const overdueCount = tasks.filter((t) => isTaskOverdue(t.endDate, t.status, refDate)).length;
 
     return {
       month: monthStr,

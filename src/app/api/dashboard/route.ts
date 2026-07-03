@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { getVisibleRoles, ROLE_LEVEL } from "@/lib/roles";
 import { getVisibleIdeaAuthorIds } from "@/lib/ideas";
+import { isTaskOverdue } from "@/lib/utils";
 
 function dayBounds(d: Date) {
   const start = new Date(d); start.setHours(0, 0, 0, 0);
@@ -79,7 +80,7 @@ export async function GET() {
     .filter((t) => t.status !== "COMPLETADA")
     .map((t) => {
       let urgency = 0;
-      if (t.endDate < now_) urgency = 4;
+      if (isTaskOverdue(t.endDate, t.status, now_)) urgency = 4;
       else if (t.endDate <= todayEnd) urgency = 3;
       else if (t.endDate <= dayAfterTomorrow) urgency = 2;
       else if (t.endDate <= nextSunday) urgency = 1;
@@ -113,7 +114,7 @@ export async function GET() {
   const completedPct = monthTasks.length > 0 ? Math.round((completed / monthTasks.length) * 100) : 0;
 
   // Overdue
-  const overdue = allMyTasks.filter((t) => t.status !== "COMPLETADA" && new Date(t.endDate) < now_).length;
+  const overdue = allMyTasks.filter((t) => isTaskOverdue(t.endDate, t.status, now_)).length;
 
   // Area activity since lastLoginAt
   const since = user?.lastLoginAt ?? new Date(now_.getTime() - 7 * 24 * 60 * 60 * 1000);

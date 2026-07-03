@@ -30,17 +30,37 @@ function shiftToNextMonth(date: Date, nextYear: number, nextMonth: number) {
   ));
 }
 
+// Una tarea es "candidata" a cerrarse (archivarse) este mes si:
+//   - es FIJA (cualquier estado, comportamiento sin cambios), o
+//   - es SEGUIMIENTO y ya está COMPLETADA.
+// Las SEGUIMIENTO en PENDIENTE/EN_PROGRESO no se tocan: continúan activas en
+// el sistema con toda su trazabilidad (actividades, avance, horas) intacta.
+const CANDIDATE_WHERE = {
+  OR: [
+    { type: "FIJA" as const },
+    { type: "SEGUIMIENTO" as const, status: "COMPLETADA" as const },
+  ],
+};
+
 async function buildPreview() {
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
   const monthEnd = nextMonthStartUTC(year, month);
 
-  const [existing, candidateTasks] = await Promise.all([
+  const [existing, candidateTasks, continuedActive] = await Promise.all([
     prisma.monthClosure.findUnique({ where: { month_year: { month, year } } }),
     prisma.task.findMany({
-      where: { archivedMonth: null, endDate: { lt: monthEnd } },
+      where: { archivedMonth: null, endDate: { lt: monthEnd }, ...CANDIDATE_WHERE },
       select: { status: true },
+    }),
+    prisma.task.count({
+      where: {
+        archivedMonth: null,
+        endDate: { lt: monthEnd },
+        type: "SEGUIMIENTO",
+        status: { in: ["PENDIENTE", "EN_PROGRESO"] },
+      },
     }),
   ]);
 
@@ -49,7 +69,7 @@ async function buildPreview() {
   const pending = candidateTasks.filter((t) => t.status === "PENDIENTE").length;
   const inProgress = candidateTasks.filter((t) => t.status === "EN_PROGRESO").length;
 
-  return { year, month, monthEnd, alreadyClosed: !!existing, total, completed, pending, inProgress };
+  return { year, month, monthEnd, alreadyClosed: !!existing, total, completed, pending, inProgress, continuedActive };
 }
 
 export async function GET() {
@@ -78,24 +98,34 @@ export async function POST() {
   const nextMonth = month === 12 ? 1 : month + 1;
   const nextYear = month === 12 ? year + 1 : year;
 
-  const candidateTasks = await prisma.task.findMany({
-    where: { archivedMonth: null, endDate: { lt: monthEnd } },
-    select: {
-      id: true,
-      title: true,
-      description: true,
-      status: true,
-      priority: true,
-      frequency: true,
-      type: true,
-      startDate: true,
-      endDate: true,
-      estimatedHours: true,
-      assignedToId: true,
-      createdById: true,
-      color: true,
-    },
-  });
+  const [candidateTasks, continuedActive] = await Promise.all([
+    prisma.task.findMany({
+      where: { archivedMonth: null, endDate: { lt: monthEnd }, ...CANDIDATE_WHERE },
+      select: {
+        id: true,
+        title: true,
+        description: true,
+        status: true,
+        priority: true,
+        frequency: true,
+        type: true,
+        startDate: true,
+        endDate: true,
+        estimatedHours: true,
+        assignedToId: true,
+        createdById: true,
+        color: true,
+      },
+    }),
+    prisma.task.count({
+      where: {
+        archivedMonth: null,
+        endDate: { lt: monthEnd },
+        type: "SEGUIMIENTO",
+        status: { in: ["PENDIENTE", "EN_PROGRESO"] },
+      },
+    }),
+  ]);
 
   const total = candidateTasks.length;
   const completed = candidateTasks.filter((t) => t.status === "COMPLETADA").length;
@@ -133,7 +163,7 @@ export async function POST() {
           closedBy: session.userId,
           totalTasks: total,
           completedTasks: completed,
-          summary: { total, completed, pending, inProgress, duplicated: duplicates.length },
+          summary: { total, completed, pending, inProgress, duplicated: duplicates.length, continuedActive },
         },
       }),
       prisma.task.updateMany({
@@ -148,6 +178,7 @@ export async function POST() {
   return NextResponse.json({
     archivedCount: total,
     duplicatedCount: duplicates.length,
+    continuedActiveCount: continuedActive,
     month,
     year,
     nextMonth,

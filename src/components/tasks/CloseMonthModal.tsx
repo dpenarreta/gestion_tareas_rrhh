@@ -10,11 +10,13 @@ type Preview = {
   completed: number;
   pending: number;
   inProgress: number;
+  continuedActive: number;
 };
 
 type Result = {
   archivedCount: number;
   duplicatedCount: number;
+  continuedActiveCount: number;
   nextMonth: number;
   nextYear: number;
 };
@@ -114,8 +116,16 @@ export default function CloseMonthModal({ onClose, onClosed }: Props) {
                     </div>
                   </div>
 
+                  {preview.continuedActive > 0 && (
+                    <div className="rounded-xl border border-primary/25 bg-primary-surface px-3 py-2.5">
+                      <p className="text-xs text-primary">Seguimiento que continúa activo (no se cierra)</p>
+                      <p className="text-lg font-bold text-primary">{preview.continuedActive}</p>
+                    </div>
+                  )}
+
                   <div className="text-xs text-main bg-background border border-border rounded-xl px-4 py-2.5">
                     Las tareas pasarán al repositorio. Las recurrentes se duplicarán para el mes siguiente.
+                    {preview.continuedActive > 0 && " Las de Seguimiento pendientes o en progreso continúan activas, sin archivarse."}
                   </div>
                 </>
               )}
@@ -123,8 +133,11 @@ export default function CloseMonthModal({ onClose, onClosed }: Props) {
           )}
 
           {result && (
-            <div className="text-sm text-green-800 bg-green-50 border border-green-200 rounded-xl px-4 py-3">
-              {result.archivedCount} tareas archivadas, {result.duplicatedCount} tareas creadas para {monthLabel(result.nextYear, result.nextMonth)} {result.nextYear}.
+            <div className="text-sm text-green-800 bg-green-50 border border-green-200 rounded-xl px-4 py-3 space-y-1">
+              <p>{result.archivedCount} tareas archivadas, {result.duplicatedCount} tareas creadas para {monthLabel(result.nextYear, result.nextMonth)} {result.nextYear}.</p>
+              {result.continuedActiveCount > 0 && (
+                <p>{result.continuedActiveCount} tarea{result.continuedActiveCount !== 1 ? "s" : ""} de Seguimiento continuaron activas sin cerrarse.</p>
+              )}
             </div>
           )}
 
