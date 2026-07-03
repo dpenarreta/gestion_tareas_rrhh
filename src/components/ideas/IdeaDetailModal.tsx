@@ -118,14 +118,13 @@ export default function IdeaDetailModal({ ideaId, currentUserRole, onClose, onUp
               <span className="text-[10px] text-disabled">Propuesta el {formatDateTime(idea.createdAt)}</span>
             </div>
 
-            {idea.attachmentUrl && (
+            {idea.status === "PROPUESTA" && idea.attachmentData && (
               <a
-                href={idea.attachmentUrl}
-                target="_blank"
-                rel="noopener noreferrer"
+                href={idea.attachmentData}
+                download={idea.attachmentUrl ?? "adjunto"}
                 className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
               >
-                📎 Ver adjunto
+                📎 Ver adjunto{idea.attachmentUrl ? `: ${idea.attachmentUrl}` : ""}
               </a>
             )}
 

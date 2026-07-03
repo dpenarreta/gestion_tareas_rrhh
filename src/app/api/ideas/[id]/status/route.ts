@@ -80,7 +80,13 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     await tx.ideaStatusHistory.create({
       data: { ideaId: id, fromStatus, toStatus, changedBy: session.userId, comment },
     });
-    await tx.improvementIdea.update({ where: { id }, data: { status: toStatus } });
+    await tx.improvementIdea.update({
+      where: { id },
+      data: {
+        status: toStatus,
+        ...(fromStatus === "PROPUESTA" ? { attachmentUrl: null, attachmentData: null } : {}),
+      },
+    });
 
     if (idea.authorId !== session.userId) {
       await tx.notification.create({

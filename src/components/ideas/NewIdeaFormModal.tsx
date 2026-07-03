@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { IdeaImpact } from "./types";
 import { IMPACT_LABELS } from "./constants";
 
@@ -16,6 +16,12 @@ export default function NewIdeaFormModal({ onClose, onCreated }: Props) {
   const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  function clearFile() {
+    setFile(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -100,12 +106,29 @@ export default function NewIdeaFormModal({ onClose, onCreated }: Props) {
 
           <div>
             <label className="block text-xs font-semibold text-main mb-1.5">Archivo adjunto (opcional)</label>
-            <input
-              type="file"
-              accept=".png,.jpg,.jpeg,.pdf,.doc,.docx,.xls,.xlsx"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              className="w-full text-sm text-main file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200"
-            />
+            {!file ? (
+              <input
+                type="file"
+                ref={fileInputRef}
+                accept=".png,.jpg,.jpeg,.pdf,.doc,.docx,.xls,.xlsx"
+                onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+                className="w-full text-sm text-main file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200"
+              />
+            ) : (
+              <div className="flex items-center justify-between gap-2 border border-border rounded-xl px-3 py-2 bg-background">
+                <span className="text-sm text-main truncate">📎 {file.name}</span>
+                <button
+                  type="button"
+                  onClick={clearFile}
+                  className="text-disabled hover:text-red-600 p-1 rounded shrink-0"
+                  aria-label="Quitar archivo"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+            )}
             <p className="mt-1 text-[11px] text-disabled">Imagen o documento, máx. 8MB</p>
           </div>
 

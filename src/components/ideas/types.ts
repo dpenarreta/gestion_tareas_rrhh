@@ -32,4 +32,4 @@ export type IdeaHistoryEntry = {
   changer: IdeaAuthor;
 };
 
-export type IdeaDetail = Idea & { history: IdeaHistoryEntry[] };
+export type IdeaDetail = Idea & { history: IdeaHistoryEntry[]; attachmentData: string | null };

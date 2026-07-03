@@ -71,9 +71,12 @@ export async function POST(request: NextRequest) {
   }
 
   let attachmentUrl: string | null = null;
+  let attachmentData: string | null = null;
   if (file instanceof File && file.size > 0) {
     try {
-      attachmentUrl = await saveIdeaAttachment(file);
+      const saved = await saveIdeaAttachment(file);
+      attachmentUrl = saved.fileName;
+      attachmentData = saved.attachmentData;
     } catch (err) {
       if (err instanceof AttachmentError) {
         return NextResponse.json({ error: err.message }, { status: 400 });
@@ -83,7 +86,7 @@ export async function POST(request: NextRequest) {
   }
 
   const idea = await prisma.improvementIdea.create({
-    data: { title, description, impact, authorId: session.userId, attachmentUrl },
+    data: { title, description, impact, authorId: session.userId, attachmentUrl, attachmentData },
     select: ideaSelect,
   });
 

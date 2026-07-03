@@ -211,17 +211,18 @@ enum IdeaStatus {
 }
 
 model ImprovementIdea {
-  id            String     @id @default(cuid())
-  title         String
-  description   String
-  impact        IdeaImpact
-  status        IdeaStatus @default(PROPUESTA)
-  authorId      String
-  author        User       @relation("IdeaAuthor", fields: [authorId], references: [id])
-  attachmentUrl String?
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
-  history       IdeaStatusHistory[]
+  id             String     @id @default(cuid())
+  title          String
+  description    String
+  impact         IdeaImpact
+  status         IdeaStatus @default(PROPUESTA)
+  authorId       String
+  author         User       @relation("IdeaAuthor", fields: [authorId], references: [id])
+  attachmentUrl  String?
+  attachmentData String?    @db.Text
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  history        IdeaStatusHistory[]
 }
 
 model IdeaStatusHistory {

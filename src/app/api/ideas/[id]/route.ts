@@ -12,6 +12,7 @@ const ideaDetailSelect = {
   impact: true,
   status: true,
   attachmentUrl: true,
+  attachmentData: true,
   createdAt: true,
   updatedAt: true,
   author: { select: { id: true, name: true, role: true } },
@@ -39,6 +40,10 @@ export async function GET(_req: Request, ctx: Ctx) {
   const visibleIds = await getVisibleIdeaAuthorIds(session);
   if (!visibleIds.includes(idea.author.id)) {
     return NextResponse.json({ error: "Idea no encontrada" }, { status: 404 });
+  }
+
+  if (idea.status !== "PROPUESTA") {
+    return NextResponse.json({ ...idea, attachmentUrl: null, attachmentData: null });
   }
 
   return NextResponse.json(idea);
