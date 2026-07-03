@@ -41,7 +41,7 @@ const REASON_COLORS: Record<ActivityReason, string> = {
   SOLICITUD_PERMISO: "bg-rose-50 text-rose-700 border-rose-200",
   VISITA_DOMICILIARIA: "bg-teal-50 text-teal-700 border-teal-200",
   SEGUIMIENTO_AUSENTISMOS: "bg-cyan-50 text-cyan-700 border-cyan-200",
-  RECLUTAMIENTO_SELECCION: "bg-indigo-50 text-indigo-700 border-indigo-200",
+  RECLUTAMIENTO_SELECCION: "bg-primary-surface text-primary border-primary/30",
 };
 
 type Props = {
@@ -138,16 +138,16 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
   return (
     <>
       <div className="fixed inset-0 z-40" onClick={onClose} />
-      <aside className="fixed inset-y-0 right-0 w-96 bg-white border-l border-slate-200 shadow-xl z-50 flex flex-col">
+      <aside className="fixed inset-y-0 right-0 w-96 bg-surface border-l border-border shadow-xl z-50 flex flex-col">
         {/* Header */}
-        <div className="p-4 border-b border-slate-200 flex items-center justify-between gap-2">
+        <div className="p-4 border-b border-border flex items-center justify-between gap-2">
           <div className="min-w-0">
-            <h3 className="font-semibold text-slate-900 text-sm truncate">{task.title}</h3>
-            <p className="text-xs text-slate-500">{readOnly ? "Actividades de seguimiento" : "Registro de actividades"}</p>
+            <h3 className="font-semibold text-title text-sm truncate">{task.title}</h3>
+            <p className="text-xs text-secondary">{readOnly ? "Actividades de seguimiento" : "Registro de actividades"}</p>
           </div>
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100 shrink-0"
+            className="p-1.5 text-disabled hover:text-main rounded-lg hover:bg-black/5 dark:hover:bg-white/5 shrink-0"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -157,19 +157,19 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
 
         {/* Total summary */}
         {totalMinutes > 0 && (
-          <div className="px-4 py-2.5 bg-indigo-50 border-b border-indigo-100 flex items-center justify-between">
-            <span className="text-xs font-medium text-indigo-700">Tiempo total acumulado</span>
-            <span className="text-sm font-bold text-indigo-800">{formatDuration(totalMinutes)}</span>
+          <div className="px-4 py-2.5 bg-primary-surface border-b border-primary/20 flex items-center justify-between">
+            <span className="text-xs font-medium text-primary">Tiempo total acumulado</span>
+            <span className="text-sm font-bold text-primary">{formatDuration(totalMinutes)}</span>
           </div>
         )}
 
         {/* Activity list */}
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {loading && (
-            <div className="text-center text-slate-400 text-sm py-8">Cargando…</div>
+            <div className="text-center text-disabled text-sm py-8">Cargando…</div>
           )}
           {!loading && activities.length === 0 && (
-            <div className="text-center text-slate-400 text-sm py-10">
+            <div className="text-center text-disabled text-sm py-10">
               <svg className="w-10 h-10 mx-auto mb-2 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
@@ -181,18 +181,18 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
             const colorClass = REASON_COLORS[a.reason];
             const canDelete = a.author.id === currentUserId;
             return (
-              <div key={a.id} className="bg-slate-50 rounded-xl p-3 space-y-2">
+              <div key={a.id} className="bg-background rounded-xl p-3 space-y-2">
                 <div className="flex items-center justify-between gap-2">
                   <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${colorClass}`}>
                     {label}
                   </span>
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-slate-400">{formatDate(a.createdAt)}</span>
+                    <span className="text-[10px] text-disabled">{formatDate(a.createdAt)}</span>
                     {canDelete && (
                       <button
                         onClick={() => handleDelete(a.id)}
                         disabled={deletingId === a.id}
-                        className="p-0.5 text-slate-300 hover:text-red-500 transition-colors disabled:opacity-40"
+                        className="p-0.5 text-disabled hover:text-red-500 transition-colors disabled:opacity-40"
                         title="Eliminar actividad"
                       >
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -203,20 +203,20 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
                   </div>
                 </div>
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-xs text-slate-600">
-                    <svg className="w-3.5 h-3.5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div className="flex items-center gap-1.5 text-xs text-main">
+                    <svg className="w-3.5 h-3.5 text-disabled" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                     {a.startTime} → {a.endTime}
                   </div>
-                  <span className="text-xs font-semibold text-indigo-700">
+                  <span className="text-xs font-semibold text-primary">
                     {formatDuration(a.duration)}
                   </span>
                 </div>
                 {a.description && (
-                  <p className="text-xs text-slate-600 leading-relaxed">{a.description}</p>
+                  <p className="text-xs text-main leading-relaxed">{a.description}</p>
                 )}
-                <p className="text-[10px] text-slate-400">{a.author.name}</p>
+                <p className="text-[10px] text-disabled">{a.author.name}</p>
               </div>
             );
           })}
@@ -224,17 +224,17 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
         </div>
 
         {/* Add form */}
-        {!readOnly && <div className="p-4 border-t border-slate-200 space-y-3">
-          <p className="text-xs font-semibold text-slate-700">Agregar actividad</p>
+        {!readOnly && <div className="p-4 border-t border-border space-y-3">
+          <p className="text-xs font-semibold text-main">Agregar actividad</p>
 
           <div>
-            <label className="block text-[10px] font-semibold text-slate-500 mb-1 uppercase tracking-wide">
+            <label className="block text-[10px] font-semibold text-secondary mb-1 uppercase tracking-wide">
               Motivo
             </label>
             <select
               value={reason}
               onChange={(e) => setReason(e.target.value as ActivityReason)}
-              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400"
+              className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
             >
               {REASON_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>{o.label}</option>
@@ -244,25 +244,25 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
 
           <div className="grid grid-cols-2 gap-2">
             <div>
-              <label className="block text-[10px] font-semibold text-slate-500 mb-1 uppercase tracking-wide">
+              <label className="block text-[10px] font-semibold text-secondary mb-1 uppercase tracking-wide">
                 Hora inicio
               </label>
               <input
                 type="time"
                 value={startTime}
                 onChange={(e) => setStartTime(e.target.value)}
-                className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400"
+                className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
               />
             </div>
             <div>
-              <label className="block text-[10px] font-semibold text-slate-500 mb-1 uppercase tracking-wide">
+              <label className="block text-[10px] font-semibold text-secondary mb-1 uppercase tracking-wide">
                 Hora fin
               </label>
               <input
                 type="time"
                 value={endTime}
                 onChange={(e) => setEndTime(e.target.value)}
-                className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400"
+                className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
               />
             </div>
           </div>
@@ -270,8 +270,8 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
           {/* Auto duration preview */}
           <div className={`flex items-center justify-between text-xs rounded-lg px-3 py-2 ${
             previewDuration
-              ? "bg-indigo-50 text-indigo-700"
-              : "bg-slate-50 text-slate-400"
+              ? "bg-primary-surface text-primary"
+              : "bg-background text-disabled"
           }`}>
             <span>Duración calculada</span>
             <span className="font-semibold">
@@ -280,7 +280,7 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
           </div>
 
           <div>
-            <label className="block text-[10px] font-semibold text-slate-500 mb-1 uppercase tracking-wide">
+            <label className="block text-[10px] font-semibold text-secondary mb-1 uppercase tracking-wide">
               Descripción <span className="normal-case font-normal">(opcional)</span>
             </label>
             <textarea
@@ -288,7 +288,7 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
               onChange={(e) => setDescription(e.target.value)}
               rows={2}
               placeholder="Notas o detalles de la actividad…"
-              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 resize-none"
+              className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary resize-none"
             />
           </div>
 
@@ -301,7 +301,7 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
           <button
             onClick={submit}
             disabled={!startTime || !endTime || !previewDuration || submitting}
-            className="w-full bg-indigo-600 text-white rounded-xl py-2 text-sm font-medium hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="w-full bg-primary text-white rounded-xl py-2 text-sm font-medium hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {submitting ? "Registrando…" : "Agregar actividad"}
           </button>

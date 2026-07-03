@@ -70,14 +70,14 @@ const CARD_BG: Record<KpiColor | "gray", string> = {
   green: "bg-green-50 border-green-200",
   yellow: "bg-amber-50 border-amber-200",
   red: "bg-red-50 border-red-200",
-  gray: "bg-slate-50 border-slate-200",
+  gray: "bg-background border-border",
 };
 
 const CARD_VALUE: Record<KpiColor | "gray", string> = {
   green: "text-green-700",
   yellow: "text-amber-700",
   red: "text-red-700",
-  gray: "text-slate-700",
+  gray: "text-main",
 };
 
 // ── Status labels ─────────────────────────────────────────────────────────────
@@ -89,7 +89,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 const STATUS_STYLE: Record<string, string> = {
-  PENDIENTE: "bg-slate-100 text-slate-600",
+  PENDIENTE: "bg-slate-100 text-slate-700",
   EN_PROGRESO: "bg-blue-100 text-blue-700",
   COMPLETADA: "bg-green-100 text-green-700",
 };
@@ -119,15 +119,15 @@ function SummaryCard({
   icon: React.ReactNode;
 }) {
   const deltaPositive = invertDelta ? delta < 0 : delta > 0;
-  const deltaColor = delta === 0 ? "text-slate-400" : deltaPositive ? "text-green-600" : "text-red-500";
+  const deltaColor = delta === 0 ? "text-disabled" : deltaPositive ? "text-green-600" : "text-red-500";
 
   return (
     <div className={`rounded-2xl border p-5 ${CARD_BG[color]}`}>
       <div className="flex items-start justify-between mb-3">
-        <div className="p-2 bg-white rounded-xl shadow-sm">{icon}</div>
+        <div className="p-2 bg-surface rounded-xl shadow-sm">{icon}</div>
         <div className={`w-2.5 h-2.5 rounded-full mt-1 ${DOT_CLASS[color === "gray" ? "green" : color]}`} />
       </div>
-      <p className="text-xs font-medium text-slate-500 mb-1">{title}</p>
+      <p className="text-xs font-medium text-secondary mb-1">{title}</p>
       <p className={`text-3xl font-bold ${CARD_VALUE[color]}`}>
         {value}
         {unit && <span className="text-lg ml-0.5">{unit}</span>}
@@ -157,8 +157,8 @@ function SubordinateCard({
       onClick={onClick}
       className={`w-full text-left px-3 py-3 rounded-xl transition-all flex items-center gap-3 group ${
         selected
-          ? "bg-indigo-50 ring-2 ring-indigo-300"
-          : "hover:bg-slate-50 ring-1 ring-transparent"
+          ? "bg-primary-surface ring-2 ring-primary/40"
+          : "hover:bg-black/5 dark:hover:bg-white/5 ring-1 ring-transparent"
       }`}
     >
       <div
@@ -168,14 +168,14 @@ function SubordinateCard({
       </div>
       <div className="min-w-0 flex-1">
         <p
-          className={`text-sm font-semibold truncate ${selected ? "text-indigo-700" : "text-slate-900"}`}
+          className={`text-sm font-semibold truncate ${selected ? "text-primary" : "text-title"}`}
         >
           {member.name}
         </p>
-        <p className="text-[10px] text-slate-500 truncate">{ROLE_LABEL[member.role as Role]}</p>
+        <p className="text-[10px] text-secondary truncate">{ROLE_LABEL[member.role as Role]}</p>
       </div>
       <div className="flex flex-col items-end gap-1 shrink-0">
-        <span className="text-sm font-bold text-slate-700">{member.score}</span>
+        <span className="text-sm font-bold text-main">{member.score}</span>
         <div className={`w-2 h-2 rounded-full ${DOT_CLASS[member.color]}`} />
       </div>
     </button>
@@ -186,9 +186,9 @@ function SubordinateCard({
 
 function MetricRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between py-2 border-b border-slate-100 last:border-0">
-      <span className="text-sm text-slate-600">{label}</span>
-      <span className="text-sm font-semibold text-slate-800">{value}</span>
+    <div className="flex items-center justify-between py-2 border-b border-border last:border-0">
+      <span className="text-sm text-main">{label}</span>
+      <span className="text-sm font-semibold text-title">{value}</span>
     </div>
   );
 }
@@ -197,9 +197,9 @@ function MetricRow({ label, value }: { label: string; value: React.ReactNode }) 
 
 function Section({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
-    <div className="bg-white rounded-2xl border border-slate-200 p-5">
+    <div className="bg-surface rounded-2xl border border-border p-5">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider">{title}</h3>
+        <h3 className="text-sm font-semibold text-main uppercase tracking-wider">{title}</h3>
         {action}
       </div>
       {children}
@@ -505,7 +505,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
   if (teamLoading && activeTab === "kpis") {
     return (
       <div className="flex justify-center items-center py-32">
-        <div className="w-7 h-7 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+        <div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -516,13 +516,13 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
     <div className="flex flex-col gap-4">
       {/* ── Tab bar ───────────────────────────────────────────────────────── */}
       {canSeeReports && (
-        <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit">
+        <div className="flex gap-1 bg-black/5 dark:bg-white/5 rounded-xl p-1 w-fit">
           <button
             onClick={() => setActiveTab("kpis")}
             className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
               activeTab === "kpis"
-                ? "bg-white text-slate-900 shadow-sm"
-                : "text-slate-500 hover:text-slate-700"
+                ? "bg-surface text-title shadow-sm"
+                : "text-secondary hover:text-main"
             }`}
           >
             KPIs Individuales
@@ -531,8 +531,8 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
             onClick={() => setActiveTab("informes")}
             className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
               activeTab === "informes"
-                ? "bg-white text-slate-900 shadow-sm"
-                : "text-slate-500 hover:text-slate-700"
+                ? "bg-surface text-title shadow-sm"
+                : "text-secondary hover:text-main"
             }`}
           >
             Informes Mensuales
@@ -547,7 +547,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
 
       {/* ── KPIs tab ──────────────────────────────────────────────────────── */}
       {activeTab === "kpis" && team.length === 0 && !teamLoading && (
-        <div className="flex flex-col items-center justify-center py-32 text-slate-400">
+        <div className="flex flex-col items-center justify-center py-32 text-disabled">
           <svg className="w-12 h-12 mb-4 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
           </svg>
@@ -560,18 +560,18 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
       {/* ── Header ────────────────────────────────────────────────────────── */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">KPIs del Equipo</h1>
-          <p className="text-sm text-slate-500 mt-0.5">
+          <h1 className="text-2xl font-bold text-title">KPIs del Equipo</h1>
+          <p className="text-sm text-secondary mt-0.5">
             {team.length} {team.length === 1 ? "colaborador" : "colaboradores"} en seguimiento
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <label className="text-sm text-slate-500">Período:</label>
+          <label className="text-sm text-secondary">Período:</label>
           <input
             type="month"
             value={month}
             onChange={handleMonthChange}
-            className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            className="text-sm border border-border rounded-lg px-3 py-1.5 bg-surface text-main focus:outline-none focus:ring-2 focus:ring-primary"
           />
         </div>
       </div>
@@ -579,8 +579,8 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
       {/* ── Two-panel layout ─────────────────────────────────────────────── */}
       <div className="flex gap-5 items-start">
         {/* Left panel */}
-        <aside className="w-[240px] shrink-0 bg-white rounded-2xl border border-slate-200 p-3 sticky top-20">
-          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider px-2 mb-2">
+        <aside className="w-[240px] shrink-0 bg-surface rounded-2xl border border-border p-3 sticky top-20">
+          <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider px-2 mb-2">
             Colaboradores
           </p>
           <div className="space-y-1">
@@ -593,8 +593,8 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
               />
             ))}
           </div>
-          <div className="mt-4 px-2 border-t border-slate-100 pt-3">
-            <p className="text-[10px] text-slate-400 leading-relaxed">
+          <div className="mt-4 px-2 border-t border-border pt-3">
+            <p className="text-[10px] text-disabled leading-relaxed">
               <span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1" />≥80% &bull;
               <span className="inline-block w-2 h-2 rounded-full bg-amber-400 mx-1" />60–79% &bull;
               <span className="inline-block w-2 h-2 rounded-full bg-red-500 mx-1" />&lt;60%
@@ -608,14 +608,14 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
         >
           {kpiLoading && !kpi && (
             <div className="flex justify-center py-24">
-              <div className="w-7 h-7 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+              <div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" />
             </div>
           )}
 
           {kpi && (
             <div className="space-y-5">
               {/* ── Person header ────────────────────────────────────────── */}
-              <div className="bg-white rounded-2xl border border-slate-200 px-5 py-4 flex items-center justify-between gap-4">
+              <div className="bg-surface rounded-2xl border border-border px-5 py-4 flex items-center justify-between gap-4">
                 <div className="flex items-center gap-4">
                   <div
                     className={`w-12 h-12 rounded-xl bg-gradient-to-br ${avatarGradient(kpi.user.name)} flex items-center justify-center shrink-0`}
@@ -623,22 +623,22 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
                     <span className="text-lg font-bold text-white">{initials(kpi.user.name)}</span>
                   </div>
                   <div>
-                    <h2 className="text-xl font-bold text-slate-900">{kpi.user.name}</h2>
-                    <p className="text-sm text-slate-500">{ROLE_LABEL[kpi.user.role as Role]}</p>
+                    <h2 className="text-xl font-bold text-title">{kpi.user.name}</h2>
+                    <p className="text-sm text-secondary">{ROLE_LABEL[kpi.user.role as Role]}</p>
                   </div>
                   <div
-                    className={`ml-4 w-16 h-16 rounded-full ring-4 ${COLOR_RING[kpi.cumplimiento.color]} bg-white flex flex-col items-center justify-center`}
+                    className={`ml-4 w-16 h-16 rounded-full ring-4 ${COLOR_RING[kpi.cumplimiento.color]} bg-surface flex flex-col items-center justify-center`}
                   >
-                    <span className="text-2xl font-extrabold text-slate-800 leading-none">
+                    <span className="text-2xl font-extrabold text-title leading-none">
                       {kpi.score}
                     </span>
-                    <span className="text-[10px] text-slate-400 leading-none">/100</span>
+                    <span className="text-[10px] text-disabled leading-none">/100</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
                   <button
                     onClick={() => downloadExcel(kpi)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-border rounded-lg text-main hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -647,7 +647,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
                   </button>
                   <button
                     onClick={() => downloadPDF(kpi)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-600 rounded-lg text-white hover:bg-indigo-700 transition-colors"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary rounded-lg text-white hover:bg-primary-hover transition-colors"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
@@ -666,7 +666,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
                   color={kpi.cumplimiento.color}
                   delta={kpi.cumplimiento.completedPct - (kpi.prevMonth?.completedPct ?? kpi.cumplimiento.completedPct)}
                   icon={
-                    <svg className="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                   }
@@ -690,7 +690,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
                   color="gray"
                   delta={kpi.cumplimiento.total - (kpi.prevMonth?.totalTasks ?? kpi.cumplimiento.total)}
                   icon={
-                    <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-5 h-5 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                     </svg>
                   }
@@ -719,7 +719,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
                       label="Cumplimiento"
                       sublabel={`${kpi.cumplimiento.completed}/${kpi.cumplimiento.total} tareas`}
                     />
-                    <div className="w-px h-24 bg-slate-100" />
+                    <div className="w-px h-24 bg-border" />
                     <DonutChart
                       pct={Math.min(kpi.cargaLaboral.ratio, 100)}
                       color={kpi.cargaLaboral.color}
@@ -755,11 +755,11 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
               <Section title="Evolución del cumplimiento – últimos 6 meses">
                 <CumplimientoLineChart data={kpi.cumplimientoHistory} />
                 <div className="flex items-center gap-4 mt-2">
-                  <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                  <div className="flex items-center gap-1.5 text-[11px] text-secondary">
                     <div className="w-6 h-0.5 bg-green-400 border-dashed border-t-2 border-green-400" />
                     Objetivo 80%
                   </div>
-                  <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                  <div className="flex items-center gap-1.5 text-[11px] text-secondary">
                     <div className="w-6 h-0.5 bg-amber-400 border-dashed border-t-2 border-amber-400" />
                     Alerta 60%
                   </div>
@@ -794,7 +794,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
                 {kpi.seguimiento.byReason.length === 0 && (
                   <div className="lg:col-span-2">
                     <Section title="Consultas por motivo (SEGUIMIENTO)">
-                      <div className="flex items-center justify-center h-28 text-slate-400 text-sm">
+                      <div className="flex items-center justify-center h-28 text-disabled text-sm">
                         Sin tareas de tipo SEGUIMIENTO en este período
                       </div>
                     </Section>
@@ -807,60 +807,60 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
                 title={`Detalle de tareas del período (${kpi.tasks.length})`}
               >
                 {kpi.tasks.length === 0 ? (
-                  <p className="text-sm text-slate-400 py-6 text-center">
+                  <p className="text-sm text-disabled py-6 text-center">
                     Sin tareas con fecha de vencimiento en este período
                   </p>
                 ) : (
                   <div className="overflow-x-auto -mx-5 px-5">
                     <table className="w-full text-sm min-w-[560px]">
                       <thead>
-                        <tr className="border-b border-slate-200">
-                          <th className="text-left py-2 pr-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                        <tr className="border-b border-border">
+                          <th className="text-left py-2 pr-4 text-xs font-semibold text-secondary uppercase tracking-wider">
                             Título
                           </th>
-                          <th className="text-left py-2 pr-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                          <th className="text-left py-2 pr-4 text-xs font-semibold text-secondary uppercase tracking-wider">
                             Tipo
                           </th>
-                          <th className="text-left py-2 pr-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                          <th className="text-left py-2 pr-4 text-xs font-semibold text-secondary uppercase tracking-wider">
                             Estado
                           </th>
-                          <th className="text-left py-2 pr-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                          <th className="text-left py-2 pr-4 text-xs font-semibold text-secondary uppercase tracking-wider">
                             Fecha fin
                           </th>
-                          <th className="text-left py-2 pr-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                          <th className="text-left py-2 pr-4 text-xs font-semibold text-secondary uppercase tracking-wider">
                             Retraso
                           </th>
-                          <th className="py-2 text-xs font-semibold text-slate-500 uppercase tracking-wider" />
+                          <th className="py-2 text-xs font-semibold text-secondary uppercase tracking-wider" />
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
+                      <tbody className="divide-y divide-border">
                         {kpi.tasks.map((t) => (
-                          <tr key={t.id} className="hover:bg-slate-50 transition-colors">
+                          <tr key={t.id} className="hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
                             <td className="py-2.5 pr-4 max-w-[220px]">
-                              <p className="text-sm font-medium text-slate-800 truncate" title={t.title}>
+                              <p className="text-sm font-medium text-title truncate" title={t.title}>
                                 {t.title}
                               </p>
                             </td>
                             <td className="py-2.5 pr-4">
-                              <span className="text-[11px] font-medium text-slate-500">
+                              <span className="text-[11px] font-medium text-secondary">
                                 {TYPE_LABEL[t.type] ?? t.type}
                               </span>
                             </td>
                             <td className="py-2.5 pr-4">
                               <span
-                                className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${STATUS_STYLE[t.status] ?? "bg-slate-100 text-slate-600"}`}
+                                className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${STATUS_STYLE[t.status] ?? "bg-slate-100 text-slate-700"}`}
                               >
                                 {STATUS_LABEL[t.status] ?? t.status}
                               </span>
                             </td>
-                            <td className="py-2.5 pr-4 text-sm text-slate-600 whitespace-nowrap">
+                            <td className="py-2.5 pr-4 text-sm text-main whitespace-nowrap">
                               {formatDate(t.endDate)}
                             </td>
                             <td className="py-2.5 pr-4 text-sm">
                               {t.delayDays > 0 ? (
                                 <span className="text-red-600 font-medium">{t.delayDays}d</span>
                               ) : (
-                                <span className="text-slate-300">—</span>
+                                <span className="text-disabled">—</span>
                               )}
                             </td>
                             <td className="py-2.5 text-right">
@@ -879,7 +879,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
           )}
 
           {!kpiLoading && !kpi && selectedMember && (
-            <div className="flex items-center justify-center py-24 text-slate-400 text-sm">
+            <div className="flex items-center justify-center py-24 text-disabled text-sm">
               Error al cargar KPIs. Intenta de nuevo.
             </div>
           )}

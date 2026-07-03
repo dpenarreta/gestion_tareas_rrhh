@@ -33,7 +33,7 @@ export default function IdeasModule({ initialIdeas, currentUserId, currentUserRo
 
   return (
     <div className="flex flex-col min-h-0">
-      <div className="flex items-center justify-between border-b border-slate-200 mb-5 pb-0.5">
+      <div className="flex items-center justify-between border-b border-border mb-5 pb-0.5">
         <div className="flex gap-0.5">
           {(["TABLERO", "MIS_IDEAS"] as Tab[]).map((t) => (
             <button
@@ -41,8 +41,8 @@ export default function IdeasModule({ initialIdeas, currentUserId, currentUserRo
               onClick={() => setTab(t)}
               className={`px-4 py-2.5 border-b-2 text-sm font-medium transition-colors rounded-t-lg ${
                 tab === t
-                  ? "border-indigo-600 text-indigo-700 bg-indigo-50/60"
-                  : "border-transparent text-slate-500 hover:text-slate-800 hover:bg-slate-50"
+                  ? "border-primary text-primary bg-primary-surface/60"
+                  : "border-transparent text-secondary hover:text-title hover:bg-black/5 dark:hover:bg-white/5"
               }`}
             >
               {t === "TABLERO" ? "Tablero" : "Mis ideas"}
@@ -51,7 +51,7 @@ export default function IdeasModule({ initialIdeas, currentUserId, currentUserRo
         </div>
         <button
           onClick={() => setShowNewForm(true)}
-          className="mb-1.5 flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors"
+          className="mb-1.5 flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-sm font-medium rounded-xl hover:bg-primary-hover transition-colors"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />

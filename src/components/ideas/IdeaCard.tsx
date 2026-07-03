@@ -15,12 +15,12 @@ export default function IdeaCard({ idea, currentUserId, onClick }: Props) {
   return (
     <button
       onClick={() => onClick(idea)}
-      className="w-full text-left bg-white rounded-xl border border-slate-200 p-3 shadow-sm hover:shadow-md transition-all"
+      className="w-full text-left bg-surface rounded-xl border border-border p-3 shadow-sm hover:shadow-md transition-all"
     >
       <div className="flex items-start justify-between gap-2 mb-2">
-        <p className="text-sm font-medium text-slate-900 leading-snug line-clamp-2 flex-1">{idea.title}</p>
+        <p className="text-sm font-medium text-title leading-snug line-clamp-2 flex-1">{idea.title}</p>
         {isMine && (
-          <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">
+          <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-indigo-100 text-primary">
             Mi idea
           </span>
         )}
@@ -30,7 +30,7 @@ export default function IdeaCard({ idea, currentUserId, onClick }: Props) {
           {IMPACT_LABELS[idea.impact]}
         </span>
       </div>
-      <p className="text-[10px] text-slate-400">{idea.author.name}</p>
+      <p className="text-[10px] text-disabled">{idea.author.name}</p>
     </button>
   );
 }

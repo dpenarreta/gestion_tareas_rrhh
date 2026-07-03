@@ -116,12 +116,12 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="fixed inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b border-slate-200 flex items-center justify-between">
-          <h2 className="text-lg font-bold text-slate-900">
+      <div className="relative bg-surface rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="p-6 border-b border-border flex items-center justify-between">
+          <h2 className="text-lg font-bold text-title">
             {task ? "Editar tarea" : "Nueva tarea"}
           </h2>
-          <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100">
+          <button onClick={onClose} className="p-2 text-disabled hover:text-main rounded-lg hover:bg-black/5 dark:hover:bg-white/5">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -136,28 +136,28 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
           )}
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Título *</label>
+            <label className="block text-xs font-semibold text-main mb-1.5">Título *</label>
             <input
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400"
+              className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
               placeholder="Nombre de la tarea"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Descripción</label>
+            <label className="block text-xs font-semibold text-main mb-1.5">Descripción</label>
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 resize-none"
+              className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary resize-none"
               rows={3}
               placeholder="Descripción opcional"
             />
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Clasificación</label>
+            <label className="block text-xs font-semibold text-main mb-1.5">Clasificación</label>
             <div className="grid grid-cols-2 gap-2">
               {(["FIJA", "SEGUIMIENTO"] as TaskType[]).map((t) => (
                 <button
@@ -167,9 +167,9 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
                   className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-sm font-medium transition-all ${
                     type === t
                       ? t === "FIJA"
-                        ? "border-indigo-500 bg-indigo-50 text-indigo-700"
+                        ? "border-primary bg-primary-surface text-primary"
                         : "border-violet-500 bg-violet-50 text-violet-700"
-                      : "border-slate-200 text-slate-600 hover:border-slate-300"
+                      : "border-border text-main hover:border-border"
                   }`}
                 >
                   {t === "FIJA" ? (
@@ -189,11 +189,11 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">Estado</label>
+              <label className="block text-xs font-semibold text-main mb-1.5">Estado</label>
               <select
                 value={status}
                 onChange={(e) => setStatus(e.target.value as Task["status"])}
-                className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
               >
                 {STATUS_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>{o.label}</option>
@@ -201,11 +201,11 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
               </select>
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">Prioridad *</label>
+              <label className="block text-xs font-semibold text-main mb-1.5">Prioridad *</label>
               <select
                 value={priority}
                 onChange={(e) => setPriority(e.target.value as Task["priority"])}
-                className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
               >
                 {PRIORITY_OPTIONS.map((o) => (
                   <option key={o.value} value={o.value}>{o.label}</option>
@@ -215,11 +215,11 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Frecuencia *</label>
+            <label className="block text-xs font-semibold text-main mb-1.5">Frecuencia *</label>
             <select
               value={frequency}
               onChange={(e) => setFrequency(e.target.value as Task["frequency"])}
-              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
             >
               {FREQUENCY_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>{o.label}</option>
@@ -229,41 +229,41 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">Fecha inicio *</label>
+              <label className="block text-xs font-semibold text-main mb-1.5">Fecha inicio *</label>
               <input
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
-                className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">Fecha fin *</label>
+              <label className="block text-xs font-semibold text-main mb-1.5">Fecha fin *</label>
               <input
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
-                className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Horas estimadas *</label>
+            <label className="block text-xs font-semibold text-main mb-1.5">Horas estimadas *</label>
             <input
               type="number"
               min="0"
               step="0.5"
               value={estimatedHours}
               onChange={(e) => setEstimatedHours(e.target.value)}
-              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
               placeholder="Ej: 8"
             />
           </div>
 
           {type === "FIJA" && (
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1.5">
+              <label className="block text-xs font-semibold text-main mb-1.5">
                 Avance: {progress}%
               </label>
               <input
@@ -272,17 +272,17 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
                 max="100"
                 value={progress}
                 onChange={(e) => setProgress(e.target.value)}
-                className="w-full accent-indigo-600"
+                className="w-full accent-primary"
               />
             </div>
           )}
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1.5">Asignado a *</label>
+            <label className="block text-xs font-semibold text-main mb-1.5">Asignado a *</label>
             <select
               value={assignedToId}
               onChange={(e) => setAssignedToId(e.target.value)}
-              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
             >
               {users.map((u) => (
                 <option key={u.id} value={u.id}>{u.name}</option>
@@ -294,14 +294,14 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-xl transition-colors"
+              className="px-4 py-2 text-sm font-medium text-main hover:bg-black/5 dark:hover:bg-white/5 rounded-xl transition-colors"
             >
               Cancelar
             </button>
             <button
               type="submit"
               disabled={saving}
-              className="px-5 py-2 text-sm font-medium bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+              className="px-5 py-2 text-sm font-medium bg-primary text-white rounded-xl hover:bg-primary-hover disabled:opacity-50 transition-colors"
             >
               {saving ? "Guardando..." : task ? "Actualizar" : "Crear tarea"}
             </button>

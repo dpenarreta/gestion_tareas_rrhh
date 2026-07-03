@@ -77,17 +77,17 @@ export default function IdeaDetailModal({ ideaId, currentUserRole, onClose, onUp
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="fixed inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b border-slate-200 flex items-center justify-between">
-          <h2 className="text-lg font-bold text-slate-900">Detalle de la idea</h2>
-          <button onClick={onClose} className="p-2 text-slate-400 hover:text-slate-700 rounded-lg hover:bg-slate-100">
+      <div className="relative bg-surface rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="p-6 border-b border-border flex items-center justify-between">
+          <h2 className="text-lg font-bold text-title">Detalle de la idea</h2>
+          <button onClick={onClose} className="p-2 text-disabled hover:text-main rounded-lg hover:bg-black/5 dark:hover:bg-white/5">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
 
-        {loading && <div className="p-10 text-center text-slate-400 text-sm">Cargando...</div>}
+        {loading && <div className="p-10 text-center text-disabled text-sm">Cargando...</div>}
 
         {!loading && idea && (
           <div className="p-6 space-y-5">
@@ -99,8 +99,8 @@ export default function IdeaDetailModal({ ideaId, currentUserRole, onClose, onUp
 
             <div className="flex items-start justify-between gap-3">
               <div>
-                <h3 className="text-base font-bold text-slate-900">{idea.title}</h3>
-                <p className="text-xs text-slate-400 mt-1">
+                <h3 className="text-base font-bold text-title">{idea.title}</h3>
+                <p className="text-xs text-disabled mt-1">
                   Propuesta por {idea.author.name} · {ROLE_LABEL[idea.author.role as Role] ?? idea.author.role}
                 </p>
               </div>
@@ -109,13 +109,13 @@ export default function IdeaDetailModal({ ideaId, currentUserRole, onClose, onUp
               </span>
             </div>
 
-            <p className="text-sm text-slate-700 whitespace-pre-wrap">{idea.description}</p>
+            <p className="text-sm text-main whitespace-pre-wrap">{idea.description}</p>
 
             <div className="flex flex-wrap items-center gap-1.5">
               <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${IMPACT_STYLES[idea.impact]}`}>
                 Impacto {IMPACT_LABELS[idea.impact]}
               </span>
-              <span className="text-[10px] text-slate-400">Propuesta el {formatDateTime(idea.createdAt)}</span>
+              <span className="text-[10px] text-disabled">Propuesta el {formatDateTime(idea.createdAt)}</span>
             </div>
 
             {idea.attachmentUrl && (
@@ -123,24 +123,24 @@ export default function IdeaDetailModal({ ideaId, currentUserRole, onClose, onUp
                 href={idea.attachmentUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 text-sm text-indigo-600 hover:underline"
+                className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
               >
                 📎 Ver adjunto
               </a>
             )}
 
             <div>
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Historial de etapas</p>
-              {idea.history.length === 0 && <p className="text-sm text-slate-400">Sin cambios de etapa todavía.</p>}
+              <p className="text-xs font-semibold text-secondary uppercase tracking-wider mb-2">Historial de etapas</p>
+              {idea.history.length === 0 && <p className="text-sm text-disabled">Sin cambios de etapa todavía.</p>}
               <ul className="space-y-2.5">
                 {[...idea.history].reverse().map((h) => (
-                  <li key={h.id} className="text-sm border-l-2 border-slate-200 pl-3">
-                    <p className="text-slate-700">
+                  <li key={h.id} className="text-sm border-l-2 border-border pl-3">
+                    <p className="text-main">
                       {STATUS_INFO[h.fromStatus].emoji} {STATUS_INFO[h.fromStatus].label} → {STATUS_INFO[h.toStatus].emoji} {STATUS_INFO[h.toStatus].label}
                     </p>
-                    <p className="text-[11px] text-slate-400">{h.changer.name} · {formatDateTime(h.createdAt)}</p>
+                    <p className="text-[11px] text-disabled">{h.changer.name} · {formatDateTime(h.createdAt)}</p>
                     {h.comment && (
-                      <p className="text-xs text-slate-600 mt-1 bg-slate-50 rounded-lg px-2.5 py-1.5">{h.comment}</p>
+                      <p className="text-xs text-main mt-1 bg-background rounded-lg px-2.5 py-1.5">{h.comment}</p>
                     )}
                   </li>
                 ))}
@@ -148,8 +148,8 @@ export default function IdeaDetailModal({ ideaId, currentUserRole, onClose, onUp
             </div>
 
             {canReview && idea.status !== "IMPLEMENTADA" && (
-              <div className="border-t border-slate-200 pt-4 space-y-3">
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Acciones</p>
+              <div className="border-t border-border pt-4 space-y-3">
+                <p className="text-xs font-semibold text-secondary uppercase tracking-wider">Acciones</p>
 
                 {!rejectMode ? (
                   <>
@@ -158,14 +158,14 @@ export default function IdeaDetailModal({ ideaId, currentUserRole, onClose, onUp
                       onChange={(e) => setComment(e.target.value)}
                       rows={2}
                       placeholder="Comentario opcional para esta transición"
-                      className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none"
+                      className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary resize-none"
                     />
                     <div className="flex flex-wrap gap-2">
                       {idea.status !== "RECHAZADA" && idea.status !== "PROPUESTA" && (
                         <button
                           disabled={acting}
                           onClick={() => runAction("RETREAT", comment.trim() || undefined)}
-                          className="px-4 py-2 text-sm font-medium text-slate-700 border border-slate-200 rounded-xl hover:bg-slate-50 disabled:opacity-50"
+                          className="px-4 py-2 text-sm font-medium text-main border border-border rounded-xl hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-50"
                         >
                           ← Retroceder
                         </button>
@@ -174,7 +174,7 @@ export default function IdeaDetailModal({ ideaId, currentUserRole, onClose, onUp
                         <button
                           disabled={acting}
                           onClick={() => runAction("ADVANCE", comment.trim() || undefined)}
-                          className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 disabled:opacity-50"
+                          className="px-4 py-2 text-sm font-medium text-white bg-primary rounded-xl hover:bg-primary-hover disabled:opacity-50"
                         >
                           Avanzar →
                         </button>
@@ -192,7 +192,7 @@ export default function IdeaDetailModal({ ideaId, currentUserRole, onClose, onUp
                         <button
                           disabled={acting}
                           onClick={() => runAction("REOPEN", comment.trim() || undefined)}
-                          className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 disabled:opacity-50"
+                          className="px-4 py-2 text-sm font-medium text-white bg-primary rounded-xl hover:bg-primary-hover disabled:opacity-50"
                         >
                           Reabrir
                         </button>
@@ -206,7 +206,7 @@ export default function IdeaDetailModal({ ideaId, currentUserRole, onClose, onUp
                       onChange={(e) => setRejectReason(e.target.value)}
                       rows={2}
                       placeholder="Motivo del rechazo (obligatorio)"
-                      className="w-full border border-red-300 rounded-xl px-3 py-2 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-red-300 resize-none"
+                      className="w-full border border-red-300 rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-red-300 resize-none"
                     />
                     <div className="flex gap-2">
                       <button
@@ -219,7 +219,7 @@ export default function IdeaDetailModal({ ideaId, currentUserRole, onClose, onUp
                       <button
                         disabled={acting}
                         onClick={() => { setRejectMode(false); setRejectReason(""); }}
-                        className="px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 rounded-xl"
+                        className="px-4 py-2 text-sm font-medium text-main hover:bg-black/5 dark:hover:bg-white/5 rounded-xl"
                       >
                         Cancelar
                       </button>

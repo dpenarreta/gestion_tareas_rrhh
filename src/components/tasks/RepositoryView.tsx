@@ -77,7 +77,7 @@ export default function RepositoryView() {
   }, [months]);
 
   if (loading) {
-    return <div className="text-sm text-slate-400 py-16 text-center">Cargando repositorio…</div>;
+    return <div className="text-sm text-disabled py-16 text-center">Cargando repositorio…</div>;
   }
 
   if (selected) {
@@ -86,7 +86,7 @@ export default function RepositoryView() {
       <div className="flex flex-col gap-4">
         <button
           onClick={() => { setSelected(null); setTasks(null); }}
-          className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-indigo-600 transition-colors w-fit"
+          className="flex items-center gap-1.5 text-sm text-secondary hover:text-primary transition-colors w-fit"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -94,50 +94,50 @@ export default function RepositoryView() {
           Volver al repositorio
         </button>
 
-        <div className="rounded-2xl border border-slate-200 bg-white p-4 flex flex-wrap items-center gap-6">
+        <div className="rounded-2xl border border-border bg-surface p-4 flex flex-wrap items-center gap-6">
           <div>
-            <p className="text-lg font-bold text-slate-900">{monthLabel(selected.year, selected.month)} {selected.year}</p>
-            <p className="text-xs text-slate-400">Archivo de solo lectura</p>
+            <p className="text-lg font-bold text-title">{monthLabel(selected.year, selected.month)} {selected.year}</p>
+            <p className="text-xs text-disabled">Archivo de solo lectura</p>
           </div>
           <div className="flex gap-6 text-sm">
             <div>
-              <p className="text-slate-400 text-xs">Total tareas</p>
-              <p className="font-semibold text-slate-800">{selected.totalTasks}</p>
+              <p className="text-disabled text-xs">Total tareas</p>
+              <p className="font-semibold text-title">{selected.totalTasks}</p>
             </div>
             <div>
-              <p className="text-slate-400 text-xs">% Completadas</p>
-              <p className="font-semibold text-slate-800">{pct}%</p>
+              <p className="text-disabled text-xs">% Completadas</p>
+              <p className="font-semibold text-title">{pct}%</p>
             </div>
             <div>
-              <p className="text-slate-400 text-xs">Horas totales</p>
-              <p className="font-semibold text-slate-800">{fmtH(selected.totalHours)}h</p>
+              <p className="text-disabled text-xs">Horas totales</p>
+              <p className="font-semibold text-title">{fmtH(selected.totalHours)}h</p>
             </div>
           </div>
         </div>
 
-        {loadingTasks && <div className="text-sm text-slate-400 py-8 text-center">Cargando tareas…</div>}
+        {loadingTasks && <div className="text-sm text-disabled py-8 text-center">Cargando tareas…</div>}
 
         {!loadingTasks && tasks && (
-          <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+          <div className="overflow-x-auto rounded-2xl border border-border bg-surface">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-slate-200 bg-slate-50">
+                <tr className="border-b border-border bg-background">
                   <th className="w-1 px-0" />
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Título</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Responsable</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Frecuencia</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Estado</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Prioridad</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Fin</th>
-                  <th className="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">H. Est.</th>
-                  <th className="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">H. Reales</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Avance</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Título</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Responsable</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Frecuencia</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Estado</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Prioridad</th>
+                  <th className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Fin</th>
+                  <th className="text-right px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">H. Est.</th>
+                  <th className="text-right px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">H. Reales</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Avance</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-border">
                 {tasks.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="text-center py-10 text-slate-400 text-sm">
+                    <td colSpan={9} className="text-center py-10 text-disabled text-sm">
                       No tienes tareas archivadas visibles en este mes.
                     </td>
                   </tr>
@@ -145,11 +145,11 @@ export default function RepositoryView() {
                 {tasks.map((task) => {
                   const hex = taskColorHex(task.color);
                   return (
-                    <tr key={task.id} className="hover:bg-slate-50 transition-colors">
+                    <tr key={task.id} className="hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
                       <td className="w-1 p-0" style={{ backgroundColor: hex ?? "transparent" }} />
-                      <td className="px-4 py-3 max-w-[200px] text-slate-800">{task.title}</td>
-                      <td className="px-3 py-3 text-slate-600">{task.assignedTo.name}</td>
-                      <td className="px-3 py-3 text-slate-600">{FREQUENCY_LABELS[task.frequency]}</td>
+                      <td className="px-4 py-3 max-w-[200px] text-title">{task.title}</td>
+                      <td className="px-3 py-3 text-main">{task.assignedTo.name}</td>
+                      <td className="px-3 py-3 text-main">{FREQUENCY_LABELS[task.frequency]}</td>
                       <td className="px-3 py-3">
                         <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${STATUS_STYLES[task.status]}`}>
                           {STATUS_LABELS[task.status]}
@@ -160,15 +160,15 @@ export default function RepositoryView() {
                           {task.priority}
                         </span>
                       </td>
-                      <td className="px-3 py-3 whitespace-nowrap text-slate-600">{formatDate(task.endDate)}</td>
-                      <td className="px-3 py-3 text-right text-slate-600">{fmtH(task.estimatedHours)}h</td>
-                      <td className="px-3 py-3 text-right text-slate-600">{fmtH(task.realHours)}h</td>
+                      <td className="px-3 py-3 whitespace-nowrap text-main">{formatDate(task.endDate)}</td>
+                      <td className="px-3 py-3 text-right text-main">{fmtH(task.estimatedHours)}h</td>
+                      <td className="px-3 py-3 text-right text-main">{fmtH(task.realHours)}h</td>
                       <td className="px-3 py-3">
                         <div className="flex items-center gap-2 min-w-[80px]">
-                          <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                            <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${task.progress}%` }} />
+                          <div className="flex-1 h-1.5 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
+                            <div className="h-full bg-primary rounded-full" style={{ width: `${task.progress}%` }} />
                           </div>
-                          <span className="text-[10px] text-slate-500 w-7 text-right">{task.progress}%</span>
+                          <span className="text-[10px] text-secondary w-7 text-right">{task.progress}%</span>
                         </div>
                       </td>
                     </tr>
@@ -184,7 +184,7 @@ export default function RepositoryView() {
 
   if (months.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-slate-400 text-sm rounded-2xl border border-slate-200 bg-white">
+      <div className="flex flex-col items-center justify-center py-16 text-disabled text-sm rounded-2xl border border-border bg-surface">
         <svg className="w-8 h-8 mb-2 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 8h14M5 8a2 2 0 01-2-2V4a2 2 0 012-2h14a2 2 0 012 2v2a2 2 0 01-2 2M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
         </svg>
@@ -197,7 +197,7 @@ export default function RepositoryView() {
     <div className="flex flex-col gap-6">
       {byYear.map(([year, list]) => (
         <div key={year}>
-          <h3 className="text-sm font-bold text-slate-800 mb-2.5">{year}</h3>
+          <h3 className="text-sm font-bold text-title mb-2.5">{year}</h3>
           <div className="flex flex-wrap gap-2.5">
             {list.map((m) => {
               const pct = m.totalTasks > 0 ? Math.round((m.completedTasks / m.totalTasks) * 100) : 0;
@@ -205,10 +205,10 @@ export default function RepositoryView() {
                 <button
                   key={m.month}
                   onClick={() => openMonth(m)}
-                  className="flex flex-col items-start gap-1 px-4 py-3 rounded-2xl border border-slate-200 bg-white hover:border-indigo-300 hover:bg-indigo-50/50 transition-colors text-left min-w-[160px]"
+                  className="flex flex-col items-start gap-1 px-4 py-3 rounded-2xl border border-border bg-surface hover:border-primary/40 hover:bg-primary-surface/50 transition-colors text-left min-w-[160px]"
                 >
-                  <span className="text-sm font-semibold text-slate-800">{monthLabel(m.year, m.month)}</span>
-                  <span className="text-xs text-slate-500">{m.totalTasks} tareas · {pct}% completadas</span>
+                  <span className="text-sm font-semibold text-title">{monthLabel(m.year, m.month)}</span>
+                  <span className="text-xs text-secondary">{m.totalTasks} tareas · {pct}% completadas</span>
                 </button>
               );
             })}

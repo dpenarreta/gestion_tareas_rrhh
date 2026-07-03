@@ -35,7 +35,7 @@ function ColorPicker({ current, onSelect, onClose }: { current: string | null; o
       ref={ref}
       onClick={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
-      className="absolute top-8 right-0 z-20 bg-white border border-slate-200 rounded-xl shadow-xl p-2.5 grid grid-cols-5 gap-1.5 w-[152px]"
+      className="absolute top-8 right-0 z-20 bg-surface border border-border rounded-xl shadow-xl p-2.5 grid grid-cols-5 gap-1.5 w-[152px]"
     >
       {TASK_COLORS.map((c) => (
         <button
@@ -43,7 +43,7 @@ function ColorPicker({ current, onSelect, onClose }: { current: string | null; o
           title={c.label}
           onClick={() => { onSelect(c.value === current ? null : c.value); onClose(); }}
           className={`w-5 h-5 rounded-full border-2 transition-transform hover:scale-110 ${
-            current === c.value ? "border-slate-900" : "border-white"
+            current === c.value ? "border-title" : "border-white"
           }`}
           style={{ backgroundColor: c.hex, boxShadow: "0 0 0 1px rgba(0,0,0,0.1)" }}
         />
@@ -70,19 +70,19 @@ export default function TaskCard({ task, currentUserId, isDragging, onEdit, onDe
 
   return (
     <div
-      className={`relative bg-white rounded-xl border border-slate-200 p-3 shadow-sm select-none ${
+      className={`relative bg-surface rounded-xl border border-border p-3 shadow-sm select-none ${
         isDragging ? "shadow-lg rotate-1 opacity-90" : "hover:shadow-md"
       } transition-all`}
       style={hex ? { borderLeft: `4px solid ${hex}`, backgroundColor: `${hex}0d` } : undefined}
     >
       <div className="flex items-start justify-between gap-2 mb-2">
-        <p className="text-sm font-medium text-slate-900 leading-snug line-clamp-2 flex-1">{task.title}</p>
+        <p className="text-sm font-medium text-title leading-snug line-clamp-2 flex-1">{task.title}</p>
         <div className="flex items-center gap-1 shrink-0">
           {isOwner && onColorChange && (
             <button
               onClick={(e) => { e.stopPropagation(); setShowColorPicker((v) => !v); }}
               onPointerDown={(e) => e.stopPropagation()}
-              className="p-1 text-slate-400 hover:text-indigo-600 rounded"
+              className="p-1 text-disabled hover:text-primary rounded"
               aria-label="Color de tarjeta"
               title="Color de tarjeta"
             >
@@ -93,7 +93,7 @@ export default function TaskCard({ task, currentUserId, isDragging, onEdit, onDe
           )}
           <button
             onClick={(e) => { e.stopPropagation(); onEdit(task); }}
-            className="p-1 text-slate-400 hover:text-indigo-600 rounded"
+            className="p-1 text-disabled hover:text-primary rounded"
             aria-label="Editar"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -102,7 +102,7 @@ export default function TaskCard({ task, currentUserId, isDragging, onEdit, onDe
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(task.id); }}
-            className="p-1 text-slate-400 hover:text-red-600 rounded"
+            className="p-1 text-disabled hover:text-red-600 rounded"
             aria-label="Eliminar"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -123,7 +123,7 @@ export default function TaskCard({ task, currentUserId, isDragging, onEdit, onDe
         <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${PRIORITY_STYLES[task.priority]}`}>
           {task.priority}
         </span>
-        <span className="text-[10px] text-slate-500 bg-slate-50 px-1.5 py-0.5 rounded border border-slate-200">
+        <span className="text-[10px] text-secondary bg-background px-1.5 py-0.5 rounded border border-border">
           {FREQUENCY_LABELS[task.frequency]}
         </span>
       </div>
@@ -142,12 +142,12 @@ export default function TaskCard({ task, currentUserId, isDragging, onEdit, onDe
       {task.type === "FIJA" && task.progress > 0 && (
         <div className="mb-2.5">
           <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] text-slate-500">Avance</span>
-            <span className="text-[10px] font-medium text-slate-700">{task.progress}%</span>
+            <span className="text-[10px] text-secondary">Avance</span>
+            <span className="text-[10px] font-medium text-main">{task.progress}%</span>
           </div>
-          <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+          <div className="h-1.5 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
             <div
-              className="h-full bg-indigo-500 rounded-full transition-all"
+              className="h-full bg-primary rounded-full transition-all"
               style={{ width: `${task.progress}%` }}
             />
           </div>
@@ -155,14 +155,14 @@ export default function TaskCard({ task, currentUserId, isDragging, onEdit, onDe
       )}
 
       <div className="flex items-center justify-between">
-        <span className="text-[10px] text-slate-500">
+        <span className="text-[10px] text-secondary">
           Vence {formatDate(task.endDate)}
         </span>
         <div className="flex items-center gap-2">
           {task.type === "SEGUIMIENTO" && onActivityClick && (
             <button
               onClick={(e) => { e.stopPropagation(); onActivityClick(task); }}
-              className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-violet-600 transition-colors"
+              className="flex items-center gap-1 text-[10px] text-secondary hover:text-violet-600 transition-colors"
               title="Registro de actividades"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -172,7 +172,7 @@ export default function TaskCard({ task, currentUserId, isDragging, onEdit, onDe
           )}
           <button
             onClick={(e) => { e.stopPropagation(); onCommentClick(task); }}
-            className="flex items-center gap-1 text-[10px] text-slate-500 hover:text-indigo-600 transition-colors"
+            className="flex items-center gap-1 text-[10px] text-secondary hover:text-primary transition-colors"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />

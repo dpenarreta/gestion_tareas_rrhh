@@ -50,7 +50,7 @@ export default function IdeasBoard({ ideas, currentUserId, currentUserRole, onCa
         <select
           value={impactFilter}
           onChange={(e) => setImpactFilter(e.target.value as IdeaImpact | "")}
-          className="text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white text-slate-700"
+          className="text-sm border border-border rounded-lg px-2.5 py-1.5 bg-surface text-main"
         >
           <option value="">Todo impacto</option>
           {Object.entries(IMPACT_LABELS).map(([v, l]) => (
@@ -61,7 +61,7 @@ export default function IdeasBoard({ ideas, currentUserId, currentUserRole, onCa
           <select
             value={authorFilter}
             onChange={(e) => setAuthorFilter(e.target.value)}
-            className="text-sm border border-slate-200 rounded-lg px-2.5 py-1.5 bg-white text-slate-700"
+            className="text-sm border border-border rounded-lg px-2.5 py-1.5 bg-surface text-main"
           >
             <option value="">Todos los autores</option>
             {authors.map(([id, name]) => (
@@ -69,7 +69,7 @@ export default function IdeasBoard({ ideas, currentUserId, currentUserRole, onCa
             ))}
           </select>
         )}
-        <label className="flex items-center gap-1.5 text-sm text-slate-600 ml-auto">
+        <label className="flex items-center gap-1.5 text-sm text-main ml-auto">
           <input
             type="checkbox"
             checked={hideRejected}
@@ -85,11 +85,11 @@ export default function IdeasBoard({ ideas, currentUserId, currentUserRole, onCa
           const info = STATUS_INFO[status];
           const colIdeas = byStatus.get(status) ?? [];
           return (
-            <div key={status} className={`flex flex-col rounded-2xl border-2 ${info.border} bg-slate-50 min-h-[300px]`}>
-              <div className="p-3 border-b border-slate-200 flex items-center gap-2">
+            <div key={status} className={`flex flex-col rounded-2xl border-2 ${info.border} bg-background min-h-[300px]`}>
+              <div className="p-3 border-b border-border flex items-center gap-2">
                 <span>{info.emoji}</span>
                 <span className={`text-sm font-semibold ${info.headerText}`}>{info.label}</span>
-                <span className="text-xs text-slate-400 bg-white border border-slate-200 px-1.5 py-0.5 rounded-full ml-auto">
+                <span className="text-xs text-disabled bg-surface border border-border px-1.5 py-0.5 rounded-full ml-auto">
                   {colIdeas.length}
                 </span>
               </div>
@@ -98,7 +98,7 @@ export default function IdeasBoard({ ideas, currentUserId, currentUserRole, onCa
                   <IdeaCard key={idea.id} idea={idea} currentUserId={currentUserId} onClick={onCardClick} />
                 ))}
                 {colIdeas.length === 0 && (
-                  <div className="text-center text-xs text-slate-400 py-6">Sin ideas</div>
+                  <div className="text-center text-xs text-disabled py-6">Sin ideas</div>
                 )}
               </div>
             </div>

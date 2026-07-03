@@ -157,7 +157,7 @@ function SortableCard({
     >
       <div
         {...listeners}
-        className="absolute top-3 right-3 cursor-grab active:cursor-grabbing p-1 rounded text-slate-300 hover:text-slate-500 z-10"
+        className="absolute top-3 right-3 cursor-grab active:cursor-grabbing p-1 rounded text-disabled hover:text-secondary z-10"
         title="Arrastrar para reordenar"
       >
         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
@@ -171,14 +171,14 @@ function SortableCard({
 
 function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className={`bg-white rounded-2xl border border-slate-200 p-5 ${className}`}>
+    <div className={`bg-surface rounded-2xl border border-border shadow-sm p-5 ${className}`}>
       {children}
     </div>
   );
 }
 
 function CardTitle({ children }: { children: React.ReactNode }) {
-  return <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-4">{children}</h2>;
+  return <h2 className="text-sm font-semibold text-secondary uppercase tracking-wider mb-4">{children}</h2>;
 }
 
 // ── Individual card renderers ─────────────────────────────────────────────────
@@ -200,26 +200,26 @@ function JornadaCard({
   return (
     <Card>
       <CardTitle>Mi jornada</CardTitle>
-      <h1 className="text-2xl font-bold text-slate-900 mb-1">{greeting(userName)}</h1>
-      <p className="text-xs text-slate-500 mb-5">{ROLE_LABEL[userRole]}</p>
+      <h1 className="text-[36px] leading-tight font-bold text-title mb-1">{greeting(userName)}</h1>
+      <p className="text-[13px] text-secondary mb-5">{ROLE_LABEL[userRole]}</p>
 
       {/* Nova message */}
-      <div className="bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-3 mb-5 flex items-start gap-3">
+      <div className="bg-primary-surface border border-primary/15 rounded-xl px-4 py-3 mb-5 flex items-start gap-3">
         <span className="text-xl shrink-0">🤖</span>
         {novaLoading ? (
-          <div className="h-4 w-full bg-indigo-100 animate-pulse rounded" />
+          <div className="h-4 w-full bg-primary/15 animate-pulse rounded" />
         ) : (
-          <p className="text-sm text-indigo-800">{novaMessage}</p>
+          <p className="text-sm text-title">{novaMessage}</p>
         )}
       </div>
 
       {/* Workload */}
-      <div className={`rounded-xl px-4 py-3 ${wl.bg}`}>
+      <div className={`rounded-xl px-4 py-3 ${wl.bg} dark:bg-white/5`}>
         <div className="flex items-center justify-between mb-2">
-          <span className={`text-sm font-semibold ${wl.color}`}>Carga laboral</span>
-          <span className={`text-lg font-bold ${wl.color}`}>{data.workloadPct}%</span>
+          <span className={`text-sm font-semibold ${wl.color} dark:text-title`}>Carga laboral</span>
+          <span className={`text-lg font-bold ${wl.color} dark:text-title`}>{data.workloadPct}%</span>
         </div>
-        <div className="h-2 bg-white/60 rounded-full overflow-hidden">
+        <div className="h-2 bg-white/60 dark:bg-white/10 rounded-full overflow-hidden">
           <div
             className={`h-full ${wl.bar} rounded-full transition-all`}
             style={{ width: `${Math.min(100, data.workloadPct)}%` }}
@@ -238,17 +238,17 @@ function PrioridadesCard({ tasks }: { tasks: PriorityTask[] }) {
       {tasks.length === 0 ? (
         <div className="text-center py-6">
           <p className="text-2xl mb-2">✅</p>
-          <p className="text-sm text-slate-500">Sin tareas urgentes</p>
+          <p className="text-sm text-secondary">Sin tareas urgentes</p>
         </div>
       ) : (
         <ul className="space-y-2">
           {tasks.map((t) => {
             const badge = urgencyBadge(t.urgency);
             return (
-              <li key={t.id} className="flex items-center justify-between gap-2 p-2 rounded-xl hover:bg-slate-50">
-                <span className="text-sm text-slate-800 truncate flex-1">{t.title}</span>
+              <li key={t.id} className="flex items-center justify-between gap-2 p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/5">
+                <span className="text-sm text-title truncate flex-1">{t.title}</span>
                 <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-xs text-slate-400">{fmtDate(t.endDate)}</span>
+                  <span className="text-[13px] text-secondary">{fmtDate(t.endDate)}</span>
                   <span className={`text-xs px-2 py-0.5 rounded-full border font-medium ${badge.cls}`}>
                     {badge.label}
                   </span>
@@ -260,7 +260,7 @@ function PrioridadesCard({ tasks }: { tasks: PriorityTask[] }) {
       )}
       <a
         href="/tasks"
-        className="mt-4 block text-center text-xs font-medium text-indigo-600 hover:text-indigo-800 py-2 rounded-xl hover:bg-indigo-50 transition-colors"
+        className="mt-4 block text-center text-xs font-medium text-primary hover:text-primary-hover py-2 rounded-xl hover:bg-primary-surface transition-colors"
       >
         Ver todas las tareas →
       </a>
@@ -293,20 +293,20 @@ function AgendaCard({
       {meetings.length === 0 ? (
         <div className="text-center py-6">
           <p className="text-2xl mb-2">📅</p>
-          <p className="text-sm text-slate-500">Sin reuniones próximas</p>
+          <p className="text-sm text-secondary">Sin reuniones próximas</p>
         </div>
       ) : (
         <ul className="space-y-2 mb-3">
           {meetings.map((m) => (
             <li key={m.id}>
-              <a href="/meetings" className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-slate-50 transition-colors">
+              <a href="/meetings" className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
                 <div className="w-10 text-center shrink-0">
-                  <p className="text-xs font-bold text-indigo-600">{fmtTime(m.meetingDate)}</p>
-                  <p className="text-[10px] text-slate-400">{fmtDur(m.duration)}</p>
+                  <p className="text-xs font-bold text-primary">{fmtTime(m.meetingDate)}</p>
+                  <p className="text-[10px] text-secondary">{fmtDur(m.duration)}</p>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-800 truncate">{m.title}</p>
-                  <p className="text-xs text-slate-400">{fmtDateShort(m.meetingDate)} · {m.hostName}</p>
+                  <p className="text-sm font-medium text-title truncate">{m.title}</p>
+                  <p className="text-xs text-secondary">{fmtDateShort(m.meetingDate)} · {m.hostName}</p>
                 </div>
               </a>
             </li>
@@ -316,12 +316,12 @@ function AgendaCard({
       {canCreate ? (
         <button
           onClick={onNewMeeting}
-          className="w-full text-xs font-medium text-indigo-600 border border-indigo-200 rounded-xl py-2 hover:bg-indigo-50 transition-colors"
+          className="w-full text-xs font-medium text-primary border border-primary/30 rounded-xl py-2 hover:bg-primary-surface transition-colors"
         >
           + Nueva reunión
         </button>
       ) : (
-        <a href="/meetings" className="block text-center text-xs font-medium text-indigo-600 hover:text-indigo-800 py-2 rounded-xl hover:bg-indigo-50 transition-colors">
+        <a href="/meetings" className="block text-center text-xs font-medium text-primary hover:text-primary-hover py-2 rounded-xl hover:bg-primary-surface transition-colors">
           Ver todas las reuniones →
         </a>
       )}
@@ -340,23 +340,23 @@ function ActividadAreaCard({
     <Card>
       <CardTitle>Actividad del área</CardTitle>
       {lastLoginAt && (
-        <p className="text-xs text-slate-400 mb-3">
+        <p className="text-xs text-secondary mb-3">
           Desde tu última visita el {fmtDate(lastLoginAt)} a las {fmtTime(lastLoginAt)}
         </p>
       )}
       {events.length === 0 ? (
         <div className="text-center py-6">
           <p className="text-2xl mb-2">✓</p>
-          <p className="text-sm text-slate-500">Sin actividad nueva desde tu última visita</p>
+          <p className="text-sm text-secondary">Sin actividad nueva desde tu última visita</p>
         </div>
       ) : (
         <ul className="space-y-3">
           {events.map((e, i) => (
             <li key={i} className="flex items-start gap-3">
-              <span className="w-1.5 h-1.5 mt-1.5 rounded-full bg-indigo-400 shrink-0" />
+              <span className="w-1.5 h-1.5 mt-1.5 rounded-full bg-primary shrink-0" />
               <div className="flex-1 min-w-0">
-                <p className="text-sm text-slate-700">{e.text}</p>
-                <p className="text-xs text-slate-400">{fmtRelative(e.time)}</p>
+                <p className="text-sm text-main">{e.text}</p>
+                <p className="text-xs text-secondary">{fmtRelative(e.time)}</p>
               </div>
             </li>
           ))}
@@ -397,11 +397,11 @@ function ComunicadosCard({
   return (
     <Card>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Comunicados</h2>
+        <h2 className="text-sm font-semibold text-secondary uppercase tracking-wider">Comunicados</h2>
         {canPost && (
           <button
             onClick={() => setShowForm(!showForm)}
-            className="text-xs font-medium text-indigo-600 hover:text-indigo-800 px-2 py-1 rounded-lg hover:bg-indigo-50 transition-colors"
+            className="text-xs font-medium text-primary hover:text-primary-hover px-2 py-1 rounded-lg hover:bg-primary-surface transition-colors"
           >
             {showForm ? "Cancelar" : "+ Publicar"}
           </button>
@@ -409,13 +409,13 @@ function ComunicadosCard({
       </div>
 
       {showForm && (
-        <form onSubmit={handleSubmit} className="mb-4 space-y-3 bg-slate-50 rounded-xl p-4">
+        <form onSubmit={handleSubmit} className="mb-4 space-y-3 bg-background rounded-xl p-4">
           <input
             required
             placeholder="Título del comunicado"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
-            className="w-full px-3 py-2 text-sm text-slate-900 bg-white rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            className="w-full px-3 py-2 text-sm text-title bg-surface rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary"
           />
           <textarea
             required
@@ -423,10 +423,10 @@ function ComunicadosCard({
             placeholder="Contenido del comunicado..."
             value={content}
             onChange={(e) => setContent(e.target.value)}
-            className="w-full px-3 py-2 text-sm text-slate-900 bg-white rounded-lg border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none"
+            className="w-full px-3 py-2 text-sm text-title bg-surface rounded-lg border border-border focus:outline-none focus:ring-2 focus:ring-primary resize-none"
           />
           <div className="flex items-center gap-4">
-            <label className="text-xs text-slate-600">
+            <label className="text-xs text-main">
               Duración (días):
               <input
                 type="number"
@@ -434,10 +434,10 @@ function ComunicadosCard({
                 max={30}
                 value={duration}
                 onChange={(e) => setDuration(Number(e.target.value))}
-                className="ml-2 w-16 px-2 py-1 text-sm text-slate-900 bg-white rounded border border-slate-200"
+                className="ml-2 w-16 px-2 py-1 text-sm text-title bg-surface rounded border border-border"
               />
             </label>
-            <label className="flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer">
+            <label className="flex items-center gap-1.5 text-xs text-main cursor-pointer">
               <input
                 type="checkbox"
                 checked={pinned}
@@ -450,7 +450,7 @@ function ComunicadosCard({
           <button
             type="submit"
             disabled={saving}
-            className="px-4 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition-colors"
+            className="px-4 py-2 bg-primary text-white text-sm rounded-lg hover:bg-primary-hover disabled:opacity-50 transition-colors"
           >
             {saving ? "Publicando…" : "Publicar comunicado"}
           </button>
@@ -458,24 +458,24 @@ function ComunicadosCard({
       )}
 
       {announcements.length === 0 ? (
-        <p className="text-sm text-slate-400 text-center py-4">No hay comunicados activos</p>
+        <p className="text-sm text-secondary text-center py-4">No hay comunicados activos</p>
       ) : (
         <ul className="space-y-3">
           {announcements.map((a) => (
-            <li key={a.id} className={`p-3 rounded-xl border ${a.pinned ? "border-indigo-200 bg-indigo-50" : "border-slate-100 bg-slate-50"}`}>
+            <li key={a.id} className={`p-3 rounded-xl border ${a.pinned ? "border-primary/25 bg-primary-surface" : "border-border bg-background"}`}>
               <div className="flex items-start justify-between gap-2">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1">
-                    {a.pinned && <span className="text-xs text-indigo-600">📌</span>}
-                    <p className="text-sm font-semibold text-slate-800">{a.title}</p>
+                    {a.pinned && <span className="text-xs text-primary">📌</span>}
+                    <p className="text-sm font-semibold text-title">{a.title}</p>
                   </div>
-                  <p className="text-sm text-slate-600">{a.content}</p>
-                  <p className="text-xs text-slate-400 mt-1.5">{a.authorName} · vence {fmtDate(a.expiresAt)}</p>
+                  <p className="text-sm text-main">{a.content}</p>
+                  <p className="text-xs text-secondary mt-1.5">{a.authorName} · vence {fmtDate(a.expiresAt)}</p>
                 </div>
                 {canPost && (
                   <button
                     onClick={() => onDelete(a.id)}
-                    className="text-slate-400 hover:text-red-500 p-1 rounded shrink-0"
+                    className="text-disabled hover:text-danger p-1 rounded shrink-0"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -519,10 +519,10 @@ function AccionesRapidasCard({
           <button
             key={a.label}
             onClick={a.onClick}
-            className="flex flex-col items-center gap-2 p-4 rounded-xl border border-slate-200 hover:border-indigo-300 hover:bg-indigo-50 transition-colors group"
+            className="flex flex-col items-center gap-2 p-4 rounded-xl border border-border hover:border-primary/40 hover:bg-primary-surface transition-colors group"
           >
             <span className="text-2xl">{a.icon}</span>
-            <span className="text-xs font-medium text-slate-700 group-hover:text-indigo-700">{a.label}</span>
+            <span className="text-xs font-medium text-main group-hover:text-primary">{a.label}</span>
           </button>
         ))}
       </div>
@@ -554,14 +554,14 @@ function ResumenCard({
   return (
     <Card>
       <div className="flex items-center justify-between mb-4">
-        <h2 className="text-sm font-semibold text-slate-500 uppercase tracking-wider">Resumen</h2>
-        <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+        <h2 className="text-sm font-semibold text-secondary uppercase tracking-wider">Resumen</h2>
+        <div className="flex rounded-lg border border-border overflow-hidden">
           {periods.map((p) => (
             <button
               key={p.key}
               onClick={() => setPeriod(p.key)}
               className={`text-xs px-2.5 py-1 transition-colors ${
-                period === p.key ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-50"
+                period === p.key ? "bg-primary text-white" : "text-main hover:bg-black/5 dark:hover:bg-white/5"
               }`}
             >
               {p.label}
@@ -571,16 +571,16 @@ function ResumenCard({
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <StatBox label="Pendientes" value={s.pending} color="text-amber-600" bg="bg-amber-50" />
-        <StatBox label="En progreso" value={s.inProgress} color="text-blue-600" bg="bg-blue-50" />
-        <StatBox label="Completadas" value={s.completed} color="text-green-600" bg="bg-green-50" />
-        <StatBox label="Carga laboral" value={`${workloadPct}%`} color="text-indigo-600" bg="bg-indigo-50" />
+        <StatBox label="Pendientes" value={s.pending} color="text-warning-alt" bg="bg-warning/10" />
+        <StatBox label="En progreso" value={s.inProgress} color="text-info" bg="bg-info/10" />
+        <StatBox label="Completadas" value={s.completed} color="text-success" bg="bg-success/10" />
+        <StatBox label="Carga laboral" value={`${workloadPct}%`} color="text-primary" bg="bg-primary-surface" />
       </div>
 
       {roleLevel >= 2 && teamAlerts > 0 && (
-        <div className="mt-3 flex items-center gap-2 p-2.5 bg-red-50 border border-red-200 rounded-xl">
-          <span className="text-red-500">🔴</span>
-          <p className="text-xs text-red-700 font-medium">
+        <div className="mt-3 flex items-center gap-2 p-2.5 bg-danger/10 border border-danger/25 rounded-xl">
+          <span className="text-danger">🔴</span>
+          <p className="text-xs text-danger font-medium">
             Equipo: {teamAlerts} {teamAlerts === 1 ? "persona requiere" : "personas requieren"} atención
           </p>
         </div>
@@ -602,8 +602,8 @@ function StatBox({
 }) {
   return (
     <div className={`${bg} rounded-xl p-3 text-center`}>
-      <p className={`text-2xl font-bold ${color}`}>{value}</p>
-      <p className="text-xs text-slate-500 mt-0.5">{label}</p>
+      <p className={`text-[34px] leading-tight font-bold ${color}`}>{value}</p>
+      <p className="text-xs text-secondary mt-0.5">{label}</p>
     </div>
   );
 }
@@ -732,7 +732,7 @@ export default function DashboardModule({
       return (
         <Card>
           <div className="h-32 flex items-center justify-center">
-            <div className="w-5 h-5 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+            <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
           </div>
         </Card>
       );

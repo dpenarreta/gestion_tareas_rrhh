@@ -18,7 +18,7 @@ import ActivityPanel from "./ActivityPanel";
 import { fireCelebrationConfetti } from "@/lib/confetti";
 
 const COLUMNS: { id: TaskStatus; label: string; headerColor: string; dotColor: string }[] = [
-  { id: "PENDIENTE", label: "Pendiente", headerColor: "text-slate-600", dotColor: "bg-slate-400" },
+  { id: "PENDIENTE", label: "Pendiente", headerColor: "text-main", dotColor: "bg-slate-400" },
   { id: "EN_PROGRESO", label: "En Progreso", headerColor: "text-blue-700", dotColor: "bg-blue-500" },
   { id: "COMPLETADA", label: "Completada", headerColor: "text-green-700", dotColor: "bg-green-500" },
 ];
@@ -50,20 +50,20 @@ function DroppableColumn({
     <div
       ref={setNodeRef}
       className={`flex flex-col rounded-2xl border-2 transition-colors min-h-[400px] ${
-        isOver ? "border-indigo-400 bg-indigo-50/50" : "border-slate-200 bg-slate-50"
+        isOver ? "border-primary bg-primary-surface/50" : "border-border bg-background"
       }`}
     >
-      <div className="p-3 border-b border-slate-200 flex items-center justify-between">
+      <div className="p-3 border-b border-border flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className={`w-2 h-2 rounded-full ${column.dotColor}`} />
           <span className={`text-sm font-semibold ${column.headerColor}`}>{column.label}</span>
-          <span className="text-xs text-slate-400 bg-white border border-slate-200 px-1.5 py-0.5 rounded-full">
+          <span className="text-xs text-disabled bg-surface border border-border px-1.5 py-0.5 rounded-full">
             {tasks.length}
           </span>
         </div>
         <button
           onClick={() => onCreateTask(column.id)}
-          className="p-1 text-slate-400 hover:text-indigo-600 hover:bg-white rounded-lg transition-colors"
+          className="p-1 text-disabled hover:text-primary hover:bg-surface rounded-lg transition-colors"
           title="Nueva tarea"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -86,7 +86,7 @@ function DroppableColumn({
           />
         ))}
         {tasks.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-24 text-slate-400 text-xs">
+          <div className="flex flex-col items-center justify-center h-24 text-disabled text-xs">
             <svg className="w-6 h-6 mb-1 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
             </svg>

@@ -308,14 +308,14 @@ function ReportCard({
       onClick={onClick}
       className={`w-full text-left px-4 py-3 rounded-xl transition-all ${
         selected
-          ? "bg-indigo-50 ring-2 ring-indigo-300"
-          : "hover:bg-slate-50 ring-1 ring-transparent"
+          ? "bg-primary-surface ring-2 ring-primary/40"
+          : "hover:bg-black/5 dark:hover:bg-white/5 ring-1 ring-transparent"
       }`}
     >
-      <p className={`text-sm font-semibold ${selected ? "text-indigo-700" : "text-slate-800"}`}>
+      <p className={`text-sm font-semibold ${selected ? "text-primary" : "text-title"}`}>
         {formatMonthYear(report.month, report.year)}
       </p>
-      <p className="text-[11px] text-slate-400 mt-0.5">
+      <p className="text-[11px] text-disabled mt-0.5">
         {new Date(report.createdAt).toLocaleDateString("es-CL")}
       </p>
     </button>
@@ -336,10 +336,10 @@ function MetricStat({
   accent?: boolean;
 }) {
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4">
-      <p className="text-[11px] text-slate-400 uppercase tracking-wider font-medium mb-1">{label}</p>
-      <p className={`text-2xl font-bold ${accent ? "text-indigo-600" : "text-slate-800"}`}>{value}</p>
-      {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
+    <div className="bg-surface rounded-xl border border-border p-4">
+      <p className="text-[11px] text-disabled uppercase tracking-wider font-medium mb-1">{label}</p>
+      <p className={`text-2xl font-bold ${accent ? "text-primary" : "text-title"}`}>{value}</p>
+      {sub && <p className="text-xs text-disabled mt-0.5">{sub}</p>}
     </div>
   );
 }
@@ -630,7 +630,7 @@ export default function MonthlyReports({ currentUserRole }: Props) {
   if (loading) {
     return (
       <div className="flex justify-center items-center py-32">
-        <div className="w-7 h-7 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+        <div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
@@ -650,16 +650,16 @@ export default function MonthlyReports({ currentUserRole }: Props) {
   return (
     <div className="flex flex-col gap-4">
       {/* Mode toggle */}
-      <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit self-start">
+      <div className="flex gap-1 bg-black/5 dark:bg-white/5 rounded-xl p-1 w-fit self-start">
         <button
           onClick={() => setViewMode("individual")}
-          className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${viewMode === "individual" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+          className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${viewMode === "individual" ? "bg-surface text-title shadow-sm" : "text-secondary hover:text-main"}`}
         >
           Mes individual
         </button>
         <button
           onClick={() => setViewMode("range")}
-          className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${viewMode === "range" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+          className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${viewMode === "range" ? "bg-surface text-title shadow-sm" : "text-secondary hover:text-main"}`}
         >
           Rango personalizado
         </button>
@@ -669,29 +669,29 @@ export default function MonthlyReports({ currentUserRole }: Props) {
       {viewMode === "range" && (
         <div className="flex flex-col gap-4">
           {/* Range selector */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-wrap items-end gap-4">
+          <div className="bg-surface rounded-2xl border border-border p-4 flex flex-wrap items-end gap-4">
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-slate-500 font-medium">Desde</label>
+              <label className="text-xs text-secondary font-medium">Desde</label>
               <input
                 type="month"
                 value={rangeFrom}
                 onChange={(e) => setRangeFrom(e.target.value)}
-                className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                className="text-sm border border-border rounded-lg px-3 py-1.5 bg-surface text-main focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-slate-500 font-medium">Hasta</label>
+              <label className="text-xs text-secondary font-medium">Hasta</label>
               <input
                 type="month"
                 value={rangeTo}
                 onChange={(e) => setRangeTo(e.target.value)}
-                className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                className="text-sm border border-border rounded-lg px-3 py-1.5 bg-surface text-main focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
             <button
               onClick={handleGenerateRange}
               disabled={rangeLoading}
-              className="flex items-center gap-1.5 px-5 py-2 text-sm bg-indigo-600 rounded-lg text-white hover:bg-indigo-700 transition-colors disabled:opacity-60"
+              className="flex items-center gap-1.5 px-5 py-2 text-sm bg-primary rounded-lg text-white hover:bg-primary-hover transition-colors disabled:opacity-60"
             >
               {rangeLoading ? (
                 <>
@@ -711,7 +711,7 @@ export default function MonthlyReports({ currentUserRole }: Props) {
               <div className="flex items-center gap-2 ml-auto">
                 <button
                   onClick={() => downloadRangeExcel(rangeReport)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-border rounded-lg text-main hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -720,7 +720,7 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                 </button>
                 <button
                   onClick={() => downloadRangePDF(rangeReport)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-600 rounded-lg text-white hover:bg-indigo-700 transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary rounded-lg text-white hover:bg-primary-hover transition-colors"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
@@ -736,14 +736,14 @@ export default function MonthlyReports({ currentUserRole }: Props) {
           )}
 
           {rangeLoading && (
-            <div className="flex flex-col items-center justify-center py-24 gap-3 text-slate-400">
-              <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+            <div className="flex flex-col items-center justify-center py-24 gap-3 text-disabled">
+              <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
               <p className="text-sm">Calculando KPIs mes a mes y generando análisis IA...</p>
             </div>
           )}
 
           {!rangeLoading && !rangeReport && !rangeError && (
-            <div className="flex flex-col items-center justify-center py-24 text-slate-400">
+            <div className="flex flex-col items-center justify-center py-24 text-disabled">
               <svg className="w-12 h-12 mb-4 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
@@ -759,13 +759,13 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                 const isUp = t.cumplimientoTrend === "mejora";
                 const isDown = t.cumplimientoTrend === "deterioro";
                 return (
-                  <div className={`rounded-2xl border px-5 py-4 flex items-center gap-4 ${isUp ? "bg-green-50 border-green-200" : isDown ? "bg-red-50 border-red-200" : "bg-slate-50 border-slate-200"}`}>
+                  <div className={`rounded-2xl border px-5 py-4 flex items-center gap-4 ${isUp ? "bg-green-50 border-green-200" : isDown ? "bg-red-50 border-red-200" : "bg-background border-border"}`}>
                     <span className="text-3xl">{isUp ? "▲" : isDown ? "▼" : "="}</span>
                     <div>
-                      <p className={`text-lg font-bold ${isUp ? "text-green-700" : isDown ? "text-red-700" : "text-slate-700"}`}>
+                      <p className={`text-lg font-bold ${isUp ? "text-green-700" : isDown ? "text-red-700" : "text-main"}`}>
                         Tendencia: {t.cumplimientoTrend.toUpperCase()}
                       </p>
-                      <p className={`text-sm ${isUp ? "text-green-600" : isDown ? "text-red-600" : "text-slate-500"}`}>
+                      <p className={`text-sm ${isUp ? "text-green-600" : isDown ? "text-red-600" : "text-secondary"}`}>
                         Cumplimiento {t.firstMonthAvgCumplimiento}% → {t.lastMonthAvgCumplimiento}%
                         {" "}({t.cumplimientoChange > 0 ? "+" : ""}{t.cumplimientoChange} pp en {rangeReport.months.length} meses)
                       </p>
@@ -794,8 +794,8 @@ export default function MonthlyReports({ currentUserRole }: Props) {
 
               {/* Persistent alerts */}
               {rangeReport.aggregated.alerts.length > 0 && (
-                <div className="bg-white rounded-2xl border border-slate-200 p-5">
-                  <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-3">Alertas Persistentes</h3>
+                <div className="bg-surface rounded-2xl border border-border p-5">
+                  <h3 className="text-sm font-semibold text-main uppercase tracking-wider mb-3">Alertas Persistentes</h3>
                   <div className="space-y-2">
                     {rangeReport.aggregated.alerts.map((a, i) => (
                       <div key={i} className={`flex items-start gap-3 px-4 py-3 rounded-xl border ${a.type === "cumplimiento" ? "bg-red-50 border-red-200" : "bg-amber-50 border-amber-200"}`}>
@@ -815,8 +815,8 @@ export default function MonthlyReports({ currentUserRole }: Props) {
               )}
 
               {/* Evolution line chart */}
-              <div className="bg-white rounded-2xl border border-slate-200 p-5">
-                <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">
+              <div className="bg-surface rounded-2xl border border-border p-5">
+                <h3 className="text-sm font-semibold text-main uppercase tracking-wider mb-4">
                   Evolución de Cumplimiento — {rangeReport.months.length} meses
                 </h3>
                 <ResponsiveContainer width="100%" height={260}>
@@ -837,30 +837,30 @@ export default function MonthlyReports({ currentUserRole }: Props) {
               </div>
 
               {/* Monthly breakdown table */}
-              <div className="bg-white rounded-2xl border border-slate-200 p-5">
-                <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">Detalle Mensual</h3>
+              <div className="bg-surface rounded-2xl border border-border p-5">
+                <h3 className="text-sm font-semibold text-main uppercase tracking-wider mb-4">Detalle Mensual</h3>
                 <div className="overflow-x-auto -mx-5 px-5">
                   <table className="w-full text-sm min-w-[500px]">
                     <thead>
-                      <tr className="border-b border-slate-200">
+                      <tr className="border-b border-border">
                         {["Mes", "Cumpl. equipo", "Tareas", "Horas", "Consultas"].map((h) => (
-                          <th key={h} className="text-left py-2 pr-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">{h}</th>
+                          <th key={h} className="text-left py-2 pr-4 text-xs font-semibold text-secondary uppercase tracking-wider">{h}</th>
                         ))}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody className="divide-y divide-border">
                       {rangeReport.months.map((ms) => (
-                        <tr key={ms.month} className={`hover:bg-slate-50 ${ms.totalTasks > 0 && ms.teamAvgCumplimiento < 60 ? "bg-red-50/40" : ""}`}>
-                          <td className="py-2 pr-4 text-sm font-medium text-slate-800">{ms.label}</td>
+                        <tr key={ms.month} className={`hover:bg-black/5 dark:hover:bg-white/5 ${ms.totalTasks > 0 && ms.teamAvgCumplimiento < 60 ? "bg-red-50/40" : ""}`}>
+                          <td className="py-2 pr-4 text-sm font-medium text-title">{ms.label}</td>
                           <td className="py-2 pr-4">
                             <span className="flex items-center gap-1.5">
                               <div className={`w-2 h-2 rounded-full ${colorDot(ms.teamAvgCumplimiento)}`} />
                               {ms.teamAvgCumplimiento}%
                             </span>
                           </td>
-                          <td className="py-2 pr-4 text-slate-600">{ms.totalCompletedTasks}/{ms.totalTasks}</td>
-                          <td className="py-2 pr-4 text-slate-600 text-xs">{ms.totalRealHours}h/{ms.totalEstimatedHours}h</td>
-                          <td className="py-2 pr-4 text-slate-600">{ms.totalConsultas}</td>
+                          <td className="py-2 pr-4 text-main">{ms.totalCompletedTasks}/{ms.totalTasks}</td>
+                          <td className="py-2 pr-4 text-main text-xs">{ms.totalRealHours}h/{ms.totalEstimatedHours}h</td>
+                          <td className="py-2 pr-4 text-main">{ms.totalConsultas}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -869,22 +869,22 @@ export default function MonthlyReports({ currentUserRole }: Props) {
               </div>
 
               {/* Ranking */}
-              <div className="bg-white rounded-2xl border border-slate-200 p-5">
-                <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">Ranking del Período (Promedio)</h3>
+              <div className="bg-surface rounded-2xl border border-border p-5">
+                <h3 className="text-sm font-semibold text-main uppercase tracking-wider mb-4">Ranking del Período (Promedio)</h3>
                 <div className="space-y-2">
                   {rangeReport.aggregated.ranking.map((m, i) => (
-                    <div key={m.id} className="flex items-center gap-3 py-2 border-b border-slate-100 last:border-0">
-                      <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${i === 0 ? "bg-amber-100 text-amber-700" : i === 1 ? "bg-slate-100 text-slate-600" : i === 2 ? "bg-orange-100 text-orange-600" : "bg-slate-50 text-slate-400"}`}>{i + 1}</span>
+                    <div key={m.id} className="flex items-center gap-3 py-2 border-b border-border last:border-0">
+                      <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${i === 0 ? "bg-amber-100 text-amber-700" : i === 1 ? "bg-slate-100 text-slate-700" : i === 2 ? "bg-orange-100 text-orange-600" : "bg-background text-disabled"}`}>{i + 1}</span>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-slate-800 truncate">{m.name}</p>
-                        <p className="text-[11px] text-slate-400">{ROLE_LABEL[m.role as Role] ?? m.role}</p>
+                        <p className="text-sm font-semibold text-title truncate">{m.name}</p>
+                        <p className="text-[11px] text-disabled">{ROLE_LABEL[m.role as Role] ?? m.role}</p>
                       </div>
                       <div className="flex items-center gap-3 shrink-0">
-                        <p className="text-sm font-bold text-slate-700">{m.avgScore}<span className="text-slate-400 font-normal">/100</span></p>
-                        <div className="w-24 bg-slate-100 rounded-full h-2">
+                        <p className="text-sm font-bold text-main">{m.avgScore}<span className="text-disabled font-normal">/100</span></p>
+                        <div className="w-24 bg-black/10 dark:bg-white/10 rounded-full h-2">
                           <div className={`h-2 rounded-full ${m.avgCumplimiento >= 80 ? "bg-green-500" : m.avgCumplimiento >= 60 ? "bg-amber-400" : "bg-red-500"}`} style={{ width: `${m.avgCumplimiento}%` }} />
                         </div>
-                        <span className="text-sm text-slate-600 w-10 text-right">{m.avgCumplimiento}%</span>
+                        <span className="text-sm text-main w-10 text-right">{m.avgCumplimiento}%</span>
                         <div className={`w-2 h-2 rounded-full ${colorDot(m.avgCumplimiento)}`} />
                       </div>
                     </div>
@@ -894,17 +894,17 @@ export default function MonthlyReports({ currentUserRole }: Props) {
 
               {/* AI Analysis */}
               {rangeReport.aiAnalysis ? (
-                <div className="bg-white rounded-2xl border border-slate-200 p-5">
+                <div className="bg-surface rounded-2xl border border-border p-5">
                   <div className="flex items-center gap-2 mb-4">
-                    <div className="p-1.5 bg-indigo-50 rounded-lg">
-                      <svg className="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div className="p-1.5 bg-primary-surface rounded-lg">
+                      <svg className="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                       </svg>
                     </div>
-                    <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider">Análisis IA — Rango Personalizado</h3>
-                    <span className="text-[11px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full font-medium">llama-3.3-70b · Groq</span>
+                    <h3 className="text-sm font-semibold text-main uppercase tracking-wider">Análisis IA — Rango Personalizado</h3>
+                    <span className="text-[11px] bg-primary-surface text-primary px-2 py-0.5 rounded-full font-medium">llama-3.3-70b · Groq</span>
                   </div>
-                  <div className="text-slate-700 leading-relaxed whitespace-pre-wrap text-[13px]">{rangeReport.aiAnalysis}</div>
+                  <div className="text-main leading-relaxed whitespace-pre-wrap text-[13px]">{rangeReport.aiAnalysis}</div>
                 </div>
               ) : (
                 <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5">
@@ -924,8 +924,8 @@ export default function MonthlyReports({ currentUserRole }: Props) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900">Informes Mensuales</h1>
-          <p className="text-sm text-slate-500 mt-0.5">
+          <h1 className="text-2xl font-bold text-title">Informes Mensuales</h1>
+          <p className="text-sm text-secondary mt-0.5">
             {currentUserRole === "JEFE_NACIONAL"
               ? "Consolidado de todo el equipo"
               : "Consolidado de tu equipo (excluye Jefe Nacional)"}
@@ -933,18 +933,18 @@ export default function MonthlyReports({ currentUserRole }: Props) {
         </div>
 
         {/* Generate panel */}
-        <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-4 py-2">
-          <label className="text-sm text-slate-500 whitespace-nowrap">Generar informe:</label>
+        <div className="flex items-center gap-2 bg-surface border border-border rounded-xl px-4 py-2">
+          <label className="text-sm text-secondary whitespace-nowrap">Generar informe:</label>
           <input
             type="month"
             value={generateMonth}
             onChange={(e) => setGenerateMonth(e.target.value)}
-            className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+            className="text-sm border border-border rounded-lg px-3 py-1.5 bg-surface text-main focus:outline-none focus:ring-2 focus:ring-primary"
           />
           <button
             onClick={handleGenerate}
             disabled={generating}
-            className="flex items-center gap-1.5 px-4 py-1.5 text-sm bg-indigo-600 rounded-lg text-white hover:bg-indigo-700 transition-colors disabled:opacity-60"
+            className="flex items-center gap-1.5 px-4 py-1.5 text-sm bg-primary rounded-lg text-white hover:bg-primary-hover transition-colors disabled:opacity-60"
           >
             {generating ? (
               <>
@@ -972,12 +972,12 @@ export default function MonthlyReports({ currentUserRole }: Props) {
       {/* Two-panel layout */}
       <div className="flex gap-5 items-start">
         {/* Left sidebar */}
-        <aside className="w-[220px] shrink-0 bg-white rounded-2xl border border-slate-200 p-3 sticky top-20">
-          <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider px-2 mb-2">
+        <aside className="w-[220px] shrink-0 bg-surface rounded-2xl border border-border p-3 sticky top-20">
+          <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider px-2 mb-2">
             Informes guardados
           </p>
           {reports.length === 0 ? (
-            <p className="text-xs text-slate-400 px-2 py-4 text-center leading-relaxed">
+            <p className="text-xs text-disabled px-2 py-4 text-center leading-relaxed">
               No hay informes generados aún. Usa el botón para crear el primero.
             </p>
           ) : (
@@ -998,12 +998,12 @@ export default function MonthlyReports({ currentUserRole }: Props) {
         <div className="flex-1 min-w-0">
           {detailLoading && (
             <div className="flex justify-center py-24">
-              <div className="w-7 h-7 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+              <div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" />
             </div>
           )}
 
           {!detailLoading && !fullReport && reports.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-32 text-slate-400">
+            <div className="flex flex-col items-center justify-center py-32 text-disabled">
               <svg className="w-12 h-12 mb-4 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
@@ -1015,12 +1015,12 @@ export default function MonthlyReports({ currentUserRole }: Props) {
           {!detailLoading && fullReport && data && selectedSummary && (
             <div className="space-y-5">
               {/* Report header */}
-              <div className="bg-white rounded-2xl border border-slate-200 px-5 py-4 flex items-center justify-between gap-4">
+              <div className="bg-surface rounded-2xl border border-border px-5 py-4 flex items-center justify-between gap-4">
                 <div>
-                  <h2 className="text-xl font-bold text-slate-900">
+                  <h2 className="text-xl font-bold text-title">
                     {formatMonthYear(selectedSummary.month, selectedSummary.year)}
                   </h2>
-                  <p className="text-sm text-slate-500">
+                  <p className="text-sm text-secondary">
                     Generado por {selectedSummary.generatedBy} el{" "}
                     {formatDate(selectedSummary.createdAt)}
                   </p>
@@ -1028,7 +1028,7 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                 <div className="flex items-center gap-2">
                   <button
                     onClick={() => downloadReportExcel(fullReport)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-border rounded-lg text-main hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -1037,7 +1037,7 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                   </button>
                   <button
                     onClick={() => downloadReportPDF(fullReport)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-600 rounded-lg text-white hover:bg-indigo-700 transition-colors"
+                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary rounded-lg text-white hover:bg-primary-hover transition-colors"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
@@ -1084,8 +1084,8 @@ export default function MonthlyReports({ currentUserRole }: Props) {
 
               {/* Alerts */}
               {data.alerts.length > 0 && (
-                <div className="bg-white rounded-2xl border border-slate-200 p-5">
-                  <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-3">
+                <div className="bg-surface rounded-2xl border border-border p-5">
+                  <h3 className="text-sm font-semibold text-main uppercase tracking-wider mb-3">
                     Alertas de Gestión
                   </h3>
                   <div className="space-y-2">
@@ -1116,35 +1116,35 @@ export default function MonthlyReports({ currentUserRole }: Props) {
               )}
 
               {/* Ranking */}
-              <div className="bg-white rounded-2xl border border-slate-200 p-5">
-                <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">
+              <div className="bg-surface rounded-2xl border border-border p-5">
+                <h3 className="text-sm font-semibold text-main uppercase tracking-wider mb-4">
                   Ranking de Cumplimiento del Equipo
                 </h3>
                 <div className="space-y-2">
                   {data.ranking.map((m, i) => (
-                    <div key={m.id} className="flex items-center gap-3 py-2 border-b border-slate-100 last:border-0">
+                    <div key={m.id} className="flex items-center gap-3 py-2 border-b border-border last:border-0">
                       <span
                         className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
                           i === 0
                             ? "bg-amber-100 text-amber-700"
                             : i === 1
-                              ? "bg-slate-100 text-slate-600"
+                              ? "bg-slate-100 text-slate-700"
                               : i === 2
                                 ? "bg-orange-100 text-orange-600"
-                                : "bg-slate-50 text-slate-400"
+                                : "bg-background text-disabled"
                         }`}
                       >
                         {i + 1}
                       </span>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-slate-800 truncate">{m.name}</p>
-                        <p className="text-[11px] text-slate-400">{ROLE_LABEL[m.role as Role] ?? m.role}</p>
+                        <p className="text-sm font-semibold text-title truncate">{m.name}</p>
+                        <p className="text-[11px] text-disabled">{ROLE_LABEL[m.role as Role] ?? m.role}</p>
                       </div>
                       <div className="flex items-center gap-3 shrink-0">
                         <div className="text-right">
-                          <p className="text-sm font-bold text-slate-700">{m.score}<span className="text-slate-400 font-normal">/100</span></p>
+                          <p className="text-sm font-bold text-main">{m.score}<span className="text-disabled font-normal">/100</span></p>
                         </div>
-                        <div className="w-24 bg-slate-100 rounded-full h-2">
+                        <div className="w-24 bg-black/10 dark:bg-white/10 rounded-full h-2">
                           <div
                             className={`h-2 rounded-full transition-all ${
                               m.completedPct >= 80
@@ -1156,7 +1156,7 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                             style={{ width: `${m.completedPct}%` }}
                           />
                         </div>
-                        <span className="text-sm text-slate-600 w-10 text-right">{m.completedPct}%</span>
+                        <span className="text-sm text-main w-10 text-right">{m.completedPct}%</span>
                         <div className={`w-2 h-2 rounded-full ${colorDot(m.completedPct)}`} />
                       </div>
                     </div>
@@ -1165,29 +1165,29 @@ export default function MonthlyReports({ currentUserRole }: Props) {
               </div>
 
               {/* Detail table */}
-              <div className="bg-white rounded-2xl border border-slate-200 p-5">
-                <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">
+              <div className="bg-surface rounded-2xl border border-border p-5">
+                <h3 className="text-sm font-semibold text-main uppercase tracking-wider mb-4">
                   Detalle por Colaborador
                 </h3>
                 <div className="overflow-x-auto -mx-5 px-5">
                   <table className="w-full text-sm min-w-[700px]">
                     <thead>
-                      <tr className="border-b border-slate-200">
+                      <tr className="border-b border-border">
                         {["Colaborador", "Score", "Cumpl.", "Carga", "Tareas", "Vencidas", "Horas", "Consultas"].map((h) => (
-                          <th key={h} className="text-left py-2 pr-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+                          <th key={h} className="text-left py-2 pr-4 text-xs font-semibold text-secondary uppercase tracking-wider">
                             {h}
                           </th>
                         ))}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody className="divide-y divide-border">
                       {data.members.map((m) => (
-                        <tr key={m.id} className="hover:bg-slate-50 transition-colors">
+                        <tr key={m.id} className="hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
                           <td className="py-2.5 pr-4">
-                            <p className="text-sm font-semibold text-slate-800">{m.name}</p>
-                            <p className="text-[11px] text-slate-400">{ROLE_LABEL[m.role as Role] ?? m.role}</p>
+                            <p className="text-sm font-semibold text-title">{m.name}</p>
+                            <p className="text-[11px] text-disabled">{ROLE_LABEL[m.role as Role] ?? m.role}</p>
                           </td>
-                          <td className="py-2.5 pr-4 font-bold text-slate-700">{m.score}<span className="text-slate-400 font-normal">/100</span></td>
+                          <td className="py-2.5 pr-4 font-bold text-main">{m.score}<span className="text-disabled font-normal">/100</span></td>
                           <td className="py-2.5 pr-4">
                             <span className="flex items-center gap-1.5">
                               <div className={`w-2 h-2 rounded-full ${colorDot(m.completedPct)}`} />
@@ -1200,16 +1200,16 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                               {m.cargaRatio}%
                             </span>
                           </td>
-                          <td className="py-2.5 pr-4 text-slate-600">{m.completedTasks}/{m.totalTasks}</td>
+                          <td className="py-2.5 pr-4 text-main">{m.completedTasks}/{m.totalTasks}</td>
                           <td className="py-2.5 pr-4">
                             {m.overdueCount > 0 ? (
                               <span className="text-red-600 font-medium">{m.overdueCount}</span>
                             ) : (
-                              <span className="text-slate-300">—</span>
+                              <span className="text-disabled">—</span>
                             )}
                           </td>
-                          <td className="py-2.5 pr-4 text-slate-600 text-xs">{m.realHours}h/{m.estimatedHours}h</td>
-                          <td className="py-2.5 pr-4 text-slate-600">{m.seguimientoTotal}</td>
+                          <td className="py-2.5 pr-4 text-main text-xs">{m.realHours}h/{m.estimatedHours}h</td>
+                          <td className="py-2.5 pr-4 text-main">{m.seguimientoTotal}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1219,8 +1219,8 @@ export default function MonthlyReports({ currentUserRole }: Props) {
 
               {/* Consultas by reason */}
               {data.consultasByReason.length > 0 && (
-                <div className="bg-white rounded-2xl border border-slate-200 p-5">
-                  <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider mb-4">
+                <div className="bg-surface rounded-2xl border border-border p-5">
+                  <h3 className="text-sm font-semibold text-main uppercase tracking-wider mb-4">
                     Consultas SEGUIMIENTO por Motivo (Equipo Completo)
                   </h3>
                   <div className="space-y-2">
@@ -1229,14 +1229,14 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                       const pct = Math.round((r.count / maxCount) * 100);
                       return (
                         <div key={r.reason} className="flex items-center gap-3">
-                          <span className="text-xs text-slate-600 w-44 shrink-0 truncate" title={REASON_LABEL[r.reason] ?? r.reason}>
+                          <span className="text-xs text-main w-44 shrink-0 truncate" title={REASON_LABEL[r.reason] ?? r.reason}>
                             {REASON_LABEL[r.reason] ?? r.reason}
                           </span>
-                          <div className="flex-1 bg-slate-100 rounded-full h-2">
-                            <div className="bg-indigo-500 h-2 rounded-full" style={{ width: `${pct}%` }} />
+                          <div className="flex-1 bg-black/10 dark:bg-white/10 rounded-full h-2">
+                            <div className="bg-primary h-2 rounded-full" style={{ width: `${pct}%` }} />
                           </div>
-                          <span className="text-xs font-semibold text-slate-700 w-8 text-right">{r.count}</span>
-                          <span className="text-[11px] text-slate-400 w-16">{r.totalMinutes} min</span>
+                          <span className="text-xs font-semibold text-main w-8 text-right">{r.count}</span>
+                          <span className="text-[11px] text-disabled w-16">{r.totalMinutes} min</span>
                         </div>
                       );
                     })}
@@ -1246,21 +1246,21 @@ export default function MonthlyReports({ currentUserRole }: Props) {
 
               {/* AI Analysis */}
               {fullReport.aiAnalysis && (
-                <div className="bg-white rounded-2xl border border-slate-200 p-5">
+                <div className="bg-surface rounded-2xl border border-border p-5">
                   <div className="flex items-center gap-2 mb-4">
-                    <div className="p-1.5 bg-indigo-50 rounded-lg">
-                      <svg className="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div className="p-1.5 bg-primary-surface rounded-lg">
+                      <svg className="w-4 h-4 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
                       </svg>
                     </div>
-                    <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wider">
+                    <h3 className="text-sm font-semibold text-main uppercase tracking-wider">
                       Análisis IA — Resumen Ejecutivo
                     </h3>
-                    <span className="text-[11px] bg-indigo-50 text-indigo-600 px-2 py-0.5 rounded-full font-medium">
+                    <span className="text-[11px] bg-primary-surface text-primary px-2 py-0.5 rounded-full font-medium">
                       llama-3.3-70b · Groq
                     </span>
                   </div>
-                  <div className="prose prose-sm max-w-none text-slate-700 leading-relaxed whitespace-pre-wrap font-[system-ui,sans-serif] text-[13px]">
+                  <div className="prose prose-sm max-w-none text-main leading-relaxed whitespace-pre-wrap font-[system-ui,sans-serif] text-[13px]">
                     {fullReport.aiAnalysis}
                   </div>
                 </div>

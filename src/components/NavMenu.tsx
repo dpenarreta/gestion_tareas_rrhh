@@ -37,10 +37,10 @@ export default function NavMenu({ role }: Props) {
         <Link
           key={link.href}
           href={link.href}
-          className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+          className={`px-3 py-1.5 rounded-lg text-[15px] font-medium transition-colors ${
             pathname === link.href || pathname.startsWith(link.href + "/")
-              ? "bg-indigo-50 text-indigo-700"
-              : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+              ? "bg-primary-surface text-primary"
+              : "text-secondary hover:text-title hover:bg-black/5 dark:hover:bg-white/5"
           }`}
         >
           {link.label}

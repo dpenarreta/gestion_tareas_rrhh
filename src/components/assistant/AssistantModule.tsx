@@ -230,8 +230,8 @@ export default function AssistantModule({
                     ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
                     : m === "tasks"
                     ? "bg-violet-600 text-white border-violet-600 shadow-sm"
-                    : "bg-indigo-600 text-white border-indigo-600 shadow-sm"
-                  : "bg-white text-slate-600 border-slate-200 hover:border-slate-300 hover:text-slate-900"
+                    : "bg-primary text-white border-primary shadow-sm"
+                  : "bg-surface text-main border-border hover:border-primary/40 hover:text-title"
               }`}
             >
               {m === "general" && (
@@ -253,34 +253,34 @@ export default function AssistantModule({
             </button>
           );
         })}
-        <span className="text-xs text-slate-400 ml-1 hidden sm:inline">
+        <span className="text-xs text-disabled ml-1 hidden sm:inline">
           {MODE_CONFIG[mode].description}
         </span>
-        <span className="ml-auto text-[10px] text-slate-400 bg-slate-50 border border-slate-200 px-2 py-1 rounded-lg">
+        <span className="ml-auto text-[10px] text-disabled bg-background border border-border px-2 py-1 rounded-lg">
           Nova · llama-3.3-70b · Groq
         </span>
       </div>
 
       {/* Knowledge base panel (HR mode + admin only) */}
       {mode === "hr" && (
-        <div className="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+        <div className="bg-surface rounded-2xl border border-border overflow-hidden">
           <button
             onClick={() => setShowDocs((v) => !v)}
-            className="w-full flex items-center justify-between px-5 py-3 hover:bg-slate-50 transition-colors"
+            className="w-full flex items-center justify-between px-5 py-3 hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
           >
             <div className="flex items-center gap-2">
               <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z" />
               </svg>
-              <span className="text-sm font-semibold text-slate-700">Base de conocimiento</span>
+              <span className="text-sm font-semibold text-main">Base de conocimiento</span>
               {!docsLoading && (
-                <span className="text-xs text-slate-400">
+                <span className="text-xs text-disabled">
                   {docs.length} {docs.length === 1 ? "documento" : "documentos"}
                 </span>
               )}
             </div>
             <svg
-              className={`w-4 h-4 text-slate-400 transition-transform ${showDocs ? "rotate-180" : ""}`}
+              className={`w-4 h-4 text-disabled transition-transform ${showDocs ? "rotate-180" : ""}`}
               fill="none" stroke="currentColor" viewBox="0 0 24 24"
             >
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -288,11 +288,11 @@ export default function AssistantModule({
           </button>
 
           {showDocs && (
-            <div className="border-t border-slate-100 px-5 py-4 space-y-4">
+            <div className="border-t border-border px-5 py-4 space-y-4">
               {/* Upload form (admin only) */}
               {canUpload && (
                 <div className="space-y-2">
-                  <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">
+                  <p className="text-xs font-semibold text-main uppercase tracking-wide">
                     Agregar documento PDF
                   </p>
                   <div className="flex gap-2">
@@ -301,7 +301,7 @@ export default function AssistantModule({
                       placeholder="Título del documento…"
                       value={docTitle}
                       onChange={(e) => setDocTitle(e.target.value)}
-                      className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                      className="flex-1 border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-emerald-300"
                     />
                     <button
                       onClick={() => {
@@ -338,7 +338,7 @@ export default function AssistantModule({
                     </p>
                   )}
                   {uploading && (
-                    <p className="text-xs text-slate-500">
+                    <p className="text-xs text-secondary">
                       Extrayendo texto y generando embeddings… esto puede tardar unos segundos en el primer documento.
                     </p>
                   )}
@@ -351,7 +351,7 @@ export default function AssistantModule({
                   <div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
                 </div>
               ) : docs.length === 0 ? (
-                <p className="text-sm text-slate-400 text-center py-4">
+                <p className="text-sm text-disabled text-center py-4">
                   No hay documentos en la base de conocimiento.
                   {canUpload ? " Sube un PDF para comenzar." : ""}
                 </p>
@@ -360,15 +360,15 @@ export default function AssistantModule({
                   {docs.map((doc) => (
                     <div
                       key={doc.id}
-                      className="flex items-center justify-between gap-3 bg-slate-50 rounded-xl px-4 py-3"
+                      className="flex items-center justify-between gap-3 bg-background rounded-xl px-4 py-3"
                     >
                       <div className="min-w-0 flex items-center gap-3">
                         <svg className="w-4 h-4 text-red-500 shrink-0" fill="currentColor" viewBox="0 0 24 24">
                           <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zm-1 1.5L18.5 9H13V3.5zM6 20V4h5v7h7v9H6z" />
                         </svg>
                         <div className="min-w-0">
-                          <p className="text-sm font-medium text-slate-800 truncate">{doc.title}</p>
-                          <p className="text-[10px] text-slate-400">
+                          <p className="text-sm font-medium text-title truncate">{doc.title}</p>
+                          <p className="text-[10px] text-disabled">
                             {doc.fileName} · {doc._count.chunks} fragmentos · {new Date(doc.createdAt).toLocaleDateString("es-CL")}
                           </p>
                         </div>
@@ -376,7 +376,7 @@ export default function AssistantModule({
                       {canUpload && (
                         <button
                           onClick={() => handleDeleteDoc(doc.id)}
-                          className="p-1.5 text-slate-300 hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors shrink-0"
+                          className="p-1.5 text-disabled hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors shrink-0"
                           title="Eliminar documento"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -394,7 +394,7 @@ export default function AssistantModule({
       )}
 
       {/* Chat area */}
-      <div className="flex-1 flex flex-col bg-white rounded-2xl border border-slate-200 overflow-hidden min-h-[520px]">
+      <div className="flex-1 flex flex-col bg-surface rounded-2xl border border-border overflow-hidden min-h-[520px]">
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full gap-6 py-8">
@@ -402,21 +402,21 @@ export default function AssistantModule({
                 mode === "hr" ? "bg-emerald-100" : mode === "tasks" ? "bg-violet-100" : "bg-indigo-100"
               }`}>
                 <svg className={`w-7 h-7 ${
-                  mode === "hr" ? "text-emerald-600" : mode === "tasks" ? "text-violet-600" : "text-indigo-600"
+                  mode === "hr" ? "text-emerald-600" : mode === "tasks" ? "text-violet-600" : "text-primary"
                 }`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1 1 .03 2.798-1.415 2.798H4.213c-1.444 0-2.414-1.798-1.414-2.798L4.8 15.3" />
                 </svg>
               </div>
               <div className="text-center">
-                <p className="text-base font-semibold text-slate-800">Nova — {MODE_CONFIG[mode].label}</p>
-                <p className="text-sm text-slate-500 mt-1">{MODE_CONFIG[mode].description}</p>
+                <p className="text-base font-semibold text-title">Nova — {MODE_CONFIG[mode].label}</p>
+                <p className="text-sm text-secondary mt-1">{MODE_CONFIG[mode].description}</p>
               </div>
               <div className="flex flex-col gap-2 w-full max-w-md">
                 {SUGGESTIONS[mode].map((s) => (
                   <button
                     key={s}
                     onClick={() => sendMessage(s)}
-                    className="text-left text-sm px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl hover:bg-slate-100 hover:border-slate-300 transition-colors text-slate-700"
+                    className="text-left text-sm px-4 py-2.5 bg-background border border-border rounded-xl hover:bg-black/5 dark:hover:bg-white/5 hover:border-primary/40 transition-colors text-main"
                   >
                     {s}
                   </button>
@@ -432,20 +432,20 @@ export default function AssistantModule({
             >
               <div className={`w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-xs font-bold ${
                 msg.role === "user"
-                  ? "bg-indigo-600 text-white"
+                  ? "bg-primary text-white"
                   : mode === "hr"
                   ? "bg-emerald-100 text-emerald-700"
                   : mode === "tasks"
                   ? "bg-violet-100 text-violet-700"
-                  : "bg-indigo-100 text-indigo-700"
+                  : "bg-indigo-100 text-primary"
               }`}>
                 {msg.role === "user" ? "Tú" : "N"}
               </div>
               <div className={`max-w-[78%] space-y-1.5 ${msg.role === "user" ? "items-end" : "items-start"} flex flex-col`}>
                 <div className={`px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${
                   msg.role === "user"
-                    ? "bg-indigo-600 text-white rounded-tr-sm"
-                    : "bg-slate-100 text-slate-800 rounded-tl-sm"
+                    ? "bg-primary text-white rounded-tr-sm"
+                    : "bg-black/5 dark:bg-white/5 text-title rounded-tl-sm"
                 }`}>
                   {msg.content}
                 </div>
@@ -463,9 +463,9 @@ export default function AssistantModule({
           {loading && (
             <div className="flex gap-3">
               <div className={`w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-xs font-bold ${
-                mode === "hr" ? "bg-emerald-100 text-emerald-700" : mode === "tasks" ? "bg-violet-100 text-violet-700" : "bg-indigo-100 text-indigo-700"
+                mode === "hr" ? "bg-emerald-100 text-emerald-700" : mode === "tasks" ? "bg-violet-100 text-violet-700" : "bg-indigo-100 text-primary"
               }`}>N</div>
-              <div className="bg-slate-100 rounded-2xl rounded-tl-sm">
+              <div className="bg-black/5 dark:bg-white/5 rounded-2xl rounded-tl-sm">
                 <TypingDots />
               </div>
             </div>
@@ -474,7 +474,7 @@ export default function AssistantModule({
         </div>
 
         {/* Input area */}
-        <div className="border-t border-slate-200 p-4">
+        <div className="border-t border-border p-4">
           <div className="flex gap-3 items-end">
             <textarea
               ref={inputRef}
@@ -492,7 +492,7 @@ export default function AssistantModule({
                 }
               }}
               placeholder={`Escribe un mensaje… (${mode === "hr" ? "políticas, procedimientos, gestión de personal…" : mode === "tasks" ? "pregunta sobre tus tareas" : "cualquier pregunta"})`}
-              className="flex-1 border border-slate-200 rounded-xl px-4 py-2.5 text-sm text-slate-900 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 resize-none overflow-hidden leading-relaxed"
+              className="flex-1 border border-border rounded-xl px-4 py-2.5 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary resize-none overflow-hidden leading-relaxed"
               style={{ minHeight: "42px" }}
               disabled={loading}
             />
@@ -500,7 +500,7 @@ export default function AssistantModule({
               onClick={() => sendMessage()}
               disabled={!input.trim() || loading}
               className={`p-2.5 rounded-xl text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0 ${
-                mode === "hr" ? "bg-emerald-600 hover:bg-emerald-700" : mode === "tasks" ? "bg-violet-600 hover:bg-violet-700" : "bg-indigo-600 hover:bg-indigo-700"
+                mode === "hr" ? "bg-emerald-600 hover:bg-emerald-700" : mode === "tasks" ? "bg-violet-600 hover:bg-violet-700" : "bg-primary hover:bg-primary-hover"
               }`}
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -508,7 +508,7 @@ export default function AssistantModule({
               </svg>
             </button>
           </div>
-          <p className="text-[10px] text-slate-400 mt-1.5 text-center">
+          <p className="text-[10px] text-disabled mt-1.5 text-center">
             Enter para enviar · Shift+Enter para nueva línea
           </p>
         </div>

@@ -59,35 +59,35 @@ function MemberCard({ member, onClick }: { member: TeamMember; onClick: () => vo
   return (
     <button
       onClick={onClick}
-      className="bg-white rounded-2xl border border-slate-200 p-5 text-left hover:shadow-md hover:border-indigo-200 transition-all group w-full"
+      className="bg-surface rounded-2xl border border-border p-5 text-left hover:shadow-md hover:border-primary/30 transition-all group w-full"
     >
       <div className="flex items-center gap-3 mb-4">
         <div className={`w-11 h-11 rounded-xl bg-gradient-to-br ${avatarGradient(member.name)} flex items-center justify-center shrink-0`}>
           <span className="text-base font-bold text-white">{initials(member.name)}</span>
         </div>
         <div className="min-w-0">
-          <p className="text-sm font-semibold text-slate-900 truncate group-hover:text-indigo-700 transition-colors">
+          <p className="text-sm font-semibold text-title truncate group-hover:text-primary transition-colors">
             {member.name}
           </p>
-          <p className="text-[11px] text-slate-500 truncate">{ROLE_LABEL[member.role]}</p>
+          <p className="text-[11px] text-secondary truncate">{ROLE_LABEL[member.role]}</p>
         </div>
       </div>
 
       <div className="grid grid-cols-3 gap-2 mb-3">
-        <StatChip label="Pendiente" value={member.tasks.pending} color="text-slate-600 bg-slate-100" />
+        <StatChip label="Pendiente" value={member.tasks.pending} color="text-slate-700 bg-slate-100" />
         <StatChip label="En curso" value={member.tasks.inProgress} color="text-blue-700 bg-blue-50" />
         <StatChip label="Listas" value={member.tasks.completed} color="text-green-700 bg-green-50" />
       </div>
 
       {member.tasks.total > 0 && (
         <div>
-          <div className="flex justify-between text-[10px] text-slate-400 mb-1">
+          <div className="flex justify-between text-[10px] text-disabled mb-1">
             <span>{member.tasks.total} tareas</span>
             <span>{pct}% completado</span>
           </div>
-          <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+          <div className="h-1.5 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
             <div
-              className="h-full bg-indigo-500 rounded-full transition-all"
+              className="h-full bg-primary rounded-full transition-all"
               style={{ width: `${pct}%` }}
             />
           </div>
@@ -95,7 +95,7 @@ function MemberCard({ member, onClick }: { member: TeamMember; onClick: () => vo
       )}
 
       {member.tasks.total === 0 && (
-        <p className="text-[11px] text-slate-400">Sin tareas asignadas</p>
+        <p className="text-[11px] text-disabled">Sin tareas asignadas</p>
       )}
     </button>
   );
@@ -150,7 +150,7 @@ function MemberTasksTable({
 }) {
   if (tasks.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+      <div className="flex flex-col items-center justify-center py-16 text-disabled">
         <svg className="w-10 h-10 mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
         </svg>
@@ -160,41 +160,41 @@ function MemberTasksTable({
   }
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+    <div className="overflow-x-auto rounded-2xl border border-border bg-surface">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-slate-200 bg-slate-50">
-            <th className="text-left px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Título</th>
-            <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Frecuencia</th>
-            <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Estado</th>
-            <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Prioridad</th>
-            <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Inicio</th>
-            <th className="text-left px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Fin</th>
-            <th className="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">H. Est.</th>
-            <th className="text-right px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">H. Reales</th>
-            <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Avance</th>
-            <th className="text-center px-3 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider">Coment.</th>
+          <tr className="border-b border-border bg-background">
+            <th className="text-left px-4 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Título</th>
+            <th className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Frecuencia</th>
+            <th className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Estado</th>
+            <th className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Prioridad</th>
+            <th className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Inicio</th>
+            <th className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Fin</th>
+            <th className="text-right px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">H. Est.</th>
+            <th className="text-right px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">H. Reales</th>
+            <th className="text-center px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Avance</th>
+            <th className="text-center px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Coment.</th>
           </tr>
         </thead>
-        <tbody className="divide-y divide-slate-100">
+        <tbody className="divide-y divide-border">
           {tasks.map((task) => (
-            <tr key={task.id} className="hover:bg-slate-50 transition-colors">
+            <tr key={task.id} className="hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
               <td className="px-4 py-3 max-w-[200px]">
-                <p className="text-sm font-medium text-slate-900 truncate" title={task.title}>
+                <p className="text-sm font-medium text-title truncate" title={task.title}>
                   {task.title}
                 </p>
                 {task.description && (
-                  <p className="text-[10px] text-slate-400 truncate mt-0.5">{task.description}</p>
+                  <p className="text-[10px] text-disabled truncate mt-0.5">{task.description}</p>
                 )}
               </td>
-              <td className="px-3 py-3 text-slate-600 whitespace-nowrap">
+              <td className="px-3 py-3 text-main whitespace-nowrap">
                 {FREQUENCY_LABELS[task.frequency] ?? task.frequency}
               </td>
               <td className="px-3 py-3">
                 <select
                   value={task.status}
                   onChange={(e) => onStatusChange(task.id, e.target.value as Task["status"])}
-                  className={`text-xs font-semibold px-2 py-1 rounded-lg border-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-300 ${STATUS_STYLES[task.status]}`}
+                  className={`text-xs font-semibold px-2 py-1 rounded-lg border-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary ${STATUS_STYLES[task.status]}`}
                 >
                   {STATUS_OPTIONS.map((o) => (
                     <option key={o.value} value={o.value}>{o.label}</option>
@@ -206,23 +206,23 @@ function MemberTasksTable({
                   {task.priority}
                 </span>
               </td>
-              <td className="px-3 py-3 text-slate-600 whitespace-nowrap text-xs">{formatDate(task.startDate)}</td>
+              <td className="px-3 py-3 text-main whitespace-nowrap text-xs">{formatDate(task.startDate)}</td>
               <td className="px-3 py-3 whitespace-nowrap text-xs">
-                <span className={new Date(task.endDate) < new Date() && task.status !== "COMPLETADA" ? "text-red-600 font-medium" : "text-slate-600"}>
+                <span className={new Date(task.endDate) < new Date() && task.status !== "COMPLETADA" ? "text-red-600 font-medium" : "text-main"}>
                   {formatDate(task.endDate)}
                 </span>
               </td>
-              <td className="px-3 py-3 text-right text-slate-600 text-xs">{fmtH(task.estimatedHours)}h</td>
-              <td className="px-3 py-3 text-right text-slate-500 text-xs">{fmtH(task.realHours)}h</td>
+              <td className="px-3 py-3 text-right text-main text-xs">{fmtH(task.estimatedHours)}h</td>
+              <td className="px-3 py-3 text-right text-secondary text-xs">{fmtH(task.realHours)}h</td>
               <td className="px-3 py-3">
                 <div className="flex items-center gap-2 min-w-[70px]">
-                  <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                  <div className="flex-1 h-1.5 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
                     <div
-                      className="h-full bg-indigo-500 rounded-full"
+                      className="h-full bg-primary rounded-full"
                       style={{ width: `${task.progress}%` }}
                     />
                   </div>
-                  <span className="text-[10px] text-slate-500 w-6 text-right">{task.progress}%</span>
+                  <span className="text-[10px] text-secondary w-6 text-right">{task.progress}%</span>
                 </div>
               </td>
               <td className="px-3 py-3 text-center">
@@ -230,7 +230,7 @@ function MemberTasksTable({
                   {task.type === "SEGUIMIENTO" && (
                     <button
                       onClick={() => onActivityClick(task)}
-                      className="text-slate-400 hover:text-violet-600 transition-colors"
+                      className="text-disabled hover:text-violet-600 transition-colors"
                       title="Ver actividades"
                     >
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -240,7 +240,7 @@ function MemberTasksTable({
                   )}
                   <button
                     onClick={() => onCommentClick(task)}
-                    className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-indigo-600 transition-colors"
+                    className="inline-flex items-center gap-1 text-xs text-secondary hover:text-primary transition-colors"
                   >
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
@@ -352,14 +352,14 @@ export default function TeamModule({ currentUserId, currentUserRole: _role }: Pr
   if (membersLoading) {
     return (
       <div className="flex justify-center items-center py-24">
-        <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
   if (members.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-24 text-slate-400">
+      <div className="flex flex-col items-center justify-center py-24 text-disabled">
         <svg className="w-12 h-12 mb-4 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
         </svg>
@@ -375,14 +375,14 @@ export default function TeamModule({ currentUserId, currentUserRole: _role }: Pr
         <div>
           <div className="flex items-center justify-between mb-6">
             <div>
-              <h1 className="text-2xl font-bold text-slate-900">Mi Equipo</h1>
-              <p className="text-sm text-slate-500 mt-0.5">
+              <h1 className="text-2xl font-bold text-title">Mi Equipo</h1>
+              <p className="text-sm text-secondary mt-0.5">
                 {members.length} {members.length === 1 ? "integrante" : "integrantes"}
               </p>
             </div>
             <button
               onClick={() => openAssign()}
-              className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors"
+              className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-xl hover:bg-primary-hover transition-colors"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -407,7 +407,7 @@ export default function TeamModule({ currentUserId, currentUserRole: _role }: Pr
             <div className="flex items-center gap-3">
               <button
                 onClick={goBack}
-                className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-xl transition-colors"
+                className="p-2 text-secondary hover:text-title hover:bg-black/5 dark:hover:bg-white/5 rounded-xl transition-colors"
                 title="Volver al equipo"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -418,8 +418,8 @@ export default function TeamModule({ currentUserId, currentUserRole: _role }: Pr
                 <span className="text-lg font-bold text-white">{initials(selectedMember.name)}</span>
               </div>
               <div>
-                <h1 className="text-xl font-bold text-slate-900">{selectedMember.name}</h1>
-                <p className="text-sm text-slate-500">{ROLE_LABEL[selectedMember.role]}</p>
+                <h1 className="text-xl font-bold text-title">{selectedMember.name}</h1>
+                <p className="text-sm text-secondary">{ROLE_LABEL[selectedMember.role]}</p>
               </div>
             </div>
 
@@ -432,7 +432,7 @@ export default function TeamModule({ currentUserId, currentUserRole: _role }: Pr
               </div>
               <button
                 onClick={() => openAssign(selectedMember.id)}
-                className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors"
+                className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-xl hover:bg-primary-hover transition-colors"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -444,7 +444,7 @@ export default function TeamModule({ currentUserId, currentUserRole: _role }: Pr
 
           {memberTasksLoading ? (
             <div className="flex justify-center py-16">
-              <div className="w-6 h-6 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+              <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
             </div>
           ) : (
             <MemberTasksTable

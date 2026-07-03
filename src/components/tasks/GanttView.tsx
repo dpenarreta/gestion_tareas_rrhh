@@ -39,14 +39,14 @@ type Props = { tasks: Task[]; onCreateTask: () => void };
 export default function GanttView({ tasks, onCreateTask }: Props) {
   if (tasks.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-64 text-slate-400">
+      <div className="flex flex-col items-center justify-center h-64 text-disabled">
         <svg className="w-12 h-12 mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
         </svg>
         <p className="text-sm mb-4">No hay tareas para mostrar</p>
         <button
           onClick={onCreateTask}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors"
+          className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-xl hover:bg-primary-hover transition-colors"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -62,7 +62,7 @@ export default function GanttView({ tasks, onCreateTask }: Props) {
       <div>
         <button
           onClick={onCreateTask}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors"
+          className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-xl hover:bg-primary-hover transition-colors"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -94,11 +94,11 @@ function GanttChart({ tasks }: { tasks: Task[] }) {
   const todayOffset = daysBetween(rangeStart, today);
 
   return (
-    <div className="overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+    <div className="overflow-x-auto rounded-2xl border border-border bg-surface">
       <div style={{ minWidth: labelWidth + totalWidth }}>
         {/* Header: months */}
-        <div className="flex border-b border-slate-200 bg-slate-50">
-          <div style={{ width: labelWidth }} className="shrink-0 px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wider border-r border-slate-200">
+        <div className="flex border-b border-border bg-background">
+          <div style={{ width: labelWidth }} className="shrink-0 px-4 py-3 text-xs font-semibold text-secondary uppercase tracking-wider border-r border-border">
             Tarea
           </div>
           <div className="flex-1 relative" style={{ width: totalWidth }}>
@@ -112,11 +112,11 @@ function GanttChart({ tasks }: { tasks: Task[] }) {
                   style={{ left: offset, width: 7 * pxPerDay }}
                 >
                   {isMonthStart && (
-                    <span className="text-[10px] text-slate-500 font-medium px-1 absolute top-1 left-0">
+                    <span className="text-[10px] text-secondary font-medium px-1 absolute top-1 left-0">
                       {formatMonthLabel(week)}
                     </span>
                   )}
-                  <span className="text-[9px] text-slate-400 px-1">
+                  <span className="text-[9px] text-disabled px-1">
                     {week.getDate()}/{week.getMonth() + 1}
                   </span>
                 </div>
@@ -126,15 +126,15 @@ function GanttChart({ tasks }: { tasks: Task[] }) {
         </div>
 
         {/* Grid lines row */}
-        <div className="flex border-b border-slate-100">
-          <div style={{ width: labelWidth }} className="shrink-0 border-r border-slate-200" />
+        <div className="flex border-b border-border">
+          <div style={{ width: labelWidth }} className="shrink-0 border-r border-border" />
           <div className="relative flex-1" style={{ width: totalWidth, height: 0 }}>
             {weeks.map((week, i) => {
               const offset = daysBetween(rangeStart, week) * pxPerDay;
               return (
                 <div
                   key={i}
-                  className="absolute top-0 bottom-0 border-l border-slate-100"
+                  className="absolute top-0 bottom-0 border-l border-border"
                   style={{ left: offset, height: tasks.length * 48 + 48 }}
                 />
               );
@@ -159,14 +159,14 @@ function GanttChart({ tasks }: { tasks: Task[] }) {
           const barWidth = durationDays * pxPerDay;
 
           return (
-            <div key={task.id} className="flex border-b border-slate-100 hover:bg-slate-50 transition-colors" style={{ height: 48 }}>
+            <div key={task.id} className="flex border-b border-border hover:bg-black/5 dark:hover:bg-white/5 transition-colors" style={{ height: 48 }}>
               <div
                 style={{ width: labelWidth }}
-                className="shrink-0 flex items-center px-4 border-r border-slate-200"
+                className="shrink-0 flex items-center px-4 border-r border-border"
               >
                 <div className="min-w-0" title={`${task.assignedTo.name} · ${formatDate(task.startDate)} → ${formatDate(task.endDate)}`}>
-                  <p className="text-xs font-medium text-slate-800 truncate">{task.title}</p>
-                  <p className="text-[10px] text-slate-400 truncate">
+                  <p className="text-xs font-medium text-title truncate">{task.title}</p>
+                  <p className="text-[10px] text-disabled truncate">
                     {task.assignedTo.name} · {formatDate(task.startDate)} → {formatDate(task.endDate)}
                   </p>
                 </div>

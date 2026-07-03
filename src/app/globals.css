@@ -1,26 +1,94 @@
 @import "tailwindcss";
 
+/* Tailwind v4 is CSS-first: theme tokens live here instead of tailwind.config.ts.
+   `dark:` is switched by a `.dark` class on <html> (managed by next-themes),
+   not by prefers-color-scheme, so the user's saved preference always wins. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: var(--font-inter);
+
+  /* Brand — identical in both themes */
+  --color-primary: #6366f1;
+  --color-primary-hover: #4f46e5;
+  --color-primary-light: #eef2ff;
+
+  /* Fixed light-mode surfaces */
+  --color-bg-light: #f8fafc;
+  --color-border-light: #e5e7eb;
+  --color-text-title-light: #111827;
+  --color-text-main-light: #374151;
+  --color-text-secondary-light: #6b7280;
+  --color-text-disabled-light: #9ca3af;
+
+  /* Fixed dark-mode surfaces */
+  --color-bg-dark: #0f172a;
+  --color-card-dark: #1e293b;
+  --color-sidebar-dark: #111827;
+  --color-topbar-dark: #111827;
+  --color-border-dark: #2d3748;
+  --color-text-title-dark: #f9fafb;
+  --color-text-main-dark: #e5e7eb;
+  --color-text-secondary-dark: #9ca3af;
+  --color-text-disabled-dark: #6b7280;
+
+  /* Status */
+  --color-success: #22c55e;
+  --color-info: #3b82f6;
+  --color-warning: #fbbf24;
+  --color-warning-alt: #f59e0b;
+  --color-danger: #ef4444;
+
+  /* Recharts palette */
+  --color-chart-purple: #6366f1;
+  --color-chart-blue: #3b82f6;
+  --color-chart-green: #34d399;
+  --color-chart-yellow: #fbbf24;
+  --color-chart-orange: #f59e0b;
+}
+
+/* Semantic tokens that auto-flip with the .dark class — use these
+   (bg-background / bg-surface / bg-chrome / border-border / text-title /
+   text-main / text-secondary / text-disabled) for anything that should
+   adapt automatically instead of pairing every class with a dark: variant. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: var(--color-bg-light);
+  --surface: #ffffff;
+  --chrome: #ffffff;
+  --line: var(--color-border-light);
+  --title: var(--color-text-title-light);
+  --main: var(--color-text-main-light);
+  --secondary: var(--color-text-secondary-light);
+  --disabled: var(--color-text-disabled-light);
+  --primary-surface: var(--color-primary-light);
+}
+
+.dark {
+  --background: var(--color-bg-dark);
+  --surface: var(--color-card-dark);
+  --chrome: var(--color-topbar-dark);
+  --line: var(--color-border-dark);
+  --title: var(--color-text-title-dark);
+  --main: var(--color-text-main-dark);
+  --secondary: var(--color-text-secondary-dark);
+  --disabled: var(--color-text-disabled-dark);
+  --primary-surface: color-mix(in srgb, var(--color-primary) 18%, transparent);
 }
 
 @theme inline {
   --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-surface: var(--surface);
+  --color-chrome: var(--chrome);
+  --color-border: var(--line);
+  --color-title: var(--title);
+  --color-main: var(--main);
+  --color-secondary: var(--secondary);
+  --color-disabled: var(--disabled);
+  --color-primary-surface: var(--primary-surface);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-background);
+  color: var(--color-main);
+  font-family: var(--font-sans), Arial, Helvetica, sans-serif;
 }

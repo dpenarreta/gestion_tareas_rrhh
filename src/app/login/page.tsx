@@ -57,26 +57,26 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50">
+    <div className="min-h-screen flex items-center justify-center bg-background">
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-indigo-700 tracking-tight">
+          <h1 className="text-4xl font-bold text-primary tracking-tight">
             Nexo
           </h1>
-          <p className="mt-1 text-slate-500 text-sm">
+          <p className="mt-1 text-secondary text-sm">
             Sistema de Gestión de Recursos Humanos
           </p>
         </div>
 
-        <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
+        <div className="bg-surface rounded-2xl shadow-sm border border-border p-8">
           {!forgotMode ? (
             <>
-              <h2 className="text-lg font-semibold text-slate-800 mb-6">
+              <h2 className="text-lg font-semibold text-title mb-6">
                 Iniciar sesión
               </h2>
               <form onSubmit={handleLogin} className="space-y-4">
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                  <label className="block text-sm font-medium text-main mb-1">
                     Correo electrónico
                   </label>
                   <input
@@ -84,12 +84,12 @@ export default function LoginPage() {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm"
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-surface text-title placeholder-disabled focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-sm"
                     placeholder="usuario@empresa.com"
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                  <label className="block text-sm font-medium text-main mb-1">
                     Contraseña
                   </label>
                   <input
@@ -97,7 +97,7 @@ export default function LoginPage() {
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm"
+                    className="w-full px-3 py-2 rounded-lg border border-border bg-surface text-title placeholder-disabled focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-sm"
                     placeholder="••••••"
                   />
                 </div>
@@ -107,13 +107,13 @@ export default function LoginPage() {
                     type="checkbox"
                     checked={rememberMe}
                     onChange={(e) => setRememberMe(e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300 text-indigo-600 accent-indigo-600"
+                    className="w-4 h-4 rounded border-border text-primary accent-primary"
                   />
-                  <span className="text-sm text-slate-600">Recordarme por 30 días</span>
+                  <span className="text-sm text-main">Recordarme por 30 días</span>
                 </label>
 
                 {error && (
-                  <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">
+                  <p className="text-sm text-danger bg-danger/10 px-3 py-2 rounded-lg">
                     {error}
                   </p>
                 )}
@@ -121,7 +121,7 @@ export default function LoginPage() {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-medium rounded-lg text-sm transition-colors"
+                  className="w-full py-2.5 px-4 bg-primary hover:bg-primary-hover disabled:opacity-50 text-white font-medium rounded-lg text-sm transition-colors"
                 >
                   {loading ? "Ingresando..." : "Ingresar"}
                 </button>
@@ -133,29 +133,29 @@ export default function LoginPage() {
                   setError("");
                   setForgotMsg("");
                 }}
-                className="mt-4 w-full text-center text-sm text-indigo-600 hover:text-indigo-800"
+                className="mt-4 w-full text-center text-sm text-primary hover:text-primary-hover"
               >
                 ¿Olvidaste tu contraseña?
               </button>
             </>
           ) : (
             <>
-              <h2 className="text-lg font-semibold text-slate-800 mb-2">
+              <h2 className="text-lg font-semibold text-title mb-2">
                 Recuperar contraseña
               </h2>
-              <p className="text-sm text-slate-500 mb-6">
+              <p className="text-sm text-secondary mb-6">
                 Ingresa tu correo y te indicaremos a dónde se enviaría el
                 enlace de recuperación.
               </p>
 
               {forgotMsg ? (
-                <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-4 text-sm text-indigo-800">
+                <div className="bg-primary-surface border border-primary/20 rounded-lg p-4 text-sm text-primary">
                   {forgotMsg}
                 </div>
               ) : (
                 <form onSubmit={handleForgotPassword} className="space-y-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">
+                    <label className="block text-sm font-medium text-main mb-1">
                       Correo electrónico
                     </label>
                     <input
@@ -163,13 +163,13 @@ export default function LoginPage() {
                       required
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg border border-slate-300 text-slate-900 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent text-sm"
+                      className="w-full px-3 py-2 rounded-lg border border-border bg-surface text-title placeholder-disabled focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-sm"
                       placeholder="usuario@empresa.com"
                     />
                   </div>
 
                   {error && (
-                    <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">
+                    <p className="text-sm text-danger bg-danger/10 px-3 py-2 rounded-lg">
                       {error}
                     </p>
                   )}
@@ -177,7 +177,7 @@ export default function LoginPage() {
                   <button
                     type="submit"
                     disabled={loading}
-                    className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white font-medium rounded-lg text-sm transition-colors"
+                    className="w-full py-2.5 px-4 bg-primary hover:bg-primary-hover disabled:opacity-50 text-white font-medium rounded-lg text-sm transition-colors"
                   >
                     {loading ? "Enviando..." : "Recuperar contraseña"}
                   </button>
@@ -190,7 +190,7 @@ export default function LoginPage() {
                   setForgotMsg("");
                   setError("");
                 }}
-                className="mt-4 w-full text-center text-sm text-slate-500 hover:text-slate-700"
+                className="mt-4 w-full text-center text-sm text-secondary hover:text-title"
               >
                 ← Volver al inicio de sesión
               </button>

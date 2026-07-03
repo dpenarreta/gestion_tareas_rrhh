@@ -82,7 +82,7 @@ const CARD_BG: Record<KpiColor | "gray", string> = {
   green: "bg-green-50 border-green-200",
   yellow: "bg-amber-50 border-amber-200",
   red: "bg-red-50 border-red-200",
-  gray: "bg-slate-50 border-slate-200",
+  gray: "bg-background border-border",
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -93,7 +93,7 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 const STATUS_BADGE: Record<string, string> = {
-  PENDIENTE: "bg-slate-100 text-slate-600",
+  PENDIENTE: "bg-slate-100 text-slate-700",
   EN_PROGRESO: "bg-blue-100 text-blue-700",
   COMPLETADA: "bg-green-100 text-green-700",
   CANCELADA: "bg-slate-100 text-slate-400 line-through",
@@ -118,7 +118,7 @@ function motivationalMessage(
     return {
       icon: "📋",
       text: "No hay tareas registradas en este período. Consulta con tu coordinador si hay actividades pendientes de asignar.",
-      bg: "bg-slate-50 border-slate-200",
+      bg: "bg-background border-border",
     };
   }
   const trendSuffix =
@@ -490,10 +490,10 @@ function StatCard({
   accent?: boolean;
 }) {
   return (
-    <div className="bg-white rounded-xl border border-slate-200 p-4">
-      <p className="text-[11px] text-slate-400 uppercase tracking-wider font-medium mb-1">{label}</p>
-      <p className={`text-2xl font-bold ${accent ? "text-indigo-600" : "text-slate-800"}`}>{value}</p>
-      {sub && <p className="text-xs text-slate-400 mt-0.5">{sub}</p>}
+    <div className="bg-surface rounded-xl border border-border p-4">
+      <p className="text-[11px] text-disabled uppercase tracking-wider font-medium mb-1">{label}</p>
+      <p className={`text-2xl font-bold ${accent ? "text-primary" : "text-title"}`}>{value}</p>
+      {sub && <p className="text-xs text-disabled mt-0.5">{sub}</p>}
     </div>
   );
 }
@@ -501,7 +501,7 @@ function StatCard({
 function DeltaBadge({ current, prev, suffix = "%" }: { current: number; prev: number; suffix?: string }) {
   if (prev === 0 && current === 0) return null;
   const delta = current - prev;
-  if (delta === 0) return <span className="text-[11px] text-slate-400">sin cambio</span>;
+  if (delta === 0) return <span className="text-[11px] text-disabled">sin cambio</span>;
   const positive = delta > 0;
   return (
     <span className={`text-[11px] font-medium ${positive ? "text-green-600" : "text-red-500"}`}>
@@ -573,23 +573,23 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
     <div className="flex flex-col gap-6">
       {/* Page header */}
       <div>
-        <h1 className="text-2xl font-bold text-slate-900">Mis KPIs</h1>
-        <p className="text-sm text-slate-500 mt-0.5">
+        <h1 className="text-2xl font-bold text-title">Mis KPIs</h1>
+        <p className="text-sm text-secondary mt-0.5">
           {currentUserName} — {ROLE_LABEL[currentUserRole as Role] ?? currentUserRole}
         </p>
       </div>
 
       {/* Mode toggle */}
-      <div className="flex gap-1 bg-slate-100 rounded-xl p-1 w-fit">
+      <div className="flex gap-1 bg-black/5 dark:bg-white/5 rounded-xl p-1 w-fit">
         <button
           onClick={() => setViewMode("individual")}
-          className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${viewMode === "individual" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+          className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${viewMode === "individual" ? "bg-surface text-title shadow-sm" : "text-secondary hover:text-main"}`}
         >
           Mes individual
         </button>
         <button
           onClick={() => setViewMode("range")}
-          className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${viewMode === "range" ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-700"}`}
+          className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${viewMode === "range" ? "bg-surface text-title shadow-sm" : "text-secondary hover:text-main"}`}
         >
           Rango personalizado
         </button>
@@ -600,20 +600,20 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
         <div className="flex flex-col gap-5">
           {/* Month picker + downloads */}
           <div className="flex flex-wrap items-center gap-3">
-            <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-4 py-2">
-              <label className="text-sm text-slate-500 whitespace-nowrap">Mes:</label>
+            <div className="flex items-center gap-2 bg-surface border border-border rounded-xl px-4 py-2">
+              <label className="text-sm text-secondary whitespace-nowrap">Mes:</label>
               <input
                 type="month"
                 value={month}
                 onChange={(e) => setMonth(e.target.value)}
-                className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                className="text-sm border border-border rounded-lg px-3 py-1.5 bg-surface text-main focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
             {kpi && !loading && (
               <>
                 <button
                   onClick={() => downloadKpisExcel(kpi, month, currentUserName, currentUserRole)}
-                  className="flex items-center gap-1.5 px-3 py-2 text-sm border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 bg-white transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-2 text-sm border border-border rounded-xl text-main hover:bg-black/5 dark:hover:bg-white/5 bg-surface transition-colors"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -622,7 +622,7 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
                 </button>
                 <button
                   onClick={() => downloadKpisPDF(kpi, month, currentUserName, currentUserRole)}
-                  className="flex items-center gap-1.5 px-3 py-2 text-sm bg-indigo-600 rounded-xl text-white hover:bg-indigo-700 transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-2 text-sm bg-primary rounded-xl text-white hover:bg-primary-hover transition-colors"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
@@ -639,20 +639,20 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
 
           {loading && (
             <div className="flex justify-center py-32">
-              <div className="w-7 h-7 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+              <div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" />
             </div>
           )}
 
           {!loading && kpi && (
             <div className="space-y-5">
-              <p className="text-sm font-medium text-slate-500">
-                Período: <span className="text-slate-800">{formatMonthLabel(month)}</span>
+              <p className="text-sm font-medium text-secondary">
+                Período: <span className="text-title">{formatMonthLabel(month)}</span>
               </p>
 
               {/* Score + Donuts */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                <div className="bg-white rounded-2xl border border-slate-200 p-5 flex flex-col items-center justify-center gap-2">
-                  <p className="text-[11px] text-slate-400 uppercase tracking-wider font-medium">Score global</p>
+                <div className="bg-surface rounded-2xl border border-border p-5 flex flex-col items-center justify-center gap-2">
+                  <p className="text-[11px] text-disabled uppercase tracking-wider font-medium">Score global</p>
                   <div className="relative w-28 h-28 flex items-center justify-center">
                     <svg className="w-28 h-28 -rotate-90" viewBox="0 0 100 100">
                       <circle cx="50" cy="50" r="42" fill="none" stroke="#f1f5f9" strokeWidth="10" />
@@ -664,9 +664,9 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
                         strokeLinecap="round"
                       />
                     </svg>
-                    <span className="absolute text-3xl font-bold text-slate-800">{kpi.score}</span>
+                    <span className="absolute text-3xl font-bold text-title">{kpi.score}</span>
                   </div>
-                  <p className="text-xs text-slate-400">/ 100 puntos</p>
+                  <p className="text-xs text-disabled">/ 100 puntos</p>
                   {kpi.prevMonth && (
                     <DeltaBadge
                       current={kpi.score}
@@ -680,17 +680,17 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
                 </div>
 
                 <div className={`rounded-2xl border p-5 flex flex-col items-center gap-3 ${CARD_BG[kpi.cumplimiento.color]}`}>
-                  <p className="text-[11px] text-slate-500 uppercase tracking-wider font-medium self-start">Cumplimiento</p>
+                  <p className="text-[11px] text-secondary uppercase tracking-wider font-medium self-start">Cumplimiento</p>
                   <DonutChart
                     pct={kpi.cumplimiento.completedPct}
                     color={kpi.cumplimiento.color}
                     label={`${kpi.cumplimiento.completedPct}%`}
                     sublabel={`${kpi.cumplimiento.completed}/${kpi.cumplimiento.total} tareas`}
                   />
-                  <div className="w-full space-y-1 text-xs text-slate-600">
+                  <div className="w-full space-y-1 text-xs text-main">
                     <div className="flex justify-between">
                       <span>Vencidas</span>
-                      <span className={kpi.cumplimiento.overdue > 0 ? "text-red-600 font-semibold" : "text-slate-400"}>
+                      <span className={kpi.cumplimiento.overdue > 0 ? "text-red-600 font-semibold" : "text-disabled"}>
                         {kpi.cumplimiento.overdue}
                         {kpi.cumplimiento.overdue > 0 && kpi.cumplimiento.avgDelayDays > 0
                           ? ` (${kpi.cumplimiento.avgDelayDays}d prom.)`
@@ -704,7 +704,7 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
                 </div>
 
                 <div className={`rounded-2xl border p-5 flex flex-col items-center gap-3 ${CARD_BG[kpi.cargaLaboral.color]}`}>
-                  <p className="text-[11px] text-slate-500 uppercase tracking-wider font-medium self-start">Carga laboral</p>
+                  <p className="text-[11px] text-secondary uppercase tracking-wider font-medium self-start">Carga laboral</p>
                   <DonutChart
                     pct={Math.min(kpi.cargaLaboral.ratio, 200)}
                     color={kpi.cargaLaboral.color}
@@ -735,7 +735,7 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
                 return (
                   <div className={`rounded-2xl border px-5 py-4 flex items-start gap-3 ${msg.bg}`}>
                     <span className="text-2xl leading-none mt-0.5">{msg.icon}</span>
-                    <p className="text-sm text-slate-700 leading-relaxed">{msg.text}</p>
+                    <p className="text-sm text-main leading-relaxed">{msg.text}</p>
                   </div>
                 );
               })()}
@@ -744,13 +744,13 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
               {(kpi.horasByWeek.length > 0 || kpi.cumplimientoHistory.length > 0) && (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                   {kpi.horasByWeek.length > 0 && (
-                    <div className="bg-white rounded-2xl border border-slate-200 p-5">
-                      <p className="text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-4">Horas por semana</p>
+                    <div className="bg-surface rounded-2xl border border-border p-5">
+                      <p className="text-[11px] font-semibold text-main uppercase tracking-wider mb-4">Horas por semana</p>
                       <WeeklyHoursChart data={kpi.horasByWeek} />
                     </div>
                   )}
-                  <div className="bg-white rounded-2xl border border-slate-200 p-5">
-                    <p className="text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-4">Evolución cumplimiento (6 meses)</p>
+                  <div className="bg-surface rounded-2xl border border-border p-5">
+                    <p className="text-[11px] font-semibold text-main uppercase tracking-wider mb-4">Evolución cumplimiento (6 meses)</p>
                     <CumplimientoLineChart data={kpi.cumplimientoHistory} />
                   </div>
                 </div>
@@ -758,8 +758,8 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
 
               {/* Seguimiento by reason */}
               {kpi.seguimiento.byReason.length > 0 && (
-                <div className="bg-white rounded-2xl border border-slate-200 p-5">
-                  <h3 className="text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-4">Consultas SEGUIMIENTO por motivo</h3>
+                <div className="bg-surface rounded-2xl border border-border p-5">
+                  <h3 className="text-[11px] font-semibold text-main uppercase tracking-wider mb-4">Consultas SEGUIMIENTO por motivo</h3>
                   <div className="space-y-2">
                     {kpi.seguimiento.byReason
                       .sort((a, b) => b.count - a.count)
@@ -768,14 +768,14 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
                         const pct = Math.round((r.count / maxCount) * 100);
                         return (
                           <div key={r.reason} className="flex items-center gap-3">
-                            <span className="text-xs text-slate-600 w-44 shrink-0 truncate" title={REASON_LABEL[r.reason] ?? r.reason}>
+                            <span className="text-xs text-main w-44 shrink-0 truncate" title={REASON_LABEL[r.reason] ?? r.reason}>
                               {REASON_LABEL[r.reason] ?? r.reason}
                             </span>
-                            <div className="flex-1 bg-slate-100 rounded-full h-2">
-                              <div className="bg-indigo-500 h-2 rounded-full" style={{ width: `${pct}%` }} />
+                            <div className="flex-1 bg-black/10 dark:bg-white/10 rounded-full h-2">
+                              <div className="bg-primary h-2 rounded-full" style={{ width: `${pct}%` }} />
                             </div>
-                            <span className="text-xs font-semibold text-slate-700 w-6 text-right">{r.count}</span>
-                            <span className="text-[11px] text-slate-400 w-20 text-right">{r.totalMinutes} min total</span>
+                            <span className="text-xs font-semibold text-main w-6 text-right">{r.count}</span>
+                            <span className="text-[11px] text-disabled w-20 text-right">{r.totalMinutes} min total</span>
                           </div>
                         );
                       })}
@@ -785,75 +785,75 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
 
               {/* Calidad + actividad */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-white rounded-xl border border-slate-200 p-4">
-                  <p className="text-[11px] text-slate-400 uppercase tracking-wider font-medium mb-1">Progreso prom.</p>
-                  <p className="text-2xl font-bold text-slate-800">{kpi.calidad.avgProgress}%</p>
-                  <p className="text-xs text-slate-400 mt-0.5">tareas en progreso</p>
+                <div className="bg-surface rounded-xl border border-border p-4">
+                  <p className="text-[11px] text-disabled uppercase tracking-wider font-medium mb-1">Progreso prom.</p>
+                  <p className="text-2xl font-bold text-title">{kpi.calidad.avgProgress}%</p>
+                  <p className="text-xs text-disabled mt-0.5">tareas en progreso</p>
                 </div>
-                <div className="bg-white rounded-xl border border-slate-200 p-4">
-                  <p className="text-[11px] text-slate-400 uppercase tracking-wider font-medium mb-1">Tareas recurrentes</p>
-                  <p className="text-2xl font-bold text-slate-800">{kpi.calidad.recurringPct}%</p>
-                  <p className="text-xs text-slate-400 mt-0.5">{kpi.calidad.recurringCompleted}/{kpi.calidad.recurringTotal} completadas</p>
+                <div className="bg-surface rounded-xl border border-border p-4">
+                  <p className="text-[11px] text-disabled uppercase tracking-wider font-medium mb-1">Tareas recurrentes</p>
+                  <p className="text-2xl font-bold text-title">{kpi.calidad.recurringPct}%</p>
+                  <p className="text-xs text-disabled mt-0.5">{kpi.calidad.recurringCompleted}/{kpi.calidad.recurringTotal} completadas</p>
                 </div>
-                <div className="bg-white rounded-xl border border-slate-200 p-4">
-                  <p className="text-[11px] text-slate-400 uppercase tracking-wider font-medium mb-1">Asignadas por otros</p>
-                  <p className="text-2xl font-bold text-slate-800">{kpi.actividad.assignedByOthers}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">de {kpi.cumplimiento.total} tareas</p>
+                <div className="bg-surface rounded-xl border border-border p-4">
+                  <p className="text-[11px] text-disabled uppercase tracking-wider font-medium mb-1">Asignadas por otros</p>
+                  <p className="text-2xl font-bold text-title">{kpi.actividad.assignedByOthers}</p>
+                  <p className="text-xs text-disabled mt-0.5">de {kpi.cumplimiento.total} tareas</p>
                 </div>
-                <div className="bg-white rounded-xl border border-slate-200 p-4">
-                  <p className="text-[11px] text-slate-400 uppercase tracking-wider font-medium mb-1">Comentarios</p>
-                  <p className="text-2xl font-bold text-slate-800">{kpi.actividad.totalComments}</p>
-                  <p className="text-xs text-slate-400 mt-0.5">registrados en el período</p>
+                <div className="bg-surface rounded-xl border border-border p-4">
+                  <p className="text-[11px] text-disabled uppercase tracking-wider font-medium mb-1">Comentarios</p>
+                  <p className="text-2xl font-bold text-title">{kpi.actividad.totalComments}</p>
+                  <p className="text-xs text-disabled mt-0.5">registrados en el período</p>
                 </div>
               </div>
 
               {/* Task table */}
               {kpi.tasks.length > 0 ? (
-                <div className="bg-white rounded-2xl border border-slate-200 p-5">
-                  <h3 className="text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-4">
+                <div className="bg-surface rounded-2xl border border-border p-5">
+                  <h3 className="text-[11px] font-semibold text-main uppercase tracking-wider mb-4">
                     Mis tareas — {formatMonthLabel(month)}
                   </h3>
                   <div className="overflow-x-auto -mx-5 px-5">
                     <table className="w-full text-sm min-w-[580px]">
                       <thead>
-                        <tr className="border-b border-slate-200">
+                        <tr className="border-b border-border">
                           {["Tarea", "Tipo", "Estado", "Vence", "Retraso"].map((h) => (
-                            <th key={h} className="text-left py-2 pr-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">{h}</th>
+                            <th key={h} className="text-left py-2 pr-4 text-xs font-semibold text-secondary uppercase tracking-wider">{h}</th>
                           ))}
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-slate-100">
+                      <tbody className="divide-y divide-border">
                         {kpi.tasks
                           .sort((a, b) => {
                             const o = { red: 0, yellow: 1, green: 2 } as Record<KpiColor, number>;
                             return o[a.color] - o[b.color];
                           })
                           .map((t) => (
-                            <tr key={t.id} className="hover:bg-slate-50 transition-colors">
+                            <tr key={t.id} className="hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
                               <td className="py-2.5 pr-4">
                                 <div className="flex items-center gap-2">
                                   <div className={`w-2 h-2 rounded-full shrink-0 ${DOT_CLASS[t.color]}`} />
-                                  <span className="text-sm text-slate-800 leading-snug">{t.title}</span>
+                                  <span className="text-sm text-title leading-snug">{t.title}</span>
                                 </div>
                               </td>
                               <td className="py-2.5 pr-4">
-                                <span className="text-[11px] bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+                                <span className="text-[11px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full">
                                   {TYPE_LABEL[t.type] ?? t.type}
                                 </span>
                               </td>
                               <td className="py-2.5 pr-4">
-                                <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${STATUS_BADGE[t.status] ?? "bg-slate-100 text-slate-500"}`}>
+                                <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${STATUS_BADGE[t.status] ?? "bg-slate-100 text-slate-600"}`}>
                                   {STATUS_LABEL[t.status] ?? t.status}
                                 </span>
                               </td>
-                              <td className="py-2.5 pr-4 text-xs text-slate-500">
+                              <td className="py-2.5 pr-4 text-xs text-secondary">
                                 {formatDate(t.endDate)}
                               </td>
                               <td className="py-2.5 pr-4">
                                 {t.delayDays > 0 ? (
                                   <span className="text-xs text-red-600 font-medium">{t.delayDays}d</span>
                                 ) : (
-                                  <span className="text-slate-300 text-xs">—</span>
+                                  <span className="text-disabled text-xs">—</span>
                                 )}
                               </td>
                             </tr>
@@ -863,7 +863,7 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
                   </div>
                 </div>
               ) : (
-                <div className="flex flex-col items-center justify-center py-16 text-slate-400">
+                <div className="flex flex-col items-center justify-center py-16 text-disabled">
                   <svg className="w-10 h-10 mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                   </svg>
@@ -879,29 +879,29 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
       {viewMode === "range" && (
         <div className="flex flex-col gap-5">
           {/* Range selector */}
-          <div className="bg-white rounded-2xl border border-slate-200 p-4 flex flex-wrap items-end gap-4">
+          <div className="bg-surface rounded-2xl border border-border p-4 flex flex-wrap items-end gap-4">
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-slate-500 font-medium">Desde</label>
+              <label className="text-xs text-secondary font-medium">Desde</label>
               <input
                 type="month"
                 value={rangeFrom}
                 onChange={(e) => setRangeFrom(e.target.value)}
-                className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                className="text-sm border border-border rounded-lg px-3 py-1.5 bg-surface text-main focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-slate-500 font-medium">Hasta</label>
+              <label className="text-xs text-secondary font-medium">Hasta</label>
               <input
                 type="month"
                 value={rangeTo}
                 onChange={(e) => setRangeTo(e.target.value)}
-                className="text-sm border border-slate-200 rounded-lg px-3 py-1.5 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+                className="text-sm border border-border rounded-lg px-3 py-1.5 bg-surface text-main focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
             <button
               onClick={handleGenerateRange}
               disabled={rangeLoading}
-              className="flex items-center gap-1.5 px-5 py-2 text-sm bg-indigo-600 rounded-lg text-white hover:bg-indigo-700 transition-colors disabled:opacity-60"
+              className="flex items-center gap-1.5 px-5 py-2 text-sm bg-primary rounded-lg text-white hover:bg-primary-hover transition-colors disabled:opacity-60"
             >
               {rangeLoading ? (
                 <>
@@ -916,7 +916,7 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
               <div className="flex items-center gap-2 ml-auto">
                 <button
                   onClick={() => downloadRangeExcel(rangeReport, currentUserName, currentUserRole)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-border rounded-lg text-main hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -925,7 +925,7 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
                 </button>
                 <button
                   onClick={() => downloadRangePDF(rangeReport, currentUserName, currentUserRole)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-indigo-600 rounded-lg text-white hover:bg-indigo-700 transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary rounded-lg text-white hover:bg-primary-hover transition-colors"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
@@ -941,14 +941,14 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
           )}
 
           {rangeLoading && (
-            <div className="flex flex-col items-center justify-center py-24 gap-3 text-slate-400">
-              <div className="w-8 h-8 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+            <div className="flex flex-col items-center justify-center py-24 gap-3 text-disabled">
+              <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
               <p className="text-sm">Calculando KPIs mes a mes...</p>
             </div>
           )}
 
           {!rangeLoading && !rangeReport && !rangeError && (
-            <div className="flex flex-col items-center justify-center py-24 text-slate-400">
+            <div className="flex flex-col items-center justify-center py-24 text-disabled">
               <svg className="w-12 h-12 mb-4 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
@@ -964,13 +964,13 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
                 const isUp = t.cumplimientoTrend === "mejora";
                 const isDown = t.cumplimientoTrend === "deterioro";
                 return (
-                  <div className={`rounded-2xl border px-5 py-4 flex items-center gap-4 ${isUp ? "bg-green-50 border-green-200" : isDown ? "bg-red-50 border-red-200" : "bg-slate-50 border-slate-200"}`}>
+                  <div className={`rounded-2xl border px-5 py-4 flex items-center gap-4 ${isUp ? "bg-green-50 border-green-200" : isDown ? "bg-red-50 border-red-200" : "bg-background border-border"}`}>
                     <span className="text-3xl">{isUp ? "▲" : isDown ? "▼" : "="}</span>
                     <div>
-                      <p className={`text-lg font-bold ${isUp ? "text-green-700" : isDown ? "text-red-700" : "text-slate-700"}`}>
+                      <p className={`text-lg font-bold ${isUp ? "text-green-700" : isDown ? "text-red-700" : "text-main"}`}>
                         Tendencia: {t.cumplimientoTrend.toUpperCase()}
                       </p>
-                      <p className={`text-sm ${isUp ? "text-green-600" : isDown ? "text-red-600" : "text-slate-500"}`}>
+                      <p className={`text-sm ${isUp ? "text-green-600" : isDown ? "text-red-600" : "text-secondary"}`}>
                         {t.firstMonthCumplimiento}% → {t.lastMonthCumplimiento}%
                         {" "}({t.cumplimientoChange > 0 ? "+" : ""}{t.cumplimientoChange} pp en {rangeReport.months.length} meses)
                       </p>
@@ -999,14 +999,14 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
                 return (
                   <div className={`rounded-2xl border px-5 py-4 flex items-start gap-3 ${msg.bg}`}>
                     <span className="text-2xl leading-none mt-0.5">{msg.icon}</span>
-                    <p className="text-sm text-slate-700 leading-relaxed">{msg.text}</p>
+                    <p className="text-sm text-main leading-relaxed">{msg.text}</p>
                   </div>
                 );
               })()}
 
               {/* Line chart */}
-              <div className="bg-white rounded-2xl border border-slate-200 p-5">
-                <h3 className="text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-4">
+              <div className="bg-surface rounded-2xl border border-border p-5">
+                <h3 className="text-[11px] font-semibold text-main uppercase tracking-wider mb-4">
                   Evolución de cumplimiento — {rangeReport.months.length} meses
                 </h3>
                 <ResponsiveContainer width="100%" height={220}>
@@ -1037,31 +1037,31 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
               </div>
 
               {/* Monthly table */}
-              <div className="bg-white rounded-2xl border border-slate-200 p-5">
-                <h3 className="text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-4">Detalle mensual</h3>
+              <div className="bg-surface rounded-2xl border border-border p-5">
+                <h3 className="text-[11px] font-semibold text-main uppercase tracking-wider mb-4">Detalle mensual</h3>
                 <div className="overflow-x-auto -mx-5 px-5">
                   <table className="w-full text-sm min-w-[520px]">
                     <thead>
-                      <tr className="border-b border-slate-200">
+                      <tr className="border-b border-border">
                         {["Mes", "Cumpl.", "Score", "Tareas", "Horas", "Consultas"].map((h) => (
-                          <th key={h} className="text-left py-2 pr-4 text-xs font-semibold text-slate-500 uppercase tracking-wider">{h}</th>
+                          <th key={h} className="text-left py-2 pr-4 text-xs font-semibold text-secondary uppercase tracking-wider">{h}</th>
                         ))}
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-slate-100">
+                    <tbody className="divide-y divide-border">
                       {rangeReport.months.map((m) => (
-                        <tr key={m.month} className={`hover:bg-slate-50 ${m.totalTasks > 0 && m.completedPct < 60 ? "bg-red-50/40" : ""}`}>
-                          <td className="py-2 pr-4 text-sm font-medium text-slate-800">{m.label}</td>
+                        <tr key={m.month} className={`hover:bg-black/5 dark:hover:bg-white/5 ${m.totalTasks > 0 && m.completedPct < 60 ? "bg-red-50/40" : ""}`}>
+                          <td className="py-2 pr-4 text-sm font-medium text-title">{m.label}</td>
                           <td className="py-2 pr-4">
                             <span className="flex items-center gap-1.5">
                               <div className={`w-2 h-2 rounded-full ${m.completedPct >= 80 ? "bg-green-500" : m.completedPct >= 60 ? "bg-amber-400" : "bg-red-500"}`} />
                               {m.completedPct}%
                             </span>
                           </td>
-                          <td className="py-2 pr-4 text-slate-600">{m.score}/100</td>
-                          <td className="py-2 pr-4 text-slate-600">{m.completedTasks}/{m.totalTasks}</td>
-                          <td className="py-2 pr-4 text-slate-600 text-xs">{m.realHours}h/{m.estimatedHours}h</td>
-                          <td className="py-2 pr-4 text-slate-600">{m.seguimientoTotal}</td>
+                          <td className="py-2 pr-4 text-main">{m.score}/100</td>
+                          <td className="py-2 pr-4 text-main">{m.completedTasks}/{m.totalTasks}</td>
+                          <td className="py-2 pr-4 text-main text-xs">{m.realHours}h/{m.estimatedHours}h</td>
+                          <td className="py-2 pr-4 text-main">{m.seguimientoTotal}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -1071,8 +1071,8 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
 
               {/* Seguimiento by reason (range) */}
               {rangeReport.aggregated.consultasByReason.length > 0 && (
-                <div className="bg-white rounded-2xl border border-slate-200 p-5">
-                  <h3 className="text-[11px] font-semibold text-slate-700 uppercase tracking-wider mb-4">
+                <div className="bg-surface rounded-2xl border border-border p-5">
+                  <h3 className="text-[11px] font-semibold text-main uppercase tracking-wider mb-4">
                     Consultas SEGUIMIENTO acumuladas por motivo
                   </h3>
                   <div className="space-y-2">
@@ -1081,14 +1081,14 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
                       const pct = Math.round((r.count / maxCount) * 100);
                       return (
                         <div key={r.reason} className="flex items-center gap-3">
-                          <span className="text-xs text-slate-600 w-44 shrink-0 truncate" title={REASON_LABEL[r.reason] ?? r.reason}>
+                          <span className="text-xs text-main w-44 shrink-0 truncate" title={REASON_LABEL[r.reason] ?? r.reason}>
                             {REASON_LABEL[r.reason] ?? r.reason}
                           </span>
-                          <div className="flex-1 bg-slate-100 rounded-full h-2">
-                            <div className="bg-indigo-500 h-2 rounded-full" style={{ width: `${pct}%` }} />
+                          <div className="flex-1 bg-black/10 dark:bg-white/10 rounded-full h-2">
+                            <div className="bg-primary h-2 rounded-full" style={{ width: `${pct}%` }} />
                           </div>
-                          <span className="text-xs font-semibold text-slate-700 w-6 text-right">{r.count}</span>
-                          <span className="text-[11px] text-slate-400 w-20 text-right">{r.totalMinutes} min</span>
+                          <span className="text-xs font-semibold text-main w-6 text-right">{r.count}</span>
+                          <span className="text-[11px] text-disabled w-20 text-right">{r.totalMinutes} min</span>
                         </div>
                       );
                     })}

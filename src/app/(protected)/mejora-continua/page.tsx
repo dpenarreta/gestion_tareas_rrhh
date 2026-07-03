@@ -40,7 +40,7 @@ export default async function MejoraContinuaPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-slate-900 mb-6">Mejora Continua</h1>
+      <h1 className="text-2xl font-bold text-title mb-6">Mejora Continua</h1>
       <IdeasModule
         initialIdeas={serializedIdeas}
         currentUserId={session.userId}

@@ -19,6 +19,11 @@ enum Role {
   TRABAJO_SOCIAL
 }
 
+enum ThemePreference {
+  LIGHT
+  DARK
+}
+
 enum TaskStatus {
   PENDIENTE
   EN_PROGRESO
@@ -57,16 +62,17 @@ enum ActivityReason {
 }
 
 model User {
-  id              String    @id @default(cuid())
-  email           String    @unique
+  id              String          @id @default(cuid())
+  email           String          @unique
   name            String
   password        String
   role            Role
-  viewPreferences String[]  @default(["KANBAN", "TABLA"])
+  viewPreferences String[]        @default(["KANBAN", "TABLA"])
+  theme           ThemePreference @default(LIGHT)
   lastLoginAt     DateTime?
-  badges          String[]  @default([])
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
+  badges          String[]        @default([])
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
 
   assignedTasks      Task[]              @relation("AssignedTasks")
   createdTasks       Task[]              @relation("CreatedTasks")

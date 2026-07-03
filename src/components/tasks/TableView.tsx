@@ -80,7 +80,7 @@ function InlineEdit({
   }
 
   if (readOnly) {
-    return <span className="text-sm text-slate-500 cursor-not-allowed">{value}</span>;
+    return <span className="text-sm text-secondary cursor-not-allowed">{value}</span>;
   }
 
   if (!editing) {
@@ -91,7 +91,7 @@ function InlineEdit({
         title="Clic para editar"
       >
         {renderDisplay ? renderDisplay(value) : (
-          <span className="text-sm text-slate-800 hover:text-indigo-700 hover:underline underline-offset-2">
+          <span className="text-sm text-title hover:text-primary hover:underline underline-offset-2">
             {value || "—"}
           </span>
         )}
@@ -106,7 +106,7 @@ function InlineEdit({
         value={local}
         onChange={(e) => setLocal(e.target.value)}
         onBlur={commit}
-        className="text-sm text-slate-900 bg-white border border-indigo-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-300"
+        className="text-sm text-title bg-surface border border-primary/40 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-primary"
       >
         {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
       </select>
@@ -121,7 +121,7 @@ function InlineEdit({
       onChange={(e) => setLocal(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") setEditing(false); }}
-      className="text-sm text-slate-900 bg-white border border-indigo-300 rounded-lg px-2 py-1 w-full focus:outline-none focus:ring-2 focus:ring-indigo-300"
+      className="text-sm text-title bg-surface border border-primary/40 rounded-lg px-2 py-1 w-full focus:outline-none focus:ring-2 focus:ring-primary"
     />
   );
 }
@@ -172,28 +172,28 @@ function TaskRow({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ type: "spring", stiffness: 500, damping: 40 }}
-      className={`${isSelected ? "bg-indigo-50" : index % 2 === 1 ? "bg-gray-50" : "bg-white"} hover:bg-indigo-50/40 transition-colors group`}
+      className={`${isSelected ? "bg-primary-surface" : index % 2 === 1 ? "bg-black/[0.02] dark:bg-white/[0.02]" : "bg-surface"} hover:bg-primary-surface/40 transition-colors group`}
     >
-      <td className="border border-gray-200 px-3 py-3.5 text-center">
+      <td className="border border-border px-3 py-3.5 text-center">
         <input
           type="checkbox"
           checked={isSelected}
           onChange={() => onToggleSelect(task.id)}
-          className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-400 cursor-pointer"
+          className="w-4 h-4 rounded border-border text-primary focus:ring-primary cursor-pointer"
           aria-label={`Seleccionar tarea ${task.title}`}
         />
       </td>
       <td className="w-1 p-0" style={{ backgroundColor: hex ?? "transparent" }} />
-      <td className="border border-gray-200 px-4 py-3.5 max-w-[200px]">
+      <td className="border border-border px-4 py-3.5 max-w-[200px]">
         <InlineEdit
           value={task.title}
           onSave={(v) => onFieldUpdate(task.id, "title", v)}
         />
         {task.assignedTo.name !== task.createdBy.name && (
-          <p className="text-[10px] text-slate-400 mt-0.5">{task.assignedTo.name}</p>
+          <p className="text-[10px] text-disabled mt-0.5">{task.assignedTo.name}</p>
         )}
       </td>
-      <td className="border border-gray-200 px-4 py-3.5">
+      <td className="border border-border px-4 py-3.5">
         <InlineEdit
           value={task.frequency}
           type="select"
@@ -207,7 +207,7 @@ function TaskRow({
           onSave={(v) => onFieldUpdate(task.id, "frequency", v)}
         />
       </td>
-      <td className="border border-gray-200 px-4 py-3.5">
+      <td className="border border-border px-4 py-3.5">
         <InlineEdit
           value={task.status}
           type="select"
@@ -224,40 +224,40 @@ function TaskRow({
           )}
         />
       </td>
-      <td className="border border-gray-200 px-4 py-3.5">
+      <td className="border border-border px-4 py-3.5">
         <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${PRIORITY_STYLES[task.priority]}`}>
           {task.priority}
         </span>
       </td>
-      <td className="border border-gray-200 px-4 py-3.5 whitespace-nowrap text-slate-600">{formatDate(task.startDate)}</td>
-      <td className="border border-gray-200 px-4 py-3.5 whitespace-nowrap text-slate-600">{formatDate(task.endDate)}</td>
-      <td className="border border-gray-200 px-4 py-3.5 text-right text-slate-600">{fmtH(task.estimatedHours)}h</td>
-      <td className="border border-gray-200 px-4 py-3.5 text-right">
+      <td className="border border-border px-4 py-3.5 whitespace-nowrap text-main">{formatDate(task.startDate)}</td>
+      <td className="border border-border px-4 py-3.5 whitespace-nowrap text-main">{formatDate(task.endDate)}</td>
+      <td className="border border-border px-4 py-3.5 text-right text-main">{fmtH(task.estimatedHours)}h</td>
+      <td className="border border-border px-4 py-3.5 text-right">
         <InlineEdit
           value={String(fmtH(task.realHours))}
           type="number"
           readOnly={!isOwner}
           onSave={(v) => onFieldUpdate(task.id, "realHours", v)}
         />
-        <span className="text-slate-400 ml-0.5 text-xs">h</span>
+        <span className="text-disabled ml-0.5 text-xs">h</span>
       </td>
-      <td className="border border-gray-200 px-4 py-3.5">
+      <td className="border border-border px-4 py-3.5">
         <div className="flex items-center gap-2 min-w-[80px]">
-          <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+          <div className="flex-1 h-1.5 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
             <div
-              className="h-full bg-indigo-500 rounded-full"
+              className="h-full bg-primary rounded-full"
               style={{ width: `${task.progress}%` }}
             />
           </div>
-          <span className="text-[10px] text-slate-500 w-7 text-right">{task.progress}%</span>
+          <span className="text-[10px] text-secondary w-7 text-right">{task.progress}%</span>
         </div>
       </td>
-      <td className="border border-gray-200 px-4 py-3.5 text-center">
+      <td className="border border-border px-4 py-3.5 text-center">
         <div className="inline-flex items-center gap-2">
           {task.type === "SEGUIMIENTO" && (
             <button
               onClick={() => onActivityClick(task)}
-              className="text-slate-400 hover:text-violet-600 transition-colors"
+              className="text-disabled hover:text-violet-600 transition-colors"
               title="Registro de actividades"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -267,7 +267,7 @@ function TaskRow({
           )}
           <button
             onClick={() => onCommentClick(task)}
-            className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-indigo-600 transition-colors"
+            className="inline-flex items-center gap-1 text-xs text-secondary hover:text-primary transition-colors"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
@@ -276,11 +276,11 @@ function TaskRow({
           </button>
         </div>
       </td>
-      <td className="border border-gray-200 px-4 py-3.5">
+      <td className="border border-border px-4 py-3.5">
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
             onClick={() => onEditTask(task)}
-            className="p-1 text-slate-400 hover:text-indigo-600 rounded"
+            className="p-1 text-disabled hover:text-primary rounded"
             title="Editar"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -289,7 +289,7 @@ function TaskRow({
           </button>
           <button
             onClick={() => onDeleteTask(task.id)}
-            className="p-1 text-slate-400 hover:text-red-600 rounded"
+            className="p-1 text-disabled hover:text-red-600 rounded"
             title="Eliminar"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -457,7 +457,7 @@ export default function TableView({
 
   function SortIcon({ col }: { col: SortKey }) {
     if (sortKey !== col) return null;
-    return <span className="ml-1 text-indigo-500">{sortDir === "asc" ? "▲" : "▼"}</span>;
+    return <span className="ml-1 text-primary">{sortDir === "asc" ? "▲" : "▼"}</span>;
   }
   const [importResult, setImportResult] = useState<{ imported: number; errors: { row: number; error: string }[] } | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -501,7 +501,7 @@ export default function TableView({
       <div className="flex items-center justify-between flex-wrap gap-2">
         <button
           onClick={onCreateTask}
-          className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 transition-colors"
+          className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-xl hover:bg-primary-hover transition-colors"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -511,7 +511,7 @@ export default function TableView({
         <div className="flex items-center gap-2">
           <button
             onClick={downloadTemplate}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 border border-slate-200 rounded-xl hover:bg-slate-50 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-main border border-border rounded-xl hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
@@ -521,7 +521,7 @@ export default function TableView({
           <button
             onClick={() => fileInputRef.current?.click()}
             disabled={importing}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-700 border border-slate-200 rounded-xl hover:bg-slate-50 disabled:opacity-50 transition-colors"
+            className="flex items-center gap-2 px-4 py-2 text-sm font-medium text-main border border-border rounded-xl hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-50 transition-colors"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
@@ -549,7 +549,7 @@ export default function TableView({
       )}
 
       {tasks.length === 0 && (
-        <div className="text-center py-12 text-slate-400 text-sm rounded-2xl border border-slate-200 bg-white">
+        <div className="text-center py-12 text-disabled text-sm rounded-2xl border border-border bg-surface">
           No hay tareas. Crea una nueva o importa desde Excel.
         </div>
       )}
@@ -558,7 +558,7 @@ export default function TableView({
         const sectionTasks = tasksBySection[section.id];
         const isCollapsed = section.collapsible && collapsed[section.id];
         return (
-          <div key={section.id} className={`rounded-2xl border ${section.border} bg-white overflow-hidden shadow-sm`}>
+          <div key={section.id} className={`rounded-2xl border ${section.border} bg-surface overflow-hidden shadow-sm`}>
             <div className={`flex items-center justify-between px-4 py-2.5 ${section.headerBg}`}>
               <button
                 onClick={() => section.collapsible && setCollapsed((c) => ({ ...c, [section.id]: !c[section.id] }))}
@@ -584,35 +584,35 @@ export default function TableView({
               <div className="overflow-x-auto">
                 <table className="w-full text-sm border-collapse">
                   <thead>
-                    <tr className="border-b border-gray-200 bg-gray-100">
-                      <th className="border border-gray-200 px-3 py-3 text-center">
+                    <tr className="border-b border-border bg-background">
+                      <th className="border border-border px-3 py-3 text-center">
                         <input
                           type="checkbox"
                           checked={sectionTasks.length > 0 && sectionTasks.every((t) => selected.has(t.id))}
                           onChange={() => toggleSelectAllInSection(sectionTasks)}
-                          className="w-4 h-4 rounded border-slate-300 text-indigo-600 focus:ring-indigo-400 cursor-pointer"
+                          className="w-4 h-4 rounded border-border text-primary focus:ring-primary cursor-pointer"
                           aria-label={`Seleccionar todas las tareas de ${section.label}`}
                         />
                       </th>
                       <th className="w-1 px-0" />
-                      <th onDoubleClick={() => handleSort("title")} className="border border-gray-200 text-left px-4 py-3 text-[11px] font-semibold text-slate-600 uppercase tracking-wider cursor-pointer select-none hover:text-slate-900" title="Doble clic para ordenar">Título<SortIcon col="title" /></th>
-                      <th onDoubleClick={() => handleSort("frequency")} className="border border-gray-200 text-left px-4 py-3 text-[11px] font-semibold text-slate-600 uppercase tracking-wider cursor-pointer select-none hover:text-slate-900" title="Doble clic para ordenar">Frecuencia<SortIcon col="frequency" /></th>
-                      <th className="border border-gray-200 text-left px-4 py-3 text-[11px] font-semibold text-slate-600 uppercase tracking-wider">Estado</th>
-                      <th onDoubleClick={() => handleSort("priority")} className="border border-gray-200 text-left px-4 py-3 text-[11px] font-semibold text-slate-600 uppercase tracking-wider cursor-pointer select-none hover:text-slate-900" title="Doble clic para ordenar">Prioridad<SortIcon col="priority" /></th>
-                      <th onDoubleClick={() => handleSort("startDate")} className="border border-gray-200 text-left px-4 py-3 text-[11px] font-semibold text-slate-600 uppercase tracking-wider cursor-pointer select-none hover:text-slate-900" title="Doble clic para ordenar">Inicio<SortIcon col="startDate" /></th>
-                      <th onDoubleClick={() => handleSort("endDate")} className="border border-gray-200 text-left px-4 py-3 text-[11px] font-semibold text-slate-600 uppercase tracking-wider cursor-pointer select-none hover:text-slate-900" title="Doble clic para ordenar">Fin<SortIcon col="endDate" /></th>
-                      <th onDoubleClick={() => handleSort("estimatedHours")} className="border border-gray-200 text-right px-4 py-3 text-[11px] font-semibold text-slate-600 uppercase tracking-wider cursor-pointer select-none hover:text-slate-900" title="Doble clic para ordenar">H. Est.<SortIcon col="estimatedHours" /></th>
-                      <th onDoubleClick={() => handleSort("realHours")} className="border border-gray-200 text-right px-4 py-3 text-[11px] font-semibold text-slate-600 uppercase tracking-wider cursor-pointer select-none hover:text-slate-900" title="Doble clic para ordenar">H. Reales<SortIcon col="realHours" /></th>
-                      <th onDoubleClick={() => handleSort("progress")} className="border border-gray-200 text-center px-4 py-3 text-[11px] font-semibold text-slate-600 uppercase tracking-wider cursor-pointer select-none hover:text-slate-900" title="Doble clic para ordenar">Avance<SortIcon col="progress" /></th>
-                      <th className="border border-gray-200 text-center px-4 py-3 text-[11px] font-semibold text-slate-600 uppercase tracking-wider">Coment.</th>
-                      <th className="border border-gray-200 px-4 py-3" />
+                      <th onDoubleClick={() => handleSort("title")} className="border border-border text-left px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Título<SortIcon col="title" /></th>
+                      <th onDoubleClick={() => handleSort("frequency")} className="border border-border text-left px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Frecuencia<SortIcon col="frequency" /></th>
+                      <th className="border border-border text-left px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider">Estado</th>
+                      <th onDoubleClick={() => handleSort("priority")} className="border border-border text-left px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Prioridad<SortIcon col="priority" /></th>
+                      <th onDoubleClick={() => handleSort("startDate")} className="border border-border text-left px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Inicio<SortIcon col="startDate" /></th>
+                      <th onDoubleClick={() => handleSort("endDate")} className="border border-border text-left px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Fin<SortIcon col="endDate" /></th>
+                      <th onDoubleClick={() => handleSort("estimatedHours")} className="border border-border text-right px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">H. Est.<SortIcon col="estimatedHours" /></th>
+                      <th onDoubleClick={() => handleSort("realHours")} className="border border-border text-right px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">H. Reales<SortIcon col="realHours" /></th>
+                      <th onDoubleClick={() => handleSort("progress")} className="border border-border text-center px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Avance<SortIcon col="progress" /></th>
+                      <th className="border border-border text-center px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider">Coment.</th>
+                      <th className="border border-border px-4 py-3" />
                     </tr>
                   </thead>
                   <tbody>
                     <AnimatePresence initial={false}>
                       {sectionTasks.length === 0 && (
                         <tr>
-                          <td colSpan={13} className="text-center py-6 text-slate-400 text-xs">
+                          <td colSpan={13} className="text-center py-6 text-disabled text-xs">
                             Sin tareas en esta sección
                           </td>
                         </tr>
@@ -686,7 +686,7 @@ export default function TableView({
             </button>
             <button
               onClick={() => setSelected(new Set())}
-              className="text-slate-400 hover:text-white ml-1 px-1"
+              className="text-disabled hover:text-white ml-1 px-1"
               title="Cancelar selección"
               aria-label="Cancelar selección"
             >
