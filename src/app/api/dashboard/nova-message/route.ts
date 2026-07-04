@@ -2,9 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import Groq from "groq-sdk";
 
-const CACHE_TTL_MS = 90 * 60 * 1000;
+const CACHE_TTL_MS = 4 * 60 * 60 * 1000;
 
-const cache = new Map<string, { message: string; expiresAt: number }>();
+const cache = new Map<string, { message: string; expiresAt: number; generatedAt: number }>();
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
@@ -14,6 +14,9 @@ export async function POST(request: NextRequest) {
 
   const cached = cache.get(session.userId);
   if (cached && cached.expiresAt > Date.now()) {
+    console.log(
+      `[nova-message] cache hit userId=${session.userId} generatedAt=${new Date(cached.generatedAt).toISOString()}`
+    );
     return NextResponse.json({ message: cached.message, cached: true });
   }
 
@@ -41,7 +44,7 @@ export async function POST(request: NextRequest) {
       completion.choices[0]?.message?.content?.trim() ||
       "Revisa tus tareas pendientes y mantén el enfoque en tus prioridades del día.";
 
-    cache.set(session.userId, { message, expiresAt: Date.now() + CACHE_TTL_MS });
+    cache.set(session.userId, { message, expiresAt: Date.now() + CACHE_TTL_MS, generatedAt: Date.now() });
     return NextResponse.json({ message, cached: false });
   } catch {
     const fallbacks = [
@@ -50,7 +53,7 @@ export async function POST(request: NextRequest) {
       "Mantén el ritmo. Cada tarea completada te acerca a tus metas del mes.",
     ];
     const message = fallbacks[Math.floor(Math.random() * fallbacks.length)];
-    cache.set(session.userId, { message, expiresAt: Date.now() + CACHE_TTL_MS });
+    cache.set(session.userId, { message, expiresAt: Date.now() + CACHE_TTL_MS, generatedAt: Date.now() });
     return NextResponse.json({ message, cached: false });
   }
 }

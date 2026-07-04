@@ -71,6 +71,8 @@ model User {
   theme           ThemePreference @default(LIGHT)
   lastLoginAt     DateTime?
   badges          String[]        @default([])
+  dataConsentAccepted   Boolean   @default(false)
+  dataConsentAcceptedAt DateTime?
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 

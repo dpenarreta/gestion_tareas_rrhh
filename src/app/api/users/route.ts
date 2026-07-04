@@ -3,6 +3,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canManageUsers } from "@/lib/roles";
+import { maskEmail } from "@/lib/mask-email";
 import type { Role } from "@/generated/prisma/client";
 
 export async function GET() {
@@ -15,11 +16,19 @@ export async function GET() {
   }
 
   const users = await prisma.user.findMany({
-    select: { id: true, name: true, email: true, role: true, createdAt: true },
+    select: {
+      id: true,
+      name: true,
+      email: true,
+      role: true,
+      createdAt: true,
+      dataConsentAccepted: true,
+      dataConsentAcceptedAt: true,
+    },
     orderBy: { createdAt: "asc" },
   });
 
-  return NextResponse.json(users);
+  return NextResponse.json(users.map((u) => ({ ...u, email: maskEmail(u.email) })));
 }
 
 export async function POST(request: NextRequest) {

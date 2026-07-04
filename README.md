@@ -114,3 +114,4 @@ prisma/
 - No hay framework de tests configurado.
 - La cookie de sesión (`nexo-session`) es httpOnly, `SameSite=strict` y `Secure` en producción.
 - El login tiene rate limiting: 5 intentos fallidos por IP bloquean nuevos intentos durante 15 minutos.
+- Las contraseñas se almacenan con bcrypt (10 rondas), nunca en texto plano.

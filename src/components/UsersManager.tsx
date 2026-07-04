@@ -10,7 +10,19 @@ type User = {
   email: string;
   role: Role;
   createdAt: string;
+  dataConsentAccepted: boolean;
+  dataConsentAcceptedAt: string | null;
 };
+
+function formatConsentDate(iso: string) {
+  return new Date(iso).toLocaleString("es-EC", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 type Props = {
   currentUserRole: Role;
@@ -27,6 +39,7 @@ export default function UsersManager({ currentUserRole }: Props) {
   const [form, setForm] = useState({ name: "", email: "", role: "" as Role | "" });
   const [formError, setFormError] = useState("");
   const [formLoading, setFormLoading] = useState(false);
+  const [informedConsent, setInformedConsent] = useState(false);
 
   // Edit modal
   const [editUser, setEditUser] = useState<User | null>(null);
@@ -34,6 +47,10 @@ export default function UsersManager({ currentUserRole }: Props) {
   const [editError, setEditError] = useState("");
   const [editLoading, setEditLoading] = useState(false);
   const [editSuccess, setEditSuccess] = useState(false);
+
+  // Revealed (unmasked) emails, keyed by user id
+  const [revealedEmails, setRevealedEmails] = useState<Record<string, string>>({});
+  const [revealLoading, setRevealLoading] = useState<string | null>(null);
 
   // Roles that the current editor is allowed to assign
   const assignableRoles = ALL_ROLES.filter(
@@ -68,6 +85,10 @@ export default function UsersManager({ currentUserRole }: Props) {
       setFormError("Selecciona un rol");
       return;
     }
+    if (!informedConsent) {
+      setFormError("Debes confirmar que el usuario fue informado sobre el tratamiento de sus datos");
+      return;
+    }
     setFormLoading(true);
     try {
       const res = await fetch("/api/users", {
@@ -81,6 +102,7 @@ export default function UsersManager({ currentUserRole }: Props) {
       } else {
         setShowCreate(false);
         setForm({ name: "", email: "", role: "" });
+        setInformedConsent(false);
         loadUsers();
       }
     } catch {
@@ -90,11 +112,42 @@ export default function UsersManager({ currentUserRole }: Props) {
     }
   }
 
-  function openEdit(user: User) {
+  async function openEdit(user: User) {
     setEditUser(user);
     setEditForm({ name: user.name, email: user.email, role: user.role });
     setEditError("");
     setEditSuccess(false);
+    try {
+      const res = await fetch(`/api/users/${user.id}`);
+      if (res.ok) {
+        const full = await res.json();
+        setEditForm((f) => ({ ...f, email: full.email }));
+      }
+    } catch {
+      // el correo enmascarado ya está precargado; el usuario puede reintentar guardando de nuevo
+    }
+  }
+
+  async function handleReveal(user: User) {
+    if (revealedEmails[user.id]) {
+      setRevealedEmails((prev) => {
+        const next = { ...prev };
+        delete next[user.id];
+        return next;
+      });
+      return;
+    }
+    if (!confirm(`¿Mostrar el correo completo de ${user.name}?`)) return;
+    setRevealLoading(user.id);
+    try {
+      const res = await fetch(`/api/users/${user.id}`);
+      const data = await res.json();
+      if (res.ok) {
+        setRevealedEmails((prev) => ({ ...prev, [user.id]: data.email }));
+      }
+    } finally {
+      setRevealLoading(null);
+    }
   }
 
   function closeEdit() {
@@ -176,6 +229,7 @@ export default function UsersManager({ currentUserRole }: Props) {
           onClick={() => {
             setShowCreate(!showCreate);
             setFormError("");
+            setInformedConsent(false);
           }}
           className="px-4 py-2 bg-primary hover:bg-primary-hover text-white font-medium rounded-lg text-sm transition-colors"
         >
@@ -237,6 +291,18 @@ export default function UsersManager({ currentUserRole }: Props) {
               </select>
             </div>
 
+            <label className="flex items-start gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={informedConsent}
+                onChange={(e) => setInformedConsent(e.target.checked)}
+                className="w-4 h-4 mt-0.5 rounded border-border text-primary accent-primary"
+              />
+              <span className="text-sm text-main">
+                El usuario ha sido informado sobre el tratamiento de sus datos personales
+              </span>
+            </label>
+
             {formError && (
               <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">
                 {formError}
@@ -245,7 +311,7 @@ export default function UsersManager({ currentUserRole }: Props) {
 
             <button
               type="submit"
-              disabled={formLoading}
+              disabled={formLoading || !informedConsent}
               className="px-4 py-2 bg-primary hover:bg-primary-hover disabled:opacity-50 text-white font-medium rounded-lg text-sm transition-colors"
             >
               {formLoading ? "Creando..." : "Crear usuario"}
@@ -300,6 +366,9 @@ export default function UsersManager({ currentUserRole }: Props) {
                 <th className="text-left px-5 py-3 font-medium text-main">
                   Rol
                 </th>
+                <th className="text-left px-5 py-3 font-medium text-main hidden md:table-cell">
+                  Consentimiento
+                </th>
                 <th className="text-right px-5 py-3 font-medium text-main">
                   Acciones
                 </th>
@@ -312,12 +381,37 @@ export default function UsersManager({ currentUserRole }: Props) {
                     {user.name}
                   </td>
                   <td className="px-5 py-3 text-main hidden sm:table-cell">
-                    {user.email}
+                    <div className="flex items-center gap-2">
+                      <span>{revealedEmails[user.id] ?? user.email}</span>
+                      <button
+                        onClick={() => handleReveal(user)}
+                        disabled={revealLoading === user.id}
+                        className="text-xs text-primary hover:text-primary-hover font-medium disabled:opacity-50"
+                      >
+                        {revealLoading === user.id
+                          ? "..."
+                          : revealedEmails[user.id]
+                          ? "Ocultar"
+                          : "Ver"}
+                      </button>
+                    </div>
                   </td>
                   <td className="px-5 py-3">
                     <span className="px-2.5 py-1 bg-primary-surface text-primary rounded-full text-xs font-medium">
                       {ROLE_LABEL[user.role]}
                     </span>
+                  </td>
+                  <td className="px-5 py-3 hidden md:table-cell">
+                    {user.dataConsentAccepted ? (
+                      <span className="px-2.5 py-1 bg-green-50 text-green-700 rounded-full text-xs font-medium">
+                        Aceptado
+                        {user.dataConsentAcceptedAt && ` · ${formatConsentDate(user.dataConsentAcceptedAt)}`}
+                      </span>
+                    ) : (
+                      <span className="px-2.5 py-1 bg-gray-100 text-gray-600 rounded-full text-xs font-medium">
+                        Pendiente
+                      </span>
+                    )}
                   </td>
                   <td className="px-5 py-3">
                     <div className="flex items-center justify-end gap-2">

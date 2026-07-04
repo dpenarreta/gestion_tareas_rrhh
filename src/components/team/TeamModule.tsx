@@ -70,6 +70,7 @@ function MemberCard({ member, onClick }: { member: TeamMember; onClick: () => vo
             {member.name}
           </p>
           <p className="text-[11px] text-secondary truncate">{ROLE_LABEL[member.role]}</p>
+          <p className="text-[11px] text-disabled truncate">{member.email}</p>
         </div>
       </div>
 
@@ -420,6 +421,7 @@ export default function TeamModule({ currentUserId, currentUserRole: _role }: Pr
               <div>
                 <h1 className="text-xl font-bold text-title">{selectedMember.name}</h1>
                 <p className="text-sm text-secondary">{ROLE_LABEL[selectedMember.role]}</p>
+                <p className="text-xs text-disabled">{selectedMember.email}</p>
               </div>
             </div>
 

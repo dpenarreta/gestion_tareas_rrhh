@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { getSubordinateRoles, canViewTeam } from "@/lib/roles";
+import { maskEmail } from "@/lib/mask-email";
 
 export async function GET() {
   const session = await getSession();
@@ -29,7 +30,7 @@ export async function GET() {
   const members = users.map((u) => ({
     id: u.id,
     name: u.name,
-    email: u.email,
+    email: maskEmail(u.email),
     role: u.role,
     tasks: {
       total: u.assignedTasks.length,
