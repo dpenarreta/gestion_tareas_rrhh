@@ -36,7 +36,7 @@ export default function MyIdeasList({ ideas, onCardClick }: Props) {
                   </span>
                 </div>
                 {idea.status === "RECHAZADA" && idea.latestRejectionComment && (
-                  <p className="text-xs text-red-600 mt-2">Motivo: {idea.latestRejectionComment}</p>
+                  <p className="text-xs text-danger mt-2">Motivo: {idea.latestRejectionComment}</p>
                 )}
               </div>
               <span className={`shrink-0 inline-flex items-center gap-1 text-xs font-semibold px-2.5 py-1 rounded-full ${info.headerBg} ${info.headerText}`}>

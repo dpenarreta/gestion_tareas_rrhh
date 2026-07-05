@@ -10,12 +10,9 @@ export default async function AdminUsersPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-title">Gestión de usuarios</h1>
-        <p className="text-secondary mt-1">
-          Crear usuarios, resetear contraseñas y administrar roles
-        </p>
-      </div>
+      <p className="text-secondary">
+        Crear usuarios, resetear contraseñas y administrar roles
+      </p>
       <UsersManager currentUserRole={session.role} />
     </div>
   );

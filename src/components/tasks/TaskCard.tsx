@@ -4,11 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import type { Task } from "./types";
 import { TASK_COLORS, taskColorHex } from "./colors";
 import { formatDate, isTaskOverdue } from "@/lib/utils";
+import { Badge } from "@/components/ui/Badge";
 
-const PRIORITY_STYLES: Record<Task["priority"], string> = {
-  ALTA: "bg-red-100 text-red-700",
-  MEDIA: "bg-yellow-100 text-yellow-700",
-  BAJA: "bg-green-100 text-green-700",
+const PRIORITY_VARIANT: Record<Task["priority"], "danger" | "warning" | "success"> = {
+  ALTA: "danger",
+  MEDIA: "warning",
+  BAJA: "success",
 };
 
 const FREQUENCY_LABELS: Record<Task["frequency"], string> = {
@@ -103,7 +104,7 @@ export default function TaskCard({ task, currentUserId, isDragging, onEdit, onDe
           </button>
           <button
             onClick={(e) => { e.stopPropagation(); onDelete(task.id); }}
-            className="p-1 text-disabled hover:text-red-600 rounded"
+            className="p-1 text-disabled hover:text-danger rounded"
             aria-label="Eliminar"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -121,24 +122,26 @@ export default function TaskCard({ task, currentUserId, isDragging, onEdit, onDe
       </div>
 
       <div className="flex flex-wrap gap-1.5 mb-2.5">
-        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${PRIORITY_STYLES[task.priority]}`}>
+        <Badge variant={PRIORITY_VARIANT[task.priority]} className="rounded normal-case">
           {task.priority}
-        </span>
-        <span className="text-[10px] text-secondary bg-background px-1.5 py-0.5 rounded border border-border">
+        </Badge>
+        <span className="text-[10px] text-secondary bg-surface2 px-1.5 py-0.5 rounded border border-border">
           {FREQUENCY_LABELS[task.frequency]}
         </span>
       </div>
 
-      {task.type === "SEGUIMIENTO" && (
-        <div className="mb-2.5">
-          <span className="inline-flex items-center gap-1 text-[10px] font-semibold text-violet-700 bg-violet-50 border border-violet-200 px-1.5 py-0.5 rounded-full">
+      <div className="mb-2.5">
+        {task.type === "SEGUIMIENTO" ? (
+          <Badge variant="info">
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
             Seguimiento
-          </span>
-        </div>
-      )}
+          </Badge>
+        ) : (
+          <Badge variant="neutral">Fija</Badge>
+        )}
+      </div>
 
       {task.progress > 0 && (
         <div className="mb-2.5">
@@ -168,7 +171,7 @@ export default function TaskCard({ task, currentUserId, isDragging, onEdit, onDe
           {task.type === "SEGUIMIENTO" && onActivityClick && (
             <button
               onClick={(e) => { e.stopPropagation(); onActivityClick(task); }}
-              className="flex items-center gap-1 text-[10px] text-secondary hover:text-violet-600 transition-colors"
+              className="flex items-center gap-1 text-[10px] text-secondary hover:text-primary transition-colors"
               title="Registro de actividades"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

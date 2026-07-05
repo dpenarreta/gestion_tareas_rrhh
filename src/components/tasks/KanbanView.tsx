@@ -19,9 +19,9 @@ import ActivityPanel from "./ActivityPanel";
 import { fireCelebrationConfetti } from "@/lib/confetti";
 
 const COLUMNS: { id: TaskStatus; label: string; headerColor: string; dotColor: string }[] = [
-  { id: "PENDIENTE", label: "Pendiente", headerColor: "text-main", dotColor: "bg-slate-400" },
-  { id: "EN_PROGRESO", label: "En Progreso", headerColor: "text-blue-700", dotColor: "bg-blue-500" },
-  { id: "COMPLETADA", label: "Completada", headerColor: "text-green-700", dotColor: "bg-green-500" },
+  { id: "PENDIENTE", label: "Pendiente", headerColor: "text-secondary", dotColor: "bg-disabled" },
+  { id: "EN_PROGRESO", label: "En Progreso", headerColor: "text-primary", dotColor: "bg-primary" },
+  { id: "COMPLETADA", label: "Completada", headerColor: "text-success", dotColor: "bg-success" },
 ];
 
 function DroppableColumn({

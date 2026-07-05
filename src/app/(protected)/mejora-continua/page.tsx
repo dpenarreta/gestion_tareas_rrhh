@@ -17,6 +17,7 @@ export default async function MejoraContinuaPage() {
       description: true,
       impact: true,
       status: true,
+      progress: true,
       attachmentUrl: true,
       createdAt: true,
       updatedAt: true,
@@ -27,20 +28,23 @@ export default async function MejoraContinuaPage() {
         take: 1,
         select: { comment: true },
       },
+      _count: { select: { votes: true } },
+      votes: { where: { userId: session.userId }, select: { id: true } },
     },
     orderBy: { createdAt: "desc" },
   });
 
-  const serializedIdeas = ideas.map(({ history, ...i }) => ({
+  const serializedIdeas = ideas.map(({ history, _count, votes, ...i }) => ({
     ...i,
     createdAt: i.createdAt.toISOString(),
     updatedAt: i.updatedAt.toISOString(),
     latestRejectionComment: history[0]?.comment ?? null,
+    voteCount: _count.votes,
+    votedByMe: votes.length > 0,
   }));
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-title mb-6">Mejora Continua</h1>
       <IdeasModule
         initialIdeas={serializedIdeas}
         currentUserId={session.userId}

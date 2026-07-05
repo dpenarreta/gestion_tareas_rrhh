@@ -71,9 +71,9 @@ function fmtDuration(min: number) {
 }
 
 const STATUS_CFG: Record<MeetingStatus, { label: string; cls: string }> = {
-  PROGRAMADA: { label: "Programada", cls: "bg-blue-100 text-blue-700 border-blue-200" },
-  EN_CURSO: { label: "En curso", cls: "bg-green-100 text-green-700 border-green-200" },
-  FINALIZADA: { label: "Finalizada", cls: "bg-slate-100 text-slate-700 border-border" },
+  PROGRAMADA: { label: "Programada", cls: "bg-primary-surface text-primary border-transparent" },
+  EN_CURSO: { label: "En curso", cls: "bg-success/[.13] text-success border-transparent" },
+  FINALIZADA: { label: "Finalizada", cls: "bg-surface2 text-secondary border-border" },
 };
 
 function StatusBadge({ status }: { status: MeetingStatus }) {
@@ -199,7 +199,7 @@ function MeetingFormModal({
                 </button>
               ))}
             </div>
-            <p className="mt-1.5 text-[11px] text-amber-600">⚠️ Plan Zoom gratuito: máximo 40 minutos con más de 2 participantes</p>
+            <p className="mt-1.5 text-[11px] text-warning">⚠️ Plan Zoom gratuito: máximo 40 minutos con más de 2 participantes</p>
           </div>
 
           <div>
@@ -224,7 +224,7 @@ function MeetingFormModal({
             </div>
           </div>
 
-          {error && <p className="text-sm text-red-700 bg-red-50 border border-red-200 px-3 py-2 rounded-xl">{error}</p>}
+          {error && <p className="text-sm text-danger bg-danger/[.09] px-3 py-2 rounded-xl">{error}</p>}
 
           <div className="flex gap-3 pt-1">
             <button type="submit" disabled={saving}
@@ -310,7 +310,7 @@ function MeetingDetailModal({
             <div className="flex items-center gap-2 mb-1">
               <StatusBadge status={meeting.status} />
               {meeting.otterSummary && (
-                <span className="text-xs px-2 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 font-medium">
+                <span className="text-xs px-2 py-0.5 rounded-full border border-transparent bg-success/[.13] text-success font-medium">
                   📝 Notas disponibles
                 </span>
               )}
@@ -319,7 +319,7 @@ function MeetingDetailModal({
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {isHost && (
-              <button onClick={handleDelete} className="p-1.5 text-disabled hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+              <button onClick={handleDelete} className="p-1.5 text-disabled hover:text-danger hover:bg-danger/[.09] rounded-lg transition-colors">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                 </svg>
@@ -409,18 +409,18 @@ function MeetingDetailModal({
           </div>
 
           {/* Otter.ai */}
-          <div className="bg-violet-50 border border-violet-200 rounded-2xl p-4">
+          <div className="bg-cyan-500/10 rounded-2xl p-4">
             <div className="flex items-center gap-2 mb-2">
               <span className="text-lg">🦦</span>
-              <span className="text-sm font-semibold text-violet-800">Note taker — Otter.ai</span>
+              <span className="text-sm font-semibold text-cyan-700 dark:text-cyan-300">Note taker — Otter.ai</span>
             </div>
-            <p className="text-xs text-violet-700 mb-3">
+            <p className="text-xs text-cyan-700 dark:text-cyan-300 mb-3">
               Para activar la transcripción automática, invita a{" "}
               <span className="font-mono font-semibold">meet@otter.ai</span> como participante en Zoom.
             </p>
             <div className="flex items-center gap-3">
               <button onClick={copyOtterEmail}
-                className="flex items-center gap-1.5 text-xs font-medium text-violet-700 bg-surface border border-violet-200 px-3 py-1.5 rounded-lg hover:bg-violet-50 transition-colors">
+                className="flex items-center gap-1.5 text-xs font-medium text-cyan-700 dark:text-cyan-300 bg-surface border border-border2 px-3 py-1.5 rounded-lg hover:bg-cyan-500/10 transition-colors">
                 {copied ? "✓ Copiado" : "Copiar email de Otter"}
               </button>
               {isHost && (
@@ -428,11 +428,11 @@ function MeetingDetailModal({
                   <input type="checkbox" checked={meeting.otterInvited}
                     onChange={(e) => patch({ otterInvited: e.target.checked })}
                     disabled={saving} className="rounded" />
-                  <span className="text-xs text-violet-700 font-medium">Otter invitado ✓</span>
+                  <span className="text-xs text-cyan-700 dark:text-cyan-300 font-medium">Otter invitado ✓</span>
                 </label>
               )}
               {!isHost && meeting.otterInvited && (
-                <span className="text-xs text-violet-600 font-medium">✓ Otter fue invitado</span>
+                <span className="text-xs text-cyan-700 dark:text-cyan-300 font-medium">✓ Otter fue invitado</span>
               )}
             </div>
           </div>
@@ -514,7 +514,7 @@ function MeetingCard({ meeting, currentUserId, onClick }: { meeting: Meeting; cu
         <div className="flex items-center gap-2 flex-wrap">
           <StatusBadge status={meeting.status} />
           {meeting.otterSummary && (
-            <span className="text-xs px-2 py-0.5 rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 font-medium">
+            <span className="text-xs px-2 py-0.5 rounded-full border border-transparent bg-success/[.13] text-success font-medium">
               📝 Notas disponibles
             </span>
           )}
@@ -609,10 +609,7 @@ export default function MeetingsModule({
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-title">Reuniones</h1>
-          <p className="text-sm text-secondary mt-0.5">Zoom + notas automáticas con Otter.ai</p>
-        </div>
+        <p className="text-sm text-secondary">Zoom + notas automáticas con Otter.ai</p>
         {canCreate && (
           <button onClick={() => setShowForm(true)}
             className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-hover text-white text-sm font-medium rounded-xl transition-colors">

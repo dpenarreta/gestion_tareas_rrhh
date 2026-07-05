@@ -16,6 +16,9 @@ export type Idea = {
   description: string;
   impact: IdeaImpact;
   status: IdeaStatus;
+  progress: number;
+  voteCount: number;
+  votedByMe: boolean;
   attachmentUrl: string | null;
   createdAt: string;
   updatedAt: string;

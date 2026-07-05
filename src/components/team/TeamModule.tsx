@@ -75,9 +75,9 @@ function MemberCard({ member, onClick }: { member: TeamMember; onClick: () => vo
       </div>
 
       <div className="grid grid-cols-3 gap-2 mb-3">
-        <StatChip label="Pendiente" value={member.tasks.pending} color="text-slate-700 bg-slate-100" />
-        <StatChip label="En curso" value={member.tasks.inProgress} color="text-blue-700 bg-blue-50" />
-        <StatChip label="Listas" value={member.tasks.completed} color="text-green-700 bg-green-50" />
+        <StatChip label="Pendiente" value={member.tasks.pending} color="text-secondary bg-surface2" />
+        <StatChip label="En curso" value={member.tasks.inProgress} color="text-primary bg-primary-surface" />
+        <StatChip label="Listas" value={member.tasks.completed} color="text-success bg-success/[.13]" />
       </div>
 
       {member.tasks.total > 0 && (
@@ -120,15 +120,15 @@ const STATUS_OPTIONS = [
 ];
 
 const STATUS_STYLES: Record<string, string> = {
-  PENDIENTE: "bg-slate-100 text-slate-700",
-  EN_PROGRESO: "bg-blue-100 text-blue-700",
-  COMPLETADA: "bg-green-100 text-green-700",
+  PENDIENTE: "bg-surface2 text-secondary",
+  EN_PROGRESO: "bg-primary-surface text-primary",
+  COMPLETADA: "bg-success/[.13] text-success",
 };
 
 const PRIORITY_STYLES: Record<string, string> = {
-  ALTA: "bg-red-100 text-red-700",
-  MEDIA: "bg-yellow-100 text-yellow-700",
-  BAJA: "bg-green-100 text-green-700",
+  ALTA: "bg-danger/[.13] text-danger",
+  MEDIA: "bg-warning/[.15] text-warning",
+  BAJA: "bg-success/[.13] text-success",
 };
 
 const FREQUENCY_LABELS: Record<string, string> = {
@@ -231,7 +231,7 @@ function MemberTasksTable({
                   {task.type === "SEGUIMIENTO" && (
                     <button
                       onClick={() => onActivityClick(task)}
-                      className="text-disabled hover:text-violet-600 transition-colors"
+                      className="text-disabled hover:text-primary transition-colors"
                       title="Ver actividades"
                     >
                       <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -375,12 +375,9 @@ export default function TeamModule({ currentUserId, currentUserRole: _role }: Pr
       {!selectedMember && (
         <div>
           <div className="flex items-center justify-between mb-6">
-            <div>
-              <h1 className="text-2xl font-bold text-title">Mi Equipo</h1>
-              <p className="text-sm text-secondary mt-0.5">
-                {members.length} {members.length === 1 ? "integrante" : "integrantes"}
-              </p>
-            </div>
+            <p className="text-sm text-secondary">
+              {members.length} {members.length === 1 ? "integrante" : "integrantes"}
+            </p>
             <button
               onClick={() => openAssign()}
               className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-xl hover:bg-primary-hover transition-colors"
@@ -428,9 +425,9 @@ export default function TeamModule({ currentUserId, currentUserRole: _role }: Pr
             <div className="flex items-center gap-3 shrink-0">
               {/* mini stats */}
               <div className="hidden sm:flex items-center gap-2">
-                <MiniStat label="Pendiente" value={selectedMember.tasks.pending} color="bg-slate-100 text-slate-700" />
-                <MiniStat label="En curso" value={selectedMember.tasks.inProgress} color="bg-blue-50 text-blue-700" />
-                <MiniStat label="Listas" value={selectedMember.tasks.completed} color="bg-green-50 text-green-700" />
+                <MiniStat label="Pendiente" value={selectedMember.tasks.pending} color="bg-surface2 text-secondary" />
+                <MiniStat label="En curso" value={selectedMember.tasks.inProgress} color="bg-primary-surface text-primary" />
+                <MiniStat label="Listas" value={selectedMember.tasks.completed} color="bg-success/[.13] text-success" />
               </div>
               <button
                 onClick={() => openAssign(selectedMember.id)}

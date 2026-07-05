@@ -210,7 +210,7 @@ export default function ProfilePage() {
         </div>
         <div className="min-w-0">
           <h1 className="text-xl font-bold text-title truncate">{user.name}</h1>
-          <span className="inline-block mt-1 text-xs font-semibold bg-primary-surface text-primary border border-indigo-100 px-2 py-0.5 rounded-full">
+          <span className="inline-block mt-1 text-xs font-semibold bg-primary-surface text-primary border border-primline px-2 py-0.5 rounded-full">
             {ROLE_LABEL[user.role]}
           </span>
           <p className="text-xs text-disabled mt-1.5">Miembro desde {formatDate(user.createdAt)}</p>
@@ -242,7 +242,7 @@ export default function ProfilePage() {
               <ReadField label="Rol" value={ROLE_LABEL[user.role]} />
             </div>
             {infoSuccess && (
-              <p className="mt-4 text-sm text-green-700 bg-green-50 border border-green-200 px-3 py-2 rounded-lg">
+              <p className="mt-4 text-sm text-success bg-success/[.13] px-3 py-2 rounded-lg">
                 {infoSuccess}
               </p>
             )}
@@ -284,7 +284,7 @@ export default function ProfilePage() {
             </div>
 
             {infoError && (
-              <p className="text-sm text-red-700 bg-red-50 border border-red-200 px-3 py-2 rounded-lg">
+              <p className="text-sm text-danger bg-danger/[.09] px-3 py-2 rounded-lg">
                 {infoError}
               </p>
             )}
@@ -373,7 +373,7 @@ export default function ProfilePage() {
                 <p className="text-sm font-semibold text-title">{b.name}</p>
                 <p className="text-xs text-secondary mt-1">{b.description}</p>
                 {b.earned && (
-                  <span className="inline-block mt-2 text-xs font-medium text-primary bg-indigo-100 px-2 py-0.5 rounded-full">
+                  <span className="inline-block mt-2 text-xs font-medium text-primary bg-primary-surface px-2 py-0.5 rounded-full">
                     Obtenida ✓
                   </span>
                 )}
@@ -427,12 +427,12 @@ export default function ProfilePage() {
           </div>
 
           {pwError && (
-            <p className="text-sm text-red-700 bg-red-50 border border-red-200 px-3 py-2 rounded-lg">
+            <p className="text-sm text-danger bg-danger/[.09] px-3 py-2 rounded-lg">
               {pwError}
             </p>
           )}
           {pwSuccess && (
-            <p className="text-sm text-green-700 bg-green-50 border border-green-200 px-3 py-2 rounded-lg">
+            <p className="text-sm text-success bg-success/[.13] px-3 py-2 rounded-lg">
               {pwSuccess}
             </p>
           )}

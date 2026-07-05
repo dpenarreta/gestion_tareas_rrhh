@@ -4,15 +4,15 @@ import type { Task } from "./types";
 import { formatDate } from "@/lib/utils";
 
 const STATUS_BAR: Record<Task["status"], string> = {
-  PENDIENTE: "bg-slate-400",
-  EN_PROGRESO: "bg-blue-500",
-  COMPLETADA: "bg-green-500",
+  PENDIENTE: "bg-disabled",
+  EN_PROGRESO: "bg-primary/60",
+  COMPLETADA: "bg-success/60",
 };
 
 const STATUS_PROGRESS: Record<Task["status"], string> = {
-  PENDIENTE: "bg-slate-600",
-  EN_PROGRESO: "bg-blue-700",
-  COMPLETADA: "bg-green-700",
+  PENDIENTE: "bg-secondary",
+  EN_PROGRESO: "bg-primary",
+  COMPLETADA: "bg-success",
 };
 
 function daysBetween(a: Date, b: Date) {
@@ -141,7 +141,7 @@ function GanttChart({ tasks }: { tasks: Task[] }) {
             })}
             {todayOffset >= 0 && todayOffset <= totalDays && (
               <div
-                className="absolute top-0 w-0.5 bg-red-400 z-10"
+                className="absolute top-0 w-0.5 bg-danger z-10"
                 style={{ left: todayOffset * pxPerDay, height: tasks.length * 48 + 48 }}
                 title="Hoy"
               />

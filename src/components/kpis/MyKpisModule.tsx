@@ -73,15 +73,15 @@ function addMonths(base: string, n: number) {
 }
 
 const DOT_CLASS: Record<KpiColor, string> = {
-  green: "bg-green-500",
-  yellow: "bg-amber-400",
-  red: "bg-red-500",
+  green: "bg-success",
+  yellow: "bg-warning",
+  red: "bg-danger",
 };
 
 const CARD_BG: Record<KpiColor | "gray", string> = {
-  green: "bg-green-50 border-green-200",
-  yellow: "bg-amber-50 border-amber-200",
-  red: "bg-red-50 border-red-200",
+  green: "bg-success/[.13] border-transparent",
+  yellow: "bg-warning/[.15] border-transparent",
+  red: "bg-danger/[.13] border-transparent",
   gray: "bg-background border-border",
 };
 
@@ -93,10 +93,10 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 const STATUS_BADGE: Record<string, string> = {
-  PENDIENTE: "bg-slate-100 text-slate-700",
-  EN_PROGRESO: "bg-blue-100 text-blue-700",
-  COMPLETADA: "bg-green-100 text-green-700",
-  CANCELADA: "bg-slate-100 text-slate-400 line-through",
+  PENDIENTE: "bg-surface2 text-secondary",
+  EN_PROGRESO: "bg-primary-surface text-primary",
+  COMPLETADA: "bg-success/[.13] text-success",
+  CANCELADA: "bg-surface2 text-disabled line-through",
 };
 
 const TYPE_LABEL: Record<string, string> = {
@@ -132,27 +132,27 @@ function motivationalMessage(
     return {
       icon: "🌟",
       text: `Desempeño sobresaliente en el período analizado.${trendSuffix}`,
-      bg: "bg-green-50 border-green-200",
+      bg: "bg-success/[.13] border-transparent",
     };
   }
   if (pct >= 80) {
     return {
       icon: "✅",
       text: `Buen desempeño. Estás cumpliendo con el objetivo en este período.${trendSuffix}`,
-      bg: "bg-green-50 border-green-200",
+      bg: "bg-success/[.13] border-transparent",
     };
   }
   if (pct >= 60) {
     return {
       icon: "📈",
       text: `Cumplimiento dentro del rango aceptable, con margen para mejorar.${trendSuffix}`,
-      bg: "bg-amber-50 border-amber-200",
+      bg: "bg-warning/[.15] border-transparent",
     };
   }
   return {
     icon: "⚠️",
     text: `El cumplimiento promedio del período está por debajo del mínimo esperado (60%). Revisa las tareas vencidas y coordina con tu supervisor si necesitas apoyo.${trendSuffix}`,
-    bg: "bg-red-50 border-red-200",
+    bg: "bg-danger/[.13] border-transparent",
   };
 }
 
@@ -504,7 +504,7 @@ function DeltaBadge({ current, prev, suffix = "%" }: { current: number; prev: nu
   if (delta === 0) return <span className="text-[11px] text-disabled">sin cambio</span>;
   const positive = delta > 0;
   return (
-    <span className={`text-[11px] font-medium ${positive ? "text-green-600" : "text-red-500"}`}>
+    <span className={`text-[11px] font-medium ${positive ? "text-success" : "text-danger"}`}>
       {positive ? "▲" : "▼"} {Math.abs(delta)}{suffix} vs mes anterior
     </span>
   );
@@ -634,7 +634,7 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
           </div>
 
           {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">{error}</div>
+            <div className="bg-danger/[.09] text-danger text-sm rounded-xl px-4 py-3">{error}</div>
           )}
 
           {loading && (
@@ -690,7 +690,7 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
                   <div className="w-full space-y-1 text-xs text-main">
                     <div className="flex justify-between">
                       <span>Vencidas</span>
-                      <span className={kpi.cumplimiento.overdue > 0 ? "text-red-600 font-semibold" : "text-disabled"}>
+                      <span className={kpi.cumplimiento.overdue > 0 ? "text-danger font-semibold" : "text-disabled"}>
                         {kpi.cumplimiento.overdue}
                         {kpi.cumplimiento.overdue > 0 && kpi.cumplimiento.avgDelayDays > 0
                           ? ` (${kpi.cumplimiento.avgDelayDays}d prom.)`
@@ -837,12 +837,12 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
                                 </div>
                               </td>
                               <td className="py-2.5 pr-4">
-                                <span className="text-[11px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full">
+                                <span className="text-[11px] bg-surface2 text-secondary px-2 py-0.5 rounded-full">
                                   {TYPE_LABEL[t.type] ?? t.type}
                                 </span>
                               </td>
                               <td className="py-2.5 pr-4">
-                                <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${STATUS_BADGE[t.status] ?? "bg-slate-100 text-slate-600"}`}>
+                                <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${STATUS_BADGE[t.status] ?? "bg-surface2 text-secondary"}`}>
                                   {STATUS_LABEL[t.status] ?? t.status}
                                 </span>
                               </td>
@@ -851,7 +851,7 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
                               </td>
                               <td className="py-2.5 pr-4">
                                 {t.delayDays > 0 ? (
-                                  <span className="text-xs text-red-600 font-medium">{t.delayDays}d</span>
+                                  <span className="text-xs text-danger font-medium">{t.delayDays}d</span>
                                 ) : (
                                   <span className="text-disabled text-xs">—</span>
                                 )}
@@ -937,7 +937,7 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
           </div>
 
           {rangeError && (
-            <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">{rangeError}</div>
+            <div className="bg-danger/[.09] text-danger text-sm rounded-xl px-4 py-3">{rangeError}</div>
           )}
 
           {rangeLoading && (
@@ -964,13 +964,13 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
                 const isUp = t.cumplimientoTrend === "mejora";
                 const isDown = t.cumplimientoTrend === "deterioro";
                 return (
-                  <div className={`rounded-2xl border px-5 py-4 flex items-center gap-4 ${isUp ? "bg-green-50 border-green-200" : isDown ? "bg-red-50 border-red-200" : "bg-background border-border"}`}>
+                  <div className={`rounded-2xl border px-5 py-4 flex items-center gap-4 ${isUp ? "bg-success/[.13] border-transparent" : isDown ? "bg-danger/[.13] border-transparent" : "bg-background border-border"}`}>
                     <span className="text-3xl">{isUp ? "▲" : isDown ? "▼" : "="}</span>
                     <div>
-                      <p className={`text-lg font-bold ${isUp ? "text-green-700" : isDown ? "text-red-700" : "text-main"}`}>
+                      <p className={`text-lg font-bold ${isUp ? "text-success" : isDown ? "text-danger" : "text-main"}`}>
                         Tendencia: {t.cumplimientoTrend.toUpperCase()}
                       </p>
-                      <p className={`text-sm ${isUp ? "text-green-600" : isDown ? "text-red-600" : "text-secondary"}`}>
+                      <p className={`text-sm ${isUp ? "text-success" : isDown ? "text-danger" : "text-secondary"}`}>
                         {t.firstMonthCumplimiento}% → {t.lastMonthCumplimiento}%
                         {" "}({t.cumplimientoChange > 0 ? "+" : ""}{t.cumplimientoChange} pp en {rangeReport.months.length} meses)
                       </p>
@@ -1050,11 +1050,11 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
                     </thead>
                     <tbody className="divide-y divide-border">
                       {rangeReport.months.map((m) => (
-                        <tr key={m.month} className={`hover:bg-black/5 dark:hover:bg-white/5 ${m.totalTasks > 0 && m.completedPct < 60 ? "bg-red-50/40" : ""}`}>
+                        <tr key={m.month} className={`hover:bg-surface2 ${m.totalTasks > 0 && m.completedPct < 60 ? "bg-danger/[.06]" : ""}`}>
                           <td className="py-2 pr-4 text-sm font-medium text-title">{m.label}</td>
                           <td className="py-2 pr-4">
                             <span className="flex items-center gap-1.5">
-                              <div className={`w-2 h-2 rounded-full ${m.completedPct >= 80 ? "bg-green-500" : m.completedPct >= 60 ? "bg-amber-400" : "bg-red-500"}`} />
+                              <div className={`w-2 h-2 rounded-full ${m.completedPct >= 80 ? "bg-success" : m.completedPct >= 60 ? "bg-warning" : "bg-danger"}`} />
                               {m.completedPct}%
                             </span>
                           </td>

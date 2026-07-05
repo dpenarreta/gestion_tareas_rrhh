@@ -31,6 +31,10 @@ export default function IdeasModule({ initialIdeas, currentUserId, currentUserRo
     setIdeas((prev) => prev.map((i) => (i.id === updated.id ? { ...i, ...updated } : i)));
   }, []);
 
+  const handleVoteChange = useCallback((id: string, voteCount: number, votedByMe: boolean) => {
+    setIdeas((prev) => prev.map((i) => (i.id === id ? { ...i, voteCount, votedByMe } : i)));
+  }, []);
+
   return (
     <div className="flex flex-col min-h-0">
       <div className="flex items-center justify-between border-b border-border mb-5 pb-0.5">
@@ -66,6 +70,7 @@ export default function IdeasModule({ initialIdeas, currentUserId, currentUserRo
           currentUserId={currentUserId}
           currentUserRole={currentUserRole}
           onCardClick={(idea) => setSelectedIdeaId(idea.id)}
+          onVoteChange={handleVoteChange}
         />
       )}
       {tab === "MIS_IDEAS" && (

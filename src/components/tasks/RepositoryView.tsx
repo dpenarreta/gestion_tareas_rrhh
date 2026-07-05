@@ -8,9 +8,9 @@ import { formatDate } from "@/lib/utils";
 type RepositoryMonth = { year: number; month: number; totalTasks: number; completedTasks: number; totalHours: number };
 
 const STATUS_STYLES: Record<Task["status"], string> = {
-  PENDIENTE: "bg-slate-100 text-slate-700",
-  EN_PROGRESO: "bg-blue-100 text-blue-700",
-  COMPLETADA: "bg-green-100 text-green-700",
+  PENDIENTE: "bg-surface2 text-secondary",
+  EN_PROGRESO: "bg-primary-surface text-primary",
+  COMPLETADA: "bg-success/[.13] text-success",
 };
 
 const STATUS_LABELS: Record<Task["status"], string> = {
@@ -20,9 +20,9 @@ const STATUS_LABELS: Record<Task["status"], string> = {
 };
 
 const PRIORITY_STYLES: Record<Task["priority"], string> = {
-  ALTA: "bg-red-100 text-red-700",
-  MEDIA: "bg-yellow-100 text-yellow-700",
-  BAJA: "bg-green-100 text-green-700",
+  ALTA: "bg-danger/[.13] text-danger",
+  MEDIA: "bg-warning/[.15] text-warning",
+  BAJA: "bg-success/[.13] text-success",
 };
 
 const FREQUENCY_LABELS: Record<Task["frequency"], string> = {

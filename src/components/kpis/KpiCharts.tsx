@@ -32,12 +32,6 @@ export const REASON_LABEL: Record<string, string> = {
 // Recharts palette (Parte 2 del sistema de diseño): morado, azul, verde, amarillo, naranja
 const CHART_COLORS = ["#6366f1", "#3b82f6", "#34d399", "#fbbf24", "#f59e0b"];
 
-const DONUT_COLORS: Record<KpiColor, string> = {
-  green: "#22c55e",
-  yellow: "#f59e0b",
-  red: "#ef4444",
-};
-
 function useChartTheme() {
   const { resolvedTheme } = useTheme();
   const dark = resolvedTheme === "dark";
@@ -50,6 +44,10 @@ function useChartTheme() {
     tooltipBorder: dark ? "#2d3748" : "#e2e8f0",
     tooltipText: dark ? "#f9fafb" : "#111827",
     track: dark ? "#2d3748" : "#e2e8f0",
+    primary: dark ? "#6E72F2" : "#5155E5",
+    success: dark ? "#37B884" : "#1E9E68",
+    warning: dark ? "#E2A93B" : "#B27B10",
+    danger: dark ? "#E15A5A" : "#D14343",
   };
 }
 
@@ -70,7 +68,7 @@ export function DonutChart({
   const r = 38;
   const circ = 2 * Math.PI * r;
   const dash = Math.min(pct / 100, 1) * circ;
-  const stroke = DONUT_COLORS[color];
+  const stroke = color === "green" ? ct.success : color === "yellow" ? ct.warning : ct.danger;
 
   return (
     <div className="flex flex-col items-center gap-2">
@@ -123,8 +121,8 @@ export function WeeklyHoursChart({ data }: { data: KpiData["horasByWeek"] }) {
           formatter={(v) => [`${v}h`]}
         />
         <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8, color: ct.axis }} />
-        <Bar dataKey="estimated" name="Estimado" fill="#a5b4fc" radius={[4, 4, 0, 0]} maxBarSize={32} />
-        <Bar dataKey="real" name="Real" fill={CHART_COLORS[0]} radius={[4, 4, 0, 0]} maxBarSize={32} />
+        <Bar dataKey="estimated" name="Estimado" fill={ct.track} radius={[4, 4, 0, 0]} maxBarSize={32} />
+        <Bar dataKey="real" name="Real" fill={ct.primary} radius={[4, 4, 0, 0]} maxBarSize={32} />
       </BarChart>
     </ResponsiveContainer>
   );
@@ -154,16 +152,16 @@ export function CumplimientoLineChart({
           contentStyle={{ borderRadius: 8, border: `1px solid ${ct.tooltipBorder}`, fontSize: 12, background: ct.tooltipBg, color: ct.tooltipText }}
           formatter={(v) => [`${v}%`, "Cumplimiento"]}
         />
-        <ReferenceLine y={80} stroke="#22c55e" strokeDasharray="4 4" strokeWidth={1.5} />
-        <ReferenceLine y={60} stroke="#f59e0b" strokeDasharray="4 4" strokeWidth={1.5} />
+        <ReferenceLine y={80} stroke={ct.success} strokeDasharray="4 4" strokeWidth={1.5} />
+        <ReferenceLine y={60} stroke={ct.warning} strokeDasharray="4 4" strokeWidth={1.5} />
         <Line
           type="monotone"
           dataKey="completedPct"
           name="Cumplimiento"
-          stroke={CHART_COLORS[0]}
+          stroke={ct.primary}
           strokeWidth={2.5}
-          dot={{ r: 4, fill: CHART_COLORS[0], strokeWidth: 0 }}
-          activeDot={{ r: 6, fill: "#4f46e5" }}
+          dot={{ r: 4, fill: ct.primary, strokeWidth: 0 }}
+          activeDot={{ r: 6, fill: ct.primary }}
         />
       </LineChart>
     </ResponsiveContainer>

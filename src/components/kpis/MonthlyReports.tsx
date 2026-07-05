@@ -46,13 +46,13 @@ function formatMonthLabel(monthParam: string) {
 
 function colorDot(pct: number, type: "cumplimiento" | "carga" = "cumplimiento") {
   if (type === "carga") {
-    if (pct <= 100) return "bg-green-500";
-    if (pct <= 120) return "bg-amber-400";
-    return "bg-red-500";
+    if (pct <= 100) return "bg-success";
+    if (pct <= 120) return "bg-warning";
+    return "bg-danger";
   }
-  if (pct >= 80) return "bg-green-500";
-  if (pct >= 60) return "bg-amber-400";
-  return "bg-red-500";
+  if (pct >= 80) return "bg-success";
+  if (pct >= 60) return "bg-warning";
+  return "bg-danger";
 }
 
 // ── Excel export ──────────────────────────────────────────────────────────────
@@ -732,7 +732,7 @@ export default function MonthlyReports({ currentUserRole }: Props) {
           </div>
 
           {rangeError && (
-            <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">{rangeError}</div>
+            <div className="bg-danger/[.09] text-danger text-sm rounded-xl px-4 py-3">{rangeError}</div>
           )}
 
           {rangeLoading && (
@@ -759,22 +759,22 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                 const isUp = t.cumplimientoTrend === "mejora";
                 const isDown = t.cumplimientoTrend === "deterioro";
                 return (
-                  <div className={`rounded-2xl border px-5 py-4 flex items-center gap-4 ${isUp ? "bg-green-50 border-green-200" : isDown ? "bg-red-50 border-red-200" : "bg-background border-border"}`}>
+                  <div className={`rounded-2xl border px-5 py-4 flex items-center gap-4 ${isUp ? "bg-success/[.13] border-transparent" : isDown ? "bg-danger/[.13] border-transparent" : "bg-background border-border"}`}>
                     <span className="text-3xl">{isUp ? "▲" : isDown ? "▼" : "="}</span>
                     <div>
-                      <p className={`text-lg font-bold ${isUp ? "text-green-700" : isDown ? "text-red-700" : "text-main"}`}>
+                      <p className={`text-lg font-bold ${isUp ? "text-success" : isDown ? "text-danger" : "text-main"}`}>
                         Tendencia: {t.cumplimientoTrend.toUpperCase()}
                       </p>
-                      <p className={`text-sm ${isUp ? "text-green-600" : isDown ? "text-red-600" : "text-secondary"}`}>
+                      <p className={`text-sm ${isUp ? "text-success" : isDown ? "text-danger" : "text-secondary"}`}>
                         Cumplimiento {t.firstMonthAvgCumplimiento}% → {t.lastMonthAvgCumplimiento}%
                         {" "}({t.cumplimientoChange > 0 ? "+" : ""}{t.cumplimientoChange} pp en {rangeReport.months.length} meses)
                       </p>
                     </div>
                     {rangeReport.aggregated.problematicMonths.length > 0 && (
                       <div className="ml-auto text-right">
-                        <p className="text-xs text-red-600 font-semibold">Meses críticos (&lt;60%)</p>
+                        <p className="text-xs text-danger font-semibold">Meses críticos (&lt;60%)</p>
                         {rangeReport.aggregated.problematicMonths.map((pm) => (
-                          <p key={pm.month} className="text-xs text-red-500">{pm.label}: {pm.teamAvgCumplimiento}%</p>
+                          <p key={pm.month} className="text-xs text-danger">{pm.label}: {pm.teamAvgCumplimiento}%</p>
                         ))}
                       </div>
                     )}
@@ -798,11 +798,11 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                   <h3 className="text-sm font-semibold text-main uppercase tracking-wider mb-3">Alertas Persistentes</h3>
                   <div className="space-y-2">
                     {rangeReport.aggregated.alerts.map((a, i) => (
-                      <div key={i} className={`flex items-start gap-3 px-4 py-3 rounded-xl border ${a.type === "cumplimiento" ? "bg-red-50 border-red-200" : "bg-amber-50 border-amber-200"}`}>
+                      <div key={i} className={`flex items-start gap-3 px-4 py-3 rounded-xl border border-transparent ${a.type === "cumplimiento" ? "bg-danger/[.13]" : "bg-warning/[.15]"}`}>
                         <span className="text-lg leading-none mt-0.5">⚠️</span>
                         <div>
-                          <p className={`text-sm font-semibold ${a.type === "cumplimiento" ? "text-red-700" : "text-amber-700"}`}>{a.name}</p>
-                          <p className={`text-xs ${a.type === "cumplimiento" ? "text-red-600" : "text-amber-600"}`}>
+                          <p className={`text-sm font-semibold ${a.type === "cumplimiento" ? "text-danger" : "text-warning"}`}>{a.name}</p>
+                          <p className={`text-xs ${a.type === "cumplimiento" ? "text-danger" : "text-warning"}`}>
                             {a.type === "cumplimiento"
                               ? `Cumplimiento promedio ${a.avgValue}% en ${a.monthsAffected} de los meses analizados`
                               : `Sobrecarga promedio ${a.avgValue}% en ${a.monthsAffected} de los meses analizados`}
@@ -850,7 +850,7 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                     </thead>
                     <tbody className="divide-y divide-border">
                       {rangeReport.months.map((ms) => (
-                        <tr key={ms.month} className={`hover:bg-black/5 dark:hover:bg-white/5 ${ms.totalTasks > 0 && ms.teamAvgCumplimiento < 60 ? "bg-red-50/40" : ""}`}>
+                        <tr key={ms.month} className={`hover:bg-surface2 ${ms.totalTasks > 0 && ms.teamAvgCumplimiento < 60 ? "bg-danger/[.06]" : ""}`}>
                           <td className="py-2 pr-4 text-sm font-medium text-title">{ms.label}</td>
                           <td className="py-2 pr-4">
                             <span className="flex items-center gap-1.5">
@@ -874,7 +874,7 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                 <div className="space-y-2">
                   {rangeReport.aggregated.ranking.map((m, i) => (
                     <div key={m.id} className="flex items-center gap-3 py-2 border-b border-border last:border-0">
-                      <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${i === 0 ? "bg-amber-100 text-amber-700" : i === 1 ? "bg-slate-100 text-slate-700" : i === 2 ? "bg-orange-100 text-orange-600" : "bg-background text-disabled"}`}>{i + 1}</span>
+                      <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${i === 0 ? "bg-warning/[.15] text-warning" : i === 1 ? "bg-surface2 text-secondary" : i === 2 ? "bg-primary-surface text-primary" : "bg-background text-disabled"}`}>{i + 1}</span>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-title truncate">{m.name}</p>
                         <p className="text-[11px] text-disabled">{ROLE_LABEL[m.role as Role] ?? m.role}</p>
@@ -882,7 +882,7 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                       <div className="flex items-center gap-3 shrink-0">
                         <p className="text-sm font-bold text-main">{m.avgScore}<span className="text-disabled font-normal">/100</span></p>
                         <div className="w-24 bg-black/10 dark:bg-white/10 rounded-full h-2">
-                          <div className={`h-2 rounded-full ${m.avgCumplimiento >= 80 ? "bg-green-500" : m.avgCumplimiento >= 60 ? "bg-amber-400" : "bg-red-500"}`} style={{ width: `${m.avgCumplimiento}%` }} />
+                          <div className={`h-2 rounded-full ${m.avgCumplimiento >= 80 ? "bg-success" : m.avgCumplimiento >= 60 ? "bg-warning" : "bg-danger"}`} style={{ width: `${m.avgCumplimiento}%` }} />
                         </div>
                         <span className="text-sm text-main w-10 text-right">{m.avgCumplimiento}%</span>
                         <div className={`w-2 h-2 rounded-full ${colorDot(m.avgCumplimiento)}`} />
@@ -907,9 +907,9 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                   <div className="text-main leading-relaxed whitespace-pre-wrap text-[13px]">{rangeReport.aiAnalysis}</div>
                 </div>
               ) : (
-                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5">
-                  <p className="text-sm text-amber-700">
-                    <strong>Análisis IA no disponible.</strong> Configura <code className="bg-amber-100 px-1 rounded">GROQ_API_KEY</code> en <code className="bg-amber-100 px-1 rounded">.env</code>.
+                <div className="bg-warning/[.15] rounded-2xl p-5">
+                  <p className="text-sm text-warning">
+                    <strong>Análisis IA no disponible.</strong> Configura <code className="bg-warning/20 px-1 rounded">GROQ_API_KEY</code> en <code className="bg-warning/20 px-1 rounded">.env</code>.
                   </p>
                 </div>
               )}
@@ -964,7 +964,7 @@ export default function MonthlyReports({ currentUserRole }: Props) {
       </div>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">
+        <div className="bg-danger/[.09] text-danger text-sm rounded-xl px-4 py-3">
           {error}
         </div>
       )}
@@ -1092,18 +1092,18 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                     {data.alerts.map((a, i) => (
                       <div
                         key={i}
-                        className={`flex items-start gap-3 px-4 py-3 rounded-xl border ${
+                        className={`flex items-start gap-3 px-4 py-3 rounded-xl border border-transparent ${
                           a.type === "cumplimiento"
-                            ? "bg-red-50 border-red-200"
-                            : "bg-amber-50 border-amber-200"
+                            ? "bg-danger/[.13]"
+                            : "bg-warning/[.15]"
                         }`}
                       >
                         <span className="text-lg leading-none mt-0.5">⚠️</span>
                         <div>
-                          <p className={`text-sm font-semibold ${a.type === "cumplimiento" ? "text-red-700" : "text-amber-700"}`}>
+                          <p className={`text-sm font-semibold ${a.type === "cumplimiento" ? "text-danger" : "text-warning"}`}>
                             {a.name}
                           </p>
-                          <p className={`text-xs ${a.type === "cumplimiento" ? "text-red-600" : "text-amber-600"}`}>
+                          <p className={`text-xs ${a.type === "cumplimiento" ? "text-danger" : "text-warning"}`}>
                             {a.type === "cumplimiento"
                               ? `Cumplimiento crítico: ${a.value}% (umbral mínimo 60%)`
                               : `Sobrecarga laboral: ${a.value}% (umbral máximo 120%)`}
@@ -1126,11 +1126,11 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                       <span
                         className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${
                           i === 0
-                            ? "bg-amber-100 text-amber-700"
+                            ? "bg-warning/[.15] text-warning"
                             : i === 1
-                              ? "bg-slate-100 text-slate-700"
+                              ? "bg-surface2 text-secondary"
                               : i === 2
-                                ? "bg-orange-100 text-orange-600"
+                                ? "bg-primary-surface text-primary"
                                 : "bg-background text-disabled"
                         }`}
                       >
@@ -1148,10 +1148,10 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                           <div
                             className={`h-2 rounded-full transition-all ${
                               m.completedPct >= 80
-                                ? "bg-green-500"
+                                ? "bg-success"
                                 : m.completedPct >= 60
-                                  ? "bg-amber-400"
-                                  : "bg-red-500"
+                                  ? "bg-warning"
+                                  : "bg-danger"
                             }`}
                             style={{ width: `${m.completedPct}%` }}
                           />
@@ -1203,7 +1203,7 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                           <td className="py-2.5 pr-4 text-main">{m.completedTasks}/{m.totalTasks}</td>
                           <td className="py-2.5 pr-4">
                             {m.overdueCount > 0 ? (
-                              <span className="text-red-600 font-medium">{m.overdueCount}</span>
+                              <span className="text-danger font-medium">{m.overdueCount}</span>
                             ) : (
                               <span className="text-disabled">—</span>
                             )}
@@ -1267,10 +1267,10 @@ export default function MonthlyReports({ currentUserRole }: Props) {
               )}
 
               {!fullReport.aiAnalysis && (
-                <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5">
-                  <p className="text-sm text-amber-700">
+                <div className="bg-warning/[.15] rounded-2xl p-5">
+                  <p className="text-sm text-warning">
                     <strong>Análisis IA no disponible.</strong> Para activar el análisis automático, configura la variable de entorno{" "}
-                    <code className="bg-amber-100 px-1 rounded">GROQ_API_KEY</code> en el archivo <code className="bg-amber-100 px-1 rounded">.env</code>. Obtén una API key gratuita en{" "}
+                    <code className="bg-warning/20 px-1 rounded">GROQ_API_KEY</code> en el archivo <code className="bg-warning/20 px-1 rounded">.env</code>. Obtén una API key gratuita en{" "}
                     <span className="font-medium">console.groq.com</span>.
                   </p>
                 </div>

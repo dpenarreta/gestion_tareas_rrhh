@@ -3,17 +3,10 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { Role } from "@/generated/prisma/client";
 import { canManageUsers } from "@/lib/roles";
+import { useNovaChat, type NovaMode, type NovaSource } from "./useNovaChat";
 
-type Mode = "general" | "tasks" | "hr";
-
-type Source = { title: string; fileName: string; pageNumber: number };
-
-type Message = {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  sources?: Source[];
-};
+type Mode = NovaMode;
+type Source = NovaSource;
 
 type KnowledgeDoc = {
   id: string;
@@ -60,17 +53,13 @@ const SUGGESTIONS: Record<Mode, string[]> = {
   ],
 };
 
-function uid() {
-  return Math.random().toString(36).slice(2);
-}
-
 function TypingDots() {
   return (
     <div className="flex items-center gap-1 px-4 py-3">
       {[0, 1, 2].map((i) => (
         <span
           key={i}
-          className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"
+          className="w-2 h-2 bg-disabled rounded-full animate-bounce"
           style={{ animationDelay: `${i * 0.15}s` }}
         />
       ))}
@@ -80,7 +69,7 @@ function TypingDots() {
 
 function SourceTag({ source }: { source: Source }) {
   return (
-    <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+    <span className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-success/[.13] text-success">
       <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
       </svg>
@@ -97,9 +86,7 @@ export default function AssistantModule({
   const canUpload = canManageUsers(currentUserRole);
 
   const [mode, setMode] = useState<Mode>("general");
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
+  const { messages, input, setInput, loading, sendMessage, reset } = useNovaChat(mode);
 
   // Knowledge base
   const [docs, setDocs] = useState<KnowledgeDoc[]>([]);
@@ -133,48 +120,12 @@ export default function AssistantModule({
 
   function changeMode(m: Mode) {
     setMode(m);
-    setMessages([]);
-    setInput("");
+    reset();
   }
 
-  async function sendMessage(text?: string) {
-    const content = (text ?? input).trim();
-    if (!content || loading) return;
-    setInput("");
-
-    const userMsg: Message = { id: uid(), role: "user", content };
-    setMessages((prev) => [...prev, userMsg]);
-    setLoading(true);
-
-    const history = messages.map((m) => ({ role: m.role, content: m.content }));
-
-    try {
-      const res = await fetch("/api/assistant/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode, message: content, history }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setMessages((prev) => [
-          ...prev,
-          { id: uid(), role: "assistant", content: data.error ?? "Error al obtener respuesta." },
-        ]);
-      } else {
-        setMessages((prev) => [
-          ...prev,
-          { id: uid(), role: "assistant", content: data.content, sources: data.sources ?? [] },
-        ]);
-      }
-    } catch {
-      setMessages((prev) => [
-        ...prev,
-        { id: uid(), role: "assistant", content: "Error de conexión. Intenta de nuevo." },
-      ]);
-    } finally {
-      setLoading(false);
-      setTimeout(() => inputRef.current?.focus(), 50);
-    }
+  async function handleSend(text?: string) {
+    await sendMessage(text);
+    setTimeout(() => inputRef.current?.focus(), 50);
   }
 
   async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
@@ -214,7 +165,11 @@ export default function AssistantModule({
   const availableModes: Mode[] = ["general", "tasks", "hr"];
 
   return (
-    <div className="flex flex-col h-full gap-4">
+    <div className="relative isolate flex flex-col h-full gap-4">
+      <div
+        className="pointer-events-none absolute inset-x-0 -top-24 h-72 -z-10"
+        style={{ background: "radial-gradient(600px circle at 50% 0%, var(--novasoft), transparent 70%)" }}
+      />
       {/* Mode selector */}
       <div className="flex items-center gap-2 flex-wrap">
         {availableModes.map((m) => {
@@ -227,9 +182,9 @@ export default function AssistantModule({
               className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium transition-all border ${
                 active
                   ? m === "hr"
-                    ? "bg-emerald-600 text-white border-emerald-600 shadow-sm"
+                    ? "bg-success text-white border-success shadow-sm"
                     : m === "tasks"
-                    ? "bg-violet-600 text-white border-violet-600 shadow-sm"
+                    ? "bg-nova text-white border-nova shadow-sm"
                     : "bg-primary text-white border-primary shadow-sm"
                   : "bg-surface text-main border-border hover:border-primary/40 hover:text-title"
               }`}
@@ -269,7 +224,7 @@ export default function AssistantModule({
             className="w-full flex items-center justify-between px-5 py-3 hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
           >
             <div className="flex items-center gap-2">
-              <svg className="w-4 h-4 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-4 h-4 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z" />
               </svg>
               <span className="text-sm font-semibold text-main">Base de conocimiento</span>
@@ -301,7 +256,7 @@ export default function AssistantModule({
                       placeholder="Título del documento…"
                       value={docTitle}
                       onChange={(e) => setDocTitle(e.target.value)}
-                      className="flex-1 border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-emerald-300"
+                      className="flex-1 border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-success/30"
                     />
                     <button
                       onClick={() => {
@@ -313,7 +268,7 @@ export default function AssistantModule({
                         fileInputRef.current?.click();
                       }}
                       disabled={uploading}
-                      className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-emerald-600 rounded-xl hover:bg-emerald-700 disabled:opacity-50 transition-colors shrink-0"
+                      className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-success rounded-xl hover:brightness-110 disabled:opacity-50 transition-colors shrink-0"
                     >
                       {uploading ? (
                         <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -333,7 +288,7 @@ export default function AssistantModule({
                     />
                   </div>
                   {uploadError && (
-                    <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+                    <p className="text-xs text-danger bg-danger/[.09] rounded-lg px-3 py-2">
                       {uploadError}
                     </p>
                   )}
@@ -348,7 +303,7 @@ export default function AssistantModule({
               {/* Document list */}
               {docsLoading ? (
                 <div className="flex justify-center py-4">
-                  <div className="w-5 h-5 border-2 border-emerald-500 border-t-transparent rounded-full animate-spin" />
+                  <div className="w-5 h-5 border-2 border-success border-t-transparent rounded-full animate-spin" />
                 </div>
               ) : docs.length === 0 ? (
                 <p className="text-sm text-disabled text-center py-4">
@@ -363,7 +318,7 @@ export default function AssistantModule({
                       className="flex items-center justify-between gap-3 bg-background rounded-xl px-4 py-3"
                     >
                       <div className="min-w-0 flex items-center gap-3">
-                        <svg className="w-4 h-4 text-red-500 shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-4 h-4 text-danger shrink-0" fill="currentColor" viewBox="0 0 24 24">
                           <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zm-1 1.5L18.5 9H13V3.5zM6 20V4h5v7h7v9H6z" />
                         </svg>
                         <div className="min-w-0">
@@ -376,7 +331,7 @@ export default function AssistantModule({
                       {canUpload && (
                         <button
                           onClick={() => handleDeleteDoc(doc.id)}
-                          className="p-1.5 text-disabled hover:text-red-500 rounded-lg hover:bg-red-50 transition-colors shrink-0"
+                          className="p-1.5 text-disabled hover:text-danger rounded-lg hover:bg-danger/[.09] transition-colors shrink-0"
                           title="Eliminar documento"
                         >
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -398,12 +353,11 @@ export default function AssistantModule({
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
           {messages.length === 0 && (
             <div className="flex flex-col items-center justify-center h-full gap-6 py-8">
-              <div className={`w-14 h-14 rounded-2xl flex items-center justify-center ${
-                mode === "hr" ? "bg-emerald-100" : mode === "tasks" ? "bg-violet-100" : "bg-indigo-100"
-              }`}>
-                <svg className={`w-7 h-7 ${
-                  mode === "hr" ? "text-emerald-600" : mode === "tasks" ? "text-violet-600" : "text-primary"
-                }`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div
+                className="w-16 h-16 rounded-2xl flex items-center justify-center shadow-[var(--shadow2)]"
+                style={{ background: "var(--gradient-nova)" }}
+              >
+                <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1 1 .03 2.798-1.415 2.798H4.213c-1.444 0-2.414-1.798-1.414-2.798L4.8 15.3" />
                 </svg>
               </div>
@@ -415,7 +369,7 @@ export default function AssistantModule({
                 {SUGGESTIONS[mode].map((s) => (
                   <button
                     key={s}
-                    onClick={() => sendMessage(s)}
+                    onClick={() => handleSend(s)}
                     className="text-left text-sm px-4 py-2.5 bg-background border border-border rounded-xl hover:bg-black/5 dark:hover:bg-white/5 hover:border-primary/40 transition-colors text-main"
                   >
                     {s}
@@ -434,10 +388,10 @@ export default function AssistantModule({
                 msg.role === "user"
                   ? "bg-primary text-white"
                   : mode === "hr"
-                  ? "bg-emerald-100 text-emerald-700"
+                  ? "bg-success/[.13] text-success"
                   : mode === "tasks"
-                  ? "bg-violet-100 text-violet-700"
-                  : "bg-indigo-100 text-primary"
+                  ? "bg-nova-soft text-nova"
+                  : "bg-primary-surface text-primary"
               }`}>
                 {msg.role === "user" ? "Tú" : "N"}
               </div>
@@ -445,7 +399,7 @@ export default function AssistantModule({
                 <div className={`px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap ${
                   msg.role === "user"
                     ? "bg-primary text-white rounded-tr-sm"
-                    : "bg-black/5 dark:bg-white/5 text-title rounded-tl-sm"
+                    : "bg-surface2 text-title rounded-tl-sm"
                 }`}>
                   {msg.content}
                 </div>
@@ -463,9 +417,9 @@ export default function AssistantModule({
           {loading && (
             <div className="flex gap-3">
               <div className={`w-7 h-7 rounded-full shrink-0 flex items-center justify-center text-xs font-bold ${
-                mode === "hr" ? "bg-emerald-100 text-emerald-700" : mode === "tasks" ? "bg-violet-100 text-violet-700" : "bg-indigo-100 text-primary"
+                mode === "hr" ? "bg-success/[.13] text-success" : mode === "tasks" ? "bg-nova-soft text-nova" : "bg-primary-surface text-primary"
               }`}>N</div>
-              <div className="bg-black/5 dark:bg-white/5 rounded-2xl rounded-tl-sm">
+              <div className="bg-surface2 rounded-2xl rounded-tl-sm">
                 <TypingDots />
               </div>
             </div>
@@ -488,7 +442,7 @@ export default function AssistantModule({
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
                   e.preventDefault();
-                  sendMessage();
+                  handleSend();
                 }
               }}
               placeholder={`Escribe un mensaje… (${mode === "hr" ? "políticas, procedimientos, gestión de personal…" : mode === "tasks" ? "pregunta sobre tus tareas" : "cualquier pregunta"})`}
@@ -497,10 +451,10 @@ export default function AssistantModule({
               disabled={loading}
             />
             <button
-              onClick={() => sendMessage()}
+              onClick={() => handleSend()}
               disabled={!input.trim() || loading}
               className={`p-2.5 rounded-xl text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0 ${
-                mode === "hr" ? "bg-emerald-600 hover:bg-emerald-700" : mode === "tasks" ? "bg-violet-600 hover:bg-violet-700" : "bg-primary hover:bg-primary-hover"
+                mode === "hr" ? "bg-success hover:brightness-110" : mode === "tasks" ? "bg-nova hover:brightness-110" : "bg-primary hover:bg-primary-hover"
               }`}
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -80,7 +80,7 @@ export default function CloseMonthModal({ onClose, onClosed }: Props) {
           {loading && <p className="text-sm text-disabled text-center py-4">Cargando resumen…</p>}
 
           {error && (
-            <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5">
+            <div className="text-sm text-danger bg-danger/[.09] rounded-xl px-4 py-2.5">
               {error}
             </div>
           )}
@@ -92,7 +92,7 @@ export default function CloseMonthModal({ onClose, onClosed }: Props) {
               </p>
 
               {preview.alreadyClosed ? (
-                <div className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5">
+                <div className="text-sm text-warning bg-warning/[.15] rounded-xl px-4 py-2.5">
                   Este mes ya fue cerrado anteriormente.
                 </div>
               ) : (
@@ -102,17 +102,17 @@ export default function CloseMonthModal({ onClose, onClosed }: Props) {
                       <p className="text-xs text-disabled">Total tareas</p>
                       <p className="text-lg font-bold text-title">{preview.total}</p>
                     </div>
-                    <div className="rounded-xl border border-green-200 bg-green-50 px-3 py-2.5">
-                      <p className="text-xs text-green-600">Completadas</p>
-                      <p className="text-lg font-bold text-green-700">{preview.completed}</p>
+                    <div className="rounded-xl border border-transparent bg-success/[.13] px-3 py-2.5">
+                      <p className="text-xs text-success">Completadas</p>
+                      <p className="text-lg font-bold text-success">{preview.completed}</p>
                     </div>
-                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
-                      <p className="text-xs text-amber-600">Pendientes</p>
-                      <p className="text-lg font-bold text-amber-700">{preview.pending}</p>
+                    <div className="rounded-xl border border-transparent bg-warning/[.15] px-3 py-2.5">
+                      <p className="text-xs text-warning">Pendientes</p>
+                      <p className="text-lg font-bold text-warning">{preview.pending}</p>
                     </div>
-                    <div className="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2.5">
-                      <p className="text-xs text-blue-600">En progreso</p>
-                      <p className="text-lg font-bold text-blue-700">{preview.inProgress}</p>
+                    <div className="rounded-xl border border-transparent bg-primary-surface px-3 py-2.5">
+                      <p className="text-xs text-primary">En progreso</p>
+                      <p className="text-lg font-bold text-primary">{preview.inProgress}</p>
                     </div>
                   </div>
 
@@ -133,7 +133,7 @@ export default function CloseMonthModal({ onClose, onClosed }: Props) {
           )}
 
           {result && (
-            <div className="text-sm text-green-800 bg-green-50 border border-green-200 rounded-xl px-4 py-3 space-y-1">
+            <div className="text-sm text-success bg-success/[.13] rounded-xl px-4 py-3 space-y-1">
               <p>{result.archivedCount} tareas archivadas, {result.duplicatedCount} tareas creadas para {monthLabel(result.nextYear, result.nextMonth)} {result.nextYear}.</p>
               {result.continuedActiveCount > 0 && (
                 <p>{result.continuedActiveCount} tarea{result.continuedActiveCount !== 1 ? "s" : ""} de Seguimiento continuaron activas sin cerrarse.</p>

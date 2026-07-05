@@ -6,40 +6,9 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme {
-  --font-sans: var(--font-inter);
+  --font-sans: var(--font-instrument);
 
-  /* Brand — identical in both themes */
-  --color-primary: #6366f1;
-  --color-primary-hover: #4f46e5;
-  --color-primary-light: #eef2ff;
-
-  /* Fixed light-mode surfaces */
-  --color-bg-light: #f8fafc;
-  --color-border-light: #e5e7eb;
-  --color-text-title-light: #111827;
-  --color-text-main-light: #374151;
-  --color-text-secondary-light: #6b7280;
-  --color-text-disabled-light: #9ca3af;
-
-  /* Fixed dark-mode surfaces */
-  --color-bg-dark: #0f172a;
-  --color-card-dark: #1e293b;
-  --color-sidebar-dark: #111827;
-  --color-topbar-dark: #111827;
-  --color-border-dark: #2d3748;
-  --color-text-title-dark: #f9fafb;
-  --color-text-main-dark: #e5e7eb;
-  --color-text-secondary-dark: #9ca3af;
-  --color-text-disabled-dark: #6b7280;
-
-  /* Status */
-  --color-success: #22c55e;
-  --color-info: #3b82f6;
-  --color-warning: #fbbf24;
-  --color-warning-alt: #f59e0b;
-  --color-danger: #ef4444;
-
-  /* Recharts palette */
+  /* Recharts palette (referenced via CSS var, not Tailwind utility classes) */
   --color-chart-purple: #6366f1;
   --color-chart-blue: #3b82f6;
   --color-chart-green: #34d399;
@@ -47,44 +16,114 @@
   --color-chart-orange: #f59e0b;
 }
 
-/* Semantic tokens that auto-flip with the .dark class — use these
-   (bg-background / bg-surface / bg-chrome / border-border / text-title /
-   text-main / text-secondary / text-disabled) for anything that should
-   adapt automatically instead of pairing every class with a dark: variant. */
+/* Design tokens — light mode (default) */
 :root {
-  --background: var(--color-bg-light);
+  --bg: #f6f7fa;
   --surface: #ffffff;
-  --chrome: #ffffff;
-  --line: var(--color-border-light);
-  --title: var(--color-text-title-light);
-  --main: var(--color-text-main-light);
-  --secondary: var(--color-text-secondary-light);
-  --disabled: var(--color-text-disabled-light);
-  --primary-surface: var(--color-primary-light);
+  --surface2: #f2f3f7;
+  --border: #e7e9f0;
+  --border2: #d8dbe6;
+  --text: #181c28;
+  --text2: #5b6274;
+  --text3: #9aa1b0;
+  --primary: #5155e5;
+  --primsoft: rgba(81, 85, 229, 0.09);
+  --primline: rgba(81, 85, 229, 0.3);
+  --primary-hover: color-mix(in srgb, var(--primary) 88%, black);
+  --success: #1e9e68;
+  --succsoft: rgba(30, 158, 104, 0.1);
+  --warn: #b27b10;
+  --warnsoft: rgba(226, 169, 59, 0.15);
+  --danger: #d14343;
+  --dangsoft: rgba(209, 67, 67, 0.09);
+  --nova: #7c5ce0;
+  --novasoft: rgba(124, 92, 224, 0.09);
+  --shadow: 0 1px 2px rgba(20, 24, 40, 0.05);
+  --shadow2: 0 10px 30px rgba(20, 24, 40, 0.08);
+  --gradient-brand: linear-gradient(135deg, var(--primary), #8b8ef6);
+  --gradient-nova: linear-gradient(135deg, #8b5cf6, #c084fc);
 }
 
+/* Design tokens — dark mode */
 .dark {
-  --background: var(--color-bg-dark);
-  --surface: var(--color-card-dark);
-  --chrome: var(--color-topbar-dark);
-  --line: var(--color-border-dark);
-  --title: var(--color-text-title-dark);
-  --main: var(--color-text-main-dark);
-  --secondary: var(--color-text-secondary-dark);
-  --disabled: var(--color-text-disabled-dark);
-  --primary-surface: color-mix(in srgb, var(--color-primary) 18%, transparent);
+  --bg: #0c0f16;
+  --surface: #131722;
+  --surface2: #1a1f2c;
+  --border: rgba(255, 255, 255, 0.07);
+  --border2: rgba(255, 255, 255, 0.12);
+  --text: #eef0f5;
+  --text2: #9aa1b3;
+  --text3: #636b7e;
+  --primary: #6e72f2;
+  --primsoft: rgba(99, 102, 241, 0.14);
+  --primline: rgba(110, 114, 242, 0.35);
+  --primary-hover: color-mix(in srgb, var(--primary) 88%, white);
+  --success: #37b884;
+  --succsoft: rgba(55, 184, 132, 0.13);
+  --warn: #e2a93b;
+  --warnsoft: rgba(226, 169, 59, 0.13);
+  --danger: #e15a5a;
+  --dangsoft: rgba(225, 90, 90, 0.13);
+  --nova: #a78bfa;
+  --novasoft: rgba(139, 92, 246, 0.14);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow2: 0 8px 28px rgba(0, 0, 0, 0.35);
+  --gradient-brand: linear-gradient(135deg, var(--primary), #8b8ef6);
+  --gradient-nova: linear-gradient(135deg, #8b5cf6, #c084fc);
 }
 
+/* Semantic tokens that auto-flip with the .dark class — use these
+   (bg-background / bg-surface / bg-surface2 / bg-chrome / border-border /
+   border-border2 / text-title / text-main / text-secondary / text-disabled)
+   for anything that should adapt automatically instead of pairing every
+   class with a dark: variant. */
 @theme inline {
-  --color-background: var(--background);
+  --color-background: var(--bg);
   --color-surface: var(--surface);
-  --color-chrome: var(--chrome);
-  --color-border: var(--line);
-  --color-title: var(--title);
-  --color-main: var(--main);
-  --color-secondary: var(--secondary);
-  --color-disabled: var(--disabled);
-  --color-primary-surface: var(--primary-surface);
+  --color-surface2: var(--surface2);
+  --color-chrome: var(--surface);
+  --color-border: var(--border);
+  --color-border2: var(--border2);
+  --color-title: var(--text);
+  --color-main: var(--text);
+  --color-secondary: var(--text2);
+  --color-disabled: var(--text3);
+
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-surface: var(--primsoft);
+  --color-primline: var(--primline);
+
+  --color-success: var(--success);
+  --color-success-soft: var(--succsoft);
+  --color-warning: var(--warn);
+  --color-warning-alt: var(--warn);
+  --color-warning-soft: var(--warnsoft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--dangsoft);
+  --color-info: var(--primary);
+  --color-nova: var(--nova);
+  --color-nova-soft: var(--novasoft);
+}
+
+@layer utilities {
+  .num {
+    font-variant-numeric: tabular-nums;
+  }
+
+  @keyframes nexo-pop {
+    from {
+      opacity: 0;
+      transform: translateY(-4px) scale(0.98);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0) scale(1);
+    }
+  }
+  .animate-pop {
+    animation: nexo-pop 0.16s ease;
+  }
 }
 
 body {

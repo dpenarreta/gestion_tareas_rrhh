@@ -8,12 +8,9 @@ export default async function AssistantPage() {
 
   return (
     <div className="flex flex-col gap-6 h-full">
-      <div>
-        <h1 className="text-2xl font-bold text-title">Nova</h1>
-        <p className="text-secondary mt-1 text-sm">
-          Asistente de RRHH — consulta políticas, procedimientos, gestión de personal y más
-        </p>
-      </div>
+      <p className="text-secondary text-sm">
+        Asistente de RRHH — consulta políticas, procedimientos, gestión de personal y más
+      </p>
       <AssistantModule currentUserRole={session.role} />
     </div>
   );

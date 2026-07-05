@@ -107,16 +107,16 @@ function greeting(name: string) {
 }
 
 function workloadLabel(pct: number) {
-  if (pct <= 80) return { text: "Puedes asumir nuevas tareas", color: "text-green-700", bg: "bg-green-100", bar: "bg-green-500" };
-  if (pct <= 100) return { text: "Carga adecuada", color: "text-amber-700", bg: "bg-amber-100", bar: "bg-amber-500" };
-  return { text: "Se recomienda no asignar nuevas tareas", color: "text-red-700", bg: "bg-red-100", bar: "bg-red-500" };
+  if (pct <= 80) return { text: "Puedes asumir nuevas tareas", color: "text-success", bg: "bg-success/[.13]", bar: "bg-success" };
+  if (pct <= 100) return { text: "Carga adecuada", color: "text-warning", bg: "bg-warning/[.15]", bar: "bg-warning" };
+  return { text: "Se recomienda no asignar nuevas tareas", color: "text-danger", bg: "bg-danger/[.13]", bar: "bg-danger" };
 }
 
 function urgencyBadge(urgency: number) {
-  if (urgency === 4) return { label: "Vencida", cls: "bg-red-100 text-red-700 border-red-200" };
-  if (urgency === 3) return { label: "Hoy", cls: "bg-red-100 text-red-700 border-red-200" };
-  if (urgency === 2) return { label: "Mañana", cls: "bg-amber-100 text-amber-700 border-amber-200" };
-  return { label: "Esta semana", cls: "bg-green-100 text-green-700 border-green-200" };
+  if (urgency === 4) return { label: "Vencida", cls: "bg-danger/[.13] text-danger border-transparent" };
+  if (urgency === 3) return { label: "Hoy", cls: "bg-danger/[.13] text-danger border-transparent" };
+  if (urgency === 2) return { label: "Mañana", cls: "bg-warning/[.15] text-warning border-transparent" };
+  return { label: "Esta semana", cls: "bg-success/[.13] text-success border-transparent" };
 }
 
 function fmtTime(iso: string) {
@@ -141,9 +141,11 @@ function fmtRelative(iso: string) {
 function SortableCard({
   id,
   children,
+  className = "",
 }: {
   id: string;
   children: React.ReactNode;
+  className?: string;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id });
@@ -152,7 +154,7 @@ function SortableCard({
     <div
       ref={setNodeRef}
       style={{ transform: CSS.Transform.toString(transform), transition }}
-      className={`relative ${isDragging ? "opacity-50 z-50" : ""}`}
+      className={`relative ${isDragging ? "opacity-50 z-50" : ""} ${className}`}
       {...attributes}
     >
       <div
@@ -169,16 +171,40 @@ function SortableCard({
   );
 }
 
-function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+function Card({
+  children,
+  className = "",
+  focal = false,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  focal?: boolean;
+}) {
   return (
-    <div className={`bg-surface rounded-2xl border border-border shadow-sm p-5 ${className}`}>
+    <div
+      className={`rounded-[16px] p-5 ${
+        focal ? "border border-primline" : "bg-surface border border-border shadow-[var(--shadow)]"
+      } ${className}`}
+      style={
+        focal
+          ? {
+              background: "linear-gradient(160deg, var(--primsoft), var(--surface) 55%)",
+              boxShadow: "var(--shadow2)",
+            }
+          : undefined
+      }
+    >
       {children}
     </div>
   );
 }
 
 function CardTitle({ children }: { children: React.ReactNode }) {
-  return <h2 className="text-sm font-semibold text-secondary uppercase tracking-wider mb-4">{children}</h2>;
+  return (
+    <h2 className="text-[11px] font-semibold text-secondary uppercase tracking-[.07em] mb-4">
+      {children}
+    </h2>
+  );
 }
 
 // ── Individual card renderers ─────────────────────────────────────────────────
@@ -198,7 +224,7 @@ function JornadaCard({
 }) {
   const wl = workloadLabel(data.workloadPct);
   return (
-    <Card>
+    <Card focal>
       <CardTitle>Mi jornada</CardTitle>
       <h1 className="text-[36px] leading-tight font-bold text-title mb-1">{greeting(userName)}</h1>
       <p className="text-[13px] text-secondary mb-5">{ROLE_LABEL[userRole]}</p>
@@ -214,12 +240,12 @@ function JornadaCard({
       </div>
 
       {/* Workload */}
-      <div className={`rounded-xl px-4 py-3 ${wl.bg} dark:bg-white/5`}>
+      <div className={`rounded-xl px-4 py-3 ${wl.bg}`}>
         <div className="flex items-center justify-between mb-2">
-          <span className={`text-sm font-semibold ${wl.color} dark:text-title`}>Carga laboral</span>
-          <span className={`text-lg font-bold ${wl.color} dark:text-title`}>{data.workloadPct}%</span>
+          <span className={`text-sm font-semibold ${wl.color}`}>Carga laboral</span>
+          <span className={`text-lg font-bold ${wl.color}`}>{data.workloadPct}%</span>
         </div>
-        <div className="h-2 bg-white/60 dark:bg-white/10 rounded-full overflow-hidden">
+        <div className="h-2 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
           <div
             className={`h-full ${wl.bar} rounded-full transition-all`}
             style={{ width: `${Math.min(100, data.workloadPct)}%` }}
@@ -807,7 +833,11 @@ export default function DashboardModule({
               const content = renderCard(cardId);
               if (!content) return null;
               return (
-                <SortableCard key={cardId} id={cardId}>
+                <SortableCard
+                  key={cardId}
+                  id={cardId}
+                  className={cardId === "jornada" ? "xl:col-span-2" : ""}
+                >
                   {content}
                 </SortableCard>
               );

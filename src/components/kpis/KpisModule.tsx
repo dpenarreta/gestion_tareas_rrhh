@@ -55,28 +55,28 @@ function formatMonthLabel(m: string) {
 // ── Traffic light helpers ────────────────────────────────────────────────────
 
 const DOT_CLASS: Record<KpiColor, string> = {
-  green: "bg-green-500",
-  yellow: "bg-amber-400",
-  red: "bg-red-500",
+  green: "bg-success",
+  yellow: "bg-warning",
+  red: "bg-danger",
 };
 
 const COLOR_RING: Record<KpiColor, string> = {
-  green: "ring-green-200",
-  yellow: "ring-amber-200",
-  red: "ring-red-200",
+  green: "ring-success/25",
+  yellow: "ring-warning/25",
+  red: "ring-danger/25",
 };
 
 const CARD_BG: Record<KpiColor | "gray", string> = {
-  green: "bg-green-50 border-green-200",
-  yellow: "bg-amber-50 border-amber-200",
-  red: "bg-red-50 border-red-200",
+  green: "bg-success/[.13] border-transparent",
+  yellow: "bg-warning/[.15] border-transparent",
+  red: "bg-danger/[.13] border-transparent",
   gray: "bg-background border-border",
 };
 
 const CARD_VALUE: Record<KpiColor | "gray", string> = {
-  green: "text-green-700",
-  yellow: "text-amber-700",
-  red: "text-red-700",
+  green: "text-success",
+  yellow: "text-warning",
+  red: "text-danger",
   gray: "text-main",
 };
 
@@ -89,9 +89,9 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 const STATUS_STYLE: Record<string, string> = {
-  PENDIENTE: "bg-slate-100 text-slate-700",
-  EN_PROGRESO: "bg-blue-100 text-blue-700",
-  COMPLETADA: "bg-green-100 text-green-700",
+  PENDIENTE: "bg-surface2 text-secondary",
+  EN_PROGRESO: "bg-primary-surface text-primary",
+  COMPLETADA: "bg-success/[.13] text-success",
 };
 
 const TYPE_LABEL: Record<string, string> = {
@@ -119,10 +119,10 @@ function SummaryCard({
   icon: React.ReactNode;
 }) {
   const deltaPositive = invertDelta ? delta < 0 : delta > 0;
-  const deltaColor = delta === 0 ? "text-disabled" : deltaPositive ? "text-green-600" : "text-red-500";
+  const deltaColor = delta === 0 ? "text-disabled" : deltaPositive ? "text-success" : "text-danger";
 
   return (
-    <div className={`rounded-2xl border p-5 ${CARD_BG[color]}`}>
+    <div className={`rounded-[14px] border p-5 ${CARD_BG[color]}`}>
       <div className="flex items-start justify-between mb-3">
         <div className="p-2 bg-surface rounded-xl shadow-sm">{icon}</div>
         <div className={`w-2.5 h-2.5 rounded-full mt-1 ${DOT_CLASS[color === "gray" ? "green" : color]}`} />
@@ -197,12 +197,49 @@ function MetricRow({ label, value }: { label: string; value: React.ReactNode }) 
 
 function Section({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
   return (
-    <div className="bg-surface rounded-2xl border border-border p-5">
+    <div className="bg-surface rounded-[14px] border border-border shadow-[var(--shadow)] p-5">
       <div className="flex items-center justify-between mb-4">
         <h3 className="text-sm font-semibold text-main uppercase tracking-wider">{title}</h3>
         {action}
       </div>
       {children}
+    </div>
+  );
+}
+
+// ── Nova analysis card ────────────────────────────────────────────────────────
+
+function novaInsight(kpi: KpiData): string {
+  const { cumplimiento, cargaLaboral } = kpi;
+  if (cumplimiento.color === "red") {
+    return `Cumplimiento bajo (${cumplimiento.completedPct}%) con ${cumplimiento.overdue} tarea${cumplimiento.overdue === 1 ? "" : "s"} vencida${cumplimiento.overdue === 1 ? "" : "s"}. Conviene revisar prioridades con este colaborador.`;
+  }
+  if (cargaLaboral.color === "red") {
+    return `La carga laboral (${cargaLaboral.ratio}%) supera lo estimado. Podría estar sobrecargado — considera redistribuir tareas.`;
+  }
+  if (cumplimiento.color === "green") {
+    return `Buen desempeño este período: ${cumplimiento.completedPct}% de cumplimiento con una carga laboral equilibrada.`;
+  }
+  return `Cumplimiento de ${cumplimiento.completedPct}% con carga laboral de ${cargaLaboral.ratio}%. Sin alertas relevantes este período.`;
+}
+
+function NovaAnalysisCard({ kpi }: { kpi: KpiData }) {
+  return (
+    <div className="rounded-[14px] p-5 bg-nova-soft">
+      <div className="flex items-start gap-3">
+        <div
+          className="w-8 h-8 rounded-[9px] shrink-0 flex items-center justify-center text-white"
+          style={{ background: "var(--gradient-nova)" }}
+        >
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1 1 .03 2.798-1.415 2.798H4.213c-1.444 0-2.414-1.798-1.414-2.798L4.8 15.3" />
+          </svg>
+        </div>
+        <div>
+          <p className="text-[13px] font-semibold text-nova mb-1">Análisis de Nova</p>
+          <p className="text-sm text-title leading-relaxed">{novaInsight(kpi)}</p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -516,23 +553,23 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
     <div className="flex flex-col gap-4">
       {/* ── Tab bar ───────────────────────────────────────────────────────── */}
       {canSeeReports && (
-        <div className="flex gap-1 bg-black/5 dark:bg-white/5 rounded-xl p-1 w-fit">
+        <div className="flex gap-0.5 bg-surface2 rounded-[10px] p-1 w-fit">
           <button
             onClick={() => setActiveTab("kpis")}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+            className={`px-3.5 py-1.5 rounded-[8px] text-[13px] transition-all ${
               activeTab === "kpis"
-                ? "bg-surface text-title shadow-sm"
-                : "text-secondary hover:text-main"
+                ? "bg-surface text-title font-semibold shadow-[var(--shadow)]"
+                : "text-secondary hover:text-title font-medium"
             }`}
           >
             KPIs Individuales
           </button>
           <button
             onClick={() => setActiveTab("informes")}
-            className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${
+            className={`px-3.5 py-1.5 rounded-[8px] text-[13px] transition-all ${
               activeTab === "informes"
-                ? "bg-surface text-title shadow-sm"
-                : "text-secondary hover:text-main"
+                ? "bg-surface text-title font-semibold shadow-[var(--shadow)]"
+                : "text-secondary hover:text-title font-medium"
             }`}
           >
             Informes Mensuales
@@ -579,7 +616,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
       {/* ── Two-panel layout ─────────────────────────────────────────────── */}
       <div className="flex gap-5 items-start">
         {/* Left panel */}
-        <aside className="w-[240px] shrink-0 bg-surface rounded-2xl border border-border p-3 sticky top-20">
+        <aside className="w-[264px] shrink-0 bg-surface rounded-[14px] border border-border p-3 sticky top-20">
           <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider px-2 mb-2">
             Colaboradores
           </p>
@@ -595,9 +632,9 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
           </div>
           <div className="mt-4 px-2 border-t border-border pt-3">
             <p className="text-[10px] text-disabled leading-relaxed">
-              <span className="inline-block w-2 h-2 rounded-full bg-green-500 mr-1" />≥80% &bull;
-              <span className="inline-block w-2 h-2 rounded-full bg-amber-400 mx-1" />60–79% &bull;
-              <span className="inline-block w-2 h-2 rounded-full bg-red-500 mx-1" />&lt;60%
+              <span className="inline-block w-2 h-2 rounded-full bg-success mr-1" />≥80% &bull;
+              <span className="inline-block w-2 h-2 rounded-full bg-warning mx-1" />60–79% &bull;
+              <span className="inline-block w-2 h-2 rounded-full bg-danger mx-1" />&lt;60%
             </p>
           </div>
         </aside>
@@ -615,7 +652,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
           {kpi && (
             <div className="space-y-5">
               {/* ── Person header ────────────────────────────────────────── */}
-              <div className="bg-surface rounded-2xl border border-border px-5 py-4 flex items-center justify-between gap-4">
+              <div className="bg-surface rounded-[14px] border border-border shadow-[var(--shadow)] px-5 py-4 flex items-center justify-between gap-4">
                 <div className="flex items-center gap-4">
                   <div
                     className={`w-12 h-12 rounded-xl bg-gradient-to-br ${avatarGradient(kpi.user.name)} flex items-center justify-center shrink-0`}
@@ -657,6 +694,8 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
                 </div>
               </div>
 
+              <NovaAnalysisCard kpi={kpi} />
+
               {/* ── 4 Summary cards ──────────────────────────────────────── */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <SummaryCard
@@ -679,7 +718,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
                   delta={kpi.cargaLaboral.ratio - (kpi.prevMonth?.cargaRatio ?? kpi.cargaLaboral.ratio)}
                   invertDelta
                   icon={
-                    <svg className="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-5 h-5 text-warning" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                   }
@@ -701,7 +740,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
                   color="gray"
                   delta={kpi.seguimiento.total - (kpi.prevMonth?.seguimientoTotal ?? kpi.seguimiento.total)}
                   icon={
-                    <svg className="w-5 h-5 text-violet-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
                     </svg>
                   }
@@ -743,7 +782,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
                   <Section title="Horas estimadas vs reales por semana">
                     <WeeklyHoursChart data={kpi.horasByWeek} />
                     {kpi.cargaLaboral.ratio > 100 && (
-                      <p className="text-[11px] text-amber-600 mt-2 italic">
+                      <p className="text-[11px] text-warning mt-2 italic">
                         ⚠️ Horas sobre el estimado pueden indicar exceso de carga laboral, no incumplimiento
                       </p>
                     )}
@@ -756,11 +795,11 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
                 <CumplimientoLineChart data={kpi.cumplimientoHistory} />
                 <div className="flex items-center gap-4 mt-2">
                   <div className="flex items-center gap-1.5 text-[11px] text-secondary">
-                    <div className="w-6 h-0.5 bg-green-400 border-dashed border-t-2 border-green-400" />
+                    <div className="w-6 h-0.5 bg-success border-dashed border-t-2 border-success" />
                     Objetivo 80%
                   </div>
                   <div className="flex items-center gap-1.5 text-[11px] text-secondary">
-                    <div className="w-6 h-0.5 bg-amber-400 border-dashed border-t-2 border-amber-400" />
+                    <div className="w-6 h-0.5 bg-warning border-dashed border-t-2 border-warning" />
                     Alerta 60%
                   </div>
                 </div>
@@ -848,7 +887,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
                             </td>
                             <td className="py-2.5 pr-4">
                               <span
-                                className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${STATUS_STYLE[t.status] ?? "bg-slate-100 text-slate-700"}`}
+                                className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${STATUS_STYLE[t.status] ?? "bg-surface2 text-secondary"}`}
                               >
                                 {STATUS_LABEL[t.status] ?? t.status}
                               </span>
@@ -858,7 +897,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
                             </td>
                             <td className="py-2.5 pr-4 text-sm">
                               {t.delayDays > 0 ? (
-                                <span className="text-red-600 font-medium">{t.delayDays}d</span>
+                                <span className="text-danger font-medium">{t.delayDays}d</span>
                               ) : (
                                 <span className="text-disabled">—</span>
                               )}

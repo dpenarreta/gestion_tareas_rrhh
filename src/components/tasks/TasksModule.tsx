@@ -181,7 +181,7 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Buscar tarea por nombre..."
-          className="w-full pl-9 pr-9 py-2 text-sm rounded-xl border border-border bg-surface text-title placeholder-disabled focus:outline-none focus:ring-2 focus:ring-primary"
+          className="w-full pl-9 pr-9 py-2 text-sm rounded-[10px] border border-border2 bg-surface2 text-title placeholder-disabled focus:outline-none focus:border-primary focus:ring-[3px] focus:ring-primary-surface transition-colors"
         />
         {searchActive && (
           <button
@@ -198,23 +198,23 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
       </div>
 
       {/* Tab bar */}
-      <div className="flex items-end justify-between gap-2 border-b border-border mb-5 relative">
-        <div className="flex items-end gap-0.5">
+      <div className="flex items-center justify-between gap-2 mb-5 relative">
+        <div className="flex items-center gap-0.5 bg-surface2 rounded-[10px] p-1">
           {activeViews.map((view) => (
             <button
               key={view}
               onClick={() => { setCurrentView(view); setShowRepository(false); }}
-              className={`flex items-center gap-1.5 px-4 py-2.5 border-b-2 text-sm font-medium transition-colors rounded-t-lg ${
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-[8px] text-[13px] transition-all ${
                 !showRepository && currentView === view
-                  ? "border-primary text-primary bg-primary-surface/60"
-                  : "border-transparent text-secondary hover:text-title hover:bg-black/5 dark:hover:bg-white/5"
+                  ? "bg-surface text-title font-semibold shadow-[var(--shadow)]"
+                  : "text-secondary hover:text-title font-medium"
               }`}
             >
               {VIEW_LABELS[view]}
               {activeViews.length > 1 && (
                 <span
                   onClick={(e) => removeView(view, e)}
-                  className="ml-0.5 w-4 h-4 flex items-center justify-center rounded-full text-[11px] leading-none hover:bg-black/10 dark:hover:bg-white/10 hover:text-title text-disabled transition-colors"
+                  className="ml-0.5 w-4 h-4 flex items-center justify-center rounded-full text-[11px] leading-none hover:bg-surface2 hover:text-title text-disabled transition-colors"
                   role="button"
                   aria-label={`Cerrar ${VIEW_LABELS[view]}`}
                 >
@@ -225,17 +225,17 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
           ))}
 
           {availableViews.length > 0 && (
-            <div className="relative ml-1 mb-0.5">
+            <div className="relative">
               <button
                 onClick={() => setShowAddPanel(!showAddPanel)}
-                className={`flex items-center gap-1 px-3 py-2 text-sm rounded-lg transition-colors ${
-                  showAddPanel ? "bg-black/10 dark:bg-white/10 text-title" : "text-disabled hover:text-main hover:bg-black/5 dark:hover:bg-white/5"
+                className={`flex items-center gap-1 px-2.5 py-1.5 text-[13px] rounded-[8px] transition-colors ${
+                  showAddPanel ? "bg-surface text-title shadow-[var(--shadow)]" : "text-disabled hover:text-main"
                 }`}
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
-                <span className="text-xs">Vista</span>
+                <span>Vista</span>
               </button>
               {showAddPanel && (
                 <AddViewPanel
@@ -249,10 +249,10 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
 
           <button
             onClick={() => setShowRepository(true)}
-            className={`flex items-center gap-1.5 px-4 py-2.5 border-b-2 text-sm font-medium transition-colors rounded-t-lg ${
+            className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-[8px] text-[13px] transition-all ${
               showRepository
-                ? "border-primary text-primary bg-primary-surface/60"
-                : "border-transparent text-secondary hover:text-title hover:bg-black/5 dark:hover:bg-white/5"
+                ? "bg-surface text-title font-semibold shadow-[var(--shadow)]"
+                : "text-secondary hover:text-title font-medium"
             }`}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -265,7 +265,7 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
         {canManageUsers(currentUserRole) && (
           <button
             onClick={() => setShowCloseMonth(true)}
-            className="mb-1.5 flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-slate-800 rounded-lg hover:bg-slate-900 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-semibold text-background bg-title rounded-[9px] hover:brightness-110 transition-all"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />

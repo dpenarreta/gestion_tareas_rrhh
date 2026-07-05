@@ -119,7 +119,7 @@ export default function MeetingFormModalDashboard({
                 </button>
               ))}
             </div>
-            <p className="mt-1.5 text-[11px] text-amber-600">⚠️ Plan Zoom gratuito: máximo 40 minutos con más de 2 participantes</p>
+            <p className="mt-1.5 text-[11px] text-warning">⚠️ Plan Zoom gratuito: máximo 40 minutos con más de 2 participantes</p>
           </div>
           <div>
             <label className="block text-xs font-semibold text-main mb-1.5">Invitados ({selectedIds.length})</label>
@@ -135,7 +135,7 @@ export default function MeetingFormModalDashboard({
               ))}
             </div>
           </div>
-          {error && <p className="text-sm text-red-700 bg-red-50 border border-red-200 px-3 py-2 rounded-xl">{error}</p>}
+          {error && <p className="text-sm text-danger bg-danger/[.09] px-3 py-2 rounded-xl">{error}</p>}
           <div className="flex gap-3 pt-1">
             <button type="submit" disabled={saving}
               className="flex-1 py-2.5 bg-primary hover:bg-primary-hover disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-colors">

@@ -27,14 +27,41 @@ export default function IdeaDetailModal({ ideaId, currentUserRole, onClose, onUp
   const [rejectReason, setRejectReason] = useState("");
   const [acting, setActing] = useState(false);
   const [error, setError] = useState("");
+  const [progressDraft, setProgressDraft] = useState(0);
+  const [savingProgress, setSavingProgress] = useState(false);
 
   const canReview = canReviewIdeas(currentUserRole);
 
   async function load() {
     setLoading(true);
     const res = await fetch(`/api/ideas/${ideaId}`);
-    if (res.ok) setIdea(await res.json());
+    if (res.ok) {
+      const data: IdeaDetail = await res.json();
+      setIdea(data);
+      setProgressDraft(data.progress);
+    }
     setLoading(false);
+  }
+
+  async function handleSaveProgress() {
+    setSavingProgress(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/ideas/${ideaId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ progress: progressDraft }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "Error al actualizar el progreso");
+        return;
+      }
+      onUpdated(data);
+      await load();
+    } finally {
+      setSavingProgress(false);
+    }
   }
 
   useEffect(() => {
@@ -92,7 +119,7 @@ export default function IdeaDetailModal({ ideaId, currentUserRole, onClose, onUp
         {!loading && idea && (
           <div className="p-6 space-y-5">
             {error && (
-              <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5">
+              <div className="text-sm text-danger bg-danger/[.09] rounded-xl px-4 py-2.5">
                 {error}
               </div>
             )}
@@ -117,6 +144,41 @@ export default function IdeaDetailModal({ ideaId, currentUserRole, onClose, onUp
               </span>
               <span className="text-[10px] text-disabled">Propuesta el {formatDateTime(idea.createdAt)}</span>
             </div>
+
+            {idea.status === "EN_DESARROLLO" && (
+              <div className="bg-surface2 rounded-xl px-4 py-3">
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="text-xs font-semibold text-secondary uppercase tracking-wider">Progreso</span>
+                  <span className="text-sm font-bold text-title">{idea.progress}%</span>
+                </div>
+                <div className="h-2 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden mb-2">
+                  <div
+                    className="h-full bg-primary rounded-full transition-all"
+                    style={{ width: `${idea.progress}%` }}
+                  />
+                </div>
+                {canReview && (
+                  <div className="flex items-center gap-2 mt-2">
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={5}
+                      value={progressDraft}
+                      onChange={(e) => setProgressDraft(Math.min(100, Math.max(0, Number(e.target.value))))}
+                      className="w-20 border border-border2 rounded-[10px] px-2.5 py-1.5 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary-surface"
+                    />
+                    <button
+                      onClick={handleSaveProgress}
+                      disabled={savingProgress || progressDraft === idea.progress}
+                      className="px-3 py-1.5 text-xs font-semibold text-white bg-primary rounded-[9px] hover:brightness-110 disabled:opacity-50 transition-all"
+                    >
+                      {savingProgress ? "Guardando..." : "Actualizar progreso"}
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
 
             {idea.status === "PROPUESTA" && idea.attachmentData && (
               <a
@@ -182,7 +244,7 @@ export default function IdeaDetailModal({ ideaId, currentUserRole, onClose, onUp
                         <button
                           disabled={acting}
                           onClick={() => setRejectMode(true)}
-                          className="px-4 py-2 text-sm font-medium text-red-600 border border-red-200 rounded-xl hover:bg-red-50 disabled:opacity-50"
+                          className="px-4 py-2 text-sm font-medium text-danger border border-transparent rounded-xl hover:bg-danger/[.09] disabled:opacity-50"
                         >
                           ❌ Rechazar
                         </button>
@@ -205,13 +267,13 @@ export default function IdeaDetailModal({ ideaId, currentUserRole, onClose, onUp
                       onChange={(e) => setRejectReason(e.target.value)}
                       rows={2}
                       placeholder="Motivo del rechazo (obligatorio)"
-                      className="w-full border border-red-300 rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-red-300 resize-none"
+                      className="w-full border border-danger/40 rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-danger/30 resize-none"
                     />
                     <div className="flex gap-2">
                       <button
                         disabled={acting}
                         onClick={handleReject}
-                        className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded-xl hover:bg-red-700 disabled:opacity-50"
+                        className="px-4 py-2 text-sm font-medium text-white bg-danger rounded-xl hover:brightness-110 disabled:opacity-50"
                       >
                         Confirmar rechazo
                       </button>

@@ -19,15 +19,15 @@ const STATUS_LABELS: Record<Task["status"], string> = {
 };
 
 const STATUS_STYLES: Record<Task["status"], string> = {
-  PENDIENTE: "bg-orange-100 text-orange-700",
-  EN_PROGRESO: "bg-blue-100 text-blue-700",
-  COMPLETADA: "bg-green-100 text-green-700",
+  PENDIENTE: "bg-warning/[.15] text-warning",
+  EN_PROGRESO: "bg-primary-surface text-primary",
+  COMPLETADA: "bg-success/[.13] text-success",
 };
 
 const PRIORITY_STYLES: Record<Task["priority"], string> = {
-  ALTA: "bg-red-100 text-red-700",
-  MEDIA: "bg-yellow-100 text-yellow-700",
-  BAJA: "bg-green-100 text-green-700",
+  ALTA: "bg-danger/[.13] text-danger",
+  MEDIA: "bg-warning/[.15] text-warning",
+  BAJA: "bg-success/[.13] text-success",
 };
 
 const FREQUENCY_LABELS: Record<Task["frequency"], string> = {
@@ -46,9 +46,9 @@ const STATUS_SECTIONS: {
   border: string;
   dot: string;
 }[] = [
-  { id: "PENDIENTE", label: "Pendientes", headerBg: "bg-amber-50", headerText: "text-amber-700", border: "border-amber-200", dot: "bg-amber-400" },
-  { id: "EN_PROGRESO", label: "En Progreso", headerBg: "bg-blue-50", headerText: "text-blue-700", border: "border-blue-200", dot: "bg-blue-500" },
-  { id: "COMPLETADA", label: "Completadas", headerBg: "bg-green-50", headerText: "text-green-700", border: "border-green-200", dot: "bg-green-500" },
+  { id: "PENDIENTE", label: "Pendientes", headerBg: "bg-warning/[.15]", headerText: "text-warning", border: "border-border", dot: "bg-warning" },
+  { id: "EN_PROGRESO", label: "En Progreso", headerBg: "bg-primary-surface", headerText: "text-primary", border: "border-border", dot: "bg-primary" },
+  { id: "COMPLETADA", label: "Completadas", headerBg: "bg-success/[.13]", headerText: "text-success", border: "border-border", dot: "bg-success" },
 ];
 
 function fmtH(n: number) {
@@ -264,7 +264,7 @@ function TaskRow({
           {task.type === "SEGUIMIENTO" && (
             <button
               onClick={() => onActivityClick(task)}
-              className="text-disabled hover:text-violet-600 transition-colors"
+              className="text-disabled hover:text-primary transition-colors"
               title="Registro de actividades"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -296,7 +296,7 @@ function TaskRow({
           </button>
           <button
             onClick={() => onDeleteTask(task.id)}
-            className="p-1 text-disabled hover:text-red-600 rounded"
+            className="p-1 text-disabled hover:text-danger rounded"
             title="Eliminar"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -540,7 +540,7 @@ export default function TableView({
       </div>
 
       {importResult && (
-        <div className={`rounded-xl px-4 py-3 text-sm border ${importResult.errors.length === 0 ? "bg-green-50 border-green-200 text-green-800" : "bg-amber-50 border-amber-200 text-amber-800"}`}>
+        <div className={`rounded-xl px-4 py-3 text-sm border ${importResult.errors.length === 0 ? "bg-success/[.13] border-transparent text-success" : "bg-warning/[.15] border-transparent text-warning"}`}>
           <p className="font-semibold mb-1">
             {importResult.imported} tarea{importResult.imported !== 1 ? "s" : ""} importada{importResult.imported !== 1 ? "s" : ""} correctamente
             {importResult.errors.length > 0 && ` · ${importResult.errors.length} con errores`}
@@ -565,7 +565,7 @@ export default function TableView({
         const sectionTasks = tasksBySection[section.id];
         const isCollapsed = collapsed[section.id];
         return (
-          <div key={section.id} className={`rounded-2xl border ${section.border} bg-surface overflow-hidden shadow-sm`}>
+          <div key={section.id} className={`rounded-[14px] border ${section.border} bg-surface overflow-hidden shadow-[var(--shadow)]`}>
             <div className={`flex items-center justify-between px-4 py-2.5 ${section.headerBg}`}>
               <button
                 onClick={() => setCollapsed((c) => ({ ...c, [section.id]: !c[section.id] }))}
@@ -681,21 +681,21 @@ export default function TableView({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
             transition={{ type: "spring", stiffness: 500, damping: 40 }}
-            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 bg-slate-900 text-white rounded-2xl shadow-2xl px-5 py-3"
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 bg-title text-background rounded-2xl shadow-2xl px-5 py-3"
           >
             <span className="text-sm font-medium whitespace-nowrap">
               {selectedTasks.length} tarea{selectedTasks.length !== 1 ? "s" : ""} seleccionada{selectedTasks.length !== 1 ? "s" : ""}
             </span>
-            <div className="w-px h-5 bg-slate-700" />
+            <div className="w-px h-5 bg-background/20" />
             <button
               onClick={handleExportSelected}
-              className="flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg hover:bg-slate-800 transition-colors whitespace-nowrap"
+              className="flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg hover:bg-background/10 transition-colors whitespace-nowrap"
             >
               📥 Exportar seleccionadas
             </button>
             <button
               onClick={handleBulkDeleteClick}
-              className="flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg text-red-300 hover:bg-red-950/50 transition-colors whitespace-nowrap"
+              className="flex items-center gap-1.5 text-sm font-medium px-3 py-1.5 rounded-lg text-danger hover:bg-danger/20 transition-colors whitespace-nowrap"
             >
               🗑️ Eliminar seleccionadas
             </button>

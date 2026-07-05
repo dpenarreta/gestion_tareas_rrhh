@@ -130,7 +130,7 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && (
-            <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5">
+            <div className="text-sm text-danger bg-danger/[.09] border border-transparent rounded-xl px-4 py-2.5">
               {error}
             </div>
           )}
@@ -167,8 +167,8 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
                   className={`flex items-center gap-2 px-3 py-2.5 rounded-xl border-2 text-sm font-medium transition-all ${
                     type === t
                       ? t === "FIJA"
-                        ? "border-primary bg-primary-surface text-primary"
-                        : "border-violet-500 bg-violet-50 text-violet-700"
+                        ? "border-border2 bg-surface2 text-title"
+                        : "border-primary bg-primary-surface text-primary"
                       : "border-border text-main hover:border-border"
                   }`}
                 >

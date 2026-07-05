@@ -10,17 +10,22 @@ type Ctx = { params: Promise<{ id: string }> };
 type Action = "ADVANCE" | "RETREAT" | "REJECT" | "REOPEN";
 const VALID_ACTIONS: Action[] = ["ADVANCE", "RETREAT", "REJECT", "REOPEN"];
 
-const ideaSelect = {
-  id: true,
-  title: true,
-  description: true,
-  impact: true,
-  status: true,
-  attachmentUrl: true,
-  createdAt: true,
-  updatedAt: true,
-  author: { select: { id: true, name: true, role: true } },
-} as const;
+function ideaSelect(userId: string) {
+  return {
+    id: true,
+    title: true,
+    description: true,
+    impact: true,
+    status: true,
+    progress: true,
+    attachmentUrl: true,
+    createdAt: true,
+    updatedAt: true,
+    author: { select: { id: true, name: true, role: true } },
+    _count: { select: { votes: true } },
+    votes: { where: { userId }, select: { id: true } },
+  } as const;
+}
 
 export async function PATCH(request: NextRequest, ctx: Ctx) {
   const session = await getSession();
@@ -103,6 +108,8 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     }
   });
 
-  const updated = await prisma.improvementIdea.findUnique({ where: { id }, select: ideaSelect });
-  return NextResponse.json(updated);
+  const updated = await prisma.improvementIdea.findUnique({ where: { id }, select: ideaSelect(session.userId) });
+  if (!updated) return NextResponse.json({ error: "Idea no encontrada" }, { status: 404 });
+  const { _count, votes, ...rest } = updated;
+  return NextResponse.json({ ...rest, voteCount: _count.votes, votedByMe: votes.length > 0 });
 }

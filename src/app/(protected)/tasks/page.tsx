@@ -62,7 +62,6 @@ export default async function TasksPage() {
 
   return (
     <div>
-      <h1 className="text-2xl font-bold text-title mb-6">Trabajo</h1>
       <TasksModule
         initialTasks={serializedTasks}
         initialViews={taskViews.length > 0 ? taskViews : ["KANBAN", "TABLA"]}

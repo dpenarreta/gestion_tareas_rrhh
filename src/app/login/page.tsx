@@ -57,22 +57,25 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background">
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-bold text-primary tracking-tight">
-            Nexo
-          </h1>
-          <p className="mt-1 text-secondary text-sm">
+    <div className="min-h-screen flex items-center justify-center bg-background px-4">
+      <div className="w-full max-w-[400px]">
+        <div className="flex flex-col items-center text-center mb-7">
+          <div
+            className="w-11 h-11 rounded-[11px] flex items-center justify-center text-white font-bold text-lg mb-3"
+            style={{ background: "var(--gradient-brand)" }}
+          >
+            N
+          </div>
+          <p className="text-secondary text-[13px]">
             Sistema de Gestión de Recursos Humanos
           </p>
         </div>
 
-        <div className="bg-surface rounded-2xl shadow-sm border border-border p-8">
+        <div className="bg-surface rounded-2xl border border-border p-[30px]" style={{ boxShadow: "var(--shadow2)" }}>
           {!forgotMode ? (
             <>
-              <h2 className="text-lg font-semibold text-title mb-6">
-                Iniciar sesión
+              <h2 className="text-[22px] font-bold text-title mb-6">
+                Bienvenido a Nexo
               </h2>
               <form onSubmit={handleLogin} className="space-y-4">
                 <div>
@@ -84,7 +87,7 @@ export default function LoginPage() {
                     required
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-border bg-surface text-title placeholder-disabled focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-sm"
+                    className="w-full px-3 py-2 rounded-[10px] border border-border2 bg-surface2 text-title placeholder-disabled focus:outline-none focus:border-primary focus:ring-[3px] focus:ring-primary-surface text-sm transition-colors"
                     placeholder="usuario@empresa.com"
                   />
                 </div>
@@ -97,7 +100,7 @@ export default function LoginPage() {
                     required
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
-                    className="w-full px-3 py-2 rounded-lg border border-border bg-surface text-title placeholder-disabled focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-sm"
+                    className="w-full px-3 py-2 rounded-[10px] border border-border2 bg-surface2 text-title placeholder-disabled focus:outline-none focus:border-primary focus:ring-[3px] focus:ring-primary-surface text-sm transition-colors"
                     placeholder="••••••"
                   />
                 </div>
@@ -113,7 +116,7 @@ export default function LoginPage() {
                 </label>
 
                 {error && (
-                  <p className="text-sm text-danger bg-danger/10 px-3 py-2 rounded-lg">
+                  <p className="text-sm text-danger bg-danger/[.09] px-3 py-2 rounded-[10px]">
                     {error}
                   </p>
                 )}
@@ -121,7 +124,7 @@ export default function LoginPage() {
                 <button
                   type="submit"
                   disabled={loading}
-                  className="w-full py-2.5 px-4 bg-primary hover:bg-primary-hover disabled:opacity-50 text-white font-medium rounded-lg text-sm transition-colors"
+                  className="w-full py-2.5 px-4 bg-primary hover:brightness-110 disabled:opacity-50 text-white font-semibold rounded-[9px] text-sm transition-all"
                 >
                   {loading ? "Ingresando..." : "Ingresar"}
                 </button>
@@ -149,7 +152,7 @@ export default function LoginPage() {
               </p>
 
               {forgotMsg ? (
-                <div className="bg-primary-surface border border-primary/20 rounded-lg p-4 text-sm text-primary">
+                <div className="bg-primary-surface border border-primline rounded-[10px] p-4 text-sm text-primary">
                   {forgotMsg}
                 </div>
               ) : (
@@ -163,13 +166,13 @@ export default function LoginPage() {
                       required
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg border border-border bg-surface text-title placeholder-disabled focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent text-sm"
+                      className="w-full px-3 py-2 rounded-[10px] border border-border2 bg-surface2 text-title placeholder-disabled focus:outline-none focus:border-primary focus:ring-[3px] focus:ring-primary-surface text-sm transition-colors"
                       placeholder="usuario@empresa.com"
                     />
                   </div>
 
                   {error && (
-                    <p className="text-sm text-danger bg-danger/10 px-3 py-2 rounded-lg">
+                    <p className="text-sm text-danger bg-danger/[.09] px-3 py-2 rounded-[10px]">
                       {error}
                     </p>
                   )}
@@ -177,7 +180,7 @@ export default function LoginPage() {
                   <button
                     type="submit"
                     disabled={loading}
-                    className="w-full py-2.5 px-4 bg-primary hover:bg-primary-hover disabled:opacity-50 text-white font-medium rounded-lg text-sm transition-colors"
+                    className="w-full py-2.5 px-4 bg-primary hover:brightness-110 disabled:opacity-50 text-white font-semibold rounded-[9px] text-sm transition-all"
                   >
                     {loading ? "Enviando..." : "Recuperar contraseña"}
                   </button>

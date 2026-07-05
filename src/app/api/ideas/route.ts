@@ -5,35 +5,45 @@ import { getVisibleIdeaAuthorIds } from "@/lib/ideas";
 import { saveIdeaAttachment, AttachmentError } from "@/lib/storage";
 import type { IdeaImpact } from "@/generated/prisma/client";
 
-const ideaListSelect = {
-  id: true,
-  title: true,
-  description: true,
-  impact: true,
-  status: true,
-  attachmentUrl: true,
-  createdAt: true,
-  updatedAt: true,
-  author: { select: { id: true, name: true, role: true } },
-  history: {
-    where: { toStatus: "RECHAZADA" as const },
-    orderBy: { createdAt: "desc" as const },
-    take: 1,
-    select: { comment: true },
-  },
-} as const;
+function ideaListSelect(userId: string) {
+  return {
+    id: true,
+    title: true,
+    description: true,
+    impact: true,
+    status: true,
+    progress: true,
+    attachmentUrl: true,
+    createdAt: true,
+    updatedAt: true,
+    author: { select: { id: true, name: true, role: true } },
+    history: {
+      where: { toStatus: "RECHAZADA" as const },
+      orderBy: { createdAt: "desc" as const },
+      take: 1,
+      select: { comment: true },
+    },
+    _count: { select: { votes: true } },
+    votes: { where: { userId }, select: { id: true } },
+  } as const;
+}
 
-const ideaSelect = {
-  id: true,
-  title: true,
-  description: true,
-  impact: true,
-  status: true,
-  attachmentUrl: true,
-  createdAt: true,
-  updatedAt: true,
-  author: { select: { id: true, name: true, role: true } },
-} as const;
+function ideaSelect(userId: string) {
+  return {
+    id: true,
+    title: true,
+    description: true,
+    impact: true,
+    status: true,
+    progress: true,
+    attachmentUrl: true,
+    createdAt: true,
+    updatedAt: true,
+    author: { select: { id: true, name: true, role: true } },
+    _count: { select: { votes: true } },
+    votes: { where: { userId }, select: { id: true } },
+  } as const;
+}
 
 const VALID_IMPACTS: IdeaImpact[] = ["ALTO", "MEDIO", "BAJO"];
 
@@ -44,13 +54,15 @@ export async function GET() {
   const visibleIds = await getVisibleIdeaAuthorIds(session);
   const ideas = await prisma.improvementIdea.findMany({
     where: { authorId: { in: visibleIds } },
-    select: ideaListSelect,
+    select: ideaListSelect(session.userId),
     orderBy: { createdAt: "desc" },
   });
 
-  const result = ideas.map(({ history, ...rest }) => ({
+  const result = ideas.map(({ history, _count, votes, ...rest }) => ({
     ...rest,
     latestRejectionComment: history[0]?.comment ?? null,
+    voteCount: _count.votes,
+    votedByMe: votes.length > 0,
   }));
 
   return NextResponse.json(result);
@@ -85,10 +97,12 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const idea = await prisma.improvementIdea.create({
+  const created = await prisma.improvementIdea.create({
     data: { title, description, impact, authorId: session.userId, attachmentUrl, attachmentData },
-    select: ideaSelect,
+    select: ideaSelect(session.userId),
   });
+  const { _count, votes, ...idea } = created;
+  const ideaResult = { ...idea, voteCount: _count.votes, votedByMe: votes.length > 0 };
 
   const reviewers = await prisma.user.findMany({
     where: { role: { in: ["JEFE_NACIONAL", "COORDINADOR_NACIONAL"] } },
@@ -104,5 +118,5 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  return NextResponse.json(idea, { status: 201 });
+  return NextResponse.json(ideaResult, { status: 201 });
 }

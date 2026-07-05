@@ -192,7 +192,7 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
                       <button
                         onClick={() => handleDelete(a.id)}
                         disabled={deletingId === a.id}
-                        className="p-0.5 text-disabled hover:text-red-500 transition-colors disabled:opacity-40"
+                        className="p-0.5 text-disabled hover:text-danger transition-colors disabled:opacity-40"
                         title="Eliminar actividad"
                       >
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -293,7 +293,7 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
           </div>
 
           {error && (
-            <p className="text-xs text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
+            <p className="text-xs text-danger bg-danger/[.09] rounded-lg px-3 py-2">
               {error}
             </p>
           )}

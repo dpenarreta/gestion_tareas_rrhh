@@ -89,6 +89,7 @@ model User {
   closedMonths       MonthClosure[]      @relation("MonthClosures")
   proposedIdeas      ImprovementIdea[]   @relation("IdeaAuthor")
   ideaStatusChanges  IdeaStatusHistory[] @relation("IdeaStatusChanger")
+  ideaVotes          IdeaVote[]
 }
 
 model Announcement {
@@ -218,6 +219,7 @@ model ImprovementIdea {
   description    String
   impact         IdeaImpact
   status         IdeaStatus @default(PROPUESTA)
+  progress       Int        @default(0)
   authorId       String
   author         User       @relation("IdeaAuthor", fields: [authorId], references: [id])
   attachmentUrl  String?
@@ -225,6 +227,18 @@ model ImprovementIdea {
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
   history        IdeaStatusHistory[]
+  votes          IdeaVote[]
+}
+
+model IdeaVote {
+  id        String          @id @default(cuid())
+  ideaId    String
+  idea      ImprovementIdea @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User            @relation(fields: [userId], references: [id])
+  createdAt DateTime        @default(now())
+
+  @@unique([ideaId, userId])
 }
 
 model IdeaStatusHistory {

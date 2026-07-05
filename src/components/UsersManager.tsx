@@ -304,7 +304,7 @@ export default function UsersManager({ currentUserRole }: Props) {
             </label>
 
             {formError && (
-              <p className="text-sm text-red-600 bg-red-50 px-3 py-2 rounded-lg">
+              <p className="text-sm text-danger bg-danger/[.09] px-3 py-2 rounded-lg">
                 {formError}
               </p>
             )}
@@ -321,11 +321,11 @@ export default function UsersManager({ currentUserRole }: Props) {
       )}
 
       {resetMsg && (
-        <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 text-sm text-green-800 flex items-center justify-between">
+        <div className="bg-success/[.13] rounded-lg px-4 py-3 text-sm text-success flex items-center justify-between">
           <span>{resetMsg}</span>
           <button
             onClick={() => setResetMsg(null)}
-            className="ml-2 text-green-600 hover:text-green-800 font-bold"
+            className="ml-2 text-success hover:brightness-90 font-bold"
           >
             ×
           </button>
@@ -333,11 +333,11 @@ export default function UsersManager({ currentUserRole }: Props) {
       )}
 
       {actionError && (
-        <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700 flex items-center justify-between">
+        <div className="bg-danger/[.09] rounded-lg px-4 py-3 text-sm text-danger flex items-center justify-between">
           <span>{actionError}</span>
           <button
             onClick={() => setActionError(null)}
-            className="ml-2 text-red-600 hover:text-red-800 font-bold"
+            className="ml-2 text-danger hover:brightness-90 font-bold"
           >
             ×
           </button>
@@ -403,12 +403,12 @@ export default function UsersManager({ currentUserRole }: Props) {
                   </td>
                   <td className="px-5 py-3 hidden md:table-cell">
                     {user.dataConsentAccepted ? (
-                      <span className="px-2.5 py-1 bg-green-50 text-green-700 rounded-full text-xs font-medium">
+                      <span className="px-2.5 py-1 bg-success/[.13] text-success rounded-full text-xs font-medium">
                         Aceptado
                         {user.dataConsentAcceptedAt && ` · ${formatConsentDate(user.dataConsentAcceptedAt)}`}
                       </span>
                     ) : (
-                      <span className="px-2.5 py-1 bg-gray-100 text-gray-600 rounded-full text-xs font-medium">
+                      <span className="px-2.5 py-1 bg-surface2 text-secondary rounded-full text-xs font-medium">
                         Pendiente
                       </span>
                     )}
@@ -425,14 +425,14 @@ export default function UsersManager({ currentUserRole }: Props) {
                       )}
                       <button
                         onClick={() => handleReset(user)}
-                        className="text-xs text-amber-600 hover:text-amber-800 font-medium px-2 py-1 rounded hover:bg-amber-50 transition-colors"
+                        className="text-xs text-warning hover:brightness-90 font-medium px-2 py-1 rounded hover:bg-warning/[.15] transition-colors"
                         title="Resetear contraseña a 123456"
                       >
                         Resetear pwd
                       </button>
                       <button
                         onClick={() => handleDelete(user)}
-                        className="text-xs text-red-600 hover:text-red-800 font-medium px-2 py-1 rounded hover:bg-red-50 transition-colors"
+                        className="text-xs text-danger hover:brightness-90 font-medium px-2 py-1 rounded hover:bg-danger/[.09] transition-colors"
                       >
                         Eliminar
                       </button>
@@ -518,13 +518,13 @@ export default function UsersManager({ currentUserRole }: Props) {
                 </div>
 
                 {editError && (
-                  <p className="text-sm text-red-600 bg-red-50 border border-red-200 px-3 py-2 rounded-lg">
+                  <p className="text-sm text-danger bg-danger/[.09] px-3 py-2 rounded-lg">
                     {editError}
                   </p>
                 )}
 
                 {editSuccess && (
-                  <p className="text-sm text-green-700 bg-green-50 border border-green-200 px-3 py-2 rounded-lg flex items-center gap-2">
+                  <p className="text-sm text-success bg-success/[.13] px-3 py-2 rounded-lg flex items-center gap-2">
                     <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                     </svg>

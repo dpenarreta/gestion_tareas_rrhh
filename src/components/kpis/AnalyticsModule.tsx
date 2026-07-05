@@ -17,20 +17,19 @@ export default function AnalyticsModule({ currentUserId, currentUserRole, curren
   return (
     <div>
       <div className="flex items-center gap-4 mb-6">
-        <h1 className="text-2xl font-bold text-title">Analytics</h1>
-        <div className="flex rounded-xl border border-border overflow-hidden">
+        <div className="flex gap-0.5 bg-surface2 rounded-[10px] p-1">
           <button
             onClick={() => setTab("team")}
-            className={`px-4 py-1.5 text-sm font-medium transition-colors ${
-              tab === "team" ? "bg-primary text-white" : "text-main hover:bg-black/5 dark:hover:bg-white/5"
+            className={`px-3.5 py-1.5 rounded-[8px] text-[13px] transition-all ${
+              tab === "team" ? "bg-surface text-title font-semibold shadow-[var(--shadow)]" : "text-secondary hover:text-title font-medium"
             }`}
           >
             Equipo
           </button>
           <button
             onClick={() => setTab("personal")}
-            className={`px-4 py-1.5 text-sm font-medium transition-colors ${
-              tab === "personal" ? "bg-primary text-white" : "text-main hover:bg-black/5 dark:hover:bg-white/5"
+            className={`px-3.5 py-1.5 rounded-[8px] text-[13px] transition-all ${
+              tab === "personal" ? "bg-surface text-title font-semibold shadow-[var(--shadow)]" : "text-secondary hover:text-title font-medium"
             }`}
           >
             Mi actividad

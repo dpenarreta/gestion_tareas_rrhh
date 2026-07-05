@@ -65,7 +65,7 @@ export default function NewIdeaFormModal({ onClose, onCreated }: Props) {
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && (
-            <div className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl px-4 py-2.5">
+            <div className="text-sm text-danger bg-danger/[.09] rounded-xl px-4 py-2.5">
               {error}
             </div>
           )}
@@ -112,7 +112,7 @@ export default function NewIdeaFormModal({ onClose, onCreated }: Props) {
                 ref={fileInputRef}
                 accept=".png,.jpg,.jpeg,.pdf,.doc,.docx,.xls,.xlsx"
                 onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-                className="w-full text-sm text-main file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-slate-100 file:text-slate-700 hover:file:bg-slate-200"
+                className="w-full text-sm text-main file:mr-3 file:py-2 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-surface2 file:text-secondary hover:file:bg-border2"
               />
             ) : (
               <div className="flex items-center justify-between gap-2 border border-border rounded-xl px-3 py-2 bg-background">
@@ -120,7 +120,7 @@ export default function NewIdeaFormModal({ onClose, onCreated }: Props) {
                 <button
                   type="button"
                   onClick={clearFile}
-                  className="text-disabled hover:text-red-600 p-1 rounded shrink-0"
+                  className="text-disabled hover:text-danger p-1 rounded shrink-0"
                   aria-label="Quitar archivo"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
