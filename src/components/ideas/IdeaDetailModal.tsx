@@ -15,7 +15,7 @@ type Props = {
 };
 
 function formatDateTime(iso: string) {
-  const time = new Date(iso).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" });
+  const time = new Date(iso).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit", hour12: false });
   return `${formatDate(iso)} ${time}`;
 }
 

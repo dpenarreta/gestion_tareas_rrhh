@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { PendingReminder } from "@/components/tasks/types";
+import TimeInput24 from "@/components/ui/TimeInput24";
 
 const POLL_INTERVAL_MS = 10 * 60 * 1000;
 
@@ -132,11 +133,10 @@ export default function ReminderNotifier() {
               onChange={(e) => setRescheduleDate(e.target.value)}
               className="w-full border border-border rounded-lg px-2.5 py-1.5 text-xs text-title bg-background focus:outline-none focus:ring-2 focus:ring-primary"
             />
-            <input
-              type="time"
+            <TimeInput24
               value={rescheduleTime}
-              onChange={(e) => setRescheduleTime(e.target.value)}
-              className="w-full border border-border rounded-lg px-2.5 py-1.5 text-xs text-title bg-background focus:outline-none focus:ring-2 focus:ring-primary"
+              onChange={setRescheduleTime}
+              selectClassName="w-full border border-border rounded-lg px-2 py-1.5 text-xs text-title bg-background focus:outline-none focus:ring-2 focus:ring-primary"
             />
           </div>
           <textarea

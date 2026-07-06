@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import type { Role } from "@/generated/prisma/client";
 import { ROLE_LABEL } from "@/lib/roles";
+import TimeInput24 from "@/components/ui/TimeInput24";
 
 type AssignableUser = { id: string; name: string; email: string; role: Role };
 
@@ -102,8 +103,8 @@ export default function MeetingFormModalDashboard({
             </div>
             <div>
               <label className="block text-xs font-semibold text-main mb-1.5">Hora *</label>
-              <input required type="time" value={time} onChange={(e) => setTime(e.target.value)}
-                className="w-full px-3 py-2 text-sm text-title bg-surface border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary" />
+              <TimeInput24 required value={time} onChange={setTime}
+                selectClassName="w-full px-3 py-2 text-sm text-title bg-surface border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary" />
             </div>
           </div>
           <div>

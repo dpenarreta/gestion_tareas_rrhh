@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import type { Task, TaskActivity, ActivityReason, FollowUpReminder } from "./types";
 import { formatDate } from "@/lib/utils";
+import TimeInput24 from "@/components/ui/TimeInput24";
 
 function formatReminderDateTime(iso: string): string {
   const d = new Date(iso);
@@ -294,12 +295,7 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
                     onChange={(e) => setReminderDate(e.target.value)}
                     className="w-full border border-border rounded-lg px-3 py-1.5 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
                   />
-                  <input
-                    type="time"
-                    value={reminderTime}
-                    onChange={(e) => setReminderTime(e.target.value)}
-                    className="w-full border border-border rounded-lg px-3 py-1.5 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
-                  />
+                  <TimeInput24 value={reminderTime} onChange={setReminderTime} />
                 </div>
                 <textarea
                   value={reminderDescription}
@@ -407,22 +403,20 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
               <label className="block text-[10px] font-semibold text-secondary mb-1 uppercase tracking-wide">
                 Hora inicio
               </label>
-              <input
-                type="time"
+              <TimeInput24
                 value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
-                className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
+                onChange={setStartTime}
+                selectClassName="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
               />
             </div>
             <div>
               <label className="block text-[10px] font-semibold text-secondary mb-1 uppercase tracking-wide">
                 Hora fin
               </label>
-              <input
-                type="time"
+              <TimeInput24
                 value={endTime}
-                onChange={(e) => setEndTime(e.target.value)}
-                className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
+                onChange={setEndTime}
+                selectClassName="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
               />
             </div>
           </div>

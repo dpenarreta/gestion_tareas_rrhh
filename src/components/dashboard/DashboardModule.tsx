@@ -120,7 +120,7 @@ function urgencyBadge(urgency: number) {
 }
 
 function fmtTime(iso: string) {
-  return new Date(iso).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
 function fmtDate(iso: string) {
@@ -304,7 +304,7 @@ function AgendaCard({
   onNewMeeting: () => void;
 }) {
   function fmtTime(iso: string) {
-    return new Date(iso).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" });
+    return new Date(iso).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit", hour12: false });
   }
   function fmtDateShort(iso: string) {
     return new Date(iso).toLocaleDateString("es-CL", { weekday: "short", day: "numeric", month: "short" });
