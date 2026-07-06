@@ -1,9 +1,10 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import { motion, AnimatePresence } from "framer-motion";
 import type { Role } from "@/generated/prisma/client";
 import { ROLE_LABEL } from "@/lib/roles";
-import type { Task } from "@/components/tasks/types";
+import type { Task, TaskStatus } from "@/components/tasks/types";
 import CommentPanel from "@/components/tasks/CommentPanel";
 import ActivityPanel from "@/components/tasks/ActivityPanel";
 import TaskFormModal from "@/components/tasks/TaskFormModal";
@@ -113,14 +114,14 @@ function StatChip({ label, value, color }: { label: string; value: number; color
 
 // ─── MemberTasksTable ─────────────────────────────────────────────────────────
 
-const STATUS_OPTIONS = [
-  { value: "PENDIENTE", label: "Pendiente" },
-  { value: "EN_PROGRESO", label: "En Progreso" },
-  { value: "COMPLETADA", label: "Completada" },
-];
+const STATUS_LABELS: Record<string, string> = {
+  PENDIENTE: "Pendiente",
+  EN_PROGRESO: "En Progreso",
+  COMPLETADA: "Completada",
+};
 
 const STATUS_STYLES: Record<string, string> = {
-  PENDIENTE: "bg-surface2 text-secondary",
+  PENDIENTE: "bg-warning/[.15] text-warning",
   EN_PROGRESO: "bg-primary-surface text-primary",
   COMPLETADA: "bg-success/[.13] text-success",
 };
@@ -136,19 +137,144 @@ const FREQUENCY_LABELS: Record<string, string> = {
   QUINCENAL: "Quincenal", PUNTUAL: "Puntual",
 };
 
+const STATUS_SECTIONS: {
+  id: TaskStatus;
+  label: string;
+  headerBg: string;
+  headerText: string;
+  dot: string;
+}[] = [
+  { id: "PENDIENTE", label: "Pendientes", headerBg: "bg-warning/[.15]", headerText: "text-warning", dot: "bg-warning" },
+  { id: "EN_PROGRESO", label: "En Progreso", headerBg: "bg-primary-surface", headerText: "text-primary", dot: "bg-primary" },
+  { id: "COMPLETADA", label: "Completadas", headerBg: "bg-success/[.13]", headerText: "text-success", dot: "bg-success" },
+];
+
+type SortKey = "title" | "status" | "priority" | "startDate" | "endDate" | "estimatedHours" | "realHours" | "comments";
+
+function MemberTaskRow({ task, onCommentClick, onActivityClick }: {
+  task: Task;
+  onCommentClick: (task: Task) => void;
+  onActivityClick: (task: Task) => void;
+}) {
+  return (
+    <motion.tr
+      layout
+      layoutId={task.id}
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ type: "spring", stiffness: 500, damping: 40 }}
+      className="hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+    >
+      <td className="px-4 py-3 max-w-[200px]">
+        <p className="text-sm font-medium text-title truncate" title={task.title}>
+          {task.title}
+        </p>
+        {task.description && (
+          <p className="text-[10px] text-disabled truncate mt-0.5">{task.description}</p>
+        )}
+      </td>
+      <td className="px-3 py-3 text-main whitespace-nowrap">
+        {FREQUENCY_LABELS[task.frequency] ?? task.frequency}
+      </td>
+      <td className="px-3 py-3">
+        <span
+          className={`inline-block text-xs font-semibold px-2.5 py-1 rounded-full cursor-not-allowed ${STATUS_STYLES[task.status]}`}
+          title="Solo el responsable puede cambiar el estado"
+        >
+          {STATUS_LABELS[task.status]}
+        </span>
+      </td>
+      <td className="px-3 py-3">
+        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${PRIORITY_STYLES[task.priority]}`}>
+          {task.priority}
+        </span>
+      </td>
+      <td className="px-3 py-3 text-main whitespace-nowrap text-xs">{formatDate(task.startDate)}</td>
+      <td className="px-3 py-3 whitespace-nowrap text-xs">
+        <span className={isTaskOverdue(task.endDate, task.status) ? "text-danger font-semibold" : "text-main"}>
+          {formatDate(task.endDate)}
+        </span>
+      </td>
+      <td className="px-3 py-3 text-right text-main text-xs">{fmtH(task.estimatedHours)}h</td>
+      <td className="px-3 py-3 text-right text-secondary text-xs">{fmtH(task.realHours)}h</td>
+      <td className="px-3 py-3 text-center">
+        <div className="inline-flex items-center gap-2">
+          {task.type === "SEGUIMIENTO" && (
+            <button
+              onClick={() => onActivityClick(task)}
+              className="text-disabled hover:text-primary transition-colors"
+              title="Ver actividades"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </button>
+          )}
+          <button
+            onClick={() => onCommentClick(task)}
+            className="inline-flex items-center gap-1 text-xs text-secondary hover:text-primary transition-colors"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            </svg>
+            {task._count.comments}
+          </button>
+        </div>
+      </td>
+    </motion.tr>
+  );
+}
+
 function MemberTasksTable({
   tasks,
-  currentUserId,
-  onStatusChange,
   onCommentClick,
   onActivityClick,
 }: {
   tasks: Task[];
-  currentUserId: string;
-  onStatusChange: (id: string, status: Task["status"]) => void;
   onCommentClick: (task: Task) => void;
   onActivityClick: (task: Task) => void;
 }) {
+  const [sortKey, setSortKey] = useState<SortKey | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({ COMPLETADA: true });
+
+  function handleSort(key: SortKey) {
+    if (sortKey === key) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortKey(key);
+      setSortDir("asc");
+    }
+  }
+
+  const sortedTasks = useMemo(() => {
+    if (!sortKey) return tasks;
+    const PRIORITY_ORDER: Record<string, number> = { ALTA: 0, MEDIA: 1, BAJA: 2 };
+    return [...tasks].sort((a, b) => {
+      let av: string | number = "";
+      let bv: string | number = "";
+      switch (sortKey) {
+        case "title": av = a.title.toLowerCase(); bv = b.title.toLowerCase(); break;
+        case "status": av = a.status; bv = b.status; break;
+        case "priority": av = PRIORITY_ORDER[a.priority] ?? 9; bv = PRIORITY_ORDER[b.priority] ?? 9; break;
+        case "startDate": av = a.startDate; bv = b.startDate; break;
+        case "endDate": av = a.endDate; bv = b.endDate; break;
+        case "estimatedHours": av = a.estimatedHours; bv = b.estimatedHours; break;
+        case "realHours": av = a.realHours; bv = b.realHours; break;
+        case "comments": av = a._count.comments; bv = b._count.comments; break;
+      }
+      if (av < bv) return sortDir === "asc" ? -1 : 1;
+      if (av > bv) return sortDir === "asc" ? 1 : -1;
+      return 0;
+    });
+  }, [tasks, sortKey, sortDir]);
+
+  function SortIcon({ col }: { col: SortKey }) {
+    if (sortKey !== col) return null;
+    return <span className="ml-1 text-primary">{sortDir === "asc" ? "▲" : "▼"}</span>;
+  }
+
   if (tasks.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center py-16 text-disabled">
@@ -160,100 +286,85 @@ function MemberTasksTable({
     );
   }
 
+  const tasksBySection = Object.fromEntries(
+    STATUS_SECTIONS.map((s) => [s.id, sortedTasks.filter((t) => t.status === s.id)])
+  ) as Record<TaskStatus, Task[]>;
+
   return (
-    <div className="overflow-x-auto rounded-2xl border border-border bg-surface">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b border-border bg-background">
-            <th className="text-left px-4 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Título</th>
-            <th className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Frecuencia</th>
-            <th className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Estado</th>
-            <th className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Prioridad</th>
-            <th className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Inicio</th>
-            <th className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Fin</th>
-            <th className="text-right px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">H. Est.</th>
-            <th className="text-right px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">H. Reales</th>
-            <th className="text-center px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Avance</th>
-            <th className="text-center px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Coment.</th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-border">
-          {tasks.map((task) => (
-            <tr key={task.id} className="hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
-              <td className="px-4 py-3 max-w-[200px]">
-                <p className="text-sm font-medium text-title truncate" title={task.title}>
-                  {task.title}
-                </p>
-                {task.description && (
-                  <p className="text-[10px] text-disabled truncate mt-0.5">{task.description}</p>
-                )}
-              </td>
-              <td className="px-3 py-3 text-main whitespace-nowrap">
-                {FREQUENCY_LABELS[task.frequency] ?? task.frequency}
-              </td>
-              <td className="px-3 py-3">
-                <select
-                  value={task.status}
-                  onChange={(e) => onStatusChange(task.id, e.target.value as Task["status"])}
-                  className={`text-xs font-semibold px-2 py-1 rounded-lg border-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary ${STATUS_STYLES[task.status]}`}
+    <div className="flex flex-col gap-4">
+      {STATUS_SECTIONS.map((section) => {
+        const sectionTasks = tasksBySection[section.id];
+        const isCollapsed = collapsed[section.id];
+        return (
+          <div key={section.id} className="rounded-2xl border border-border bg-surface overflow-hidden">
+            <button
+              onClick={() => setCollapsed((c) => ({ ...c, [section.id]: !c[section.id] }))}
+              className={`flex items-center gap-2 w-full px-4 py-2.5 ${section.headerBg}`}
+            >
+              <svg
+                className={`w-3.5 h-3.5 ${section.headerText} transition-transform ${isCollapsed ? "-rotate-90" : ""}`}
+                fill="none" stroke="currentColor" viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+              <span className={`w-2 h-2 rounded-full ${section.dot}`} />
+              <span className={`text-sm font-semibold ${section.headerText}`}>
+                {section.label} ({sectionTasks.length})
+              </span>
+            </button>
+
+            <AnimatePresence initial={false}>
+              {!isCollapsed && (
+                <motion.div
+                  key="content"
+                  initial={{ height: 0, opacity: 0 }}
+                  animate={{ height: "auto", opacity: 1 }}
+                  exit={{ height: 0, opacity: 0 }}
+                  transition={{ duration: 0.2, ease: "easeInOut" }}
+                  style={{ overflow: "hidden" }}
                 >
-                  {STATUS_OPTIONS.map((o) => (
-                    <option key={o.value} value={o.value}>{o.label}</option>
-                  ))}
-                </select>
-              </td>
-              <td className="px-3 py-3">
-                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${PRIORITY_STYLES[task.priority]}`}>
-                  {task.priority}
-                </span>
-              </td>
-              <td className="px-3 py-3 text-main whitespace-nowrap text-xs">{formatDate(task.startDate)}</td>
-              <td className="px-3 py-3 whitespace-nowrap text-xs">
-                <span className={isTaskOverdue(task.endDate, task.status) ? "text-danger font-semibold" : "text-main"}>
-                  {formatDate(task.endDate)}
-                </span>
-              </td>
-              <td className="px-3 py-3 text-right text-main text-xs">{fmtH(task.estimatedHours)}h</td>
-              <td className="px-3 py-3 text-right text-secondary text-xs">{fmtH(task.realHours)}h</td>
-              <td className="px-3 py-3">
-                <div className="flex items-center gap-2 min-w-[70px]">
-                  <div className="flex-1 h-1.5 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-primary rounded-full"
-                      style={{ width: `${task.progress}%` }}
-                    />
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-border bg-background">
+                          <th onDoubleClick={() => handleSort("title")} className="text-left px-4 py-3 text-xs font-semibold text-secondary uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Título<SortIcon col="title" /></th>
+                          <th className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Frecuencia</th>
+                          <th onDoubleClick={() => handleSort("status")} className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Estado<SortIcon col="status" /></th>
+                          <th onDoubleClick={() => handleSort("priority")} className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Prioridad<SortIcon col="priority" /></th>
+                          <th onDoubleClick={() => handleSort("startDate")} className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Inicio<SortIcon col="startDate" /></th>
+                          <th onDoubleClick={() => handleSort("endDate")} className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Fin<SortIcon col="endDate" /></th>
+                          <th onDoubleClick={() => handleSort("estimatedHours")} className="text-right px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">H. Est.<SortIcon col="estimatedHours" /></th>
+                          <th onDoubleClick={() => handleSort("realHours")} className="text-right px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">H. Reales<SortIcon col="realHours" /></th>
+                          <th onDoubleClick={() => handleSort("comments")} className="text-center px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Coment.<SortIcon col="comments" /></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-border">
+                        <AnimatePresence initial={false}>
+                          {sectionTasks.length === 0 && (
+                            <tr>
+                              <td colSpan={9} className="text-center py-6 text-disabled text-xs">
+                                Sin tareas en esta sección
+                              </td>
+                            </tr>
+                          )}
+                          {sectionTasks.map((task) => (
+                            <MemberTaskRow
+                              key={task.id}
+                              task={task}
+                              onCommentClick={onCommentClick}
+                              onActivityClick={onActivityClick}
+                            />
+                          ))}
+                        </AnimatePresence>
+                      </tbody>
+                    </table>
                   </div>
-                  <span className="text-[10px] text-secondary w-6 text-right">{task.progress}%</span>
-                </div>
-              </td>
-              <td className="px-3 py-3 text-center">
-                <div className="inline-flex items-center gap-2">
-                  {task.type === "SEGUIMIENTO" && (
-                    <button
-                      onClick={() => onActivityClick(task)}
-                      className="text-disabled hover:text-primary transition-colors"
-                      title="Ver actividades"
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                    </button>
-                  )}
-                  <button
-                    onClick={() => onCommentClick(task)}
-                    className="inline-flex items-center gap-1 text-xs text-secondary hover:text-primary transition-colors"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-                    </svg>
-                    {task._count.comments}
-                  </button>
-                </div>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -308,20 +419,6 @@ export default function TeamModule({ currentUserId, currentUserRole: _role }: Pr
     setMemberTasks([]);
     loadMembers(); // refresh task summaries
   }
-
-  const handleStatusChange = useCallback(async (taskId: string, status: Task["status"]) => {
-    // optimistic
-    setMemberTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, status } : t)));
-    const res = await fetch(`/api/tasks/${taskId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
-    if (!res.ok) {
-      // revert on error
-      if (selectedMember) loadMemberTasks(selectedMember.id);
-    }
-  }, [selectedMember, loadMemberTasks]);
 
   const handleCommentAdded = useCallback((taskId: string) => {
     setMemberTasks((prev) =>
@@ -448,8 +545,6 @@ export default function TeamModule({ currentUserId, currentUserRole: _role }: Pr
           ) : (
             <MemberTasksTable
               tasks={memberTasks}
-              currentUserId={currentUserId}
-              onStatusChange={handleStatusChange}
               onCommentClick={setCommentTask}
               onActivityClick={setActivityTask}
             />

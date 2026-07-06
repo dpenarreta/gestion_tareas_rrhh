@@ -17,6 +17,7 @@ enum Role {
   ASISTENTE_GH
   ASISTENTE_GH_ZS
   TRABAJO_SOCIAL
+  ASISTENTE_NOMINA
 }
 
 enum ThemePreference {

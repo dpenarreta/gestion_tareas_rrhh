@@ -71,6 +71,13 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     );
   }
 
+  if ("status" in body && task.assignedToId !== session.userId) {
+    return NextResponse.json(
+      { error: "Solo el responsable puede cambiar el estado" },
+      { status: 403 }
+    );
+  }
+
   const data: Record<string, unknown> = {};
   if ("title" in body) data.title = body.title;
   if ("description" in body) data.description = body.description;

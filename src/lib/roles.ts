@@ -10,6 +10,7 @@ export const ROLE_LEVEL: Record<Role, number> = {
   ASISTENTE_GH: 1,
   ASISTENTE_GH_ZS: 1,
   TRABAJO_SOCIAL: 1,
+  ASISTENTE_NOMINA: 1,
 };
 
 export const ROLE_LABEL: Record<Role, string> = {
@@ -22,6 +23,7 @@ export const ROLE_LABEL: Record<Role, string> = {
   ASISTENTE_GH: "Asistente de Gestión Humana",
   ASISTENTE_GH_ZS: "Asistente GH ZS",
   TRABAJO_SOCIAL: "Trabajo Social",
+  ASISTENTE_NOMINA: "Asistente de Nómina",
 };
 
 // Roles whose tasks each role can see
@@ -36,6 +38,7 @@ export const VISIBLE_ROLES: Record<Role, Role[]> = {
     "ASISTENTE_GH",
     "ASISTENTE_GH_ZS",
     "TRABAJO_SOCIAL",
+    "ASISTENTE_NOMINA",
   ],
   COORDINADOR_NACIONAL: [
     "COORDINADOR_NACIONAL",
@@ -46,6 +49,7 @@ export const VISIBLE_ROLES: Record<Role, Role[]> = {
     "ASISTENTE_GH",
     "ASISTENTE_GH_ZS",
     "TRABAJO_SOCIAL",
+    "ASISTENTE_NOMINA",
   ],
   COORDINADOR_ZS: ["COORDINADOR_ZS", "ASISTENTE_GH_ZS"],
   ANALISTA_CC: ["ANALISTA_CC", "ASISTENTE_GH", "TRABAJO_SOCIAL"],
@@ -59,6 +63,7 @@ export const VISIBLE_ROLES: Record<Role, Role[]> = {
   ASISTENTE_GH: ["ASISTENTE_GH"],
   ASISTENTE_GH_ZS: ["ASISTENTE_GH_ZS"],
   TRABAJO_SOCIAL: ["TRABAJO_SOCIAL"],
+  ASISTENTE_NOMINA: ["ASISTENTE_NOMINA"],
 };
 
 // Who gets notified (upward) when a task comment is made
@@ -72,6 +77,7 @@ export const NOTIFICATION_TARGETS: Record<Role, Role[]> = {
   ASISTENTE_GH: ["ANALISTA_CC", "ANALISTA_SELECCION"],
   ASISTENTE_GH_ZS: ["COORDINADOR_ZS"],
   TRABAJO_SOCIAL: ["ANALISTA_CC", "ANALISTA_SELECCION"],
+  ASISTENTE_NOMINA: ["COORDINADOR_NACIONAL", "JEFE_NACIONAL"],
 };
 
 export const CAN_CREATE_MEETINGS: Role[] = [
