@@ -47,7 +47,6 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
   const [estimatedHours, setEstimatedHours] = useState("");
-  const [progress, setProgress] = useState("0");
   const [assignedToId, setAssignedToId] = useState(initialAssignedToId ?? currentUserId);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -63,7 +62,6 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
       setStartDate(toInputDate(task.startDate));
       setEndDate(toInputDate(task.endDate));
       setEstimatedHours(String(Math.round(task.estimatedHours * 100) / 100));
-      setProgress(String(task.progress));
       setAssignedToId(task.assignedTo.id);
     }
   }, [task]);
@@ -88,7 +86,6 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
         startDate,
         endDate,
         estimatedHours: parseFloat(estimatedHours),
-        progress: parseInt(progress) || 0,
         assignedToId,
       };
 
@@ -258,20 +255,6 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
               onChange={(e) => setEstimatedHours(e.target.value)}
               className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
               placeholder="Ej: 8"
-            />
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-main mb-1.5">
-              Avance: {progress}%
-            </label>
-            <input
-              type="range"
-              min="0"
-              max="100"
-              value={progress}
-              onChange={(e) => setProgress(e.target.value)}
-              className="w-full accent-primary"
             />
           </div>
 

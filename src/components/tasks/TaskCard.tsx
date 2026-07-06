@@ -143,21 +143,6 @@ export default function TaskCard({ task, currentUserId, isDragging, onEdit, onDe
         )}
       </div>
 
-      {task.progress > 0 && (
-        <div className="mb-2.5">
-          <div className="flex items-center justify-between mb-1">
-            <span className="text-[10px] text-secondary">Avance</span>
-            <span className="text-[10px] font-medium text-main">{task.progress}%</span>
-          </div>
-          <div className="h-1.5 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-primary rounded-full transition-all"
-              style={{ width: `${task.progress}%` }}
-            />
-          </div>
-        </div>
-      )}
-
       <div className="flex items-center justify-between">
         <span className={`flex items-center gap-1 text-[10px] ${overdue ? "text-danger font-semibold" : "text-secondary"}`}>
           Vence {formatDate(task.endDate)}
@@ -181,12 +166,15 @@ export default function TaskCard({ task, currentUserId, isDragging, onEdit, onDe
           )}
           <button
             onClick={(e) => { e.stopPropagation(); onCommentClick(task); }}
-            className="flex items-center gap-1 text-[10px] text-secondary hover:text-primary transition-colors"
+            className="relative flex items-center gap-1 text-[10px] text-secondary hover:text-primary transition-colors"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
             </svg>
             {task._count.comments}
+            {task.hasUnreadComments && (
+              <span className="absolute -top-0.5 -right-1 w-1.5 h-1.5 rounded-full bg-danger" />
+            )}
           </button>
         </div>
       </div>

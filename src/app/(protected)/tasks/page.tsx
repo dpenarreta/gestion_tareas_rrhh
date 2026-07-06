@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getVisibleRoles } from "@/lib/roles";
+import { attachUnreadComments } from "@/lib/commentViews";
 import TasksModule from "@/components/tasks/TasksModule";
 import type { ViewType } from "@/components/tasks/types";
 
@@ -47,7 +48,8 @@ export default async function TasksPage() {
     }),
   ]);
 
-  const serializedTasks = tasks.map((t) => ({
+  const tasksWithUnread = await attachUnreadComments(tasks, session.userId);
+  const serializedTasks = tasksWithUnread.map((t) => ({
     ...t,
     startDate: t.startDate.toISOString(),
     endDate: t.endDate.toISOString(),

@@ -115,6 +115,9 @@ export type KpiByReason = {
   avgMinutes: number;
 };
 
+export type WorkloadMetric = { realHours: number; pct: number; color: KpiColor };
+export type CargaTiempo = { diaria: WorkloadMetric; semanal: WorkloadMetric; mensual: WorkloadMetric };
+
 export type KpiData = {
   user: { id: string; name: string; role: string };
   period: { month: string };
@@ -133,6 +136,7 @@ export type KpiData = {
     ratio: number;
     color: KpiColor;
   };
+  cargaTiempo: CargaTiempo;
   seguimiento: {
     total: number;
     byReason: KpiByReason[];

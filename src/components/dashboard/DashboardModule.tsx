@@ -201,7 +201,7 @@ function Card({
 
 function CardTitle({ children }: { children: React.ReactNode }) {
   return (
-    <h2 className="text-[11px] font-semibold text-secondary uppercase tracking-[.07em] mb-4">
+    <h2 className="text-[11px] font-semibold text-secondary uppercase tracking-[.07em] pb-3 mb-4 border-b border-border">
       {children}
     </h2>
   );
@@ -422,7 +422,7 @@ function ComunicadosCard({
 
   return (
     <Card>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 pb-3 border-b border-border">
         <h2 className="text-sm font-semibold text-secondary uppercase tracking-wider">Comunicados</h2>
         {canPost && (
           <button
@@ -579,7 +579,7 @@ function ResumenCard({
 
   return (
     <Card>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 pb-3 border-b border-border">
         <h2 className="text-sm font-semibold text-secondary uppercase tracking-wider">Resumen</h2>
         <div className="flex rounded-lg border border-border overflow-hidden">
           {periods.map((p) => (
@@ -677,22 +677,7 @@ export default function DashboardModule({
         // Fetch Nova message (non-blocking — failures don't affect the rest)
         const NOVA_FALLBACK = "Bienvenido a Nexo. Revisa tus tareas pendientes para comenzar el día.";
         setNovaLoading(true);
-        fetch("/api/dashboard/nova-message", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            usuario: userName,
-            rol: ROLE_LABEL[userRole],
-            cargaLaboral: d.workloadPct,
-            tareasVencidas: d.overdue,
-            cumplimientoMes: d.completedPct,
-            reunionesHoy: d.upcomingMeetings.filter((m) => {
-              const date = new Date(m.meetingDate);
-              const today = new Date();
-              return date.toDateString() === today.toDateString();
-            }).length,
-          }),
-        })
+        fetch("/api/dashboard/nova-message", { method: "POST" })
           .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`${r.status}`))))
           .then((n) => setNovaMessage(n.message || NOVA_FALLBACK))
           .catch(() => setNovaMessage(NOVA_FALLBACK))

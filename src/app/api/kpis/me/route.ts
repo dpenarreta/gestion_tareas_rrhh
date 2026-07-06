@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { isTaskOverdue } from "@/lib/utils";
+import { computeCargaTiempo } from "@/lib/workload";
 import type { KpiColor } from "@/components/kpis/types";
 
 function cumplimientoColor(pct: number): KpiColor {
@@ -54,6 +55,8 @@ export async function GET(request: NextRequest) {
   const totalComments = await prisma.comment.count({
     where: { authorId: userId, createdAt: { gte: start, lte: end } },
   });
+
+  const cargaTiempo = await computeCargaTiempo(userId);
 
   // ── Cumplimiento ──────────────────────────────────────────────────────────
   const completed = tasks.filter((t) => t.status === "COMPLETADA");
@@ -203,6 +206,7 @@ export async function GET(request: NextRequest) {
       ratio: cargaRatio,
       color: cargaColor(cargaRatio),
     },
+    cargaTiempo,
     seguimiento: { total: allActivities.length, byReason },
     calidad: {
       avgProgress,

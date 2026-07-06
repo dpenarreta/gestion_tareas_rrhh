@@ -12,6 +12,7 @@ import {
   REASON_LABEL,
 } from "./KpiCharts";
 import MonthlyReports from "./MonthlyReports";
+import WorkloadCard from "./WorkloadCard";
 import * as XLSX from "xlsx";
 import { formatDate } from "@/lib/utils";
 
@@ -270,7 +271,6 @@ function downloadExcel(kpi: KpiData) {
     ["Nota", "Horas sobre el estimado pueden indicar exceso de carga laboral, no incumplimiento"],
     [""],
     ["CALIDAD", ""],
-    ["Avance promedio (EN_PROGRESO)", `${kpi.calidad.avgProgress}%`],
     ["Tareas recurrentes completadas", `${kpi.calidad.recurringCompleted}/${kpi.calidad.recurringTotal}`],
     [""],
     ["ACTIVIDAD", ""],
@@ -382,10 +382,6 @@ function downloadPDF(kpi: KpiData) {
 
   <h2>Calidad</h2>
   <div class="grid2">
-    <div class="card">
-      <div class="card-title">Avance tareas en progreso</div>
-      <div class="card-value">${kpi.calidad.avgProgress}%</div>
-    </div>
     <div class="card">
       <div class="card-title">Tareas recurrentes</div>
       <div class="card-value">${kpi.calidad.recurringPct}%</div>
@@ -696,6 +692,8 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
 
               <NovaAnalysisCard kpi={kpi} />
 
+              <WorkloadCard cargaTiempo={kpi.cargaTiempo} />
+
               {/* ── 4 Summary cards ──────────────────────────────────────── */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <SummaryCard
@@ -769,7 +767,6 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
                   <div className="mt-3 space-y-1">
                     <MetricRow label="Tareas vencidas" value={`${kpi.cumplimiento.overdue}`} />
                     <MetricRow label="Días promedio retraso" value={`${kpi.cumplimiento.avgDelayDays}d`} />
-                    <MetricRow label="Avance tareas activas" value={`${kpi.calidad.avgProgress}%`} />
                     <MetricRow
                       label="Recurrentes completadas"
                       value={`${kpi.calidad.recurringCompleted}/${kpi.calidad.recurringTotal}`}

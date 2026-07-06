@@ -132,6 +132,12 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
     );
   }, []);
 
+  const handleCommentsViewed = useCallback((taskId: string) => {
+    setTasks((prev) =>
+      prev.map((t) => (t.id === taskId ? { ...t, hasUnreadComments: false } : t))
+    );
+  }, []);
+
   const handleStatusChange = useCallback(async (id: string, status: Task["status"]) => {
     setTasks((prev) =>
       prev.map((t) => (t.id === id ? { ...t, status } : t))
@@ -292,6 +298,7 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
             onEditTask={openEdit}
             onDeleteTask={handleTaskDelete}
             onCommentAdded={handleCommentAdded}
+            onCommentsViewed={handleCommentsViewed}
             onColorChange={handleColorChange}
           />
         )}
@@ -309,6 +316,7 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
             onBulkDelete={handleBulkDelete}
             onRefresh={refreshTasks}
             onCommentAdded={handleCommentAdded}
+            onCommentsViewed={handleCommentsViewed}
           />
         )}
         {!showRepository && !noSearchResults && currentView === "GANTT" && <GanttView tasks={filteredTasks} onCreateTask={() => openCreate()} />}

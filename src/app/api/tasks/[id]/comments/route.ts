@@ -18,6 +18,12 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     orderBy: { createdAt: "asc" },
   });
 
+  await prisma.taskCommentView.upsert({
+    where: { taskId_userId: { taskId: id, userId: session.userId } },
+    update: { viewedAt: new Date() },
+    create: { taskId: id, userId: session.userId },
+  });
+
   return NextResponse.json(comments);
 }
 

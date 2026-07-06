@@ -56,6 +56,7 @@ export type Task = {
   assignedTo: TaskUser;
   createdBy: { id: string; name: string };
   _count: { comments: number };
+  hasUnreadComments: boolean;
   createdAt: string;
   updatedAt: string;
 };

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { attachUnreadComments } from "@/lib/commentViews";
 import type { TaskStatus, TaskPriority, TaskFrequency, TaskType } from "@/generated/prisma/client";
 
 const taskSelect = {
@@ -36,7 +37,8 @@ export async function GET() {
     orderBy: { createdAt: "desc" },
   });
 
-  return NextResponse.json(tasks);
+  const tasksWithUnread = await attachUnreadComments(tasks, session.userId);
+  return NextResponse.json(tasksWithUnread);
 }
 
 export async function POST(request: NextRequest) {
@@ -46,24 +48,26 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json();
-  const { title, description, type, status, priority, frequency, startDate, endDate, estimatedHours, progress, assignedToId } = body;
+  const { title, description, type, status, priority, frequency, startDate, endDate, estimatedHours, assignedToId } = body;
 
   if (!title || !priority || !frequency || !startDate || !endDate || estimatedHours == null || !assignedToId) {
     return NextResponse.json({ error: "Faltan campos requeridos" }, { status: 400 });
   }
+
+  const initialStatus = (status as TaskStatus) ?? "PENDIENTE";
 
   const task = await prisma.task.create({
     data: {
       title,
       description: description || null,
       type: (type as TaskType) ?? "FIJA",
-      status: (status as TaskStatus) ?? "PENDIENTE",
+      status: initialStatus,
       priority: priority as TaskPriority,
       frequency: frequency as TaskFrequency,
       startDate: new Date(startDate),
       endDate: new Date(endDate),
       estimatedHours: parseFloat(estimatedHours),
-      progress: progress ?? 0,
+      progress: initialStatus === "COMPLETADA" ? 100 : 0,
       assignedToId,
       createdById: session.userId,
     },
@@ -81,5 +85,6 @@ export async function POST(request: NextRequest) {
     });
   }
 
-  return NextResponse.json(task, { status: 201 });
+  const [taskWithUnread] = await attachUnreadComments([task], session.userId);
+  return NextResponse.json(taskWithUnread, { status: 201 });
 }

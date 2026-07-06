@@ -177,6 +177,7 @@ type Props = {
   onEditTask: (task: Task) => void;
   onDeleteTask: (id: string) => void;
   onCommentAdded: (taskId: string) => void;
+  onCommentsViewed: (taskId: string) => void;
   onColorChange: (id: string, color: string | null) => void;
 };
 
@@ -188,6 +189,7 @@ export default function KanbanView({
   onEditTask,
   onDeleteTask,
   onCommentAdded,
+  onCommentsViewed,
   onColorChange,
 }: Props) {
   const [activeTask, setActiveTask] = useState<Task | null>(null);
@@ -242,7 +244,7 @@ export default function KanbanView({
               onCreateTask={onCreateTask}
               onEditTask={onEditTask}
               onDeleteTask={onDeleteTask}
-              onCommentClick={setCommentTask}
+              onCommentClick={(t) => { setCommentTask(t); onCommentsViewed(t.id); }}
               onActivityClick={setActivityTask}
               onColorChange={onColorChange}
             />

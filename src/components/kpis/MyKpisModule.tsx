@@ -10,6 +10,7 @@ import type { Role } from "@/generated/prisma/client";
 import { ROLE_LABEL } from "@/lib/roles";
 import type { KpiData, KpiColor } from "./types";
 import { DonutChart, WeeklyHoursChart, CumplimientoLineChart, REASON_LABEL } from "./KpiCharts";
+import WorkloadCard from "./WorkloadCard";
 import { formatDate } from "@/lib/utils";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -717,6 +718,8 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
                 </div>
               </div>
 
+              <WorkloadCard cargaTiempo={kpi.cargaTiempo} />
+
               {/* Stats */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard label="Total tareas" value={kpi.cumplimiento.total} sub={formatMonthLabel(month)} />
@@ -784,12 +787,7 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
               )}
 
               {/* Calidad + actividad */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <div className="bg-surface rounded-xl border border-border p-4">
-                  <p className="text-[11px] text-disabled uppercase tracking-wider font-medium mb-1">Progreso prom.</p>
-                  <p className="text-2xl font-bold text-title">{kpi.calidad.avgProgress}%</p>
-                  <p className="text-xs text-disabled mt-0.5">tareas en progreso</p>
-                </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <div className="bg-surface rounded-xl border border-border p-4">
                   <p className="text-[11px] text-disabled uppercase tracking-wider font-medium mb-1">Tareas recurrentes</p>
                   <p className="text-2xl font-bold text-title">{kpi.calidad.recurringPct}%</p>

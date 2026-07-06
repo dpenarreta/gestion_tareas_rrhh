@@ -100,7 +100,6 @@ export default function Sidebar({ role, collapsed, onToggleCollapsed, mobileOpen
               className={`w-4 h-4 transition-transform duration-200 shrink-0 ${collapsed ? "rotate-180" : ""}`}
               strokeWidth={1.8}
             />
-            {!collapsed && <span className="text-[13px]">Contraer</span>}
           </button>
         </div>
       </aside>

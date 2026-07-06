@@ -90,6 +90,7 @@ model User {
   proposedIdeas      ImprovementIdea[]   @relation("IdeaAuthor")
   ideaStatusChanges  IdeaStatusHistory[] @relation("IdeaStatusChanger")
   ideaVotes          IdeaVote[]
+  taskCommentViews   TaskCommentView[]
 }
 
 model Announcement {
@@ -122,6 +123,7 @@ model Task {
   createdBy      User          @relation("CreatedTasks", fields: [createdById], references: [id])
   comments       Comment[]
   activities     TaskActivity[]
+  commentViews   TaskCommentView[]
   color          String?
   archivedMonth  String?
   archivedAt     DateTime?
@@ -137,6 +139,17 @@ model Comment {
   taskId    String
   task      Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
   createdAt DateTime @default(now())
+}
+
+model TaskCommentView {
+  id       String   @id @default(cuid())
+  taskId   String
+  task     Task     @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId   String
+  user     User     @relation(fields: [userId], references: [id])
+  viewedAt DateTime @default(now())
+
+  @@unique([taskId, userId])
 }
 
 model Notification {

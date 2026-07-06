@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { getVisibleRoles } from "@/lib/roles";
+import { attachUnreadComments } from "@/lib/commentViews";
 import type { TaskStatus, TaskPriority, TaskFrequency, TaskType } from "@/generated/prisma/client";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -81,12 +82,16 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   if ("endDate" in body) data.endDate = new Date(body.endDate);
   if ("estimatedHours" in body) data.estimatedHours = Math.round(parseFloat(body.estimatedHours) * 100) / 100;
   if ("realHours" in body) data.realHours = Math.round(parseFloat(body.realHours) * 100) / 100;
-  if ("progress" in body) data.progress = parseInt(body.progress);
+  if ("status" in body) {
+    if (body.status === "COMPLETADA") data.progress = 100;
+    else if (body.status === "PENDIENTE") data.progress = 0;
+  }
   if ("assignedToId" in body) data.assignedToId = body.assignedToId;
   if ("color" in body) data.color = body.color;
 
   const updated = await prisma.task.update({ where: { id }, data, select: taskSelect });
-  return NextResponse.json(updated);
+  const [updatedWithUnread] = await attachUnreadComments([updated], session.userId);
+  return NextResponse.json(updatedWithUnread);
 }
 
 export async function DELETE(_req: NextRequest, ctx: Ctx) {

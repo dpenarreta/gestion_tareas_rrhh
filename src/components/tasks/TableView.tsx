@@ -8,7 +8,7 @@ import { taskColorHex } from "./colors";
 import { fireCelebrationConfetti } from "@/lib/confetti";
 import { formatDate, isTaskOverdue } from "@/lib/utils";
 
-type SortKey = "title" | "frequency" | "status" | "priority" | "startDate" | "endDate" | "estimatedHours" | "realHours" | "progress";
+type SortKey = "title" | "frequency" | "status" | "priority" | "startDate" | "endDate" | "estimatedHours" | "realHours";
 import CommentPanel from "./CommentPanel";
 import ActivityPanel from "./ActivityPanel";
 
@@ -248,17 +248,6 @@ function TaskRow({
         />
         <span className="text-disabled ml-0.5 text-xs">h</span>
       </td>
-      <td className="border border-border px-4 py-3.5">
-        <div className="flex items-center gap-2 min-w-[80px]">
-          <div className="flex-1 h-1.5 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-primary rounded-full"
-              style={{ width: `${task.progress}%` }}
-            />
-          </div>
-          <span className="text-[10px] text-secondary w-7 text-right">{task.progress}%</span>
-        </div>
-      </td>
       <td className="border border-border px-4 py-3.5 text-center">
         <div className="inline-flex items-center gap-2">
           {task.type === "SEGUIMIENTO" && (
@@ -274,12 +263,15 @@ function TaskRow({
           )}
           <button
             onClick={() => onCommentClick(task)}
-            className="inline-flex items-center gap-1 text-xs text-secondary hover:text-primary transition-colors"
+            className="relative inline-flex items-center gap-1 text-xs text-secondary hover:text-primary transition-colors"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
             </svg>
             {task._count.comments}
+            {task.hasUnreadComments && (
+              <span className="absolute -top-0.5 -right-1 w-1.5 h-1.5 rounded-full bg-danger" />
+            )}
           </button>
         </div>
       </td>
@@ -322,12 +314,13 @@ type Props = {
   onBulkDelete: (ids: string[]) => Promise<void>;
   onRefresh: () => void;
   onCommentAdded: (taskId: string) => void;
+  onCommentsViewed: (taskId: string) => void;
 };
 
 function exportTasksToExcel(tasks: Task[]) {
   const wb = XLSX.utils.book_new();
   const rows = [
-    ["Título", "Descripción", "Estado", "Prioridad", "Frecuencia", "Fecha Inicio", "Fecha Fin", "Horas Estimadas", "Horas Reales", "Avance (%)", "Asignado a", "Email"],
+    ["Título", "Descripción", "Estado", "Prioridad", "Frecuencia", "Fecha Inicio", "Fecha Fin", "Horas Estimadas", "Horas Reales", "Asignado a", "Email"],
     ...tasks.map((t) => [
       t.title,
       t.description ?? "",
@@ -338,7 +331,6 @@ function exportTasksToExcel(tasks: Task[]) {
       formatDate(t.endDate),
       fmtH(t.estimatedHours),
       fmtH(t.realHours),
-      t.progress,
       t.assignedTo.name,
       t.assignedTo.email,
     ]),
@@ -346,7 +338,7 @@ function exportTasksToExcel(tasks: Task[]) {
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws["!cols"] = [
     { wch: 30 }, { wch: 30 }, { wch: 14 }, { wch: 10 }, { wch: 12 },
-    { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 12 }, { wch: 24 }, { wch: 28 },
+    { wch: 14 }, { wch: 14 }, { wch: 16 }, { wch: 14 }, { wch: 24 }, { wch: 28 },
   ];
   XLSX.utils.book_append_sheet(wb, ws, "Tareas");
   const dateStr = new Date().toISOString().slice(0, 10);
@@ -365,6 +357,7 @@ export default function TableView({
   onBulkDelete,
   onRefresh,
   onCommentAdded,
+  onCommentsViewed,
 }: Props) {
   const [commentTask, setCommentTask] = useState<Task | null>(null);
   const [activityTask, setActivityTask] = useState<Task | null>(null);
@@ -454,7 +447,6 @@ export default function TableView({
         case "endDate": av = a.endDate; bv = b.endDate; break;
         case "estimatedHours": av = a.estimatedHours; bv = b.estimatedHours; break;
         case "realHours": av = a.realHours; bv = b.realHours; break;
-        case "progress": av = a.progress; bv = b.progress; break;
       }
       if (av < bv) return sortDir === "asc" ? -1 : 1;
       if (av > bv) return sortDir === "asc" ? 1 : -1;
@@ -616,7 +608,6 @@ export default function TableView({
                           <th onDoubleClick={() => handleSort("endDate")} className="border border-border text-left px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Fin<SortIcon col="endDate" /></th>
                           <th onDoubleClick={() => handleSort("estimatedHours")} className="border border-border text-right px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">H. Est.<SortIcon col="estimatedHours" /></th>
                           <th onDoubleClick={() => handleSort("realHours")} className="border border-border text-right px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">H. Reales<SortIcon col="realHours" /></th>
-                          <th onDoubleClick={() => handleSort("progress")} className="border border-border text-center px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Avance<SortIcon col="progress" /></th>
                           <th className="border border-border text-center px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider">Coment.</th>
                           <th className="border border-border px-4 py-3" />
                         </tr>
@@ -625,7 +616,7 @@ export default function TableView({
                         <AnimatePresence initial={false}>
                           {sectionTasks.length === 0 && (
                             <tr>
-                              <td colSpan={13} className="text-center py-6 text-disabled text-xs">
+                              <td colSpan={12} className="text-center py-6 text-disabled text-xs">
                                 Sin tareas en esta sección
                               </td>
                             </tr>
@@ -642,7 +633,7 @@ export default function TableView({
                               onStatusChange={onStatusChange}
                               onEditTask={onEditTask}
                               onDeleteTask={onDeleteTask}
-                              onCommentClick={setCommentTask}
+                              onCommentClick={(t) => { setCommentTask(t); onCommentsViewed(t.id); }}
                               onActivityClick={setActivityTask}
                             />
                           ))}
