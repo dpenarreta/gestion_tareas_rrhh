@@ -115,8 +115,12 @@ export type KpiByReason = {
   avgMinutes: number;
 };
 
-export type WorkloadMetric = { realHours: number; pct: number; color: KpiColor };
-export type CargaTiempo = { diaria: WorkloadMetric; semanal: WorkloadMetric; mensual: WorkloadMetric };
+export type WorkloadMetric = { realHours: number; baseHours: number; pct: number; color: KpiColor };
+export type CargaTiempo = {
+  diaria: WorkloadMetric;
+  semanal: WorkloadMetric & { weekStartLabel: string; weekEndLabel: string; businessDays: number };
+  mensual: WorkloadMetric & { monthLabel: string; businessDays: number };
+};
 
 export type KpiData = {
   user: { id: string; name: string; role: string };

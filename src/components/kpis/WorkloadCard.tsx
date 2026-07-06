@@ -21,11 +21,11 @@ const COLOR_BG: Record<KpiColor, string> = {
 function Tile({
   label,
   metric,
-  budgetLabel,
+  periodLabel,
 }: {
   label: string;
   metric: WorkloadMetric;
-  budgetLabel: string;
+  periodLabel: string;
 }) {
   return (
     <div className={`rounded-[14px] p-4 ${COLOR_BG[metric.color]}`}>
@@ -35,22 +35,35 @@ function Tile({
       </div>
       <p className={`text-2xl font-bold ${COLOR_TEXT[metric.color]}`}>{metric.pct}%</p>
       <p className="text-[11px] text-secondary mt-0.5">
-        {metric.realHours}h / {budgetLabel}
+        {metric.realHours}h de {metric.baseHours}h
       </p>
+      <p className="text-[10px] text-disabled mt-0.5">{periodLabel}</p>
     </div>
   );
 }
 
 export default function WorkloadCard({ cargaTiempo }: { cargaTiempo: CargaTiempo }) {
+  const { diaria, semanal, mensual } = cargaTiempo;
+
   return (
     <div className="bg-surface rounded-[14px] border border-border shadow-[var(--shadow)] p-5">
       <h3 className="text-[11px] font-semibold text-secondary uppercase tracking-wider mb-3">
         Carga laboral (horas reales)
       </h3>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <Tile label="Hoy" metric={cargaTiempo.diaria} budgetLabel="8h" />
-        <Tile label="Esta semana" metric={cargaTiempo.semanal} budgetLabel="40h" />
-        <Tile label="Este mes" metric={cargaTiempo.mensual} budgetLabel="160h" />
+        <Tile label="Hoy" metric={diaria} periodLabel="hoy" />
+        <Tile
+          label="Esta semana"
+          metric={semanal}
+          periodLabel={`semana del ${semanal.weekStartLabel} al ${semanal.weekEndLabel}`}
+        />
+        <Tile
+          label="Este mes"
+          metric={mensual}
+          periodLabel={`${mensual.monthLabel}, ${mensual.businessDays} ${
+            mensual.businessDays === 1 ? "día laborable" : "días laborables"
+          }`}
+        />
       </div>
     </div>
   );

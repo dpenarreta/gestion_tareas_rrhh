@@ -21,6 +21,7 @@ function buildFallback(ctx: {
   tareasPorVencer: number;
   cargaHoyPct: number;
   cargaHoyHoras: number;
+  cargaHoyBase: number;
   completadasMes: number;
 }): string {
   if (ctx.tareasVencidas > 0) {
@@ -30,7 +31,7 @@ function buildFallback(ctx: {
     return `Tienes ${ctx.tareasPorVencer} ${pluralize(ctx.tareasPorVencer, "tarea próxima a vencer", "tareas próximas a vencer")} esta semana.`;
   }
   if (ctx.cargaHoyPct > 120 || ctx.cargaHoyPct < 60) {
-    return `Tu carga laboral hoy es del ${ctx.cargaHoyPct}% (${ctx.cargaHoyHoras}h de 8h).`;
+    return `Tu carga laboral hoy es del ${ctx.cargaHoyPct}% (${ctx.cargaHoyHoras}h de ${ctx.cargaHoyBase}h).`;
   }
   if (ctx.completadasMes > 0) {
     return `Buen ritmo: completaste ${ctx.completadasMes} ${pluralize(ctx.completadasMes, "tarea", "tareas")} este mes.`;
@@ -70,6 +71,7 @@ export async function POST() {
     tareasPorVencer,
     cargaHoyPct: cargaTiempo.diaria.pct,
     cargaHoyHoras: cargaTiempo.diaria.realHours,
+    cargaHoyBase: cargaTiempo.diaria.baseHours,
     completadasMes,
   };
 
