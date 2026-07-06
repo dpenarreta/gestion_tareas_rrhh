@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canAccessReports, ROLE_LABEL } from "@/lib/roles";
 import { isTaskOverdue } from "@/lib/utils";
+import { monthlyBusinessBase } from "@/lib/workload";
+import { businessDayRealRange } from "@/lib/businessTime";
 import Groq from "groq-sdk";
 import type { Role } from "@/generated/prisma/client";
 import type { MonthSnapshot, RangeReportData, ReportMemberKpi } from "@/components/kpis/types";
@@ -68,7 +70,7 @@ async function buildRangeAiAnalysis(data: RangeReportData): Promise<string> {
   const membersText = data.aggregated.members
     .map(
       (m) =>
-        `- ${m.name} (${ROLE_LABEL[m.role as Role] ?? m.role}): Cumpl. prom. ${m.completedPct}% | Carga ${m.cargaRatio}% | Tareas ${m.completedTasks}/${m.totalTasks} | Horas ${m.realHours}h/${m.estimatedHours}h est. | Consultas ${m.seguimientoTotal}`,
+        `- ${m.name} (${ROLE_LABEL[m.role as Role] ?? m.role}): Cumpl. prom. ${m.completedPct}% | Carga ${m.cargaPct}% (${m.cargaRealHours}h de ${m.cargaBaseHours}h base) | Tareas ${m.completedTasks}/${m.totalTasks} | Consultas ${m.seguimientoTotal}`,
     )
     .join("\n");
 
@@ -104,7 +106,7 @@ ${problematicText}
 RESUMEN ACUMULADO DEL PERÍODO:
 - Cumplimiento promedio: ${data.aggregated.teamSummary.avgCumplimiento}% (objetivo mínimo: 60%, objetivo ideal: 80%)
 - Total tareas completadas: ${data.aggregated.teamSummary.totalCompletedTasks} de ${data.aggregated.teamSummary.totalTasks}
-- Horas totales acumuladas: ${data.aggregated.teamSummary.totalRealHours}h reales / ${data.aggregated.teamSummary.totalEstimatedHours}h estimadas
+- Carga laboral acumulada: ${data.aggregated.teamSummary.avgCargaPct}% (${data.aggregated.teamSummary.totalCargaRealHours}h reales de ${data.aggregated.teamSummary.totalCargaBaseHours}h base — base dinámica: días hábiles lunes-viernes de cada mes × 8h por persona; las horas estimadas por tarea son solo referencia y no forman parte de este cálculo)
 - Total consultas SEGUIMIENTO: ${data.aggregated.teamSummary.totalConsultas}
 
 RANKING PROMEDIO DEL PERÍODO:
@@ -185,15 +187,26 @@ export async function GET(request: NextRequest) {
     const rangeStart = monthBounds(fromYear, fromMonth).start;
     const rangeEnd = monthBounds(toYear, toMonth).end;
 
-    // Two bulk queries for the entire range
-    const [allTasks, allActivities] = await Promise.all([
+    // Dynamic business-day base per month (días lunes-viernes × 8h)
+    const monthBusinessInfo = months.map((monthStr) => {
+      const [y, mo] = monthStr.split("-").map(Number);
+      const { start: cargaStart, end: cargaEnd, baseHours } = monthlyBusinessBase(y, mo);
+      const { start: realStart } = businessDayRealRange(cargaStart);
+      const { end: realEnd } = businessDayRealRange(cargaEnd);
+      return { monthStr, cargaStart, cargaEnd, realStart, realEnd, baseHours };
+    });
+    const rangeCargaStart = monthBusinessInfo[0].cargaStart;
+    const rangeCargaEnd = monthBusinessInfo[monthBusinessInfo.length - 1].cargaEnd;
+    const rangeRealStart = monthBusinessInfo[0].realStart;
+    const rangeRealEnd = monthBusinessInfo[monthBusinessInfo.length - 1].realEnd;
+
+    // Bulk queries for the entire range
+    const [allTasks, allActivities, fijaTasksForCarga, activitiesForCarga] = await Promise.all([
       prisma.task.findMany({
         where: { assignedToId: { in: userIds }, endDate: { gte: rangeStart, lte: rangeEnd } },
         select: {
           assignedToId: true,
           status: true,
-          estimatedHours: true,
-          realHours: true,
           endDate: true,
           progress: true,
           type: true,
@@ -208,28 +221,47 @@ export async function GET(request: NextRequest) {
         },
         select: { authorId: true, reason: true, duration: true, createdAt: true },
       }),
+      prisma.task.findMany({
+        where: { assignedToId: { in: userIds }, type: "FIJA", endDate: { gte: rangeCargaStart, lte: rangeCargaEnd } },
+        select: { assignedToId: true, realHours: true, endDate: true },
+      }),
+      prisma.taskActivity.findMany({
+        where: { authorId: { in: userIds }, createdAt: { gte: rangeRealStart, lte: rangeRealEnd } },
+        select: { authorId: true, duration: true, createdAt: true },
+      }),
     ]);
 
     const now = new Date();
-    const recurringFreqs = new Set(["MENSUAL", "SEMANAL", "DIARIA", "QUINCENAL"]);
 
     // Build per-month snapshots
     const monthSnapshots: MonthSnapshot[] = months.map((monthStr) => {
       const [y, mo] = monthStr.split("-").map(Number);
       const { start, end } = monthBounds(y, mo);
       const refDate = end < now ? end : now;
+      const bizInfo = monthBusinessInfo.find((b) => b.monthStr === monthStr)!;
 
       const monthTasks = allTasks.filter((t) => t.endDate >= start && t.endDate <= end);
       const monthActs = allActivities.filter((a) => a.createdAt >= start && a.createdAt <= end);
+      const monthFija = fijaTasksForCarga.filter(
+        (t) => t.endDate >= bizInfo.cargaStart && t.endDate <= bizInfo.cargaEnd,
+      );
+      const monthCargaActs = activitiesForCarga.filter(
+        (a) => a.createdAt >= bizInfo.realStart && a.createdAt <= bizInfo.realEnd,
+      );
 
       const memberSnapshots = users.map((user) => {
         const tasks = monthTasks.filter((t) => t.assignedToId === user.id);
         const completed = tasks.filter((t) => t.status === "COMPLETADA").length;
         const completedPct = tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0;
-        const totalEst = tasks.reduce((s, t) => s + t.estimatedHours, 0);
-        const totalReal = tasks.reduce((s, t) => s + t.realHours, 0);
-        const cargaRatio =
-          totalEst > 0 ? Math.round((totalReal / totalEst) * 100) : totalReal > 0 ? 200 : 0;
+
+        const fijaHours = monthFija
+          .filter((t) => t.assignedToId === user.id)
+          .reduce((s, t) => s + t.realHours, 0);
+        const activityHours =
+          monthCargaActs.filter((a) => a.authorId === user.id).reduce((s, a) => s + a.duration, 0) / 60;
+        const cargaRealHours = Math.round((fijaHours + activityHours) * 100) / 100;
+        const cargaPct = bizInfo.baseHours > 0 ? Math.round((cargaRealHours / bizInfo.baseHours) * 100) : 0;
+
         const inProgress = tasks.filter((t) => t.status === "EN_PROGRESO");
         const avgProgress =
           inProgress.length > 0
@@ -238,10 +270,10 @@ export async function GET(request: NextRequest) {
         const overdue = tasks.filter((t) => isTaskOverdue(t.endDate, t.status, refDate)).length;
         const score = Math.round(
           (completedPct / 100) * 40 +
-            Math.max(0, 20 - Math.max(0, cargaRatio - 100) * 0.5) +
+            Math.max(0, 20 - Math.max(0, cargaPct - 100) * 0.5) +
             (avgProgress / 100) * 20,
         );
-        return { id: user.id, name: user.name, role: user.role, completedPct, cargaRatio, score, totalTasks: tasks.length, overdueCount: overdue };
+        return { id: user.id, name: user.name, role: user.role, completedPct, cargaPct, cargaRealHours, score, totalTasks: tasks.length, overdueCount: overdue };
       });
 
       const activeMemberSnapshots = memberSnapshots.filter((m) => m.totalTasks > 0);
@@ -256,12 +288,14 @@ export async function GET(request: NextRequest) {
         teamAvgCumplimiento,
         totalCompletedTasks: monthTasks.filter((t) => t.status === "COMPLETADA").length,
         totalTasks: monthTasks.length,
-        totalRealHours: Math.round(monthTasks.reduce((s, t) => s + t.realHours, 0) * 100) / 100,
-        totalEstimatedHours: Math.round(monthTasks.reduce((s, t) => s + t.estimatedHours, 0) * 100) / 100,
+        totalCargaRealHours: Math.round(memberSnapshots.reduce((s, m) => s + m.cargaRealHours, 0) * 100) / 100,
+        totalCargaBaseHours: bizInfo.baseHours * users.length,
         totalConsultas: monthActs.length,
-        memberSnapshots: memberSnapshots.map(({ overdueCount: _oc, ...rest }) => rest),
+        memberSnapshots: memberSnapshots.map(({ overdueCount: _oc, cargaRealHours: _crh, ...rest }) => rest),
       };
     });
+
+    const rangeBaseHoursPerUser = monthBusinessInfo.reduce((s, b) => s + b.baseHours, 0);
 
     // Aggregate per member across full range
     const aggregatedMembers: ReportMemberKpi[] = users.map((user) => {
@@ -269,10 +303,15 @@ export async function GET(request: NextRequest) {
       const userActs = allActivities.filter((a) => a.authorId === user.id);
 
       const completedTasks = userTasks.filter((t) => t.status === "COMPLETADA").length;
-      const totalEst = Math.round(userTasks.reduce((s, t) => s + t.estimatedHours, 0) * 100) / 100;
-      const totalReal = Math.round(userTasks.reduce((s, t) => s + t.realHours, 0) * 100) / 100;
-      const cargaRatio =
-        totalEst > 0 ? Math.round((totalReal / totalEst) * 100) : totalReal > 0 ? 200 : 0;
+
+      const fijaHours = fijaTasksForCarga
+        .filter((t) => t.assignedToId === user.id)
+        .reduce((s, t) => s + t.realHours, 0);
+      const activityHours =
+        activitiesForCarga.filter((a) => a.authorId === user.id).reduce((s, a) => s + a.duration, 0) / 60;
+      const cargaRealHours = Math.round((fijaHours + activityHours) * 100) / 100;
+      const cargaBaseHours = rangeBaseHoursPerUser;
+      const cargaPct = cargaBaseHours > 0 ? Math.round((cargaRealHours / cargaBaseHours) * 100) : 0;
 
       // Average cumplimiento across months where user had tasks
       const activeSnaps = monthSnapshots.filter(
@@ -310,12 +349,12 @@ export async function GET(request: NextRequest) {
         role: user.role,
         score: avgScore,
         completedPct: avgCumplimiento,
-        cargaRatio,
+        cargaPct,
+        cargaRealHours,
+        cargaBaseHours,
         totalTasks: userTasks.length,
         completedTasks,
         overdueCount: 0,
-        estimatedHours: totalEst,
-        realHours: totalReal,
         seguimientoTotal: userActs.length,
         byReason: Object.entries(byReasonMap).map(([reason, d]) => ({
           reason,
@@ -331,8 +370,10 @@ export async function GET(request: NextRequest) {
       activeMonths.length > 0
         ? Math.round(activeMonths.reduce((s, ms) => s + ms.teamAvgCumplimiento, 0) / activeMonths.length)
         : 0;
-    const totalEstimatedHours = Math.round(allTasks.reduce((s, t) => s + t.estimatedHours, 0) * 100) / 100;
-    const totalRealHours = Math.round(allTasks.reduce((s, t) => s + t.realHours, 0) * 100) / 100;
+    const totalCargaRealHours = Math.round(aggregatedMembers.reduce((s, m) => s + m.cargaRealHours, 0) * 100) / 100;
+    const totalCargaBaseHours = rangeBaseHoursPerUser * users.length;
+    const avgCargaPct =
+      totalCargaBaseHours > 0 ? Math.round((totalCargaRealHours / totalCargaBaseHours) * 100) : 0;
 
     // Consultas by reason
     const reasonMap: Record<string, { count: number; totalMinutes: number }> = {};
@@ -373,11 +414,11 @@ export async function GET(request: NextRequest) {
       }
 
       const overloaded = activeMSnaps.filter(
-        (ms) => ms.memberSnapshots.find((m) => m.id === user.id)!.cargaRatio > 120,
+        (ms) => ms.memberSnapshots.find((m) => m.id === user.id)!.cargaPct > 120,
       );
       if (overloaded.length >= threshold) {
         const avgValue = Math.round(
-          overloaded.reduce((s, ms) => s + ms.memberSnapshots.find((m) => m.id === user.id)!.cargaRatio, 0) /
+          overloaded.reduce((s, ms) => s + ms.memberSnapshots.find((m) => m.id === user.id)!.cargaPct, 0) /
             overloaded.length,
         );
         alerts.push({ userId: user.id, name: user.name, type: "sobrecarga", avgValue, monthsAffected: overloaded.length });
@@ -406,10 +447,11 @@ export async function GET(request: NextRequest) {
       aggregated: {
         teamSummary: {
           avgCumplimiento,
+          avgCargaPct,
           totalCompletedTasks: allTasks.filter((t) => t.status === "COMPLETADA").length,
           totalTasks: allTasks.length,
-          totalRealHours,
-          totalEstimatedHours,
+          totalCargaRealHours,
+          totalCargaBaseHours,
           totalConsultas: allActivities.length,
         },
         members: aggregatedMembers,

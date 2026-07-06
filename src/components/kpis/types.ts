@@ -6,12 +6,12 @@ export type ReportMemberKpi = {
   role: string;
   score: number;
   completedPct: number;
-  cargaRatio: number;
+  cargaPct: number;
+  cargaRealHours: number;
+  cargaBaseHours: number;
   totalTasks: number;
   completedTasks: number;
   overdueCount: number;
-  estimatedHours: number;
-  realHours: number;
   seguimientoTotal: number;
   byReason: Array<{ reason: string; count: number; totalMinutes: number }>;
 };
@@ -21,8 +21,9 @@ export type ReportData = {
   scope: string;
   teamSummary: {
     avgCumplimiento: number;
-    totalEstimatedHours: number;
-    totalRealHours: number;
+    avgCargaPct: number;
+    totalCargaRealHours: number;
+    totalCargaBaseHours: number;
     totalCompletedTasks: number;
     totalConsultas: number;
     totalTasks: number;
@@ -53,15 +54,15 @@ export type MonthSnapshot = {
   teamAvgCumplimiento: number;
   totalCompletedTasks: number;
   totalTasks: number;
-  totalRealHours: number;
-  totalEstimatedHours: number;
+  totalCargaRealHours: number;
+  totalCargaBaseHours: number;
   totalConsultas: number;
   memberSnapshots: Array<{
     id: string;
     name: string;
     role: string;
     completedPct: number;
-    cargaRatio: number;
+    cargaPct: number;
     score: number;
     totalTasks: number;
   }>;
@@ -75,10 +76,11 @@ export type RangeReportData = {
   aggregated: {
     teamSummary: {
       avgCumplimiento: number;
+      avgCargaPct: number;
       totalCompletedTasks: number;
       totalTasks: number;
-      totalRealHours: number;
-      totalEstimatedHours: number;
+      totalCargaRealHours: number;
+      totalCargaBaseHours: number;
       totalConsultas: number;
     };
     members: ReportMemberKpi[];

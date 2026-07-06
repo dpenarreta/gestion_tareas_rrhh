@@ -1,3 +1,5 @@
+import { businessCalendarDay } from "@/lib/businessTime";
+
 /**
  * Formats a date as YYYY-MM-DD using UTC getters.
  *
@@ -22,10 +24,17 @@ function utcCalendarDay(date: Date): number {
 
 /**
  * A task is overdue only once the current calendar day is strictly AFTER its
- * end date's calendar day — a task due 2026-07-03 is not overdue until
- * 2026-07-04. Comparing raw Date/timestamps (endDate < now) marks a task
- * overdue on its own due day, since endDate is UTC-midnight but "now" almost
- * always has a later time-of-day component.
+ * end date's calendar day — a task due 2026-07-05 stays vigente through all
+ * of 2026-07-05 and only becomes overdue starting 2026-07-06 00:00:00.
+ * Comparing raw Date/timestamps (endDate < now) marks a task overdue on its
+ * own due day, since endDate is UTC-midnight but "now" almost always has a
+ * later time-of-day component.
+ *
+ * `referenceDate` ("now") is read in Nexo's business timezone (UTC-5, see
+ * `businessCalendarDay`) since servers commonly run their clock in UTC —
+ * without this shift, a task could be marked overdue up to 5 hours before
+ * its due day actually ends for the user. `endDate` is a pure calendar date
+ * (UTC-midnight by storage convention) and is read as-is, unshifted.
  *
  * `referenceDate` defaults to the real current time (for live views); pass a
  * capped reference (e.g. a past month's end) when computing historical KPIs.
@@ -37,5 +46,5 @@ export function isTaskOverdue(
 ): boolean {
   if (status === "COMPLETADA") return false;
   const end = typeof endDate === "string" ? new Date(endDate) : endDate;
-  return utcCalendarDay(referenceDate) > utcCalendarDay(end);
+  return businessCalendarDay(referenceDate).getTime() > utcCalendarDay(end);
 }

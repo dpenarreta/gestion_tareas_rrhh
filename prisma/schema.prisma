@@ -91,6 +91,7 @@ model User {
   ideaStatusChanges  IdeaStatusHistory[] @relation("IdeaStatusChanger")
   ideaVotes          IdeaVote[]
   taskCommentViews   TaskCommentView[]
+  followUpReminders  FollowUpReminder[]
 }
 
 model Announcement {
@@ -124,6 +125,7 @@ model Task {
   comments       Comment[]
   activities     TaskActivity[]
   commentViews   TaskCommentView[]
+  reminders      FollowUpReminder[]
   color          String?
   archivedMonth  String?
   archivedAt     DateTime?
@@ -175,6 +177,22 @@ model TaskActivity {
   duration    Int
   description String?
   createdAt   DateTime       @default(now())
+}
+
+model FollowUpReminder {
+  id            String    @id @default(cuid())
+  taskId        String
+  task          Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title         String
+  description   String?
+  reminderAt    DateTime
+  snoozedUntil  DateTime?
+  completedAt   DateTime?
+  createdAt     DateTime  @default(now())
+
+  @@index([userId, completedAt, reminderAt])
 }
 
 enum ReportScope {

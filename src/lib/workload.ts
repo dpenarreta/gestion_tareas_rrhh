@@ -1,5 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
+import { businessCalendarDay, businessDayRealRange } from "@/lib/businessTime";
 import type { KpiColor } from "@/components/kpis/types";
 
 export type WorkloadMetric = {
@@ -19,17 +20,6 @@ const MONTH_NAMES = [
   "enero", "febrero", "marzo", "abril", "mayo", "junio",
   "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
 ];
-
-/**
- * Nexo opera en horario de Ecuador/Colombia (America/Guayaquil o Bogotá,
- * UTC-5, sin horario de verano). Los servidores (Vercel) suelen correr con
- * reloj en UTC, así que `new Date()` puede caer ya en "mañana" en UTC
- * mientras localmente todavía es "hoy" — hasta 5 horas de diferencia cada
- * noche. Cualquier cálculo de "qué día es hoy" para KPIs en tiempo real
- * debe desplazar el instante actual a este huso ANTES de leer el día
- * calendario, o los cálculos de semana/mes se corren un día.
- */
-const BUSINESS_TZ_OFFSET_HOURS = 5;
 
 function isBusinessDay(d: Date): boolean {
   const dow = d.getUTCDay();
@@ -84,23 +74,6 @@ function utcDayStart(d: Date) {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 }
 
-/** The business-timezone calendar day (as a UTC-midnight Date) that `instant` falls on. */
-function calendarDayFor(instant: Date): Date {
-  const shifted = new Date(instant.getTime() - BUSINESS_TZ_OFFSET_HOURS * 3600000);
-  return utcDayStart(shifted);
-}
-
-/**
- * The real UTC instant range spanning a business-timezone calendar day —
- * for comparing against genuine timestamps (e.g. TaskActivity.createdAt),
- * as opposed to date-only fields like Task.endDate.
- */
-function realRangeForCalendarDay(calDay: Date): { start: Date; end: Date } {
-  const start = new Date(
-    Date.UTC(calDay.getUTCFullYear(), calDay.getUTCMonth(), calDay.getUTCDate(), BUSINESS_TZ_OFFSET_HOURS)
-  );
-  return { start, end: new Date(start.getTime() + 86400000 - 1) };
-}
 function utcWeekStart(d: Date) {
   const day = utcDayStart(d);
   const dow = day.getUTCDay(); // 0=Sun..6=Sat
@@ -117,9 +90,21 @@ function utcMonthEnd(d: Date) {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1) - 1);
 }
 
+/**
+ * The dynamic business-day base (días lunes-viernes × 8h) for an explicit
+ * calendar month — for historical/report contexts where the month is given
+ * directly (no "now" ambiguity, so no business-timezone shift is needed).
+ */
+export function monthlyBusinessBase(year: number, month: number): { start: Date; end: Date; businessDays: number; baseHours: number } {
+  const start = new Date(Date.UTC(year, month - 1, 1));
+  const end = new Date(Date.UTC(year, month, 1) - 1);
+  const businessDays = countBusinessDays(start, end);
+  return { start, end, businessDays, baseHours: businessDays * 8 };
+}
+
 async function realHoursInWindow(userId: string, calStart: Date, calEnd: Date): Promise<number> {
-  const { start: realStart } = realRangeForCalendarDay(calStart);
-  const { end: realEnd } = realRangeForCalendarDay(calEnd);
+  const { start: realStart } = businessDayRealRange(calStart);
+  const { end: realEnd } = businessDayRealRange(calEnd);
 
   const [fijaTasks, activities] = await Promise.all([
     prisma.task.findMany({
@@ -149,7 +134,7 @@ function toMetric(realHours: number, baseHours: number): WorkloadMetric {
 }
 
 export async function computeCargaTiempo(userId: string, now: Date = new Date()): Promise<CargaTiempo> {
-  const today = calendarDayFor(now);
+  const today = businessCalendarDay(now);
   const monthStart = utcMonthStart(today);
   const monthEnd = utcMonthEnd(today);
 

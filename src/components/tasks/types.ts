@@ -39,6 +39,25 @@ export type TaskActivity = {
   createdAt: string;
 };
 
+export type FollowUpReminder = {
+  id: string;
+  taskId: string;
+  title: string;
+  description: string | null;
+  reminderAt: string;
+  snoozedUntil: string | null;
+  completedAt: string | null;
+  createdAt: string;
+};
+
+export type PendingReminder = {
+  id: string;
+  title: string;
+  description: string | null;
+  reminderAt: string;
+  task: { id: string; title: string };
+};
+
 export type Task = {
   id: string;
   title: string;

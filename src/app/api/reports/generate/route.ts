@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canAccessReports, ROLE_LABEL } from "@/lib/roles";
 import { isTaskOverdue } from "@/lib/utils";
+import { monthlyBusinessBase } from "@/lib/workload";
+import { businessDayRealRange } from "@/lib/businessTime";
 import Groq from "groq-sdk";
 import type { Role, ReportScope } from "@/generated/prisma/client";
 
@@ -37,12 +39,12 @@ type MemberKpi = {
   role: string;
   score: number;
   completedPct: number;
-  cargaRatio: number;
+  cargaPct: number;
+  cargaRealHours: number;
+  cargaBaseHours: number;
   totalTasks: number;
   completedTasks: number;
   overdueCount: number;
-  estimatedHours: number;
-  realHours: number;
   seguimientoTotal: number;
   byReason: Array<{ reason: string; count: number; totalMinutes: number }>;
 };
@@ -52,8 +54,9 @@ type ReportData = {
   scope: string;
   teamSummary: {
     avgCumplimiento: number;
-    totalEstimatedHours: number;
-    totalRealHours: number;
+    avgCargaPct: number;
+    totalCargaRealHours: number;
+    totalCargaBaseHours: number;
     totalCompletedTasks: number;
     totalConsultas: number;
     totalTasks: number;
@@ -88,7 +91,7 @@ async function buildAiAnalysis(data: ReportData): Promise<string> {
   const membersText = data.members
     .map(
       (m) =>
-        `- ${m.name} (${ROLE_LABEL[m.role as Role] ?? m.role}): Score ${m.score}/100 | Cumplimiento ${m.completedPct}% | Carga ${m.cargaRatio}% | Tareas ${m.completedTasks}/${m.totalTasks} | Vencidas ${m.overdueCount} | Horas ${m.realHours}h/${m.estimatedHours}h est. | Consultas SEGUIMIENTO ${m.seguimientoTotal}`,
+        `- ${m.name} (${ROLE_LABEL[m.role as Role] ?? m.role}): Score ${m.score}/100 | Cumplimiento ${m.completedPct}% | Carga ${m.cargaPct}% (${m.cargaRealHours}h de ${m.cargaBaseHours}h base) | Tareas ${m.completedTasks}/${m.totalTasks} | Vencidas ${m.overdueCount} | Consultas SEGUIMIENTO ${m.seguimientoTotal}`,
     )
     .join("\n");
 
@@ -113,7 +116,7 @@ async function buildAiAnalysis(data: ReportData): Promise<string> {
 RESUMEN DEL EQUIPO:
 - Promedio de cumplimiento: ${data.teamSummary.avgCumplimiento}% (objetivo mínimo: 60%, objetivo ideal: 80%)
 - Total tareas completadas: ${data.teamSummary.totalCompletedTasks} de ${data.teamSummary.totalTasks}
-- Horas totales: ${data.teamSummary.totalRealHours}h reales / ${data.teamSummary.totalEstimatedHours}h estimadas
+- Carga laboral del equipo: ${data.teamSummary.avgCargaPct}% (${data.teamSummary.totalCargaRealHours}h reales de ${data.teamSummary.totalCargaBaseHours}h base — la base es dinámica, calculada como días hábiles lunes-viernes del mes × 8h por persona; las horas estimadas por tarea son solo referencia y no forman parte de este cálculo)
 - Total consultas SEGUIMIENTO atendidas: ${data.teamSummary.totalConsultas}
 
 RANKING DE CUMPLIMIENTO (de mayor a menor):
@@ -177,6 +180,10 @@ export async function POST(request: NextRequest) {
   const month = parseInt(monthStr);
   const { start, end } = monthBounds(year, month);
 
+  const { start: cargaStart, end: cargaEnd, baseHours: monthlyBaseHours } = monthlyBusinessBase(year, month);
+  const { start: cargaRealStart } = businessDayRealRange(cargaStart);
+  const { end: cargaRealEnd } = businessDayRealRange(cargaEnd);
+
   const scope: ReportScope = session.role === "JEFE_NACIONAL" ? "JEFE" : "COORDINADOR";
 
   // Avoid passing empty object as role filter — use conditional where clause
@@ -189,15 +196,13 @@ export async function POST(request: NextRequest) {
   const userIds = users.map((u) => u.id);
 
   // Fetch all tasks and activities for the month in one go
-  const [allTasks, allActivities] = await Promise.all([
+  const [allTasks, allActivities, fijaTasksForCarga, activitiesForCarga] = await Promise.all([
     prisma.task.findMany({
       where: { assignedToId: { in: userIds }, endDate: { gte: start, lte: end } },
       select: {
         assignedToId: true,
         createdById: true,
         status: true,
-        estimatedHours: true,
-        realHours: true,
         endDate: true,
         progress: true,
         type: true,
@@ -212,6 +217,14 @@ export async function POST(request: NextRequest) {
       },
       select: { authorId: true, reason: true, duration: true },
     }),
+    prisma.task.findMany({
+      where: { assignedToId: { in: userIds }, type: "FIJA", endDate: { gte: cargaStart, lte: cargaEnd } },
+      select: { assignedToId: true, realHours: true },
+    }),
+    prisma.taskActivity.findMany({
+      where: { authorId: { in: userIds }, createdAt: { gte: cargaRealStart, lte: cargaRealEnd } },
+      select: { authorId: true, duration: true },
+    }),
   ]);
 
   const now = new Date();
@@ -223,10 +236,14 @@ export async function POST(request: NextRequest) {
     const completed = tasks.filter((t) => t.status === "COMPLETADA").length;
     const overdue = tasks.filter((t) => isTaskOverdue(t.endDate, t.status, refDate)).length;
     const completedPct = tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0;
-    const totalEst = Math.round(tasks.reduce((s, t) => s + t.estimatedHours, 0) * 100) / 100;
-    const totalReal = Math.round(tasks.reduce((s, t) => s + t.realHours, 0) * 100) / 100;
-    const cargaRatio =
-      totalEst > 0 ? Math.round((totalReal / totalEst) * 100) : totalReal > 0 ? 200 : 0;
+
+    const fijaHours = fijaTasksForCarga
+      .filter((t) => t.assignedToId === user.id)
+      .reduce((s, t) => s + t.realHours, 0);
+    const activityHours =
+      activitiesForCarga.filter((a) => a.authorId === user.id).reduce((s, a) => s + a.duration, 0) / 60;
+    const cargaRealHours = Math.round((fijaHours + activityHours) * 100) / 100;
+    const cargaPct = monthlyBaseHours > 0 ? Math.round((cargaRealHours / monthlyBaseHours) * 100) : 0;
 
     const inProgress = tasks.filter((t) => t.status === "EN_PROGRESO");
     const avgProgress =
@@ -239,7 +256,7 @@ export async function POST(request: NextRequest) {
 
     // Score (same formula as individual route)
     const scoreC = (completedPct / 100) * 40;
-    const scoreL = Math.max(0, 20 - Math.max(0, cargaRatio - 100) * 0.5);
+    const scoreL = Math.max(0, 20 - Math.max(0, cargaPct - 100) * 0.5);
     const scoreA = (avgProgress / 100) * 20;
     // For consolidated, we skip comment scoring since it varies per context
     const score = Math.round(scoreC + scoreL + scoreA);
@@ -263,12 +280,12 @@ export async function POST(request: NextRequest) {
       role: user.role,
       score,
       completedPct,
-      cargaRatio,
+      cargaPct,
+      cargaRealHours,
+      cargaBaseHours: monthlyBaseHours,
       totalTasks: tasks.length,
       completedTasks: completed,
       overdueCount: overdue,
-      estimatedHours: totalEst,
-      realHours: totalReal,
       seguimientoTotal: userActivities.length,
       byReason,
       // Extra fields for report
@@ -281,10 +298,10 @@ export async function POST(request: NextRequest) {
   const totalConsultas = allActivities.length;
   const totalTasks = allTasks.length;
   const totalCompletedTasks = allTasks.filter((t) => t.status === "COMPLETADA").length;
-  const totalEstimatedHours =
-    Math.round(allTasks.reduce((s, t) => s + t.estimatedHours, 0) * 100) / 100;
-  const totalRealHours =
-    Math.round(allTasks.reduce((s, t) => s + t.realHours, 0) * 100) / 100;
+  const totalCargaRealHours = Math.round(members.reduce((s, m) => s + m.cargaRealHours, 0) * 100) / 100;
+  const totalCargaBaseHours = monthlyBaseHours * users.length;
+  const avgCargaPct =
+    totalCargaBaseHours > 0 ? Math.round((totalCargaRealHours / totalCargaBaseHours) * 100) : 0;
   const avgCumplimiento =
     members.length > 0
       ? Math.round(members.reduce((s, m) => s + m.completedPct, 0) / members.length)
@@ -312,8 +329,8 @@ export async function POST(request: NextRequest) {
     if (m.completedPct < 60 && m.totalTasks > 0) {
       alerts.push({ userId: m.id, name: m.name, type: "cumplimiento", value: m.completedPct });
     }
-    if (m.cargaRatio > 120 && m.estimatedHours > 0) {
-      alerts.push({ userId: m.id, name: m.name, type: "sobrecarga", value: m.cargaRatio });
+    if (m.cargaPct > 120) {
+      alerts.push({ userId: m.id, name: m.name, type: "sobrecarga", value: m.cargaPct });
     }
   }
 
@@ -322,8 +339,9 @@ export async function POST(request: NextRequest) {
     scope,
     teamSummary: {
       avgCumplimiento,
-      totalEstimatedHours,
-      totalRealHours,
+      avgCargaPct,
+      totalCargaRealHours,
+      totalCargaBaseHours,
       totalCompletedTasks,
       totalConsultas,
       totalTasks,

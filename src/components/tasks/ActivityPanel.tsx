@@ -1,8 +1,17 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
-import type { Task, TaskActivity, ActivityReason } from "./types";
+import type { Task, TaskActivity, ActivityReason, FollowUpReminder } from "./types";
 import { formatDate } from "@/lib/utils";
+
+function formatReminderDateTime(iso: string): string {
+  const d = new Date(iso);
+  const day = String(d.getDate()).padStart(2, "0");
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const hours = String(d.getHours()).padStart(2, "0");
+  const mins = String(d.getMinutes()).padStart(2, "0");
+  return `${day}/${month} ${hours}:${mins}`;
+}
 
 const REASON_OPTIONS: { value: ActivityReason; label: string }[] = [
   { value: "NOVEDADES_PAGO", label: "Novedades de Pago" },
@@ -63,6 +72,16 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
   const [endTime, setEndTime] = useState("");
   const [description, setDescription] = useState("");
 
+  const [reminders, setReminders] = useState<FollowUpReminder[]>([]);
+  const [showReminderForm, setShowReminderForm] = useState(false);
+  const [reminderTitle, setReminderTitle] = useState("");
+  const [reminderDate, setReminderDate] = useState("");
+  const [reminderTime, setReminderTime] = useState("");
+  const [reminderDescription, setReminderDescription] = useState("");
+  const [reminderSubmitting, setReminderSubmitting] = useState(false);
+  const [reminderError, setReminderError] = useState("");
+  const [deletingReminderId, setDeletingReminderId] = useState<string | null>(null);
+
   const bottomRef = useRef<HTMLDivElement>(null);
 
   const previewDuration = useMemo(
@@ -82,6 +101,63 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
       .catch(() => setActivities([]))
       .finally(() => setLoading(false));
   }, [task.id]);
+
+  useEffect(() => {
+    if (readOnly) return;
+    fetch(`/api/reminders?taskId=${task.id}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => setReminders(Array.isArray(data) ? data : []))
+      .catch(() => setReminders([]));
+  }, [task.id, readOnly]);
+
+  async function submitReminder() {
+    if (!reminderTitle.trim() || !reminderDate || !reminderTime || reminderSubmitting) return;
+    setReminderError("");
+    setReminderSubmitting(true);
+    try {
+      const reminderAt = new Date(`${reminderDate}T${reminderTime}:00`).toISOString();
+      const res = await fetch("/api/reminders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          taskId: task.id,
+          title: reminderTitle.trim(),
+          description: reminderDescription.trim() || null,
+          reminderAt,
+        }),
+      });
+      if (res.ok) {
+        const created = await res.json();
+        setReminders((prev) => [...prev, created].sort((a, b) => a.reminderAt.localeCompare(b.reminderAt)));
+        setReminderTitle("");
+        setReminderDate("");
+        setReminderTime("");
+        setReminderDescription("");
+        setShowReminderForm(false);
+      } else {
+        let msg = "Error al crear el recordatorio";
+        try {
+          const data = await res.json();
+          msg = data.error ?? msg;
+        } catch { /* respuesta sin body */ }
+        setReminderError(msg);
+      }
+    } finally {
+      setReminderSubmitting(false);
+    }
+  }
+
+  async function handleDeleteReminder(id: string) {
+    setDeletingReminderId(id);
+    try {
+      const res = await fetch(`/api/reminders/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        setReminders((prev) => prev.filter((r) => r.id !== id));
+      }
+    } finally {
+      setDeletingReminderId(null);
+    }
+  }
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -160,6 +236,90 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
           <div className="px-4 py-2.5 bg-primary-surface border-b border-primary/20 flex items-center justify-between">
             <span className="text-xs font-medium text-primary">Tiempo total acumulado</span>
             <span className="text-sm font-bold text-primary">{formatDuration(totalMinutes)}</span>
+          </div>
+        )}
+
+        {/* Seguimiento planificado */}
+        {!readOnly && (
+          <div className="px-4 py-3 border-b border-border space-y-2.5">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-semibold text-main">Seguimiento planificado</p>
+              <button
+                onClick={() => setShowReminderForm((v) => !v)}
+                className="text-xs font-medium text-primary hover:text-primary-hover"
+              >
+                {showReminderForm ? "Cancelar" : "+ Agregar recordatorio"}
+              </button>
+            </div>
+
+            {reminders.length > 0 && (
+              <div className="space-y-1.5">
+                {reminders.map((r) => (
+                  <div key={r.id} className="flex items-start justify-between gap-2 bg-background rounded-lg px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-medium text-title truncate">{r.title}</p>
+                      <p className="text-[10px] text-disabled">{formatReminderDateTime(r.reminderAt)}</p>
+                      {r.description && (
+                        <p className="text-[11px] text-secondary mt-0.5 leading-snug">{r.description}</p>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => handleDeleteReminder(r.id)}
+                      disabled={deletingReminderId === r.id}
+                      className="p-0.5 text-disabled hover:text-danger transition-colors disabled:opacity-40 shrink-0"
+                      title="Eliminar recordatorio"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {showReminderForm && (
+              <div className="space-y-2 pt-1">
+                <input
+                  type="text"
+                  value={reminderTitle}
+                  onChange={(e) => setReminderTitle(e.target.value)}
+                  placeholder="Nombre del recordatorio"
+                  className="w-full border border-border rounded-lg px-3 py-1.5 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
+                />
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="date"
+                    value={reminderDate}
+                    onChange={(e) => setReminderDate(e.target.value)}
+                    className="w-full border border-border rounded-lg px-3 py-1.5 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
+                  />
+                  <input
+                    type="time"
+                    value={reminderTime}
+                    onChange={(e) => setReminderTime(e.target.value)}
+                    className="w-full border border-border rounded-lg px-3 py-1.5 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
+                  />
+                </div>
+                <textarea
+                  value={reminderDescription}
+                  onChange={(e) => setReminderDescription(e.target.value)}
+                  rows={2}
+                  placeholder="Descripción (opcional)"
+                  className="w-full border border-border rounded-lg px-3 py-1.5 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary resize-none"
+                />
+                {reminderError && (
+                  <p className="text-xs text-danger bg-danger/[.09] rounded-lg px-3 py-2">{reminderError}</p>
+                )}
+                <button
+                  onClick={submitReminder}
+                  disabled={!reminderTitle.trim() || !reminderDate || !reminderTime || reminderSubmitting}
+                  className="w-full bg-primary text-white rounded-lg py-1.5 text-xs font-medium hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                >
+                  {reminderSubmitting ? "Guardando…" : "Guardar recordatorio"}
+                </button>
+              </div>
+            )}
           </div>
         )}
 
