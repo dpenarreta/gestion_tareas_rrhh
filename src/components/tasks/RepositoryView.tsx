@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import type { Role } from "@/generated/prisma/client";
 import type { Task } from "./types";
 import { taskColorHex } from "./colors";
 import { formatDate } from "@/lib/utils";
+import CorrectArchivedTaskModal from "./CorrectArchivedTaskModal";
 
 type RepositoryMonth = { year: number; month: number; totalTasks: number; completedTasks: number; totalHours: number };
 
@@ -42,12 +44,23 @@ function fmtH(n: number) {
   return Math.round(n * 100) / 100;
 }
 
-export default function RepositoryView() {
+type Props = {
+  currentUserRole: Role;
+};
+
+export default function RepositoryView({ currentUserRole }: Props) {
   const [months, setMonths] = useState<RepositoryMonth[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<RepositoryMonth | null>(null);
   const [tasks, setTasks] = useState<Task[] | null>(null);
   const [loadingTasks, setLoadingTasks] = useState(false);
+  const [correctingTask, setCorrectingTask] = useState<Task | null>(null);
+  const isAdmin = currentUserRole === "ADMINISTRADOR";
+
+  function handleCorrected(updated: Task) {
+    setTasks((prev) => prev && prev.map((t) => (t.id === updated.id ? updated : t)));
+    setCorrectingTask(null);
+  }
 
   useEffect(() => {
     fetch("/api/repository")
@@ -132,12 +145,13 @@ export default function RepositoryView() {
                   <th className="text-right px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">H. Est.</th>
                   <th className="text-right px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">H. Reales</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Avance</th>
+                  {isAdmin && <th className="text-right px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Acciones</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-border">
                 {tasks.length === 0 && (
                   <tr>
-                    <td colSpan={9} className="text-center py-10 text-disabled text-sm">
+                    <td colSpan={isAdmin ? 10 : 9} className="text-center py-10 text-disabled text-sm">
                       No tienes tareas archivadas visibles en este mes.
                     </td>
                   </tr>
@@ -147,7 +161,16 @@ export default function RepositoryView() {
                   return (
                     <tr key={task.id} className="hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
                       <td className="w-1 p-0" style={{ backgroundColor: hex ?? "transparent" }} />
-                      <td className="px-4 py-3 max-w-[200px] text-title">{task.title}</td>
+                      <td className="px-4 py-3 max-w-[200px] text-title">
+                        <div className="flex items-center gap-1.5">
+                          <span className="truncate">{task.title}</span>
+                          {task.corrected && (
+                            <span className="shrink-0 text-[10px] font-semibold px-1.5 py-0.5 rounded bg-warning/[.15] text-warning" title="Editada después del cierre mensual">
+                              ✏️ Corregida
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-3 py-3 text-main">{task.assignedTo.name}</td>
                       <td className="px-3 py-3 text-main">{FREQUENCY_LABELS[task.frequency]}</td>
                       <td className="px-3 py-3">
@@ -171,12 +194,30 @@ export default function RepositoryView() {
                           <span className="text-[10px] text-secondary w-7 text-right">{task.progress}%</span>
                         </div>
                       </td>
+                      {isAdmin && (
+                        <td className="px-3 py-3 text-right">
+                          <button
+                            onClick={() => setCorrectingTask(task)}
+                            className="text-xs text-primary hover:text-primary-hover font-medium px-2 py-1 rounded hover:bg-primary-surface transition-colors whitespace-nowrap"
+                          >
+                            ✏️ Corregir
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
               </tbody>
             </table>
           </div>
+        )}
+
+        {correctingTask && (
+          <CorrectArchivedTaskModal
+            task={correctingTask}
+            onClose={() => setCorrectingTask(null)}
+            onSaved={handleCorrected}
+          />
         )}
       </div>
     );

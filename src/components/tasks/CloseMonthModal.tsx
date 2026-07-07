@@ -26,6 +26,10 @@ function monthLabel(year: number, month: number) {
   return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
+function nextMonthOf(year: number, month: number) {
+  return month === 12 ? { year: year + 1, month: 1 } : { year, month: month + 1 };
+}
+
 type Props = {
   onClose: () => void;
   onClosed: () => void;
@@ -33,24 +37,48 @@ type Props = {
 
 export default function CloseMonthModal({ onClose, onClosed }: Props) {
   const [preview, setPreview] = useState<Preview | null>(null);
+  const [selected, setSelected] = useState<{ year: number; month: number } | null>(null);
   const [loading, setLoading] = useState(true);
   const [closing, setClosing] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState<Result | null>(null);
 
+  function applyPreview(data: Preview) {
+    setPreview(data);
+    setSelected({ year: data.year, month: data.month });
+  }
+
   useEffect(() => {
     fetch("/api/tasks/close-month")
       .then((r) => r.json())
-      .then((data: Preview) => setPreview(data))
+      .then((data: Preview) => applyPreview(data))
       .catch(() => setError("No se pudo cargar el resumen"))
       .finally(() => setLoading(false));
   }, []);
 
+  function handleMonthChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const value = e.target.value; // "YYYY-MM"
+    if (!value) return;
+    const [y, m] = value.split("-").map(Number);
+    setLoading(true);
+    setError("");
+    fetch(`/api/tasks/close-month?year=${y}&month=${m}`)
+      .then((r) => r.json())
+      .then((data: Preview) => applyPreview(data))
+      .catch(() => setError("No se pudo cargar el resumen"))
+      .finally(() => setLoading(false));
+  }
+
   async function handleConfirm() {
+    if (!selected) return;
     setClosing(true);
     setError("");
     try {
-      const res = await fetch("/api/tasks/close-month", { method: "POST" });
+      const res = await fetch("/api/tasks/close-month", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(selected),
+      });
       const data = await res.json();
       if (!res.ok) {
         setError(data.error ?? "Error al cerrar el mes");
@@ -62,6 +90,8 @@ export default function CloseMonthModal({ onClose, onClosed }: Props) {
       setClosing(false);
     }
   }
+
+  const next = selected ? nextMonthOf(selected.year, selected.month) : null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -77,6 +107,24 @@ export default function CloseMonthModal({ onClose, onClosed }: Props) {
         </div>
 
         <div className="p-6 space-y-4">
+          {!result && (
+            <div>
+              <label className="block text-xs font-semibold text-secondary mb-1 uppercase tracking-wide">
+                Mes a cerrar
+              </label>
+              <input
+                type="month"
+                value={selected ? `${selected.year}-${String(selected.month).padStart(2, "0")}` : ""}
+                onChange={handleMonthChange}
+                disabled={loading || closing}
+                className="w-full px-3 py-2 rounded-xl border border-border text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary text-sm disabled:opacity-50"
+              />
+              <p className="mt-1 text-[11px] text-disabled">
+                Por defecto se muestra el mes anterior al actual. Cambia el mes para cierres tardíos.
+              </p>
+            </div>
+          )}
+
           {loading && <p className="text-sm text-disabled text-center py-4">Cargando resumen…</p>}
 
           {error && (
@@ -85,10 +133,13 @@ export default function CloseMonthModal({ onClose, onClosed }: Props) {
             </div>
           )}
 
-          {!loading && preview && !result && (
+          {!loading && preview && selected && next && !result && (
             <>
               <p className="text-sm text-main">
-                Vas a cerrar <span className="font-semibold">{monthLabel(preview.year, preview.month)} {preview.year}</span>.
+                Cerrando el mes de: <span className="font-semibold">{monthLabel(preview.year, preview.month)} {preview.year}</span>
+              </p>
+              <p className="text-sm text-main">
+                Las tareas se duplicarán para: <span className="font-semibold">{monthLabel(next.year, next.month)} {next.year}</span>
               </p>
 
               {preview.alreadyClosed ? (

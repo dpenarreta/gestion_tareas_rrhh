@@ -19,6 +19,7 @@ const taskSelect = {
   realHours: true,
   progress: true,
   color: true,
+  corrected: true,
   assignedTo: { select: { id: true, name: true, email: true, role: true } },
   createdBy: { select: { id: true, name: true } },
   _count: { select: { comments: true } },

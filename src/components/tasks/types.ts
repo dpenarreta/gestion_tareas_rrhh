@@ -12,7 +12,9 @@ export type ActivityReason =
   | "SOLICITUD_PERMISO"
   | "VISITA_DOMICILIARIA"
   | "SEGUIMIENTO_AUSENTISMOS"
-  | "RECLUTAMIENTO_SELECCION";
+  | "RECLUTAMIENTO_SELECCION"
+  | "SEGUIMIENTO_DOCUMENTACION"
+  | "SOLICITUDES_INTERNAS";
 
 export type TaskUser = {
   id: string;
@@ -72,6 +74,7 @@ export type Task = {
   realHours: number;
   progress: number;
   color: string | null;
+  corrected: boolean;
   assignedTo: TaskUser;
   createdBy: { id: string; name: string };
   _count: { comments: number };

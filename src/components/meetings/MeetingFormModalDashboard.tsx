@@ -44,6 +44,10 @@ export default function MeetingFormModalDashboard({
     setSelectedIds((p) => p.includes(id) ? p.filter((x) => x !== id) : [...p, id]);
   }
 
+  function toggleAll() {
+    setSelectedIds((p) => (p.length === users.length ? [] : users.map((u) => u.id)));
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
@@ -125,6 +129,17 @@ export default function MeetingFormModalDashboard({
           <div>
             <label className="block text-xs font-semibold text-main mb-1.5">Invitados ({selectedIds.length})</label>
             <div className="border border-border rounded-xl overflow-hidden max-h-36 overflow-y-auto">
+              {users.length > 0 && (
+                <label className="flex items-center gap-3 px-3 py-2 hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer border-b border-border bg-background/50">
+                  <input
+                    type="checkbox"
+                    checked={selectedIds.length === users.length}
+                    onChange={toggleAll}
+                    className="rounded"
+                  />
+                  <p className="text-sm font-medium text-title">Invitar a todos</p>
+                </label>
+              )}
               {users.map((u) => (
                 <label key={u.id} className="flex items-center gap-3 px-3 py-2 hover:bg-black/5 dark:hover:bg-white/5 cursor-pointer border-b border-border last:border-0">
                   <input type="checkbox" checked={selectedIds.includes(u.id)} onChange={() => toggle(u.id)} className="rounded" />

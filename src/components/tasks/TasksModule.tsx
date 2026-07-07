@@ -283,7 +283,7 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
 
       {/* Active view */}
       <div className="flex-1">
-        {showRepository && <RepositoryView />}
+        {showRepository && <RepositoryView currentUserRole={currentUserRole} />}
         {!showRepository && noSearchResults && (
           <div className="text-center py-16 text-secondary text-sm rounded-2xl border border-border bg-surface">
             No se encontraron tareas con ese nombre

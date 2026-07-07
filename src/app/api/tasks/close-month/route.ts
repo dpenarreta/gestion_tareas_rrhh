@@ -1,4 +1,4 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canManageUsers } from "@/lib/roles";
@@ -42,10 +42,27 @@ const CANDIDATE_WHERE = {
   ],
 };
 
-async function buildPreview() {
-  const now = new Date();
-  const year = now.getFullYear();
+// Default target month for the closure modal: the calendar month before the
+// current one (e.g. opened in August defaults to closing July). Uses local
+// (server wall-clock) getters on `now` deliberately — this is about "what
+// month is it right now", not about the UTC-midnight Task date fields.
+function previousMonth(now: Date) {
   const month = now.getMonth() + 1;
+  const year = now.getFullYear();
+  return month === 1 ? { year: year - 1, month: 12 } : { year, month: month - 1 };
+}
+
+function parseYearMonth(yearParam: string | null, monthParam: string | null): { year: number; month: number } | null {
+  if (yearParam === null && monthParam === null) return null;
+  const year = Number(yearParam);
+  const month = Number(monthParam);
+  if (!Number.isInteger(year) || !Number.isInteger(month) || month < 1 || month > 12) {
+    return null;
+  }
+  return { year, month };
+}
+
+async function buildPreview(year: number, month: number) {
   const monthEnd = nextMonthStartUTC(year, month);
 
   const [existing, candidateTasks, continuedActive] = await Promise.all([
@@ -72,25 +89,44 @@ async function buildPreview() {
   return { year, month, monthEnd, alreadyClosed: !!existing, total, completed, pending, inProgress, continuedActive };
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   if (!canManageUsers(session.role)) {
     return NextResponse.json({ error: "Sin permisos para cerrar el mes" }, { status: 403 });
   }
 
-  const preview = await buildPreview();
+  const parsed = parseYearMonth(
+    request.nextUrl.searchParams.get("year"),
+    request.nextUrl.searchParams.get("month")
+  );
+  if (request.nextUrl.searchParams.get("year") !== null && parsed === null) {
+    return NextResponse.json({ error: "Año o mes inválido" }, { status: 400 });
+  }
+  const { year, month } = parsed ?? previousMonth(new Date());
+
+  const preview = await buildPreview(year, month);
   return NextResponse.json(preview);
 }
 
-export async function POST() {
+export async function POST(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   if (!canManageUsers(session.role)) {
     return NextResponse.json({ error: "Sin permisos para cerrar el mes" }, { status: 403 });
   }
 
-  const { year, month, monthEnd, alreadyClosed } = await buildPreview();
+  const body = await request.json().catch(() => ({}));
+  const parsed = parseYearMonth(
+    body.year !== undefined ? String(body.year) : null,
+    body.month !== undefined ? String(body.month) : null
+  );
+  if (body.year !== undefined && parsed === null) {
+    return NextResponse.json({ error: "Año o mes inválido" }, { status: 400 });
+  }
+  const { year, month } = parsed ?? previousMonth(new Date());
+
+  const { monthEnd, alreadyClosed } = await buildPreview(year, month);
   if (alreadyClosed) {
     return NextResponse.json({ error: "Este mes ya fue cerrado" }, { status: 409 });
   }

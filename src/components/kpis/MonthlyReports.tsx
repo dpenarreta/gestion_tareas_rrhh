@@ -23,6 +23,8 @@ const REASON_LABEL: Record<string, string> = {
   VISITA_DOMICILIARIA: "Visita domiciliaria",
   SEGUIMIENTO_AUSENTISMOS: "Seg. ausentismos",
   RECLUTAMIENTO_SELECCION: "Reclutamiento/Selección",
+  SEGUIMIENTO_DOCUMENTACION: "Seguimiento de documentación",
+  SOLICITUDES_INTERNAS: "Solicitudes internas",
 };
 
 const MONTH_NAMES = [

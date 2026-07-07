@@ -61,6 +61,8 @@ enum ActivityReason {
   VISITA_DOMICILIARIA
   SEGUIMIENTO_AUSENTISMOS
   RECLUTAMIENTO_SELECCION
+  SEGUIMIENTO_DOCUMENTACION
+  SOLICITUDES_INTERNAS
 }
 
 model User {
@@ -132,6 +134,7 @@ model Task {
   color          String?
   archivedMonth  String?
   archivedAt     DateTime?
+  corrected      Boolean       @default(false)
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 }
@@ -227,6 +230,7 @@ model MonthClosure {
   totalTasks     Int
   completedTasks Int
   summary        Json
+  corrections    Json?
 
   @@unique([month, year])
 }

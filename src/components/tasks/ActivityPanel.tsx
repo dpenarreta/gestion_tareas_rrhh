@@ -14,17 +14,39 @@ function formatReminderDateTime(iso: string): string {
   return `${day}/${month} ${hours}:${mins}`;
 }
 
-const REASON_OPTIONS: { value: ActivityReason; label: string }[] = [
-  { value: "NOVEDADES_PAGO", label: "Novedades de Pago" },
-  { value: "RETENCION_PAGO", label: "Retención de Pago" },
-  { value: "FACTURAS", label: "Facturas" },
-  { value: "CONSULTA_OPERACIONES", label: "Consulta de Operaciones" },
-  { value: "SOLICITUD_VACACIONES", label: "Solicitud de Vacaciones" },
-  { value: "SOLICITUD_PERMISO", label: "Solicitud de Permiso" },
-  { value: "VISITA_DOMICILIARIA", label: "Visita Domiciliaria" },
-  { value: "SEGUIMIENTO_AUSENTISMOS", label: "Seguimiento de Ausentismos" },
-  { value: "RECLUTAMIENTO_SELECCION", label: "Reclutamiento y Selección" },
+// Etiquetas de TODOS los motivos, incluidos los retirados del selector — se
+// necesitan para mostrar correctamente actividades históricas que ya
+// registraron un motivo que hoy no es seleccionable para actividades nuevas.
+const REASON_LABELS: Record<ActivityReason, string> = {
+  NOVEDADES_PAGO: "Novedades de Pago",
+  RETENCION_PAGO: "Retención de Pago",
+  FACTURAS: "Facturas",
+  CONSULTA_OPERACIONES: "Consulta de Operaciones",
+  SOLICITUD_VACACIONES: "Solicitud de Vacaciones",
+  SOLICITUD_PERMISO: "Solicitud de Permiso",
+  VISITA_DOMICILIARIA: "Visita Domiciliaria",
+  SEGUIMIENTO_AUSENTISMOS: "Seguimiento de Ausentismos",
+  RECLUTAMIENTO_SELECCION: "Reclutamiento y Selección",
+  SEGUIMIENTO_DOCUMENTACION: "Seguimiento de documentación",
+  SOLICITUDES_INTERNAS: "Solicitudes internas",
+};
+
+// Motivos disponibles para registrar actividades nuevas.
+const SELECTABLE_REASONS: ActivityReason[] = [
+  "NOVEDADES_PAGO",
+  "FACTURAS",
+  "CONSULTA_OPERACIONES",
+  "VISITA_DOMICILIARIA",
+  "SEGUIMIENTO_AUSENTISMOS",
+  "RECLUTAMIENTO_SELECCION",
+  "SEGUIMIENTO_DOCUMENTACION",
+  "SOLICITUDES_INTERNAS",
 ];
+
+const REASON_OPTIONS: { value: ActivityReason; label: string }[] = SELECTABLE_REASONS.map((value) => ({
+  value,
+  label: REASON_LABELS[value],
+}));
 
 function calcDuration(start: string, end: string): number | null {
   if (!start || !end) return null;
@@ -52,6 +74,8 @@ const REASON_COLORS: Record<ActivityReason, string> = {
   VISITA_DOMICILIARIA: "bg-teal-50 text-teal-700 border-teal-200",
   SEGUIMIENTO_AUSENTISMOS: "bg-cyan-50 text-cyan-700 border-cyan-200",
   RECLUTAMIENTO_SELECCION: "bg-primary-surface text-primary border-primary/30",
+  SEGUIMIENTO_DOCUMENTACION: "bg-indigo-50 text-indigo-700 border-indigo-200",
+  SOLICITUDES_INTERNAS: "bg-lime-50 text-lime-700 border-lime-200",
 };
 
 type Props = {
@@ -366,7 +390,7 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
             </div>
           )}
           {activities.map((a) => {
-            const label = REASON_OPTIONS.find((o) => o.value === a.reason)?.label ?? a.reason;
+            const label = REASON_LABELS[a.reason] ?? a.reason;
             const colorClass = REASON_COLORS[a.reason];
             const canDelete = a.author.id === currentUserId;
             return (

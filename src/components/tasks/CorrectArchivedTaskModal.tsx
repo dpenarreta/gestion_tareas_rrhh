@@ -1,0 +1,116 @@
+"use client";
+
+import { useState } from "react";
+import type { Task, TaskStatus } from "./types";
+
+const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
+  { value: "PENDIENTE", label: "Pendiente" },
+  { value: "EN_PROGRESO", label: "En Progreso" },
+  { value: "COMPLETADA", label: "Completada" },
+];
+
+type Props = {
+  task: Task;
+  onClose: () => void;
+  onSaved: (updated: Task) => void;
+};
+
+export default function CorrectArchivedTaskModal({ task, onClose, onSaved }: Props) {
+  const [realHours, setRealHours] = useState(String(task.realHours));
+  const [status, setStatus] = useState<TaskStatus>(task.status);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError("");
+    setSaving(true);
+    try {
+      const res = await fetch(`/api/tasks/${task.id}/correct`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ realHours, status }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "Error al guardar la corrección");
+        return;
+      }
+      onSaved(data);
+    } catch {
+      setError("Error de conexión");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <div className="fixed inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative bg-surface rounded-2xl shadow-2xl w-full max-w-sm">
+        <div className="p-6 border-b border-border flex items-center justify-between">
+          <h2 className="text-base font-bold text-title">✏️ Corregir tarea archivada</h2>
+          <button onClick={onClose} className="p-2 text-disabled hover:text-main rounded-lg hover:bg-black/5 dark:hover:bg-white/5">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          <p className="text-sm text-main truncate">{task.title}</p>
+
+          <div>
+            <label className="block text-xs font-semibold text-secondary mb-1 uppercase tracking-wide">
+              Horas reales
+            </label>
+            <input
+              type="number"
+              min={0}
+              step={0.01}
+              value={realHours}
+              onChange={(e) => setRealHours(e.target.value)}
+              className="w-full px-3 py-2 rounded-xl border border-border text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-secondary mb-1 uppercase tracking-wide">
+              Estado final
+            </label>
+            <select
+              value={status}
+              onChange={(e) => setStatus(e.target.value as TaskStatus)}
+              className="w-full px-3 py-2 rounded-xl border border-border text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary text-sm"
+            >
+              {STATUS_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>{o.label}</option>
+              ))}
+            </select>
+          </div>
+
+          {error && (
+            <p className="text-sm text-danger bg-danger/[.09] rounded-xl px-4 py-2.5">{error}</p>
+          )}
+
+          <div className="flex justify-end gap-3 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm font-medium text-main hover:bg-black/5 dark:hover:bg-white/5 rounded-xl transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="px-5 py-2 text-sm font-medium bg-primary text-white rounded-xl hover:bg-primary-hover disabled:opacity-50 transition-colors"
+            >
+              {saving ? "Guardando..." : "Guardar corrección"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
