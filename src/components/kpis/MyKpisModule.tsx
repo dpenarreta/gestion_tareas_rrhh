@@ -531,17 +531,18 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
   const [rangeError, setRangeError] = useState<string | null>(null);
 
   useEffect(() => {
-    setLoading(true);
-    setError(null);
-    fetch(`/api/kpis/me?month=${month}`)
-      .then((r) => r.json())
-      .then((data: KpiData | { error: string }) => {
-        if ("error" in data) { setError(data.error); setKpi(null); }
-        else setKpi(data);
-      })
-      .catch(() => setError("Error de conexión"))
-      .finally(() => setLoading(false));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    queueMicrotask(() => {
+      setLoading(true);
+      setError(null);
+      fetch(`/api/kpis/me?month=${month}`)
+        .then((r) => r.json())
+        .then((data: KpiData | { error: string }) => {
+          if ("error" in data) { setError(data.error); setKpi(null); }
+          else setKpi(data);
+        })
+        .catch(() => setError("Error de conexión"))
+        .finally(() => setLoading(false));
+    });
   }, [month]);
 
   async function handleGenerateRange() {

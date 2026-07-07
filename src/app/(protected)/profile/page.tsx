@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { useTheme } from "next-themes";
 import { ROLE_LABEL } from "@/lib/roles";
+import { useHasMounted } from "@/hooks/useHasMounted";
 import type { Role } from "@/generated/prisma/client";
 
 type UserInfo = {
@@ -86,7 +87,7 @@ export default function ProfilePage() {
   const [badges, setBadges] = useState<Badge[]>([]);
   const [badgeStats, setBadgeStats] = useState<BadgeStats | null>(null);
   const { resolvedTheme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
+  const mounted = useHasMounted();
 
   // Personal info edit state
   const [editing, setEditing] = useState(false);
@@ -103,8 +104,6 @@ export default function ProfilePage() {
   const [pwError, setPwError] = useState("");
   const [pwSuccess, setPwSuccess] = useState("");
   const [pwLoading, setPwLoading] = useState(false);
-
-  useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     fetch("/api/auth/me")

@@ -1,13 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useTheme } from "next-themes";
+import { useHasMounted } from "@/hooks/useHasMounted";
 
 export default function ThemeToggle({ userId }: { userId: string }) {
   const { resolvedTheme, setTheme } = useTheme();
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => setMounted(true), []);
+  const mounted = useHasMounted();
 
   async function toggle() {
     const next = resolvedTheme === "dark" ? "light" : "dark";

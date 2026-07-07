@@ -9,20 +9,6 @@ import Groq from "groq-sdk";
 import type { Role } from "@/generated/prisma/client";
 import type { MonthSnapshot, RangeReportData, ReportMemberKpi } from "@/components/kpis/types";
 
-const REASON_LABEL: Record<string, string> = {
-  NOVEDADES_PAGO: "Novedades de pago",
-  RETENCION_PAGO: "Retención de pago",
-  FACTURAS: "Facturas",
-  CONSULTA_OPERACIONES: "Consulta operaciones",
-  SOLICITUD_VACACIONES: "Solicitud vacaciones",
-  SOLICITUD_PERMISO: "Solicitud permiso",
-  VISITA_DOMICILIARIA: "Visita domiciliaria",
-  SEGUIMIENTO_AUSENTISMOS: "Seg. ausentismos",
-  RECLUTAMIENTO_SELECCION: "Reclutamiento/Selección",
-  SEGUIMIENTO_DOCUMENTACION: "Seguimiento de documentación",
-  SOLICITUDES_INTERNAS: "Solicitudes internas",
-};
-
 const SYSTEM_PROMPT_OBJECTIVITY = `Eres un analista de Recursos Humanos que genera informes ejecutivos estrictamente basados en datos.
 
 REGLAS OBLIGATORIAS — aplica todas sin excepción:

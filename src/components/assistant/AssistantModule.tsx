@@ -115,7 +115,7 @@ export default function AssistantModule({
   }, []);
 
   useEffect(() => {
-    if (mode === "hr") loadDocs();
+    if (mode === "hr") queueMicrotask(loadDocs);
   }, [mode, loadDocs]);
 
   function changeMode(m: Mode) {

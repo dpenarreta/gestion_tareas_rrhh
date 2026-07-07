@@ -138,10 +138,9 @@ export async function GET() {
   }
 
   // Stats
-  const [totalCompleted, totalCommentsAll, currentStreak] = await Promise.all([
+  const [totalCompleted, totalCommentsAll] = await Promise.all([
     prisma.task.count({ where: { assignedToId: userId, status: "COMPLETADA" } }),
     prisma.comment.count({ where: { authorId: userId } }),
-    Promise.resolve(0), // streak calc already done above
   ]);
 
   const activityDaysAll = [...new Set(allActivities.map((a) => a.createdAt.toISOString().slice(0, 10)))].sort();

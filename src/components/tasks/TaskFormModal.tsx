@@ -52,18 +52,20 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (task) {
-      setTitle(task.title);
-      setDescription(task.description ?? "");
-      setType(task.type);
-      setStatus(task.status);
-      setPriority(task.priority);
-      setFrequency(task.frequency);
-      setStartDate(toInputDate(task.startDate));
-      setEndDate(toInputDate(task.endDate));
-      setEstimatedHours(String(Math.round(task.estimatedHours * 100) / 100));
-      setAssignedToId(task.assignedTo.id);
-    }
+    queueMicrotask(() => {
+      if (task) {
+        setTitle(task.title);
+        setDescription(task.description ?? "");
+        setType(task.type);
+        setStatus(task.status);
+        setPriority(task.priority);
+        setFrequency(task.frequency);
+        setStartDate(toInputDate(task.startDate));
+        setEndDate(toInputDate(task.endDate));
+        setEstimatedHours(String(Math.round(task.estimatedHours * 100) / 100));
+        setAssignedToId(task.assignedTo.id);
+      }
+    });
   }, [task]);
 
   async function handleSubmit(e: React.FormEvent) {

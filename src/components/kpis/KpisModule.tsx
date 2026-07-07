@@ -490,7 +490,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
   }, []);
 
   useEffect(() => {
-    fetchTeam(month);
+    queueMicrotask(() => fetchTeam(month));
   }, [fetchTeam, month]);
 
   // ── Fetch individual KPI ───────────────────────────────────────────────────
@@ -522,7 +522,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
   );
 
   useEffect(() => {
-    if (selectedId) fetchKpi(selectedId, month);
+    if (selectedId) queueMicrotask(() => fetchKpi(selectedId, month));
   }, [selectedId, month, fetchKpi]);
 
   // ── Month change ───────────────────────────────────────────────────────────

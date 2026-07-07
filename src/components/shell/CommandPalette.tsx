@@ -19,7 +19,7 @@ export default function CommandPalette({ role, open, onClose }: Props) {
   const filtered = links.filter((l) => l.label.toLowerCase().includes(query.toLowerCase()));
 
   useEffect(() => {
-    if (open) setQuery("");
+    queueMicrotask(() => { if (open) setQuery(""); });
   }, [open]);
 
   useEffect(() => {

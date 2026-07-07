@@ -35,7 +35,7 @@ export default function ReminderNotifier() {
   }, []);
 
   useEffect(() => {
-    poll();
+    queueMicrotask(poll);
     const interval = setInterval(poll, POLL_INTERVAL_MS);
     return () => clearInterval(interval);
   }, [poll]);
@@ -43,15 +43,18 @@ export default function ReminderNotifier() {
   const current = queue[0] ?? null;
 
   useEffect(() => {
-    setShowSnooze(false);
-    setShowReschedule(false);
-    if (current) {
-      const d = new Date(Date.now() + 24 * 3600 * 1000);
-      const { date, time } = formatDateTimeLocal(d);
-      setRescheduleDate(date);
-      setRescheduleTime(time);
-      setRescheduleDescription(current.description ?? "");
-    }
+    queueMicrotask(() => {
+      setShowSnooze(false);
+      setShowReschedule(false);
+      if (current) {
+        const d = new Date(Date.now() + 24 * 3600 * 1000);
+        const { date, time } = formatDateTimeLocal(d);
+        setRescheduleDate(date);
+        setRescheduleTime(time);
+        setRescheduleDescription(current.description ?? "");
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current?.id]);
 
   function dismissCurrent() {
@@ -78,9 +81,10 @@ export default function ReminderNotifier() {
     router.push("/tasks");
   }
 
-  function handleSnooze(offsetMs: number) {
+  const handleSnooze = useCallback((offsetMs: number) => {
     patchCurrent({ snoozedUntil: new Date(Date.now() + offsetMs).toISOString() });
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function handleReschedule() {
     if (!rescheduleDate || !rescheduleTime) return;

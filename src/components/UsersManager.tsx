@@ -78,7 +78,7 @@ export default function UsersManager({ currentUserRole }: Props) {
   }, []);
 
   useEffect(() => {
-    loadUsers();
+    queueMicrotask(loadUsers);
   }, [loadUsers]);
 
   async function handleCreate(e: React.FormEvent) {

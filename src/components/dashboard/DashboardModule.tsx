@@ -78,26 +78,6 @@ type Props = {
   canPost: boolean;
 };
 
-const DEFAULT_CARDS = [
-  "jornada",
-  "prioridades",
-  "agenda",
-  "actividad",
-  "comunicados",
-  "acciones",
-  "resumen",
-];
-
-const CARD_TITLES: Record<string, string> = {
-  jornada: "Mi jornada",
-  prioridades: "Mis prioridades",
-  agenda: "Agenda",
-  actividad: "Actividad del área",
-  comunicados: "Comunicados",
-  acciones: "Acciones rápidas",
-  resumen: "Resumen",
-};
-
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function greeting(name: string) {
@@ -694,7 +674,7 @@ export default function DashboardModule({
   }, [userName, userRole]);
 
   useEffect(() => {
-    fetchData();
+    queueMicrotask(fetchData);
   }, [fetchData]);
 
   function handleDragEnd(event: DragEndEvent) {

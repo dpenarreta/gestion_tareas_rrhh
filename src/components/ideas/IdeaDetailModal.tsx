@@ -65,7 +65,7 @@ export default function IdeaDetailModal({ ideaId, currentUserRole, onClose, onUp
   }
 
   useEffect(() => {
-    load();
+    queueMicrotask(load);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ideaId]);
 

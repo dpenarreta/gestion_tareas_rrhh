@@ -7,13 +7,6 @@ import TimeInput24 from "@/components/ui/TimeInput24";
 
 type AssignableUser = { id: string; name: string; email: string; role: Role };
 
-function fmtDuration(min: number) {
-  if (min < 60) return `${min} min`;
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  return m > 0 ? `${h}h ${m}min` : `${h}h`;
-}
-
 export default function MeetingFormModalDashboard({
   onClose,
   onSaved,

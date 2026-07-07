@@ -27,7 +27,9 @@ export default function AppShell({ role, userId, userName, roleLabel, onLogout, 
   const [paletteOpen, setPaletteOpen] = useState(false);
 
   useEffect(() => {
-    if (localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1") setCollapsed(true);
+    queueMicrotask(() => {
+      if (localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "1") setCollapsed(true);
+    });
   }, []);
 
   const toggleCollapsed = useCallback(() => {
@@ -39,7 +41,7 @@ export default function AppShell({ role, userId, userName, roleLabel, onLogout, 
   }, []);
 
   useEffect(() => {
-    setMobileOpen(false);
+    queueMicrotask(() => setMobileOpen(false));
   }, [pathname]);
 
   useEffect(() => {

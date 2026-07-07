@@ -117,10 +117,12 @@ function MeetingFormModal({
   const [error, setError] = useState("");
 
   useEffect(() => {
-    fetch("/api/users/assignable")
-      .then((r) => r.json())
-      .then((all: AssignableUser[]) => setUsers(all.filter((u) => u.id !== currentUserId)));
-    setDate(new Date().toISOString().slice(0, 10));
+    queueMicrotask(() => {
+      fetch("/api/users/assignable")
+        .then((r) => r.json())
+        .then((all: AssignableUser[]) => setUsers(all.filter((u) => u.id !== currentUserId)));
+      setDate(new Date().toISOString().slice(0, 10));
+    });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -587,7 +589,7 @@ export default function MeetingsModule({
     setLoading(false);
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { queueMicrotask(load); }, [load]);
 
   function handleSaved(m: Meeting) {
     setMeetings((prev) => [m, ...prev].sort((a, b) => new Date(a.meetingDate).getTime() - new Date(b.meetingDate).getTime()));

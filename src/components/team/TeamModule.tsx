@@ -398,7 +398,7 @@ export default function TeamModule({ currentUserId, currentUserRole: _role }: Pr
     setMembersLoading(false);
   }, []);
 
-  useEffect(() => { loadMembers(); }, [loadMembers]);
+  useEffect(() => { queueMicrotask(loadMembers); }, [loadMembers]);
 
   // Load tasks for selected member
   const loadMemberTasks = useCallback(async (memberId: string) => {
