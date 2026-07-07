@@ -4,7 +4,7 @@ import { getSession } from "@/lib/session";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-const CAN_DELETE: string[] = ["JEFE_NACIONAL", "COORDINADOR_NACIONAL"];
+const CAN_DELETE: string[] = ["ADMINISTRADOR", "JEFE_NACIONAL", "COORDINADOR_NACIONAL"];
 
 export async function DELETE(_request: NextRequest, ctx: Ctx) {
   const session = await getSession();

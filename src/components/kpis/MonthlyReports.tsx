@@ -928,7 +928,7 @@ export default function MonthlyReports({ currentUserRole }: Props) {
         <div>
           <h1 className="text-2xl font-bold text-title">Informes Mensuales</h1>
           <p className="text-sm text-secondary mt-0.5">
-            {currentUserRole === "JEFE_NACIONAL"
+            {currentUserRole === "JEFE_NACIONAL" || currentUserRole === "ADMINISTRADOR"
               ? "Consolidado de todo el equipo"
               : "Consolidado de tu equipo (excluye Jefe Nacional)"}
           </p>

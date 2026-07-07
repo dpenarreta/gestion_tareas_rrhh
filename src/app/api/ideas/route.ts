@@ -105,7 +105,7 @@ export async function POST(request: NextRequest) {
   const ideaResult = { ...idea, voteCount: _count.votes, votedByMe: votes.length > 0 };
 
   const reviewers = await prisma.user.findMany({
-    where: { role: { in: ["JEFE_NACIONAL", "COORDINADOR_NACIONAL"] } },
+    where: { role: { in: ["ADMINISTRADOR", "JEFE_NACIONAL", "COORDINADOR_NACIONAL"] } },
     select: { id: true },
   });
   if (reviewers.length > 0) {

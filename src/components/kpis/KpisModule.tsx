@@ -460,7 +460,7 @@ type Props = {
   currentUserRole: Role;
 };
 
-const CAN_ACCESS_REPORTS = ["JEFE_NACIONAL", "COORDINADOR_NACIONAL"];
+const CAN_ACCESS_REPORTS = ["ADMINISTRADOR", "JEFE_NACIONAL", "COORDINADOR_NACIONAL"];
 
 export default function KpisModule({ currentUserId: _uid, currentUserRole }: Props) {
   const canSeeReports = CAN_ACCESS_REPORTS.includes(currentUserRole);

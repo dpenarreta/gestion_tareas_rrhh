@@ -52,12 +52,13 @@ export async function GET(request: NextRequest) {
   const rangeStart = monthBounds(fy, fm).start;
   const rangeEnd = monthBounds(ty, tm).end;
 
-  const [allTasks, allActivities] = await Promise.all([
+  const [allTasks, allActivities, fijaCompletedTasks] = await Promise.all([
     prisma.task.findMany({
       where: { assignedToId: userId, endDate: { gte: rangeStart, lte: rangeEnd } },
       select: {
         endDate: true,
         status: true,
+        type: true,
         estimatedHours: true,
         realHours: true,
         progress: true,
@@ -70,6 +71,10 @@ export async function GET(request: NextRequest) {
         task: { type: "SEGUIMIENTO" },
       },
       select: { reason: true, duration: true, createdAt: true },
+    }),
+    prisma.task.findMany({
+      where: { assignedToId: userId, type: "FIJA", completedAt: { gte: rangeStart, lte: rangeEnd } },
+      select: { completedAt: true, realHours: true },
     }),
   ]);
 
@@ -87,7 +92,11 @@ export async function GET(request: NextRequest) {
     const completedPct = tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0;
 
     const totalEstimated = tasks.reduce((s, t) => s + t.estimatedHours, 0);
-    const totalReal = tasks.reduce((s, t) => s + t.realHours, 0);
+    const nonFijaReal = tasks.filter((t) => t.type !== "FIJA").reduce((s, t) => s + t.realHours, 0);
+    const fijaReal = fijaCompletedTasks
+      .filter((t) => t.completedAt! >= start && t.completedAt! <= end)
+      .reduce((s, t) => s + t.realHours, 0);
+    const totalReal = nonFijaReal + fijaReal;
     const cargaRatio =
       totalEstimated > 0
         ? Math.round((totalReal / totalEstimated) * 100)

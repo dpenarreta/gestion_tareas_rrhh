@@ -90,8 +90,13 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   if ("estimatedHours" in body) data.estimatedHours = Math.round(parseFloat(body.estimatedHours) * 100) / 100;
   if ("realHours" in body) data.realHours = Math.round(parseFloat(body.realHours) * 100) / 100;
   if ("status" in body) {
-    if (body.status === "COMPLETADA") data.progress = 100;
-    else if (body.status === "PENDIENTE") data.progress = 0;
+    if (body.status === "COMPLETADA") {
+      data.progress = 100;
+      data.completedAt = new Date();
+    } else {
+      if (body.status === "PENDIENTE") data.progress = 0;
+      data.completedAt = null;
+    }
   }
   if ("assignedToId" in body) data.assignedToId = body.assignedToId;
   if ("color" in body) data.color = body.color;
@@ -117,7 +122,7 @@ export async function DELETE(_req: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: "Tarea archivada, de solo lectura" }, { status: 403 });
   }
 
-  const isAdmin = ["JEFE_NACIONAL", "COORDINADOR_NACIONAL"].includes(session.role);
+  const isAdmin = ["ADMINISTRADOR", "JEFE_NACIONAL", "COORDINADOR_NACIONAL"].includes(session.role);
   if (task.createdById !== session.userId && !isAdmin) {
     return NextResponse.json({ error: "Sin permisos para eliminar" }, { status: 403 });
   }

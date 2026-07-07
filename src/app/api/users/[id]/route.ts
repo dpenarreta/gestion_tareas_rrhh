@@ -5,9 +5,9 @@ import { canManageUsers, ROLE_LEVEL } from "@/lib/roles";
 import type { Role } from "@/generated/prisma/client";
 
 const VALID_ROLES: Role[] = [
-  "JEFE_NACIONAL", "COORDINADOR_NACIONAL", "COORDINADOR_ZS",
+  "ADMINISTRADOR", "JEFE_NACIONAL", "COORDINADOR_NACIONAL", "COORDINADOR_ZS",
   "ANALISTA_CC", "ANALISTA_SELECCION", "ASISTENTE_SELECCION",
-  "ASISTENTE_GH", "ASISTENTE_GH_ZS", "TRABAJO_SOCIAL",
+  "ASISTENTE_GH", "ASISTENTE_GH_ZS", "TRABAJO_SOCIAL", "ASISTENTE_NOMINA",
 ];
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -53,8 +53,13 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
   }
 
-  // Solo JEFE_NACIONAL puede editar a otro JEFE_NACIONAL
-  if (target.role === "JEFE_NACIONAL" && session.role !== "JEFE_NACIONAL") {
+  // Solo un Administrador puede editar a otro Administrador
+  if (target.role === "ADMINISTRADOR" && session.role !== "ADMINISTRADOR") {
+    return NextResponse.json({ error: "Solo un Administrador puede editar a otro Administrador" }, { status: 403 });
+  }
+
+  // Solo JEFE_NACIONAL o ADMINISTRADOR pueden editar a otro JEFE_NACIONAL
+  if (target.role === "JEFE_NACIONAL" && session.role !== "JEFE_NACIONAL" && session.role !== "ADMINISTRADOR") {
     return NextResponse.json({ error: "Solo el Jefe Nacional puede editar a otro Jefe Nacional" }, { status: 403 });
   }
 

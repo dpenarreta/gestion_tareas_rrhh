@@ -8,6 +8,7 @@ datasource db {
 }
 
 enum Role {
+  ADMINISTRADOR
   JEFE_NACIONAL
   COORDINADOR_NACIONAL
   COORDINADOR_ZS
@@ -118,6 +119,7 @@ model Task {
   estimatedHours Float
   realHours      Float         @default(0)
   progress       Int           @default(0)
+  completedAt    DateTime?
   type           TaskType      @default(FIJA)
   assignedToId   String
   assignedTo     User          @relation("AssignedTasks", fields: [assignedToId], references: [id])

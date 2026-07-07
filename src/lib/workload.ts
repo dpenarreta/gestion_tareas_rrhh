@@ -112,7 +112,7 @@ async function realHoursInWindow(userId: string, calStart: Date, calEnd: Date): 
         assignedToId: userId,
         type: "FIJA",
         archivedMonth: null,
-        endDate: { gte: calStart, lte: calEnd },
+        completedAt: { gte: realStart, lte: realEnd },
       },
       select: { realHours: true },
     }),

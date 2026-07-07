@@ -1,6 +1,7 @@
 import type { Role } from "@/generated/prisma/client";
 
 export const ROLE_LEVEL: Record<Role, number> = {
+  ADMINISTRADOR: 5,
   JEFE_NACIONAL: 4,
   COORDINADOR_NACIONAL: 3,
   COORDINADOR_ZS: 2,
@@ -14,6 +15,7 @@ export const ROLE_LEVEL: Record<Role, number> = {
 };
 
 export const ROLE_LABEL: Record<Role, string> = {
+  ADMINISTRADOR: "Administrador",
   JEFE_NACIONAL: "Jefe Nacional",
   COORDINADOR_NACIONAL: "Coordinador Nacional",
   COORDINADOR_ZS: "Coordinador ZS",
@@ -28,6 +30,19 @@ export const ROLE_LABEL: Record<Role, string> = {
 
 // Roles whose tasks each role can see
 export const VISIBLE_ROLES: Record<Role, Role[]> = {
+  ADMINISTRADOR: [
+    "ADMINISTRADOR",
+    "JEFE_NACIONAL",
+    "COORDINADOR_NACIONAL",
+    "COORDINADOR_ZS",
+    "ANALISTA_CC",
+    "ANALISTA_SELECCION",
+    "ASISTENTE_SELECCION",
+    "ASISTENTE_GH",
+    "ASISTENTE_GH_ZS",
+    "TRABAJO_SOCIAL",
+    "ASISTENTE_NOMINA",
+  ],
   JEFE_NACIONAL: [
     "JEFE_NACIONAL",
     "COORDINADOR_NACIONAL",
@@ -68,6 +83,7 @@ export const VISIBLE_ROLES: Record<Role, Role[]> = {
 
 // Who gets notified (upward) when a task comment is made
 export const NOTIFICATION_TARGETS: Record<Role, Role[]> = {
+  ADMINISTRADOR: [],
   JEFE_NACIONAL: [],
   COORDINADOR_NACIONAL: ["JEFE_NACIONAL"],
   COORDINADOR_ZS: ["COORDINADOR_NACIONAL"],
@@ -81,12 +97,14 @@ export const NOTIFICATION_TARGETS: Record<Role, Role[]> = {
 };
 
 export const CAN_CREATE_MEETINGS: Role[] = [
+  "ADMINISTRADOR",
   "JEFE_NACIONAL",
   "COORDINADOR_NACIONAL",
   "COORDINADOR_ZS",
 ];
 
 export const CAN_MANAGE_USERS: Role[] = [
+  "ADMINISTRADOR",
   "JEFE_NACIONAL",
   "COORDINADOR_NACIONAL",
 ];
@@ -115,13 +133,13 @@ export function canViewTeam(role: Role): boolean {
   return ROLE_LEVEL[role] >= 2;
 }
 
-export const CAN_ACCESS_REPORTS: Role[] = ["JEFE_NACIONAL", "COORDINADOR_NACIONAL"];
+export const CAN_ACCESS_REPORTS: Role[] = ["ADMINISTRADOR", "JEFE_NACIONAL", "COORDINADOR_NACIONAL"];
 
 export function canAccessReports(role: Role): boolean {
   return CAN_ACCESS_REPORTS.includes(role);
 }
 
-export const CAN_REVIEW_IDEAS: Role[] = ["JEFE_NACIONAL", "COORDINADOR_NACIONAL"];
+export const CAN_REVIEW_IDEAS: Role[] = ["ADMINISTRADOR", "JEFE_NACIONAL", "COORDINADOR_NACIONAL"];
 
 export function canReviewIdeas(role: Role): boolean {
   return CAN_REVIEW_IDEAS.includes(role);

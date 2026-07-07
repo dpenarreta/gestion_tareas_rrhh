@@ -5,7 +5,7 @@ import { canAccessReports } from "@/lib/roles";
 import type { ReportScope } from "@/generated/prisma/client";
 
 function scopeForRole(role: string): ReportScope {
-  return role === "JEFE_NACIONAL" ? "JEFE" : "COORDINADOR";
+  return role === "JEFE_NACIONAL" || role === "ADMINISTRADOR" ? "JEFE" : "COORDINADOR";
 }
 
 export async function GET(request: NextRequest) {

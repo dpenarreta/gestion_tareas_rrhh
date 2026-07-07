@@ -24,7 +24,7 @@ export default async function DashboardPage() {
     ? [...savedOrder.filter((c) => DEFAULT_CARDS.includes(c)), ...DEFAULT_CARDS.filter((c) => !savedOrder.includes(c))]
     : DEFAULT_CARDS;
 
-  const canPost = ["JEFE_NACIONAL", "COORDINADOR_NACIONAL"].includes(session.role);
+  const canPost = ["ADMINISTRADOR", "JEFE_NACIONAL", "COORDINADOR_NACIONAL"].includes(session.role);
 
   return (
     <DashboardModule

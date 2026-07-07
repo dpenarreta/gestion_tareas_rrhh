@@ -9,6 +9,17 @@ const prisma = new PrismaClient({ adapter });
 async function main() {
   const password = await bcrypt.hash("123456", 10);
 
+  const administrador = await prisma.user.upsert({
+    where: { email: "administrador@nexo.com" },
+    update: {},
+    create: {
+      email: "administrador@nexo.com",
+      name: "Administrador",
+      password,
+      role: "ADMINISTRADOR",
+    },
+  });
+
   const jefe = await prisma.user.upsert({
     where: { email: "jefe@nexo.com" },
     update: {},
@@ -32,6 +43,7 @@ async function main() {
   });
 
   console.log("Seed completado:");
+  console.log(`  Administrador:        ${administrador.email} / 123456`);
   console.log(`  Jefe Nacional:        ${jefe.email} / 123456`);
   console.log(`  Coordinador Nacional: ${coordNacional.email} / 123456`);
 }

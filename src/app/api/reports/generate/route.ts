@@ -184,7 +184,8 @@ export async function POST(request: NextRequest) {
   const { start: cargaRealStart } = businessDayRealRange(cargaStart);
   const { end: cargaRealEnd } = businessDayRealRange(cargaEnd);
 
-  const scope: ReportScope = session.role === "JEFE_NACIONAL" ? "JEFE" : "COORDINADOR";
+  const scope: ReportScope =
+    session.role === "JEFE_NACIONAL" || session.role === "ADMINISTRADOR" ? "JEFE" : "COORDINADOR";
 
   // Avoid passing empty object as role filter — use conditional where clause
   const users = await prisma.user.findMany({
@@ -218,7 +219,7 @@ export async function POST(request: NextRequest) {
       select: { authorId: true, reason: true, duration: true },
     }),
     prisma.task.findMany({
-      where: { assignedToId: { in: userIds }, type: "FIJA", endDate: { gte: cargaStart, lte: cargaEnd } },
+      where: { assignedToId: { in: userIds }, type: "FIJA", completedAt: { gte: cargaRealStart, lte: cargaRealEnd } },
       select: { assignedToId: true, realHours: true },
     }),
     prisma.taskActivity.findMany({

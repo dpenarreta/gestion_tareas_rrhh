@@ -172,7 +172,7 @@ export async function GET(request: NextRequest) {
     if (months.length > 24)
       return NextResponse.json({ error: "El rango no puede superar 24 meses" }, { status: 400 });
 
-    const scope = session.role === "JEFE_NACIONAL" ? "JEFE" : "COORDINADOR";
+    const scope = session.role === "JEFE_NACIONAL" || session.role === "ADMINISTRADOR" ? "JEFE" : "COORDINADOR";
 
     const users = await prisma.user.findMany({
       where: scope === "JEFE" ? {} : { role: { not: "JEFE_NACIONAL" as Role } },
@@ -195,8 +195,6 @@ export async function GET(request: NextRequest) {
       const { end: realEnd } = businessDayRealRange(cargaEnd);
       return { monthStr, cargaStart, cargaEnd, realStart, realEnd, baseHours };
     });
-    const rangeCargaStart = monthBusinessInfo[0].cargaStart;
-    const rangeCargaEnd = monthBusinessInfo[monthBusinessInfo.length - 1].cargaEnd;
     const rangeRealStart = monthBusinessInfo[0].realStart;
     const rangeRealEnd = monthBusinessInfo[monthBusinessInfo.length - 1].realEnd;
 
@@ -222,8 +220,8 @@ export async function GET(request: NextRequest) {
         select: { authorId: true, reason: true, duration: true, createdAt: true },
       }),
       prisma.task.findMany({
-        where: { assignedToId: { in: userIds }, type: "FIJA", endDate: { gte: rangeCargaStart, lte: rangeCargaEnd } },
-        select: { assignedToId: true, realHours: true, endDate: true },
+        where: { assignedToId: { in: userIds }, type: "FIJA", completedAt: { gte: rangeRealStart, lte: rangeRealEnd } },
+        select: { assignedToId: true, realHours: true, completedAt: true },
       }),
       prisma.taskActivity.findMany({
         where: { authorId: { in: userIds }, createdAt: { gte: rangeRealStart, lte: rangeRealEnd } },
@@ -243,7 +241,7 @@ export async function GET(request: NextRequest) {
       const monthTasks = allTasks.filter((t) => t.endDate >= start && t.endDate <= end);
       const monthActs = allActivities.filter((a) => a.createdAt >= start && a.createdAt <= end);
       const monthFija = fijaTasksForCarga.filter(
-        (t) => t.endDate >= bizInfo.cargaStart && t.endDate <= bizInfo.cargaEnd,
+        (t) => t.completedAt! >= bizInfo.realStart && t.completedAt! <= bizInfo.realEnd,
       );
       const monthCargaActs = activitiesForCarga.filter(
         (a) => a.createdAt >= bizInfo.realStart && a.createdAt <= bizInfo.realEnd,

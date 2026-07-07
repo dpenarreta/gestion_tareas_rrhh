@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { getVisibleRoles } from "@/lib/roles";
 
-const CAN_POST: string[] = ["JEFE_NACIONAL", "COORDINADOR_NACIONAL"];
+const CAN_POST: string[] = ["ADMINISTRADOR", "JEFE_NACIONAL", "COORDINADOR_NACIONAL"];
 
 export async function GET() {
   const session = await getSession();

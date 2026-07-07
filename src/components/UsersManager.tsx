@@ -59,8 +59,10 @@ export default function UsersManager({ currentUserRole }: Props) {
   );
 
   function canEdit(user: User): boolean {
+    // Solo un Administrador puede editar a otro Administrador
+    if (user.role === "ADMINISTRADOR" && currentUserRole !== "ADMINISTRADOR") return false;
     // COORDINADOR_NACIONAL no puede editar a JEFE_NACIONAL
-    if (user.role === "JEFE_NACIONAL" && currentUserRole !== "JEFE_NACIONAL") return false;
+    if (user.role === "JEFE_NACIONAL" && currentUserRole !== "JEFE_NACIONAL" && currentUserRole !== "ADMINISTRADOR") return false;
     return true;
   }
 
