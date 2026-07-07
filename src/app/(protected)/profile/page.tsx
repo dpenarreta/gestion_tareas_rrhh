@@ -57,6 +57,30 @@ function formatDate(iso: string) {
   });
 }
 
+type ManualInfo = { href: string; label: string; description: string };
+
+function getManualForRole(role: Role): ManualInfo {
+  if (role === "ADMINISTRADOR") {
+    return {
+      href: "/manuales/manual-administrador.pdf",
+      label: "Manual de Administrador",
+      description: "Gestión de usuarios, cierre mensual, informes con IA, Analytics y comunicados.",
+    };
+  }
+  if (role === "JEFE_NACIONAL" || role === "COORDINADOR_NACIONAL") {
+    return {
+      href: "/manuales/manual-jefe-coordinador.pdf",
+      label: "Manual de Jefe Nacional y Coordinador Nacional",
+      description: "Dashboard, gestión de equipo, Analytics, Nova, reuniones y Mejora Continua.",
+    };
+  }
+  return {
+    href: "/manuales/manual-colaboradores.pdf",
+    label: "Manual de Colaborador",
+    description: "Registro de tareas, seguimientos planificados, Mi actividad y Mejora Continua.",
+  };
+}
+
 export default function ProfilePage() {
   const [user, setUser] = useState<UserInfo | null>(null);
   const [badges, setBadges] = useState<Badge[]>([]);
@@ -342,6 +366,31 @@ export default function ProfilePage() {
             </button>
           </div>
         )}
+      </div>
+
+      {/* Recursos y Manuales */}
+      <div className="bg-surface rounded-2xl border border-border p-6">
+        <h2 className="font-semibold text-title mb-1">Recursos y Manuales</h2>
+        <p className="text-xs text-disabled mb-5">Manual de usuario en PDF según tu rol</p>
+
+        <a
+          href={getManualForRole(user.role).href}
+          download
+          className="flex items-center gap-3 p-4 rounded-xl border border-border hover:border-primary hover:bg-primary-surface transition-colors group"
+        >
+          <div className="w-10 h-10 rounded-xl bg-primary-surface group-hover:bg-primary/15 flex items-center justify-center shrink-0 transition-colors">
+            <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-title">{getManualForRole(user.role).label}</p>
+            <p className="text-xs text-secondary mt-0.5">{getManualForRole(user.role).description}</p>
+          </div>
+          <svg className="w-4 h-4 text-disabled shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+          </svg>
+        </a>
       </div>
 
       {/* Reconocimientos */}
