@@ -42,10 +42,22 @@ async function main() {
     },
   });
 
+  const prueba = await prisma.user.upsert({
+    where: { email: "prueba@nexo.com" },
+    update: {},
+    create: {
+      email: "prueba@nexo.com",
+      name: "Usuario Prueba",
+      password,
+      role: "COORDINADOR_NACIONAL",
+    },
+  });
+
   console.log("Seed completado:");
   console.log(`  Administrador:        ${administrador.email} / 123456`);
   console.log(`  Jefe Nacional:        ${jefe.email} / 123456`);
   console.log(`  Coordinador Nacional: ${coordNacional.email} / 123456`);
+  console.log(`  Usuario Prueba:       ${prueba.email} / 123456`);
 }
 
 main()

@@ -1,14 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { PDFParse } from "pdf-parse";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canManageUsers } from "@/lib/roles";
 import { getEmbedding } from "@/lib/embeddings";
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const pdfParse = require("pdf-parse");
-
-interface PdfPageData {
-  getTextContent: () => Promise<{ items: Array<{ str: string }> }>;
-}
 
 // Vercel (plan gratuito) rechaza el request completo por encima de 4.5MB antes
 // de que este handler se ejecute, así que validamos con el mismo margen para
@@ -96,33 +91,23 @@ export async function POST(request: NextRequest) {
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
 
-    // Extract text per page
-    const pageTexts: Array<{ text: string; pageNumber: number }> = [];
-    let pageCounter = 0;
-
+    // Extract text per page. pdf-parse v2 uses a class-based API (new PDFParse().getText()),
+    // not the old v1 callback-style `pdfParse(buffer, { pagerender })` function.
+    let pageTexts: Array<{ text: string; pageNumber: number }>;
+    const parser = new PDFParse({ data: buffer });
     try {
-      await pdfParse(buffer, {
-        pagerender(pageData: PdfPageData) {
-          const pageNumber = ++pageCounter;
-          return pageData.getTextContent().then(
-            (content: { items: Array<{ str: string }> }) => {
-              const text = content.items.map((i) => i.str).join(" ");
-              pageTexts.push({ text, pageNumber });
-              return text;
-            }
-          );
-        },
-      });
+      const result = await parser.getText();
+      pageTexts = result.pages.map((p) => ({ text: p.text, pageNumber: p.num }));
     } catch (err) {
-      console.error("[POST /api/assistant/documents] pdfParse con pagerender falló, reintentando sin paginado:", err);
-      // Fallback: parse without page tracking
-      try {
-        const data = await pdfParse(buffer);
-        pageTexts.push({ text: data.text, pageNumber: 1 });
-      } catch (fallbackErr) {
-        console.error("[POST /api/assistant/documents] pdfParse falló por completo:", fallbackErr);
-        return NextResponse.json({ error: "No se pudo leer el PDF" }, { status: 422 });
-      }
+      console.error("[POST /api/assistant/documents] Error al parsear el PDF:", err);
+      return NextResponse.json(
+        { error: "Error al procesar el PDF, intenta con otro archivo" },
+        { status: 422 }
+      );
+    } finally {
+      await parser.destroy().catch((err) => {
+        console.error("[POST /api/assistant/documents] Error al liberar el parser de PDF:", err);
+      });
     }
 
     if (pageTexts.length === 0) {
@@ -167,7 +152,7 @@ export async function POST(request: NextRequest) {
       });
     } catch (err) {
       console.error("[POST /api/assistant/documents] Error al guardar el documento en la base de datos:", err);
-      return NextResponse.json({ error: "Error al guardar el documento en la base de datos" }, { status: 500 });
+      return NextResponse.json({ error: "Error al guardar el documento" }, { status: 500 });
     }
 
     return NextResponse.json(doc, { status: 201 });
