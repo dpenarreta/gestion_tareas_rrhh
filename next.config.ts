@@ -27,6 +27,16 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["@xenova/transformers", "pdf-parse"],
+  experimental: {
+    // Next.js 16 renombró middleware.ts -> proxy.ts (ver src/proxy.ts) y ahora
+    // bufferiza el body de cada request para poder leerlo tanto en el proxy
+    // como en el route handler. El default es 10MB; no hay equivalente al
+    // viejo `export const config = { api: { bodyParser } }` de Pages Router
+    // para Route Handlers — este es el mecanismo real en App Router. Se fija
+    // explícito por encima de nuestro propio límite de 4.5MB para subir PDFs
+    // (ver MAX_SIZE_BYTES en src/app/api/assistant/documents/route.ts).
+    proxyClientMaxBodySize: "8mb",
+  },
   async headers() {
     return [
       {

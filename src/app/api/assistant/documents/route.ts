@@ -13,6 +13,10 @@ const MAX_SIZE_MESSAGE = "El archivo supera el límite de 4.5MB. Por favor usa u
 
 export const maxDuration = 60;
 
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 function chunkText(
   pages: Array<{ text: string; pageNumber: number }>,
   chunkSize = 1800,
@@ -46,7 +50,7 @@ export async function GET() {
   const docs = await prisma.knowledgeDocument.findMany({
     orderBy: { createdAt: "desc" },
     select: {
-      id: true, title: true, fileName: true, createdAt: true,
+      id: true, title: true, fileName: true, createdAt: true, processingError: true,
       uploadedBy: { select: { name: true } },
       _count: { select: { chunks: true } },
     },
@@ -91,62 +95,66 @@ export async function POST(request: NextRequest) {
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
 
-    // Extract text per page. pdf-parse v2 uses a class-based API (new PDFParse().getText()),
-    // not the old v1 callback-style `pdfParse(buffer, { pagerender })` function.
-    let pageTexts: Array<{ text: string; pageNumber: number }>;
+    // El documento se guarda SIEMPRE (con el PDF crudo) aunque el
+    // procesamiento (extracción de texto / embeddings) falle — así una
+    // falla del pipeline de IA no bloquea la subida. `processingError`
+    // queda registrado para que el admin sepa que ese documento todavía
+    // no es buscable por Nova y pueda reintentar más tarde.
+    let processingError: string | null = null;
+    let chunksToCreate: Array<{ content: string; embedding: number[]; pageNumber: number; chunkIndex: number }> = [];
+
+    // 1) Extraer texto por página. pdf-parse v2 usa una API basada en clase
+    // (new PDFParse().getText()), no la vieja API de función v1 con callback
+    // `pagerender`.
+    let pageTexts: Array<{ text: string; pageNumber: number }> = [];
     const parser = new PDFParse({ data: buffer });
     try {
       const result = await parser.getText();
       pageTexts = result.pages.map((p) => ({ text: p.text, pageNumber: p.num }));
     } catch (err) {
       console.error("[POST /api/assistant/documents] Error al parsear el PDF:", err);
-      return NextResponse.json(
-        { error: "Error al procesar el PDF, intenta con otro archivo" },
-        { status: 422 }
-      );
+      processingError = `No se pudo extraer texto del PDF: ${errorMessage(err)}`;
     } finally {
       await parser.destroy().catch((err) => {
         console.error("[POST /api/assistant/documents] Error al liberar el parser de PDF:", err);
       });
     }
 
-    if (pageTexts.length === 0) {
-      return NextResponse.json({ error: "El PDF no contiene texto extraíble" }, { status: 422 });
+    // 2) Chunkear y generar embeddings, solo si la extracción de texto sirvió.
+    if (!processingError) {
+      const chunks = chunkText(pageTexts);
+      if (chunks.length === 0) {
+        processingError = "El PDF no tiene contenido de texto suficiente para indexar.";
+      } else {
+        try {
+          const embeddings = await Promise.all(chunks.map((c) => getEmbedding(c.content)));
+          chunksToCreate = chunks.map((chunk, i) => ({
+            content: chunk.content,
+            embedding: embeddings[i],
+            pageNumber: chunk.pageNumber,
+            chunkIndex: chunk.chunkIndex,
+          }));
+        } catch (err) {
+          console.error("[POST /api/assistant/documents] Error al generar embeddings:", err);
+          processingError = `No se pudieron generar los embeddings: ${errorMessage(err)}`;
+        }
+      }
     }
 
-    const chunks = chunkText(pageTexts);
-    if (chunks.length === 0) {
-      return NextResponse.json({ error: "El PDF no tiene contenido suficiente" }, { status: 422 });
-    }
-
-    // Generate embeddings
-    let embeddings: number[][];
-    try {
-      embeddings = await Promise.all(chunks.map((c) => getEmbedding(c.content)));
-    } catch (err) {
-      console.error("[POST /api/assistant/documents] Error al generar embeddings:", err);
-      return NextResponse.json({ error: "Error al generar embeddings" }, { status: 500 });
-    }
-
-    // Save document + chunks transactionally
+    // 3) Guardar el documento (siempre incluye el PDF crudo en fileData).
     let doc;
     try {
       doc = await prisma.knowledgeDocument.create({
         data: {
           title,
           fileName: file.name,
+          fileData: buffer,
+          processingError,
           uploadedById: session.userId,
-          chunks: {
-            create: chunks.map((chunk, i) => ({
-              content: chunk.content,
-              embedding: embeddings[i],
-              pageNumber: chunk.pageNumber,
-              chunkIndex: chunk.chunkIndex,
-            })),
-          },
+          chunks: chunksToCreate.length > 0 ? { create: chunksToCreate } : undefined,
         },
         select: {
-          id: true, title: true, fileName: true, createdAt: true,
+          id: true, title: true, fileName: true, createdAt: true, processingError: true,
           _count: { select: { chunks: true } },
         },
       });
@@ -158,6 +166,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(doc, { status: 201 });
   } catch (err) {
     console.error("[POST /api/assistant/documents] Error inesperado:", err);
-    return NextResponse.json({ error: "Error inesperado al procesar el documento" }, { status: 500 });
+    return NextResponse.json(
+      { error: `Error inesperado al procesar el documento: ${errorMessage(err)}` },
+      { status: 500 }
+    );
   }
 }

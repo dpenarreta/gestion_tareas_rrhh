@@ -292,13 +292,15 @@ model IdeaStatusHistory {
 }
 
 model KnowledgeDocument {
-  id           String          @id @default(cuid())
-  title        String
-  fileName     String
-  uploadedById String
-  uploadedBy   User            @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
-  createdAt    DateTime        @default(now())
-  chunks       DocumentChunk[]
+  id              String          @id @default(cuid())
+  title           String
+  fileName        String
+  fileData        Bytes?
+  processingError String?
+  uploadedById    String
+  uploadedBy      User            @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+  createdAt       DateTime        @default(now())
+  chunks          DocumentChunk[]
 }
 
 model DocumentChunk {

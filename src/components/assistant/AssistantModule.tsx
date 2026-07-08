@@ -13,6 +13,7 @@ type KnowledgeDoc = {
   title: string;
   fileName: string;
   createdAt: string;
+  processingError?: string | null;
   uploadedBy?: { name: string };
   _count: { chunks: number };
 };
@@ -94,6 +95,7 @@ export default function AssistantModule({
   const [showDocs, setShowDocs] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
+  const [uploadWarning, setUploadWarning] = useState("");
   const [docTitle, setDocTitle] = useState("");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -141,13 +143,14 @@ export default function AssistantModule({
       return;
     }
     setUploadError("");
+    setUploadWarning("");
     setUploading(true);
     try {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("title", docTitle.trim());
       const res = await fetch("/api/assistant/documents", { method: "POST", body: fd });
-      let data: { error?: string } = {};
+      let data: { error?: string; processingError?: string | null } = {};
       try {
         data = await res.json();
       } catch {
@@ -159,6 +162,11 @@ export default function AssistantModule({
         setUploadError(data.error ?? "Error al subir documento.");
       } else {
         setDocTitle("");
+        if (data.processingError) {
+          setUploadWarning(
+            `El PDF se guardó, pero no se pudo indexar para búsqueda: ${data.processingError}`
+          );
+        }
         await loadDocs();
       }
     } catch {
@@ -305,6 +313,11 @@ export default function AssistantModule({
                       {uploadError}
                     </p>
                   )}
+                  {uploadWarning && (
+                    <p className="text-xs text-warning bg-warning/[.13] rounded-lg px-3 py-2">
+                      {uploadWarning}
+                    </p>
+                  )}
                   {uploading && (
                     <p className="text-xs text-secondary">
                       Extrayendo texto y generando embeddings… esto puede tardar unos segundos en el primer documento.
@@ -339,6 +352,11 @@ export default function AssistantModule({
                           <p className="text-[10px] text-disabled">
                             {doc.fileName} · {doc._count.chunks} fragmentos · {new Date(doc.createdAt).toLocaleDateString("es-CL")}
                           </p>
+                          {doc.processingError && (
+                            <p className="text-[10px] text-warning mt-0.5" title={doc.processingError}>
+                              ⚠️ Sin indexar para búsqueda — {doc.processingError}
+                            </p>
+                          )}
                         </div>
                       </div>
                       {canUpload && (
