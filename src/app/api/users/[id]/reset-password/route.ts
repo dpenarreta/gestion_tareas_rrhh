@@ -21,6 +21,10 @@ export async function POST(
   if (!user) {
     return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
   }
+  // Solo un Administrador puede resetear la contraseña de otro Administrador
+  if (user.role === "ADMINISTRADOR" && session.role !== "ADMINISTRADOR") {
+    return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
+  }
 
   const hashed = await bcrypt.hash("123456", 10);
   await prisma.user.update({ where: { id }, data: { password: hashed } });

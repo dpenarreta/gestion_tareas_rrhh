@@ -17,6 +17,10 @@ export async function PATCH(_req: NextRequest, ctx: { params: Promise<{ id: stri
   if (!user) {
     return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
   }
+  // Solo un Administrador puede restablecer el consentimiento de otro Administrador
+  if (user.role === "ADMINISTRADOR" && session.role !== "ADMINISTRADOR") {
+    return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
+  }
 
   await prisma.user.update({
     where: { id },

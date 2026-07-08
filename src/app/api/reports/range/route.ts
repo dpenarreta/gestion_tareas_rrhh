@@ -162,8 +162,10 @@ export async function GET(request: NextRequest) {
 
     const scope = session.role === "JEFE_NACIONAL" || session.role === "ADMINISTRADOR" ? "JEFE" : "COORDINADOR";
 
+    // El Administrador nunca aparece en informes consolidados, sin importar el scope.
+    const excludedRoles: Role[] = scope === "JEFE" ? ["ADMINISTRADOR"] : ["ADMINISTRADOR", "JEFE_NACIONAL"];
     const users = await prisma.user.findMany({
-      where: scope === "JEFE" ? {} : { role: { not: "JEFE_NACIONAL" as Role } },
+      where: { role: { notIn: excludedRoles } },
       select: { id: true, name: true, role: true },
       orderBy: { name: "asc" },
     });

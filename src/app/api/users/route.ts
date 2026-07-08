@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { canManageUsers } from "@/lib/roles";
+import { canManageUsers, ROLE_LEVEL } from "@/lib/roles";
 import { maskEmail } from "@/lib/mask-email";
 import type { Role } from "@/generated/prisma/client";
 
@@ -15,7 +15,11 @@ export async function GET() {
     return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
   }
 
+  // El Administrador es invisible para el resto de roles.
+  const where = session.role === "ADMINISTRADOR" ? {} : { role: { not: "ADMINISTRADOR" as Role } };
+
   const users = await prisma.user.findMany({
+    where,
     select: {
       id: true,
       name: true,
@@ -44,6 +48,10 @@ export async function POST(request: NextRequest) {
 
   if (!name || !email || !role) {
     return NextResponse.json({ error: "Todos los campos son requeridos" }, { status: 400 });
+  }
+
+  if (ROLE_LEVEL[role as Role] > ROLE_LEVEL[session.role]) {
+    return NextResponse.json({ error: "No puedes asignar un rol superior al tuyo" }, { status: 403 });
   }
 
   const existing = await prisma.user.findUnique({ where: { email } });

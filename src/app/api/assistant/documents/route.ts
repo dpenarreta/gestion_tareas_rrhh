@@ -10,7 +10,13 @@ interface PdfPageData {
   getTextContent: () => Promise<{ items: Array<{ str: string }> }>;
 }
 
-const MAX_SIZE_BYTES = 10 * 1024 * 1024;
+// Vercel (plan gratuito) rechaza el request completo por encima de 4.5MB antes
+// de que este handler se ejecute, así que validamos con el mismo margen para
+// poder devolver un mensaje claro en vez de dejar que la plataforma corte la conexión.
+const MAX_SIZE_BYTES = 4.5 * 1024 * 1024;
+const MAX_SIZE_MESSAGE = "El archivo supera el límite de 4.5MB. Por favor usa un archivo más pequeño.";
+
+export const maxDuration = 60;
 
 function chunkText(
   pages: Array<{ text: string; pageNumber: number }>,
@@ -60,10 +66,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Sin permisos para subir documentos" }, { status: 403 });
   }
 
+  // Rechazo temprano por Content-Length antes de bufferizar el body completo.
+  const contentLength = Number(request.headers.get("content-length") ?? 0);
+  if (contentLength > MAX_SIZE_BYTES) {
+    return NextResponse.json({ error: MAX_SIZE_MESSAGE }, { status: 413 });
+  }
+
   let formData: FormData;
   try {
     formData = await request.formData();
-  } catch {
+  } catch (err) {
+    console.error("[POST /api/assistant/documents] Error al parsear formData:", err);
     return NextResponse.json({ error: "Formulario inválido" }, { status: 400 });
   }
 
@@ -72,7 +85,7 @@ export async function POST(request: NextRequest) {
   if (!file) return NextResponse.json({ error: "Archivo requerido" }, { status: 400 });
   if (!title) return NextResponse.json({ error: "Título requerido" }, { status: 400 });
   if (file.size > MAX_SIZE_BYTES) {
-    return NextResponse.json({ error: "El archivo supera el tamaño máximo permitido (10MB)" }, { status: 400 });
+    return NextResponse.json({ error: MAX_SIZE_MESSAGE }, { status: 413 });
   }
   const isPdfExtension = file.name.toLowerCase().endsWith(".pdf");
   const isPdfMimeType = !file.type || file.type === "application/pdf";
@@ -80,73 +93,86 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Solo se aceptan archivos PDF" }, { status: 400 });
   }
 
-  const buffer = Buffer.from(await file.arrayBuffer());
-
-  // Extract text per page
-  const pageTexts: Array<{ text: string; pageNumber: number }> = [];
-  let pageCounter = 0;
-
   try {
-    await pdfParse(buffer, {
-      pagerender(pageData: PdfPageData) {
-        const pageNumber = ++pageCounter;
-        return pageData.getTextContent().then(
-          (content: { items: Array<{ str: string }> }) => {
-            const text = content.items.map((i) => i.str).join(" ");
-            pageTexts.push({ text, pageNumber });
-            return text;
-          }
-        );
-      },
-    });
-  } catch {
-    // Fallback: parse without page tracking
+    const buffer = Buffer.from(await file.arrayBuffer());
+
+    // Extract text per page
+    const pageTexts: Array<{ text: string; pageNumber: number }> = [];
+    let pageCounter = 0;
+
     try {
-      const data = await pdfParse(buffer);
-      pageTexts.push({ text: data.text, pageNumber: 1 });
-    } catch {
-      return NextResponse.json({ error: "No se pudo leer el PDF" }, { status: 422 });
+      await pdfParse(buffer, {
+        pagerender(pageData: PdfPageData) {
+          const pageNumber = ++pageCounter;
+          return pageData.getTextContent().then(
+            (content: { items: Array<{ str: string }> }) => {
+              const text = content.items.map((i) => i.str).join(" ");
+              pageTexts.push({ text, pageNumber });
+              return text;
+            }
+          );
+        },
+      });
+    } catch (err) {
+      console.error("[POST /api/assistant/documents] pdfParse con pagerender falló, reintentando sin paginado:", err);
+      // Fallback: parse without page tracking
+      try {
+        const data = await pdfParse(buffer);
+        pageTexts.push({ text: data.text, pageNumber: 1 });
+      } catch (fallbackErr) {
+        console.error("[POST /api/assistant/documents] pdfParse falló por completo:", fallbackErr);
+        return NextResponse.json({ error: "No se pudo leer el PDF" }, { status: 422 });
+      }
     }
-  }
 
-  if (pageTexts.length === 0) {
-    return NextResponse.json({ error: "El PDF no contiene texto extraíble" }, { status: 422 });
-  }
+    if (pageTexts.length === 0) {
+      return NextResponse.json({ error: "El PDF no contiene texto extraíble" }, { status: 422 });
+    }
 
-  const chunks = chunkText(pageTexts);
-  if (chunks.length === 0) {
-    return NextResponse.json({ error: "El PDF no tiene contenido suficiente" }, { status: 422 });
-  }
+    const chunks = chunkText(pageTexts);
+    if (chunks.length === 0) {
+      return NextResponse.json({ error: "El PDF no tiene contenido suficiente" }, { status: 422 });
+    }
 
-  // Generate embeddings
-  let embeddings: number[][];
-  try {
-    embeddings = await Promise.all(chunks.map((c) => getEmbedding(c.content)));
+    // Generate embeddings
+    let embeddings: number[][];
+    try {
+      embeddings = await Promise.all(chunks.map((c) => getEmbedding(c.content)));
+    } catch (err) {
+      console.error("[POST /api/assistant/documents] Error al generar embeddings:", err);
+      return NextResponse.json({ error: "Error al generar embeddings" }, { status: 500 });
+    }
+
+    // Save document + chunks transactionally
+    let doc;
+    try {
+      doc = await prisma.knowledgeDocument.create({
+        data: {
+          title,
+          fileName: file.name,
+          uploadedById: session.userId,
+          chunks: {
+            create: chunks.map((chunk, i) => ({
+              content: chunk.content,
+              embedding: embeddings[i],
+              pageNumber: chunk.pageNumber,
+              chunkIndex: chunk.chunkIndex,
+            })),
+          },
+        },
+        select: {
+          id: true, title: true, fileName: true, createdAt: true,
+          _count: { select: { chunks: true } },
+        },
+      });
+    } catch (err) {
+      console.error("[POST /api/assistant/documents] Error al guardar el documento en la base de datos:", err);
+      return NextResponse.json({ error: "Error al guardar el documento en la base de datos" }, { status: 500 });
+    }
+
+    return NextResponse.json(doc, { status: 201 });
   } catch (err) {
-    console.error("Embedding error:", err);
-    return NextResponse.json({ error: "Error al generar embeddings" }, { status: 500 });
+    console.error("[POST /api/assistant/documents] Error inesperado:", err);
+    return NextResponse.json({ error: "Error inesperado al procesar el documento" }, { status: 500 });
   }
-
-  // Save document + chunks transactionally
-  const doc = await prisma.knowledgeDocument.create({
-    data: {
-      title,
-      fileName: file.name,
-      uploadedById: session.userId,
-      chunks: {
-        create: chunks.map((chunk, i) => ({
-          content: chunk.content,
-          embedding: embeddings[i],
-          pageNumber: chunk.pageNumber,
-          chunkIndex: chunk.chunkIndex,
-        })),
-      },
-    },
-    select: {
-      id: true, title: true, fileName: true, createdAt: true,
-      _count: { select: { chunks: true } },
-    },
-  });
-
-  return NextResponse.json(doc, { status: 201 });
 }

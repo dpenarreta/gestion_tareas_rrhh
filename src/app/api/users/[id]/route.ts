@@ -31,6 +31,11 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
   }
 
+  // El Administrador es invisible para el resto de roles.
+  if (user.role === "ADMINISTRADOR" && session.role !== "ADMINISTRADOR") {
+    return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
+  }
+
   return NextResponse.json(user);
 }
 
@@ -107,6 +112,15 @@ export async function DELETE(_req: NextRequest, ctx: Ctx) {
 
   if (id === session.userId) {
     return NextResponse.json({ error: "No puedes eliminarte a ti mismo" }, { status: 400 });
+  }
+
+  const target = await prisma.user.findUnique({ where: { id }, select: { role: true } });
+  if (!target) {
+    return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
+  }
+  // Solo un Administrador puede eliminar a otro Administrador
+  if (target.role === "ADMINISTRADOR" && session.role !== "ADMINISTRADOR") {
+    return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
   }
 
   await prisma.user.delete({ where: { id } });

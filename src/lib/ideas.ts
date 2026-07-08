@@ -12,7 +12,11 @@ export async function getVisibleIdeaAuthorIds(session: SessionPayload): Promise<
   // Coordinador Nacional sí ve las ideas del Jefe Nacional (a diferencia de
   // KPIs/Analytics/Informes, donde esa visibilidad está restringida).
   if (session.role === "JEFE_NACIONAL" || session.role === "COORDINADOR_NACIONAL") {
-    const allUsers = await prisma.user.findMany({ select: { id: true } });
+    // El Administrador es invisible para el resto de roles, incluso en esta excepción.
+    const allUsers = await prisma.user.findMany({
+      where: { role: { not: "ADMINISTRADOR" } },
+      select: { id: true },
+    });
     return allUsers.map((u) => u.id);
   }
 

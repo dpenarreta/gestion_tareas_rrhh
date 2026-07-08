@@ -134,6 +134,12 @@ export default function AssistantModule({
       setUploadError("Completa el título antes de seleccionar el archivo.");
       return;
     }
+    const MAX_UPLOAD_BYTES = 4.5 * 1024 * 1024;
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setUploadError("El archivo supera el límite de 4.5MB. Por favor usa un archivo más pequeño.");
+      if (fileInputRef.current) fileInputRef.current.value = "";
+      return;
+    }
     setUploadError("");
     setUploading(true);
     try {
@@ -141,7 +147,14 @@ export default function AssistantModule({
       fd.append("file", file);
       fd.append("title", docTitle.trim());
       const res = await fetch("/api/assistant/documents", { method: "POST", body: fd });
-      const data = await res.json();
+      let data: { error?: string } = {};
+      try {
+        data = await res.json();
+      } catch {
+        // La plataforma (p. ej. Vercel) puede devolver una página de error sin JSON.
+        setUploadError(res.ok ? "Error al subir documento." : `Error al subir documento (código ${res.status}).`);
+        return;
+      }
       if (!res.ok) {
         setUploadError(data.error ?? "Error al subir documento.");
       } else {

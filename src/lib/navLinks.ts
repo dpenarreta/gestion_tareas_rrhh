@@ -7,6 +7,7 @@ import {
   BarChart3,
   Sparkles,
   UserCog,
+  Settings,
   type LucideIcon,
 } from "lucide-react";
 import type { Role } from "@/generated/prisma/client";
@@ -45,6 +46,10 @@ export function getNavLinks(role: Role): NavLink[] {
     if (canManageUsers(role)) {
       links.push({ href: "/admin/users", label: "Usuarios", icon: UserCog, section: "gestion" });
     }
+  }
+
+  if (role === "ADMINISTRADOR") {
+    links.push({ href: "/settings", label: "Ajustes", icon: Settings, section: "gestion" });
   }
 
   links.push({ href: "/assistant", label: "Nova", icon: Sparkles, section: "inteligencia" });

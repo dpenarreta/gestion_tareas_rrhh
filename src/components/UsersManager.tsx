@@ -33,7 +33,6 @@ export default function UsersManager({ currentUserRole }: Props) {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
-  const [resetMsg, setResetMsg] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
   // Create form
@@ -186,76 +185,6 @@ export default function UsersManager({ currentUserRole }: Props) {
     }
   }
 
-  async function handleReset(user: User) {
-    setResetMsg(null);
-    setActionError(null);
-    try {
-      const res = await fetch(`/api/users/${user.id}/reset-password`, {
-        method: "POST",
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setActionError(data.error ?? "Error al resetear");
-      } else {
-        setResetMsg(data.message);
-      }
-    } catch {
-      setActionError("Error de conexión");
-    }
-  }
-
-  async function handleResetConsent(user: User) {
-    if (
-      !confirm(
-        `¿Deseas que ${user.name} vea nuevamente el aviso de protección de datos en su próximo login?`
-      )
-    )
-      return;
-    setResetMsg(null);
-    setActionError(null);
-    try {
-      const res = await fetch(`/api/users/${user.id}/reset-consent`, { method: "PATCH" });
-      const data = await res.json();
-      if (!res.ok) {
-        setActionError(data.error ?? "Error al restablecer el consentimiento");
-      } else {
-        setResetMsg(`Se restableció el aviso de protección de datos para ${user.name}.`);
-        loadUsers();
-      }
-    } catch {
-      setActionError("Error de conexión");
-    }
-  }
-
-  async function handleResetConsentAll() {
-    if (
-      !confirm(
-        "¿Deseas restablecer el consentimiento de protección de datos de TODOS los usuarios? Todos verán nuevamente el aviso en su próximo login."
-      )
-    )
-      return;
-    if (
-      !confirm(
-        "Esta acción afecta a todos los usuarios del sistema y no se puede deshacer. ¿Confirmas que deseas continuar?"
-      )
-    )
-      return;
-    setResetMsg(null);
-    setActionError(null);
-    try {
-      const res = await fetch("/api/users/reset-consent-all", { method: "PATCH" });
-      const data = await res.json();
-      if (!res.ok) {
-        setActionError(data.error ?? "Error al restablecer el consentimiento");
-      } else {
-        setResetMsg(`Se restableció el consentimiento de ${data.count} usuario(s).`);
-        loadUsers();
-      }
-    } catch {
-      setActionError("Error de conexión");
-    }
-  }
-
   async function handleDelete(user: User) {
     if (!confirm(`¿Eliminar a ${user.name}? Esta acción no se puede deshacer.`))
       return;
@@ -281,15 +210,6 @@ export default function UsersManager({ currentUserRole }: Props) {
           {users.length !== 1 ? "s" : ""}
         </p>
         <div className="flex items-center gap-2">
-          {currentUserRole === "ADMINISTRADOR" && (
-            <button
-              onClick={handleResetConsentAll}
-              className="px-4 py-2 border border-border hover:bg-black/5 dark:hover:bg-white/5 text-main font-medium rounded-lg text-sm transition-colors"
-              title="Restablecer el aviso de protección de datos para todos los usuarios"
-            >
-              🔄 Restablecer consentimiento de todos
-            </button>
-          )}
           <button
             onClick={() => {
               setShowCreate(!showCreate);
@@ -349,7 +269,7 @@ export default function UsersManager({ currentUserRole }: Props) {
                 className="w-full px-3 py-2 rounded-lg border border-border text-title focus:outline-none focus:ring-2 focus:ring-primary text-sm bg-surface"
               >
                 <option value="">Seleccionar rol...</option>
-                {ALL_ROLES.map((r) => (
+                {assignableRoles.map((r) => (
                   <option key={r} value={r}>
                     {ROLE_LABEL[r]}
                   </option>
@@ -383,18 +303,6 @@ export default function UsersManager({ currentUserRole }: Props) {
               {formLoading ? "Creando..." : "Crear usuario"}
             </button>
           </form>
-        </div>
-      )}
-
-      {resetMsg && (
-        <div className="bg-success/[.13] rounded-lg px-4 py-3 text-sm text-success flex items-center justify-between">
-          <span>{resetMsg}</span>
-          <button
-            onClick={() => setResetMsg(null)}
-            className="ml-2 text-success hover:brightness-90 font-bold"
-          >
-            ×
-          </button>
         </div>
       )}
 
@@ -489,20 +397,6 @@ export default function UsersManager({ currentUserRole }: Props) {
                           Editar
                         </button>
                       )}
-                      <button
-                        onClick={() => handleReset(user)}
-                        className="text-xs text-warning hover:brightness-90 font-medium px-2 py-1 rounded hover:bg-warning/[.15] transition-colors"
-                        title="Resetear contraseña a 123456"
-                      >
-                        Resetear pwd
-                      </button>
-                      <button
-                        onClick={() => handleResetConsent(user)}
-                        className="text-xs text-primary hover:text-primary-hover font-medium px-2 py-1 rounded hover:bg-primary-surface transition-colors"
-                        title="Restablecer aviso de protección de datos"
-                      >
-                        🔄 Consentimiento
-                      </button>
                       <button
                         onClick={() => handleDelete(user)}
                         className="text-xs text-danger hover:brightness-90 font-medium px-2 py-1 rounded hover:bg-danger/[.09] transition-colors"
