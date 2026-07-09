@@ -1,4 +1,5 @@
 import "server-only";
+import "@/lib/pdfPolyfill";
 import { PDFParse } from "pdf-parse";
 import { prisma } from "@/lib/prisma";
 import { getEmbedding } from "@/lib/embeddings";
@@ -10,10 +11,46 @@ const GITHUB_API_VERSION = "2022-11-28";
 function githubConfig(): { token: string; repo: string } {
   const token = process.env.GITHUB_TOKEN;
   const repo = process.env.GITHUB_DOCS_REPO;
+  console.error(
+    `[githubDocuments] GITHUB_TOKEN presente: ${!!token} (prefijo: ${token ? token.slice(0, 10) : "n/a"}), GITHUB_DOCS_REPO: ${repo ?? "n/a"}`
+  );
   if (!token || !repo) {
     throw new Error("GITHUB_TOKEN o GITHUB_DOCS_REPO no están configurados en las variables de entorno.");
   }
   return { token, repo };
+}
+
+/** Crea el repositorio configurado si todavía no existe (privado, bajo la cuenta del token). */
+async function ensureRepoExists(token: string, repo: string): Promise<void> {
+  const checkRes = await fetchWithTimeout(
+    `https://api.github.com/repos/${repo}`,
+    { headers: githubHeaders(token) },
+    "verificar repo"
+  );
+  if (checkRes.ok) return;
+  if (checkRes.status !== 404) {
+    const body = await checkRes.text().catch(() => "");
+    console.error(`[githubDocuments] verificación de repo devolvió HTTP ${checkRes.status}:`, body);
+    return;
+  }
+
+  const name = repo.includes("/") ? repo.split("/")[1] : repo;
+  console.error(`[githubDocuments] el repo "${repo}" no existe, creando "${name}"...`);
+  const createRes = await fetchWithTimeout(
+    "https://api.github.com/user/repos",
+    {
+      method: "POST",
+      headers: { ...githubHeaders(token), "Content-Type": "application/json" },
+      body: JSON.stringify({ name, private: true }),
+    },
+    "crear repo"
+  );
+  if (!createRes.ok) {
+    const body = await createRes.text().catch(() => "");
+    console.error(`[githubDocuments] fallo creando el repo "${name}":`, createRes.status, body);
+    throw new Error(`No se pudo crear el repositorio "${name}" en GitHub (HTTP ${createRes.status}).`);
+  }
+  console.error(`[githubDocuments] repo "${name}" creado correctamente`);
 }
 
 function githubHeaders(token: string, accept = "application/vnd.github+json"): HeadersInit {
@@ -52,6 +89,8 @@ export async function uploadPdfToGithub(
   buffer: Buffer
 ): Promise<{ path: string; sha: string }> {
   const { token, repo } = githubConfig();
+  await ensureRepoExists(token, repo);
+
   const path = `docs/${documentId}-${sanitizeFilename(originalFilename)}`;
   const url = `https://api.github.com/repos/${repo}/contents/${encodeURIComponent(path).replace(/%2F/g, "/")}`;
 
