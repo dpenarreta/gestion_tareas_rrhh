@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { ROLE_LABEL } from "@/lib/roles";
 import type { Role } from "@/generated/prisma/client";
 
@@ -29,7 +29,7 @@ type DocStatus = "PROCESANDO" | "LISTO" | "ERROR";
 type KnowledgeDoc = {
   id: string;
   title: string;
-  driveUrl: string | null;
+  githubPath: string | null;
   createdAt: string;
   status: DocStatus;
   processingError: string | null;
@@ -104,10 +104,10 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
   const [docs, setDocs] = useState<KnowledgeDoc[]>([]);
   const [docsLoading, setDocsLoading] = useState(true);
   const [docTitle, setDocTitle] = useState("");
-  const [docDriveUrl, setDocDriveUrl] = useState("");
   const [docAdding, setDocAdding] = useState(false);
   const [docError, setDocError] = useState<string | null>(null);
   const [docBusyId, setDocBusyId] = useState<string | null>(null);
+  const docFileInputRef = useRef<HTMLInputElement>(null);
 
   const loadUsers = useCallback(async () => {
     setLoading(true);
@@ -188,31 +188,42 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
     }
   }
 
-  async function handleAddDoc() {
-    if (!docTitle.trim() || !docDriveUrl.trim()) {
-      setDocError("Completa el nombre del documento y el link de Google Drive.");
+  async function handleAddDoc(file: File) {
+    if (!docTitle.trim()) {
+      setDocError("Ingresa el nombre del documento antes de seleccionar el archivo.");
+      return;
+    }
+    const MAX_UPLOAD_BYTES = 4.5 * 1024 * 1024;
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setDocError("El archivo supera el límite de 4.5MB. Por favor usa un archivo más pequeño.");
+      if (docFileInputRef.current) docFileInputRef.current.value = "";
       return;
     }
     setDocError(null);
     setDocAdding(true);
     try {
-      const res = await fetch("/api/assistant/documents", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: docTitle.trim(), driveUrl: docDriveUrl.trim() }),
-      });
-      const data = await res.json();
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("title", docTitle.trim());
+      const res = await fetch("/api/assistant/documents", { method: "POST", body: fd });
+      let data: { error?: string } = {};
+      try {
+        data = await res.json();
+      } catch {
+        setDocError(res.ok ? "Error al agregar el documento." : `Error al agregar el documento (código ${res.status}).`);
+        return;
+      }
       if (!res.ok) {
         setDocError(data.error ?? "Error al agregar el documento");
       } else {
         setDocTitle("");
-        setDocDriveUrl("");
         await loadDocs();
       }
     } catch {
       setDocError("Error de conexión");
     } finally {
       setDocAdding(false);
+      if (docFileInputRef.current) docFileInputRef.current.value = "";
     }
   }
 
@@ -527,7 +538,8 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
       {canManageKnowledgeBase && (
       <SectionCard title="Base de conocimiento RRHH">
         <p className="text-xs text-secondary">
-          Comparte el documento en Google Drive como &quot;Cualquiera con el link puede ver&quot; y pega el link aquí.
+          Sube el PDF desde tu computadora. Nexo lo guarda en el repositorio de documentos y lo indexa
+          automáticamente para búsqueda semántica.
         </p>
         {docError && (
           <div className="bg-danger/[.09] rounded-lg px-4 py-3 text-sm text-danger flex items-center justify-between">
@@ -543,20 +555,30 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
             onChange={(e) => setDocTitle(e.target.value)}
             className="flex-1 border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
           />
-          <input
-            type="text"
-            placeholder="Link de Google Drive…"
-            value={docDriveUrl}
-            onChange={(e) => setDocDriveUrl(e.target.value)}
-            className="flex-1 border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
-          />
           <button
-            onClick={handleAddDoc}
+            onClick={() => {
+              if (!docTitle.trim()) {
+                setDocError("Ingresa el nombre del documento antes de seleccionar el archivo.");
+                return;
+              }
+              setDocError(null);
+              docFileInputRef.current?.click();
+            }}
             disabled={docAdding}
             className="px-4 py-2 bg-primary text-white font-medium rounded-lg text-sm hover:bg-primary-hover disabled:opacity-50 transition-colors shrink-0"
           >
-            {docAdding ? "Procesando…" : "Agregar documento"}
+            {docAdding ? "Procesando…" : "Subir PDF"}
           </button>
+          <input
+            ref={docFileInputRef}
+            type="file"
+            accept=".pdf"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) handleAddDoc(file);
+            }}
+          />
         </div>
 
         <div className="rounded-lg border border-border overflow-hidden">

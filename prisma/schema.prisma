@@ -316,8 +316,8 @@ model KnowledgeDocument {
   title           String
   fileName        String
   content         String?
-  driveUrl        String?
-  driveFileId     String?
+  githubPath      String?
+  githubSha       String?
   status          KnowledgeDocumentStatus @default(LISTO)
   processingError String?
   uploadedById    String
