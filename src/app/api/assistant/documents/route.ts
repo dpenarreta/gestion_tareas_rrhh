@@ -4,7 +4,10 @@ import { getSession } from "@/lib/session";
 import { canManageKnowledgeBase } from "@/lib/roles";
 import { uploadPdfToGithub, processGithubDocument } from "@/lib/githubDocuments";
 
-export const maxDuration = 60;
+// Documentos grandes (cientos de páginas → cientos de chunks) pueden tardar
+// más que el límite por defecto en generar todos los embeddings, incluso en
+// lotes concurrentes — se sube el máximo para no truncar el procesamiento.
+export const maxDuration = 300;
 
 // Vercel (plan gratuito) rechaza el request completo por encima de 4.5MB antes
 // de que este handler se ejecute, así que validamos con el mismo margen para

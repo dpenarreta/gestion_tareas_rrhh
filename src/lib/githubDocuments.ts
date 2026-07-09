@@ -193,23 +193,36 @@ async function extractPages(buffer: Buffer): Promise<Array<{ text: string; pageN
   }
 }
 
+const EMBED_CONCURRENCY = 8;
+
 /**
- * Genera el embedding de cada chunk. Un fallo puntual no debe tirar todo el
- * documento — ese chunk queda con embedding vacío (no participa en la
- * búsqueda semántica, pero el resto del documento sí queda indexado).
+ * Genera el embedding de cada chunk, en lotes concurrentes para que
+ * documentos grandes (cientos de chunks) no agoten el tiempo máximo de la
+ * función serverless corriendo uno por uno. Un fallo puntual no debe tirar
+ * todo el documento — ese chunk queda con embedding vacío (no participa en
+ * la búsqueda semántica, pero el resto del documento sí queda indexado).
  */
 async function embedChunks(
   chunkInputs: Array<{ content: string; pageNumber: number; chunkIndex: number }>
 ): Promise<Array<{ content: string; pageNumber: number; chunkIndex: number; embedding: number[] }>> {
-  const results: Array<{ content: string; pageNumber: number; chunkIndex: number; embedding: number[] }> = [];
-  for (const c of chunkInputs) {
-    try {
-      const embedding = await getEmbedding(c.content);
-      results.push({ ...c, embedding });
-    } catch (err) {
-      console.error(`[githubDocuments] fallo generando embedding del chunk ${c.chunkIndex}:`, err);
-      results.push({ ...c, embedding: [] });
-    }
+  const results: Array<{ content: string; pageNumber: number; chunkIndex: number; embedding: number[] }> = new Array(
+    chunkInputs.length
+  );
+
+  for (let i = 0; i < chunkInputs.length; i += EMBED_CONCURRENCY) {
+    const batch = chunkInputs.slice(i, i + EMBED_CONCURRENCY);
+    const embedded = await Promise.all(
+      batch.map(async (c) => {
+        try {
+          const embedding = await getEmbedding(c.content);
+          return { ...c, embedding };
+        } catch (err) {
+          console.error(`[githubDocuments] fallo generando embedding del chunk ${c.chunkIndex}:`, err);
+          return { ...c, embedding: [] as number[] };
+        }
+      })
+    );
+    embedded.forEach((r, j) => (results[i + j] = r));
   }
   return results;
 }
