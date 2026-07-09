@@ -27,6 +27,14 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["@xenova/transformers", "pdf-parse"],
+  // pdf-parse (vía pdfjs-dist) carga su worker con una ruta calculada en
+  // runtime, así que el output file tracing de Vercel no lo detecta como
+  // dependencia estática y lo excluye del bundle serverless — sin esto,
+  // pdfjs-dist falla con "Cannot find module '.../pdf.worker.mjs'" en
+  // producción aunque funcione perfecto en local.
+  outputFileTracingIncludes: {
+    "/api/assistant/documents": ["./node_modules/pdfjs-dist/legacy/build/**/*"],
+  },
   experimental: {
     // Next.js 16 renombró middleware.ts -> proxy.ts (ver src/proxy.ts) y ahora
     // bufferiza el body de cada request para poder leerlo tanto en el proxy
