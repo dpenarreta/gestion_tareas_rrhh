@@ -62,6 +62,7 @@ type ReportData = {
     totalCompletedTasks: number;
     totalConsultas: number;
     totalTasks: number;
+    hoursPerDay: number;
   };
   members: MemberKpi[];
   ranking: Array<{ id: string; name: string; role: string; score: number; completedPct: number }>;
@@ -118,7 +119,7 @@ async function buildAiAnalysis(data: ReportData): Promise<string> {
 RESUMEN DEL EQUIPO:
 - Promedio de cumplimiento: ${data.teamSummary.avgCumplimiento}% (objetivo mínimo: 60%, objetivo ideal: 80%)
 - Total tareas completadas: ${data.teamSummary.totalCompletedTasks} de ${data.teamSummary.totalTasks}
-- Carga laboral del equipo: ${data.teamSummary.avgCargaPct}% (${data.teamSummary.totalCargaRealHours}h reales de ${data.teamSummary.totalCargaBaseHours}h base — la base es dinámica, calculada como días hábiles lunes-viernes del mes × 8h por persona; las horas estimadas por tarea son solo referencia y no forman parte de este cálculo)
+- Carga laboral del equipo: ${data.teamSummary.avgCargaPct}% (${data.teamSummary.totalCargaRealHours}h reales de ${data.teamSummary.totalCargaBaseHours}h base — la base es dinámica, calculada como días hábiles lunes-viernes del mes × ${data.teamSummary.hoursPerDay}h efectivas configuradas por persona; las horas estimadas por tarea son solo referencia y no forman parte de este cálculo)
 - Total consultas SEGUIMIENTO atendidas: ${data.teamSummary.totalConsultas}
 
 RANKING DE CUMPLIMIENTO (de mayor a menor):
@@ -182,7 +183,7 @@ export async function POST(request: NextRequest) {
   const month = parseInt(monthStr);
   const { start, end } = monthBounds(year, month);
 
-  const { start: cargaStart, end: cargaEnd, baseHours: monthlyBaseHours } = monthlyBusinessBase(year, month);
+  const { start: cargaStart, end: cargaEnd, baseHours: monthlyBaseHours, hoursPerDay } = await monthlyBusinessBase(year, month);
   const { start: cargaRealStart } = businessDayRealRange(cargaStart);
   const { end: cargaRealEnd } = businessDayRealRange(cargaEnd);
 
@@ -349,6 +350,7 @@ export async function POST(request: NextRequest) {
       totalCompletedTasks,
       totalConsultas,
       totalTasks,
+      hoursPerDay,
     },
     members,
     ranking,

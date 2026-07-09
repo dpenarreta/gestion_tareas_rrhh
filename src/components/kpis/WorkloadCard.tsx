@@ -43,13 +43,18 @@ function Tile({
 }
 
 export default function WorkloadCard({ cargaTiempo }: { cargaTiempo: CargaTiempo }) {
-  const { diaria, semanal, mensual } = cargaTiempo;
+  const { diaria, semanal, mensual, horasEfectivasPorDia } = cargaTiempo;
 
   return (
     <div className="bg-surface rounded-[14px] border border-border shadow-[var(--shadow)] p-5">
-      <h3 className="text-[11px] font-semibold text-secondary uppercase tracking-wider mb-3">
-        Carga laboral (horas reales)
-      </h3>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-[11px] font-semibold text-secondary uppercase tracking-wider">
+          Carga laboral (horas reales)
+        </h3>
+        <span className="text-[10px] text-disabled bg-background border border-border px-2 py-0.5 rounded-full">
+          {horasEfectivasPorDia}h efectivas/día
+        </span>
+      </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Tile label="Hoy" metric={diaria} periodLabel="hoy" />
         <Tile

@@ -122,6 +122,7 @@ export type CargaTiempo = {
   diaria: WorkloadMetric;
   semanal: WorkloadMetric & { weekStartLabel: string; weekEndLabel: string; businessDays: number };
   mensual: WorkloadMetric & { monthLabel: string; businessDays: number };
+  horasEfectivasPorDia: number;
 };
 
 export type KpiData = {

@@ -11,7 +11,7 @@ export default async function AssistantPage() {
       <p className="text-secondary text-sm">
         Asistente de RRHH — consulta políticas, procedimientos, gestión de personal y más
       </p>
-      <AssistantModule currentUserRole={session.role} />
+      <AssistantModule />
     </div>
   );
 }

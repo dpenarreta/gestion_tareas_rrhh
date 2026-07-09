@@ -145,4 +145,10 @@ export function canReviewIdeas(role: Role): boolean {
   return CAN_REVIEW_IDEAS.includes(role);
 }
 
+export const CAN_MANAGE_KNOWLEDGE_BASE: Role[] = ["ADMINISTRADOR", "COORDINADOR_NACIONAL"];
+
+export function canManageKnowledgeBase(role: Role): boolean {
+  return CAN_MANAGE_KNOWLEDGE_BASE.includes(role);
+}
+
 export const ALL_ROLES = Object.keys(ROLE_LABEL) as Role[];

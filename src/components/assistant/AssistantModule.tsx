@@ -1,21 +1,34 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import type { Role } from "@/generated/prisma/client";
-import { canManageUsers } from "@/lib/roles";
 import { useNovaChat, type NovaMode, type NovaSource } from "./useNovaChat";
 
 type Mode = NovaMode;
 type Source = NovaSource;
+
+type DocStatus = "PROCESANDO" | "LISTO" | "ERROR";
 
 type KnowledgeDoc = {
   id: string;
   title: string;
   fileName: string;
   createdAt: string;
+  status: DocStatus;
   processingError?: string | null;
   uploadedBy?: { name: string };
   _count: { chunks: number };
+};
+
+const STATUS_LABEL: Record<DocStatus, string> = {
+  PROCESANDO: "Procesando…",
+  LISTO: "Listo",
+  ERROR: "Error",
+};
+
+const STATUS_CLASS: Record<DocStatus, string> = {
+  PROCESANDO: "text-warning bg-warning/[.15]",
+  LISTO: "text-success bg-success/[.13]",
+  ERROR: "text-danger bg-danger/[.09]",
 };
 
 const MODE_CONFIG: Record<Mode, { label: string; description: string; color: string }> = {
@@ -79,27 +92,16 @@ function SourceTag({ source }: { source: Source }) {
   );
 }
 
-export default function AssistantModule({
-  currentUserRole,
-}: {
-  currentUserRole: Role;
-}) {
-  const canUpload = canManageUsers(currentUserRole);
-
+export default function AssistantModule() {
   const [mode, setMode] = useState<Mode>("general");
   const { messages, input, setInput, loading, sendMessage, reset } = useNovaChat(mode);
 
-  // Knowledge base
+  // Knowledge base (solo lectura — se gestiona en Ajustes)
   const [docs, setDocs] = useState<KnowledgeDoc[]>([]);
   const [docsLoading, setDocsLoading] = useState(false);
   const [showDocs, setShowDocs] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState("");
-  const [uploadWarning, setUploadWarning] = useState("");
-  const [docTitle, setDocTitle] = useState("");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -128,59 +130,6 @@ export default function AssistantModule({
   async function handleSend(text?: string) {
     await sendMessage(text);
     setTimeout(() => inputRef.current?.focus(), 50);
-  }
-
-  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file || !docTitle.trim()) {
-      setUploadError("Completa el título antes de seleccionar el archivo.");
-      return;
-    }
-    const MAX_UPLOAD_BYTES = 4.5 * 1024 * 1024;
-    if (file.size > MAX_UPLOAD_BYTES) {
-      setUploadError("El archivo supera el límite de 4.5MB. Por favor usa un archivo más pequeño.");
-      if (fileInputRef.current) fileInputRef.current.value = "";
-      return;
-    }
-    setUploadError("");
-    setUploadWarning("");
-    setUploading(true);
-    try {
-      const fd = new FormData();
-      fd.append("file", file);
-      fd.append("title", docTitle.trim());
-      const res = await fetch("/api/assistant/documents", { method: "POST", body: fd });
-      let data: { error?: string; processingError?: string | null } = {};
-      try {
-        data = await res.json();
-      } catch {
-        // La plataforma (p. ej. Vercel) puede devolver una página de error sin JSON.
-        setUploadError(res.ok ? "Error al subir documento." : `Error al subir documento (código ${res.status}).`);
-        return;
-      }
-      if (!res.ok) {
-        setUploadError(data.error ?? "Error al subir documento.");
-      } else {
-        setDocTitle("");
-        if (data.processingError) {
-          setUploadWarning(
-            `El PDF se guardó, pero no se pudo indexar para búsqueda: ${data.processingError}`
-          );
-        }
-        await loadDocs();
-      }
-    } catch {
-      setUploadError("Error de conexión al subir.");
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  }
-
-  async function handleDeleteDoc(id: string) {
-    if (!confirm("¿Eliminar este documento de la base de conocimiento?")) return;
-    await fetch(`/api/assistant/documents/${id}`, { method: "DELETE" });
-    setDocs((prev) => prev.filter((d) => d.id !== id));
   }
 
   const availableModes: Mode[] = ["general", "tasks", "hr"];
@@ -265,68 +214,11 @@ export default function AssistantModule({
 
           {showDocs && (
             <div className="border-t border-border px-5 py-4 space-y-4">
-              {/* Upload form (admin only) */}
-              {canUpload && (
-                <div className="space-y-2">
-                  <p className="text-xs font-semibold text-main uppercase tracking-wide">
-                    Agregar documento PDF
-                  </p>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      placeholder="Título del documento…"
-                      value={docTitle}
-                      onChange={(e) => setDocTitle(e.target.value)}
-                      className="flex-1 border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-success/30"
-                    />
-                    <button
-                      onClick={() => {
-                        if (!docTitle.trim()) {
-                          setUploadError("Ingresa un título primero.");
-                          return;
-                        }
-                        setUploadError("");
-                        fileInputRef.current?.click();
-                      }}
-                      disabled={uploading}
-                      className="flex items-center gap-2 px-3 py-2 text-sm font-medium text-white bg-success rounded-xl hover:brightness-110 disabled:opacity-50 transition-colors shrink-0"
-                    >
-                      {uploading ? (
-                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      ) : (
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
-                        </svg>
-                      )}
-                      {uploading ? "Procesando…" : "Subir PDF"}
-                    </button>
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept=".pdf"
-                      className="hidden"
-                      onChange={handleUpload}
-                    />
-                  </div>
-                  {uploadError && (
-                    <p className="text-xs text-danger bg-danger/[.09] rounded-lg px-3 py-2">
-                      {uploadError}
-                    </p>
-                  )}
-                  {uploadWarning && (
-                    <p className="text-xs text-warning bg-warning/[.13] rounded-lg px-3 py-2">
-                      {uploadWarning}
-                    </p>
-                  )}
-                  {uploading && (
-                    <p className="text-xs text-secondary">
-                      Extrayendo texto y generando embeddings… esto puede tardar unos segundos en el primer documento.
-                    </p>
-                  )}
-                </div>
-              )}
+              <p className="text-xs text-disabled">
+                Lista de solo lectura. La base de conocimiento se administra en{" "}
+                <span className="font-medium text-secondary">Ajustes → Base de conocimiento RRHH</span>.
+              </p>
 
-              {/* Document list */}
               {docsLoading ? (
                 <div className="flex justify-center py-4">
                   <div className="w-5 h-5 border-2 border-success border-t-transparent rounded-full animate-spin" />
@@ -334,7 +226,6 @@ export default function AssistantModule({
               ) : docs.length === 0 ? (
                 <p className="text-sm text-disabled text-center py-4">
                   No hay documentos en la base de conocimiento.
-                  {canUpload ? " Sube un PDF para comenzar." : ""}
                 </p>
               ) : (
                 <div className="space-y-2">
@@ -344,32 +235,24 @@ export default function AssistantModule({
                       className="flex items-center justify-between gap-3 bg-background rounded-xl px-4 py-3"
                     >
                       <div className="min-w-0 flex items-center gap-3">
-                        <svg className="w-4 h-4 text-danger shrink-0" fill="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-4 h-4 text-success shrink-0" fill="currentColor" viewBox="0 0 24 24">
                           <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zm-1 1.5L18.5 9H13V3.5zM6 20V4h5v7h7v9H6z" />
                         </svg>
                         <div className="min-w-0">
                           <p className="text-sm font-medium text-title truncate">{doc.title}</p>
                           <p className="text-[10px] text-disabled">
-                            {doc.fileName} · {doc._count.chunks} fragmentos · {new Date(doc.createdAt).toLocaleDateString("es-CL")}
+                            {doc._count.chunks} fragmentos · {new Date(doc.createdAt).toLocaleDateString("es-CL")}
                           </p>
-                          {doc.processingError && (
-                            <p className="text-[10px] text-warning mt-0.5" title={doc.processingError}>
-                              ⚠️ Sin indexar para búsqueda — {doc.processingError}
+                          {doc.status === "ERROR" && doc.processingError && (
+                            <p className="text-[10px] text-danger mt-0.5" title={doc.processingError}>
+                              ⚠️ {doc.processingError}
                             </p>
                           )}
                         </div>
                       </div>
-                      {canUpload && (
-                        <button
-                          onClick={() => handleDeleteDoc(doc.id)}
-                          className="p-1.5 text-disabled hover:text-danger rounded-lg hover:bg-danger/[.09] transition-colors shrink-0"
-                          title="Eliminar documento"
-                        >
-                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                        </button>
-                      )}
+                      <span className={`text-[10px] font-medium px-2 py-1 rounded-full shrink-0 ${STATUS_CLASS[doc.status]}`}>
+                        {STATUS_LABEL[doc.status]}
+                      </span>
                     </div>
                   ))}
                 </div>

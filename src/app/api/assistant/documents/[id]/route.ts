@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { canManageUsers } from "@/lib/roles";
+import { canManageKnowledgeBase } from "@/lib/roles";
 
 type Ctx = { params: Promise<{ id: string }> };
 
 export async function DELETE(_req: NextRequest, ctx: Ctx) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-  if (!canManageUsers(session.role)) {
+  if (!canManageKnowledgeBase(session.role)) {
     return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
   }
 

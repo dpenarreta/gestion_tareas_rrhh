@@ -1,6 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { businessCalendarDay, businessDayRealRange } from "@/lib/businessTime";
+import { getEffectiveHorasEfectivas } from "@/lib/systemConfig";
 import type { KpiColor } from "@/components/kpis/types";
 
 export type WorkloadMetric = {
@@ -14,6 +15,7 @@ export type CargaTiempo = {
   diaria: WorkloadMetric;
   semanal: WorkloadMetric & { weekStartLabel: string; weekEndLabel: string; businessDays: number };
   mensual: WorkloadMetric & { monthLabel: string; businessDays: number };
+  horasEfectivasPorDia: number;
 };
 
 const MONTH_NAMES = [
@@ -95,11 +97,14 @@ function utcMonthEnd(d: Date) {
  * calendar month — for historical/report contexts where the month is given
  * directly (no "now" ambiguity, so no business-timezone shift is needed).
  */
-export function monthlyBusinessBase(year: number, month: number): { start: Date; end: Date; businessDays: number; baseHours: number } {
+export async function monthlyBusinessBase(year: number, month: number): Promise<{ start: Date; end: Date; businessDays: number; baseHours: number; hoursPerDay: number }> {
   const start = new Date(Date.UTC(year, month - 1, 1));
   const end = new Date(Date.UTC(year, month, 1) - 1);
   const businessDays = countBusinessDays(start, end);
-  return { start, end, businessDays, baseHours: businessDays * 8 };
+  // El valor vigente al INICIO del mes es el que rigió ese período — así cambios
+  // de configuración posteriores no alteran KPIs de meses ya cerrados.
+  const hoursPerDay = await getEffectiveHorasEfectivas(start);
+  return { start, end, businessDays, baseHours: businessDays * hoursPerDay, hoursPerDay };
 }
 
 async function realHoursInWindow(userId: string, calStart: Date, calEnd: Date): Promise<number> {
@@ -127,8 +132,8 @@ async function realHoursInWindow(userId: string, calStart: Date, calEnd: Date): 
   return Math.round((fijaHours + activityHours) * 100) / 100;
 }
 
-function toMetric(realHours: number, baseHours: number): WorkloadMetric {
-  const divisor = baseHours > 0 ? baseHours : 8;
+function toMetric(realHours: number, baseHours: number, hoursPerDay: number): WorkloadMetric {
+  const divisor = baseHours > 0 ? baseHours : hoursPerDay;
   const pct = Math.round((realHours / divisor) * 100);
   return { realHours, baseHours, pct, color: workloadColor(pct, baseHours, realHours) };
 }
@@ -143,11 +148,17 @@ export async function computeCargaTiempo(userId: string, now: Date = new Date())
   const weekStart = weekStartRaw < monthStart ? monthStart : weekStartRaw;
   const weekEnd = weekEndRaw > monthEnd ? monthEnd : weekEndRaw;
 
-  const dailyBaseHours = isBusinessDay(today) ? 8 : 0;
+  // diaria/semanal/mensual son siempre relativas al momento actual (no a un mes
+  // histórico), así que las tres usan el valor vigente ahora mismo — comparar
+  // contra el instante real (no medianoche del día) para que un cambio de
+  // configuración hecho hoy se refleje de inmediato.
+  const hoursPerDay = await getEffectiveHorasEfectivas(now);
+
+  const dailyBaseHours = isBusinessDay(today) ? hoursPerDay : 0;
   const weeklyBusinessDays = countBusinessDays(weekStart, weekEnd);
-  const weeklyBaseHours = weeklyBusinessDays * 8;
+  const weeklyBaseHours = weeklyBusinessDays * hoursPerDay;
   const monthlyBusinessDays = countBusinessDays(monthStart, monthEnd);
-  const monthlyBaseHours = monthlyBusinessDays * 8;
+  const monthlyBaseHours = monthlyBusinessDays * hoursPerDay;
 
   const [diariaHours, semanalHours, mensualHours] = await Promise.all([
     realHoursInWindow(userId, today, today),
@@ -159,17 +170,18 @@ export async function computeCargaTiempo(userId: string, now: Date = new Date())
   const weekBizEnd = lastBusinessDay(weekStart, weekEnd) ?? weekEnd;
 
   return {
-    diaria: toMetric(diariaHours, dailyBaseHours),
+    diaria: toMetric(diariaHours, dailyBaseHours, hoursPerDay),
     semanal: {
-      ...toMetric(semanalHours, weeklyBaseHours),
+      ...toMetric(semanalHours, weeklyBaseHours, hoursPerDay),
       weekStartLabel: formatShortDate(weekBizStart),
       weekEndLabel: formatShortDate(weekBizEnd),
       businessDays: weeklyBusinessDays,
     },
     mensual: {
-      ...toMetric(mensualHours, monthlyBaseHours),
+      ...toMetric(mensualHours, monthlyBaseHours, hoursPerDay),
       monthLabel: formatMonthLabel(today),
       businessDays: monthlyBusinessDays,
     },
+    horasEfectivasPorDia: hoursPerDay,
   };
 }

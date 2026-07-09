@@ -96,6 +96,20 @@ model User {
   ideaVotes          IdeaVote[]
   taskCommentViews   TaskCommentView[]
   followUpReminders  FollowUpReminder[]
+  systemConfigChanges SystemConfigHistory[] @relation("SystemConfigUpdatedBy")
+}
+
+model SystemConfigHistory {
+  id         String    @id @default(cuid())
+  key        String
+  value      String
+  validFrom  DateTime  @default(now())
+  validUntil DateTime?
+  updatedBy  String
+  updater    User      @relation("SystemConfigUpdatedBy", fields: [updatedBy], references: [id])
+  createdAt  DateTime  @default(now())
+
+  @@index([key, validFrom])
 }
 
 model Announcement {
@@ -291,15 +305,24 @@ model IdeaStatusHistory {
   createdAt  DateTime        @default(now())
 }
 
+enum KnowledgeDocumentStatus {
+  PROCESANDO
+  LISTO
+  ERROR
+}
+
 model KnowledgeDocument {
-  id              String          @id @default(cuid())
+  id              String                  @id @default(cuid())
   title           String
   fileName        String
-  fileData        Bytes?
+  content         String?
+  driveUrl        String?
+  driveFileId     String?
+  status          KnowledgeDocumentStatus @default(LISTO)
   processingError String?
   uploadedById    String
-  uploadedBy      User            @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
-  createdAt       DateTime        @default(now())
+  uploadedBy      User                    @relation(fields: [uploadedById], references: [id], onDelete: Cascade)
+  createdAt       DateTime                @default(now())
   chunks          DocumentChunk[]
 }
 

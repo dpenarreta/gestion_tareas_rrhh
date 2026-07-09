@@ -94,7 +94,7 @@ ${problematicText}
 RESUMEN ACUMULADO DEL PERÍODO:
 - Cumplimiento promedio: ${data.aggregated.teamSummary.avgCumplimiento}% (objetivo mínimo: 60%, objetivo ideal: 80%)
 - Total tareas completadas: ${data.aggregated.teamSummary.totalCompletedTasks} de ${data.aggregated.teamSummary.totalTasks}
-- Carga laboral acumulada: ${data.aggregated.teamSummary.avgCargaPct}% (${data.aggregated.teamSummary.totalCargaRealHours}h reales de ${data.aggregated.teamSummary.totalCargaBaseHours}h base — base dinámica: días hábiles lunes-viernes de cada mes × 8h por persona; las horas estimadas por tarea son solo referencia y no forman parte de este cálculo)
+- Carga laboral acumulada: ${data.aggregated.teamSummary.avgCargaPct}% (${data.aggregated.teamSummary.totalCargaRealHours}h reales de ${data.aggregated.teamSummary.totalCargaBaseHours}h base — base dinámica: días hábiles lunes-viernes de cada mes × horas efectivas configuradas por persona (según lo vigente en cada mes del rango); las horas estimadas por tarea son solo referencia y no forman parte de este cálculo)
 - Total consultas SEGUIMIENTO: ${data.aggregated.teamSummary.totalConsultas}
 
 RANKING PROMEDIO DEL PERÍODO:
@@ -177,14 +177,16 @@ export async function GET(request: NextRequest) {
     const rangeStart = monthBounds(fromYear, fromMonth).start;
     const rangeEnd = monthBounds(toYear, toMonth).end;
 
-    // Dynamic business-day base per month (días lunes-viernes × 8h)
-    const monthBusinessInfo = months.map((monthStr) => {
-      const [y, mo] = monthStr.split("-").map(Number);
-      const { start: cargaStart, end: cargaEnd, baseHours } = monthlyBusinessBase(y, mo);
-      const { start: realStart } = businessDayRealRange(cargaStart);
-      const { end: realEnd } = businessDayRealRange(cargaEnd);
-      return { monthStr, cargaStart, cargaEnd, realStart, realEnd, baseHours };
-    });
+    // Dynamic business-day base per month (días lunes-viernes × horas efectivas vigentes ese mes)
+    const monthBusinessInfo = await Promise.all(
+      months.map(async (monthStr) => {
+        const [y, mo] = monthStr.split("-").map(Number);
+        const { start: cargaStart, end: cargaEnd, baseHours } = await monthlyBusinessBase(y, mo);
+        const { start: realStart } = businessDayRealRange(cargaStart);
+        const { end: realEnd } = businessDayRealRange(cargaEnd);
+        return { monthStr, cargaStart, cargaEnd, realStart, realEnd, baseHours };
+      }),
+    );
     const rangeRealStart = monthBusinessInfo[0].realStart;
     const rangeRealEnd = monthBusinessInfo[monthBusinessInfo.length - 1].realEnd;
 
