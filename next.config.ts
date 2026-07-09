@@ -27,13 +27,21 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   serverExternalPackages: ["@xenova/transformers", "pdf-parse"],
-  // pdf-parse (vía pdfjs-dist) carga su worker con una ruta calculada en
-  // runtime, así que el output file tracing de Vercel no lo detecta como
-  // dependencia estática y lo excluye del bundle serverless — sin esto,
-  // pdfjs-dist falla con "Cannot find module '.../pdf.worker.mjs'" en
-  // producción aunque funcione perfecto en local.
+  // pdf-parse (vía pdfjs-dist) y @xenova/transformers (vía onnxruntime-node)
+  // resuelven archivos nativos (worker de pdfjs, libonnxruntime.so) con una
+  // ruta calculada en runtime según la plataforma, así que el output file
+  // tracing de Vercel no los detecta como dependencia estática y los excluye
+  // del bundle serverless — sin esto pdfjs-dist falla con "Cannot find
+  // module '.../pdf.worker.mjs'" y @xenova/transformers con "cannot open
+  // shared object file: libonnxruntime.so", ambos solo en producción (Linux),
+  // nunca en local (Windows), porque ahí sí están instalados los binarios de
+  // esa plataforma.
   outputFileTracingIncludes: {
-    "/api/assistant/documents": ["./node_modules/pdfjs-dist/legacy/build/**/*"],
+    "/api/assistant/documents": [
+      "./node_modules/pdfjs-dist/legacy/build/**/*",
+      "./node_modules/onnxruntime-node/bin/**/*",
+    ],
+    "/api/assistant/chat": ["./node_modules/onnxruntime-node/bin/**/*"],
   },
   experimental: {
     // Next.js 16 renombró middleware.ts -> proxy.ts (ver src/proxy.ts) y ahora

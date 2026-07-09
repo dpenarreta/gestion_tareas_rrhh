@@ -197,7 +197,8 @@ async function findRelevantChunks(question: string, topK = 4): Promise<RelevantC
   let questionEmbedding: number[];
   try {
     questionEmbedding = await getEmbedding(question);
-  } catch {
+  } catch (err) {
+    console.error("[findRelevantChunks] fallo generando el embedding de la pregunta:", err);
     return [];
   }
 
