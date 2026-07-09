@@ -48,30 +48,37 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const doc = await prisma.knowledgeDocument.create({
-    data: {
-      title,
-      fileName: title,
-      driveUrl,
-      driveFileId,
-      status: "PROCESANDO",
-      uploadedById: session.userId,
-    },
-    select: {
-      id: true, title: true, fileName: true, createdAt: true, status: true, processingError: true,
-      _count: { select: { chunks: true } },
-    },
-  });
+  // Cualquier excepción no prevista de aquí en adelante se captura y se
+  // devuelve como JSON — de lo contrario Next.js entrega una página de error
+  // HTML y el cliente, al intentar parsearla como JSON, siempre muestra
+  // "Error de conexión" sin pista alguna de la causa real.
+  try {
+    const doc = await prisma.knowledgeDocument.create({
+      data: {
+        title,
+        fileName: title,
+        driveUrl,
+        driveFileId,
+        status: "PROCESANDO",
+        uploadedById: session.userId,
+      },
+      select: { id: true },
+    });
 
-  await processDriveDocument(doc.id, driveFileId);
+    await processDriveDocument(doc.id, driveFileId);
 
-  const processed = await prisma.knowledgeDocument.findUnique({
-    where: { id: doc.id },
-    select: {
-      id: true, title: true, fileName: true, createdAt: true, status: true, processingError: true,
-      _count: { select: { chunks: true } },
-    },
-  });
+    const processed = await prisma.knowledgeDocument.findUnique({
+      where: { id: doc.id },
+      select: {
+        id: true, title: true, fileName: true, driveUrl: true, createdAt: true, status: true, processingError: true,
+        _count: { select: { chunks: true } },
+      },
+    });
 
-  return NextResponse.json(processed, { status: 201 });
+    return NextResponse.json(processed, { status: 201 });
+  } catch (err) {
+    console.error("[POST /api/assistant/documents] error inesperado:", err);
+    const message = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ error: `Error al agregar el documento: ${message}` }, { status: 500 });
+  }
 }

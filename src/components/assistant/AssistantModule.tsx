@@ -243,8 +243,11 @@ export default function AssistantModule() {
                           <p className="text-[10px] text-disabled">
                             {doc._count.chunks} fragmentos · {new Date(doc.createdAt).toLocaleDateString("es-CL")}
                           </p>
-                          {doc.status === "ERROR" && doc.processingError && (
-                            <p className="text-[10px] text-danger mt-0.5" title={doc.processingError}>
+                          {doc.processingError && (
+                            <p
+                              className={`text-[10px] mt-0.5 ${doc.status === "ERROR" ? "text-danger" : "text-warning"}`}
+                              title={doc.processingError}
+                            >
                               ⚠️ {doc.processingError}
                             </p>
                           )}

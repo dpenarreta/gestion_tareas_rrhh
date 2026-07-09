@@ -588,8 +588,11 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
                       <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${DOC_STATUS_CLASS[doc.status]}`}>
                         {DOC_STATUS_LABEL[doc.status]}
                       </span>
-                      {doc.status === "ERROR" && doc.processingError && (
-                        <span className="block text-[10px] text-danger mt-0.5" title={doc.processingError}>
+                      {doc.processingError && (
+                        <span
+                          className={`block text-[10px] mt-0.5 ${doc.status === "ERROR" ? "text-danger" : "text-warning"}`}
+                          title={doc.processingError}
+                        >
                           {doc.processingError}
                         </span>
                       )}
