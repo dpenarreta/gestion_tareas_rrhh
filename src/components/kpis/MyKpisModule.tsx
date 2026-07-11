@@ -12,6 +12,7 @@ import type { KpiData, KpiColor } from "./types";
 import { DonutChart, WeeklyHoursChart, CumplimientoLineChart, REASON_LABEL } from "./KpiCharts";
 import WorkloadCard from "./WorkloadCard";
 import { formatDate } from "@/lib/utils";
+import { hoursToDisplay } from "@/lib/timeFormat";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -173,7 +174,7 @@ function downloadKpisExcel(kpi: KpiData, month: string, name: string, role: stri
     ["Score global", `${kpi.score}/100`],
     ["Cumplimiento", `${kpi.cumplimiento.completedPct}%`],
     ["Carga laboral", `${kpi.cargaLaboral.ratio}%`],
-    ["Horas reales / estimadas", `${kpi.cargaLaboral.realHours}h / ${kpi.cargaLaboral.estimatedHours}h`],
+    ["Horas reales / estimadas", `${hoursToDisplay(kpi.cargaLaboral.realHours)}h / ${hoursToDisplay(kpi.cargaLaboral.estimatedHours)}h`],
     ["Total tareas", kpi.cumplimiento.total],
     ["Completadas", kpi.cumplimiento.completed],
     ["Vencidas", kpi.cumplimiento.overdue],
@@ -278,7 +279,7 @@ function downloadKpisPDF(kpi: KpiData, month: string, name: string, role: string
   </div>
   <div class="stats">
     <div class="stat"><div class="stat-label">Tareas</div><div class="stat-value">${kpi.cumplimiento.completed}<span style="font-size:13px;color:#94a3b8">/${kpi.cumplimiento.total}</span></div></div>
-    <div class="stat"><div class="stat-label">Horas real/est.</div><div class="stat-value" style="font-size:15px">${kpi.cargaLaboral.realHours}h<span style="font-size:11px;color:#94a3b8">/${kpi.cargaLaboral.estimatedHours}h</span></div></div>
+    <div class="stat"><div class="stat-label">Horas real/est.</div><div class="stat-value" style="font-size:15px">${hoursToDisplay(kpi.cargaLaboral.realHours)}h<span style="font-size:11px;color:#94a3b8">/${hoursToDisplay(kpi.cargaLaboral.estimatedHours)}h</span></div></div>
     <div class="stat"><div class="stat-label">Consultas</div><div class="stat-value">${kpi.seguimiento.total}</div></div>
   </div>
 
@@ -333,8 +334,8 @@ function downloadRangeExcel(
     ["Cumplimiento promedio", `${data.aggregated.avgCumplimiento}%`],
     ["Score promedio", `${data.aggregated.avgScore}/100`],
     ["Tareas completadas", `${data.aggregated.totalCompletedTasks} / ${data.aggregated.totalTasks}`],
-    ["Horas reales", `${data.aggregated.totalRealHours}h`],
-    ["Horas estimadas", `${data.aggregated.totalEstimatedHours}h`],
+    ["Horas reales", `${hoursToDisplay(data.aggregated.totalRealHours)}h`],
+    ["Horas estimadas", `${hoursToDisplay(data.aggregated.totalEstimatedHours)}h`],
     ["Total consultas SEGUIMIENTO", data.aggregated.totalSeguimiento],
     [""],
     ["TENDENCIA", ""],
@@ -349,7 +350,7 @@ function downloadRangeExcel(
     ["Mes", "Cumpl.%", "Score", "Completadas", "Total tareas", "H. reales", "H. estim.", "Consultas"],
     ...data.months.map((m) => [
       m.label, m.completedPct, m.score, m.completedTasks,
-      m.totalTasks, m.realHours, m.estimatedHours, m.seguimientoTotal,
+      m.totalTasks, hoursToDisplay(m.realHours), hoursToDisplay(m.estimatedHours), m.seguimientoTotal,
     ]),
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(evoRows), "Evolución mensual");
@@ -393,7 +394,7 @@ function downloadRangePDF(data: PersonalRangeReport, name: string, role: string)
         <td>${m.completedPct}%</td>
         <td>${m.score}/100</td>
         <td>${m.completedTasks}/${m.totalTasks}</td>
-        <td>${m.realHours}h/${m.estimatedHours}h</td>
+        <td>${hoursToDisplay(m.realHours)}h/${hoursToDisplay(m.estimatedHours)}h</td>
         <td>${m.seguimientoTotal}</td>
       </tr>`,
     )
@@ -447,7 +448,7 @@ function downloadRangePDF(data: PersonalRangeReport, name: string, role: string)
     <div class="stat"><div class="stat-label">Tareas completadas</div><div class="stat-value">${data.aggregated.totalCompletedTasks}<span style="font-size:13px;color:#94a3b8">/${data.aggregated.totalTasks}</span></div></div>
   </div>
   <div class="stats">
-    <div class="stat"><div class="stat-label">Horas real/est.</div><div class="stat-value" style="font-size:14px">${data.aggregated.totalRealHours}h<span style="font-size:11px;color:#94a3b8">/${data.aggregated.totalEstimatedHours}h</span></div></div>
+    <div class="stat"><div class="stat-label">Horas real/est.</div><div class="stat-value" style="font-size:14px">${hoursToDisplay(data.aggregated.totalRealHours)}h<span style="font-size:11px;color:#94a3b8">/${hoursToDisplay(data.aggregated.totalEstimatedHours)}h</span></div></div>
     <div class="stat"><div class="stat-label">Consultas SEGUIMIENTO</div><div class="stat-value">${data.aggregated.totalSeguimiento}</div></div>
     <div class="stat"><div class="stat-label">Meses analizados</div><div class="stat-value">${data.months.length}</div></div>
   </div>
@@ -711,7 +712,7 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
                     pct={Math.min(kpi.cargaLaboral.ratio, 200)}
                     color={kpi.cargaLaboral.color}
                     label={`${kpi.cargaLaboral.ratio}%`}
-                    sublabel={`${kpi.cargaLaboral.realHours}h / ${kpi.cargaLaboral.estimatedHours}h est.`}
+                    sublabel={`${hoursToDisplay(kpi.cargaLaboral.realHours)}h / ${hoursToDisplay(kpi.cargaLaboral.estimatedHours)}h est.`}
                   />
                   {kpi.prevMonth && (
                     <DeltaBadge current={kpi.cargaLaboral.ratio} prev={kpi.prevMonth.cargaRatio} />
@@ -983,7 +984,7 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
                 <StatCard label="Cumplimiento promedio" value={`${rangeReport.aggregated.avgCumplimiento}%`} sub={`${rangeReport.months.length} meses`} accent />
                 <StatCard label="Score promedio" value={`${rangeReport.aggregated.avgScore}/100`} sub="sin considerar comentarios" />
                 <StatCard label="Tareas completadas" value={`${rangeReport.aggregated.totalCompletedTasks}`} sub={`de ${rangeReport.aggregated.totalTasks} totales`} />
-                <StatCard label="Horas acumuladas" value={`${rangeReport.aggregated.totalRealHours}h`} sub={`de ${rangeReport.aggregated.totalEstimatedHours}h estimadas`} />
+                <StatCard label="Horas acumuladas" value={`${hoursToDisplay(rangeReport.aggregated.totalRealHours)}h`} sub={`de ${hoursToDisplay(rangeReport.aggregated.totalEstimatedHours)}h estimadas`} />
                 <StatCard label="Consultas SEGUIMIENTO" value={`${rangeReport.aggregated.totalSeguimiento}`} sub="acumuladas en el período" />
                 <StatCard label="Meses analizados" value={rangeReport.months.length} sub={`${formatMonthLabel(rangeReport.from)} — ${formatMonthLabel(rangeReport.to)}`} />
               </div>
@@ -1059,7 +1060,7 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
                           </td>
                           <td className="py-2 pr-4 text-main">{m.score}/100</td>
                           <td className="py-2 pr-4 text-main">{m.completedTasks}/{m.totalTasks}</td>
-                          <td className="py-2 pr-4 text-main text-xs">{m.realHours}h/{m.estimatedHours}h</td>
+                          <td className="py-2 pr-4 text-main text-xs">{hoursToDisplay(m.realHours)}h/{hoursToDisplay(m.estimatedHours)}h</td>
                           <td className="py-2 pr-4 text-main">{m.seguimientoTotal}</td>
                         </tr>
                       ))}

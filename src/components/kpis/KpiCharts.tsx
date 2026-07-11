@@ -16,6 +16,7 @@ import {
   Cell,
 } from "recharts";
 import type { KpiData, KpiColor } from "./types";
+import { hoursToDisplay } from "@/lib/timeFormat";
 
 export const REASON_LABEL: Record<string, string> = {
   NOVEDADES_PAGO: "Novedades de pago",
@@ -117,10 +118,15 @@ export function WeeklyHoursChart({ data }: { data: KpiData["horasByWeek"] }) {
       <BarChart data={data} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
         <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} vertical={false} />
         <XAxis dataKey="week" tick={{ fontSize: 12, fill: ct.axis }} axisLine={false} tickLine={false} />
-        <YAxis tick={{ fontSize: 11, fill: ct.axisMuted }} axisLine={false} tickLine={false} unit="h" />
+        <YAxis
+          tick={{ fontSize: 11, fill: ct.axisMuted }}
+          axisLine={false}
+          tickLine={false}
+          tickFormatter={(v: number) => `${hoursToDisplay(v)}h`}
+        />
         <Tooltip
           contentStyle={{ borderRadius: 8, border: `1px solid ${ct.tooltipBorder}`, fontSize: 12, background: ct.tooltipBg, color: ct.tooltipText }}
-          formatter={(v) => [`${v}h`]}
+          formatter={(v) => [`${hoursToDisplay(Number(v))}h`]}
         />
         <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8, color: ct.axis }} />
         <Bar dataKey="estimated" name="Estimado" fill={ct.track} radius={[4, 4, 0, 0]} maxBarSize={32} />

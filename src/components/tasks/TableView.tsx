@@ -7,6 +7,7 @@ import type { Task, AssignableUser, TaskStatus } from "./types";
 import { taskColorHex } from "./colors";
 import { fireCelebrationConfetti } from "@/lib/confetti";
 import { formatDate, isTaskOverdue } from "@/lib/utils";
+import { hoursToDisplay, displayToHours, validateDisplayHours, INVALID_HOURS_MESSAGE } from "@/lib/timeFormat";
 
 type SortKey = "title" | "frequency" | "status" | "priority" | "startDate" | "endDate" | "estimatedHours" | "realHours";
 import CommentPanel from "./CommentPanel";
@@ -50,10 +51,6 @@ const STATUS_SECTIONS: {
   { id: "EN_PROGRESO", label: "En Progreso", headerBg: "bg-primary-surface", headerText: "text-primary", border: "border-border", dot: "bg-primary" },
   { id: "COMPLETADA", label: "Completadas", headerBg: "bg-success/[.13]", headerText: "text-success", border: "border-border", dot: "bg-success" },
 ];
-
-function fmtH(n: number) {
-  return Math.round(n * 100) / 100;
-}
 
 function InlineEdit({
   value,
@@ -236,15 +233,16 @@ function TaskRow({
       </td>
       <td className="border border-border px-4 py-3.5 whitespace-nowrap text-main">{formatDate(task.startDate)}</td>
       <td className={`border border-border px-4 py-3.5 whitespace-nowrap ${isTaskOverdue(task.endDate, task.status) ? "text-danger font-semibold" : "text-main"}`}>{formatDate(task.endDate)}</td>
-      <td className="border border-border px-4 py-3.5 text-right text-main">{fmtH(task.estimatedHours)}h</td>
+      <td className="border border-border px-4 py-3.5 text-right text-main">{hoursToDisplay(task.estimatedHours)}h</td>
       <td className="border border-border px-4 py-3.5 text-right">
         <InlineEdit
-          value={String(fmtH(task.realHours))}
-          type="number"
-          min="0"
-          step="0.1"
+          value={hoursToDisplay(task.realHours)}
+          type="text"
           readOnly={!isOwner}
-          onSave={(v) => onFieldUpdate(task.id, "realHours", v)}
+          onSave={(v) => {
+            if (!validateDisplayHours(v)) { alert(INVALID_HOURS_MESSAGE); return; }
+            onFieldUpdate(task.id, "realHours", displayToHours(v));
+          }}
         />
         <span className="text-disabled ml-0.5 text-xs">h</span>
       </td>
@@ -329,8 +327,8 @@ function exportTasksToExcel(tasks: Task[]) {
       FREQUENCY_LABELS[t.frequency],
       formatDate(t.startDate),
       formatDate(t.endDate),
-      fmtH(t.estimatedHours),
-      fmtH(t.realHours),
+      hoursToDisplay(t.estimatedHours),
+      hoursToDisplay(t.realHours),
       t.assignedTo.name,
       t.assignedTo.email,
     ]),

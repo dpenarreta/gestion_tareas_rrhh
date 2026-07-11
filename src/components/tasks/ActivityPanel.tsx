@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import type { Task, TaskActivity, ActivityReason, FollowUpReminder } from "./types";
 import { formatDate } from "@/lib/utils";
+import { hoursToDisplay } from "@/lib/timeFormat";
 import TimeInput24 from "@/components/ui/TimeInput24";
 
 function formatReminderDateTime(iso: string): string {
@@ -56,12 +57,9 @@ function calcDuration(start: string, end: string): number | null {
   return mins > 0 ? mins : null;
 }
 
+// La duración (minutos, ej: 90) se muestra en formato HH.MM: 90 min → "1.30".
 function formatDuration(mins: number): string {
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (h === 0) return `${m} min`;
-  if (m === 0) return `${h}h`;
-  return `${h}h ${m}min`;
+  return hoursToDisplay(mins / 60);
 }
 
 const REASON_COLORS: Record<ActivityReason, string> = {

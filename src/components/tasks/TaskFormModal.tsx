@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import type { Task, AssignableUser, TaskType } from "./types";
+import { hoursToDisplay, displayToHours, validateDisplayHours, INVALID_HOURS_MESSAGE } from "@/lib/timeFormat";
 
 const STATUS_OPTIONS = [
   { value: "PENDIENTE", label: "Pendiente" },
@@ -62,7 +63,7 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
         setFrequency(task.frequency);
         setStartDate(toInputDate(task.startDate));
         setEndDate(toInputDate(task.endDate));
-        setEstimatedHours(String(Math.round(task.estimatedHours * 100) / 100));
+        setEstimatedHours(hoursToDisplay(task.estimatedHours));
         setAssignedToId(task.assignedTo.id);
       }
     });
@@ -72,7 +73,8 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
     e.preventDefault();
     if (!title.trim()) { setError("El título es requerido"); return; }
     if (!startDate || !endDate) { setError("Las fechas son requeridas"); return; }
-    if (!estimatedHours || isNaN(parseFloat(estimatedHours))) { setError("Las horas estimadas son requeridas"); return; }
+    if (!estimatedHours) { setError("Las horas estimadas son requeridas"); return; }
+    if (!validateDisplayHours(estimatedHours)) { setError(INVALID_HOURS_MESSAGE); return; }
 
     setSaving(true);
     setError("");
@@ -87,7 +89,7 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
         frequency,
         startDate,
         endDate,
-        estimatedHours: parseFloat(estimatedHours),
+        estimatedHours: displayToHours(estimatedHours),
         assignedToId,
       };
 
@@ -250,13 +252,12 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
           <div>
             <label className="block text-xs font-semibold text-main mb-1.5">Horas estimadas *</label>
             <input
-              type="number"
-              min={task ? "0" : "0.1"}
-              step="0.1"
+              type="text"
+              inputMode="decimal"
               value={estimatedHours}
               onChange={(e) => setEstimatedHours(e.target.value)}
               className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
-              placeholder="Ej: 8"
+              placeholder="ej: 6.30 = 6h 30min"
             />
           </div>
 

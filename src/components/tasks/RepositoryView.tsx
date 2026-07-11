@@ -5,6 +5,7 @@ import type { Role } from "@/generated/prisma/client";
 import type { Task } from "./types";
 import { taskColorHex } from "./colors";
 import { formatDate } from "@/lib/utils";
+import { hoursToDisplay } from "@/lib/timeFormat";
 import CorrectArchivedTaskModal from "./CorrectArchivedTaskModal";
 
 type RepositoryMonth = { year: number; month: number; totalTasks: number; completedTasks: number; totalHours: number };
@@ -38,10 +39,6 @@ const FREQUENCY_LABELS: Record<Task["frequency"], string> = {
 function monthLabel(year: number, month: number) {
   const label = new Date(year, month - 1, 1).toLocaleDateString("es-CL", { month: "long" });
   return label.charAt(0).toUpperCase() + label.slice(1);
-}
-
-function fmtH(n: number) {
-  return Math.round(n * 100) / 100;
 }
 
 type Props = {
@@ -123,7 +120,7 @@ export default function RepositoryView({ currentUserRole }: Props) {
             </div>
             <div>
               <p className="text-disabled text-xs">Horas totales</p>
-              <p className="font-semibold text-title">{fmtH(selected.totalHours)}h</p>
+              <p className="font-semibold text-title">{hoursToDisplay(selected.totalHours)}h</p>
             </div>
           </div>
         </div>
@@ -184,8 +181,8 @@ export default function RepositoryView({ currentUserRole }: Props) {
                         </span>
                       </td>
                       <td className="px-3 py-3 whitespace-nowrap text-main">{formatDate(task.endDate)}</td>
-                      <td className="px-3 py-3 text-right text-main">{fmtH(task.estimatedHours)}h</td>
-                      <td className="px-3 py-3 text-right text-main">{fmtH(task.realHours)}h</td>
+                      <td className="px-3 py-3 text-right text-main">{hoursToDisplay(task.estimatedHours)}h</td>
+                      <td className="px-3 py-3 text-right text-main">{hoursToDisplay(task.realHours)}h</td>
                       <td className="px-3 py-3">
                         <div className="flex items-center gap-2 min-w-[80px]">
                           <div className="flex-1 h-1.5 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">

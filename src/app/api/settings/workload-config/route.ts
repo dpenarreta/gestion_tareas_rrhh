@@ -36,11 +36,10 @@ export async function PUT(request: NextRequest) {
     typeof hoursPerDay !== "number" ||
     !Number.isFinite(hoursPerDay) ||
     hoursPerDay < MIN_HOURS ||
-    hoursPerDay > MAX_HOURS ||
-    Math.round(hoursPerDay * 2) !== hoursPerDay * 2
+    hoursPerDay > MAX_HOURS
   ) {
     return NextResponse.json(
-      { error: `El valor debe ser un número entre ${MIN_HOURS} y ${MAX_HOURS}, en pasos de 0.5` },
+      { error: `El valor debe ser un número entre ${MIN_HOURS} y ${MAX_HOURS} horas` },
       { status: 400 }
     );
   }

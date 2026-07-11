@@ -1,4 +1,5 @@
 import type { CargaTiempo, KpiColor, WorkloadMetric } from "./types";
+import { hoursToDisplay } from "@/lib/timeFormat";
 
 const COLOR_DOT: Record<KpiColor, string> = {
   green: "bg-success",
@@ -35,7 +36,7 @@ function Tile({
       </div>
       <p className={`text-2xl font-bold ${COLOR_TEXT[metric.color]}`}>{metric.pct}%</p>
       <p className="text-[11px] text-secondary mt-0.5">
-        {metric.realHours}h de {metric.baseHours}h
+        {hoursToDisplay(metric.realHours)}h de {hoursToDisplay(metric.baseHours)}h
       </p>
       <p className="text-[10px] text-disabled mt-0.5">{periodLabel}</p>
     </div>
@@ -52,7 +53,7 @@ export default function WorkloadCard({ cargaTiempo }: { cargaTiempo: CargaTiempo
           Carga laboral (horas reales)
         </h3>
         <span className="text-[10px] text-disabled bg-background border border-border px-2 py-0.5 rounded-full">
-          {horasEfectivasPorDia}h efectivas/día
+          {hoursToDisplay(horasEfectivasPorDia)}h efectivas/día
         </span>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

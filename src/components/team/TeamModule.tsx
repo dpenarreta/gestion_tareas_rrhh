@@ -9,6 +9,7 @@ import CommentPanel from "@/components/tasks/CommentPanel";
 import ActivityPanel from "@/components/tasks/ActivityPanel";
 import TaskFormModal from "@/components/tasks/TaskFormModal";
 import { formatDate, isTaskOverdue } from "@/lib/utils";
+import { hoursToDisplay } from "@/lib/timeFormat";
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -44,10 +45,6 @@ function initials(name: string) {
   return parts.length === 1
     ? parts[0][0].toUpperCase()
     : (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
-
-function fmtH(n: number) {
-  return Math.round(n * 100) / 100;
 }
 
 // ─── MemberCard ───────────────────────────────────────────────────────────────
@@ -196,8 +193,8 @@ function MemberTaskRow({ task, onCommentClick, onActivityClick }: {
           {formatDate(task.endDate)}
         </span>
       </td>
-      <td className="px-3 py-3 text-right text-main text-xs">{fmtH(task.estimatedHours)}h</td>
-      <td className="px-3 py-3 text-right text-secondary text-xs">{fmtH(task.realHours)}h</td>
+      <td className="px-3 py-3 text-right text-main text-xs">{hoursToDisplay(task.estimatedHours)}h</td>
+      <td className="px-3 py-3 text-right text-secondary text-xs">{hoursToDisplay(task.realHours)}h</td>
       <td className="px-3 py-3 text-center">
         <div className="inline-flex items-center gap-2">
           {task.type === "SEGUIMIENTO" && (

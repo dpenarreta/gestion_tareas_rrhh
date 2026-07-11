@@ -15,6 +15,7 @@ import MonthlyReports from "./MonthlyReports";
 import WorkloadCard from "./WorkloadCard";
 import * as XLSX from "xlsx";
 import { formatDate } from "@/lib/utils";
+import { hoursToDisplay } from "@/lib/timeFormat";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -265,8 +266,8 @@ function downloadExcel(kpi: KpiData) {
     ["Días promedio de retraso", kpi.cumplimiento.avgDelayDays],
     [""],
     ["CARGA LABORAL", ""],
-    ["Horas estimadas", kpi.cargaLaboral.estimatedHours],
-    ["Horas reales", kpi.cargaLaboral.realHours],
+    ["Horas estimadas", hoursToDisplay(kpi.cargaLaboral.estimatedHours)],
+    ["Horas reales", hoursToDisplay(kpi.cargaLaboral.realHours)],
     ["Carga laboral %", `${kpi.cargaLaboral.ratio}%`],
     ["Nota", "Horas sobre el estimado pueden indicar exceso de carga laboral, no incumplimiento"],
     [""],
@@ -373,7 +374,7 @@ function downloadPDF(kpi: KpiData) {
     <div class="card">
       <div class="card-title">Horas reales / estimadas</div>
       <div class="card-value">${kpi.cargaLaboral.ratio}%</div>
-      <div class="note">${kpi.cargaLaboral.realHours}h reales de ${kpi.cargaLaboral.estimatedHours}h estimadas</div>
+      <div class="note">${hoursToDisplay(kpi.cargaLaboral.realHours)}h reales de ${hoursToDisplay(kpi.cargaLaboral.estimatedHours)}h estimadas</div>
     </div>
     <div class="card">
       <div class="note" style="margin-top:12px">⚠️ Horas sobre el estimado pueden indicar exceso de carga laboral, no incumplimiento</div>
@@ -761,7 +762,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
                       pct={Math.min(kpi.cargaLaboral.ratio, 100)}
                       color={kpi.cargaLaboral.color}
                       label="Carga laboral"
-                      sublabel={`${kpi.cargaLaboral.realHours}h / ${kpi.cargaLaboral.estimatedHours}h`}
+                      sublabel={`${hoursToDisplay(kpi.cargaLaboral.realHours)}h / ${hoursToDisplay(kpi.cargaLaboral.estimatedHours)}h`}
                     />
                   </div>
                   <div className="mt-3 space-y-1">

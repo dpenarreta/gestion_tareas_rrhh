@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { ROLE_LABEL } from "@/lib/roles";
 import type { Role } from "@/generated/prisma/client";
+import { hoursToDisplay, displayToHours, validateDisplayHours, INVALID_HOURS_MESSAGE } from "@/lib/timeFormat";
 
 type User = {
   id: string;
@@ -94,7 +95,7 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
 
   // Configuración de carga laboral
   const [hoursPerDay, setHoursPerDay] = useState<number | null>(null);
-  const [hoursInput, setHoursInput] = useState("6.5");
+  const [hoursInput, setHoursInput] = useState("6.30");
   const [hoursLoading, setHoursLoading] = useState(true);
   const [hoursSaving, setHoursSaving] = useState(false);
   const [hoursMsg, setHoursMsg] = useState<string | null>(null);
@@ -137,7 +138,7 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
       if (res.ok) {
         const data = await res.json();
         setHoursPerDay(data.hoursPerDay);
-        setHoursInput(String(data.hoursPerDay));
+        setHoursInput(hoursToDisplay(data.hoursPerDay));
       }
     } finally {
       setHoursLoading(false);
@@ -164,9 +165,13 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
   }, [isAdmin, canManageKnowledgeBase, loadUsers, loadSystemInfo, loadHoursConfig, loadDocs]);
 
   async function handleSaveHours() {
-    const value = parseFloat(hoursInput);
     setHoursMsg(null);
     setHoursError(null);
+    if (!validateDisplayHours(hoursInput)) {
+      setHoursError(INVALID_HOURS_MESSAGE);
+      return;
+    }
+    const value = displayToHours(hoursInput);
     setHoursSaving(true);
     try {
       const res = await fetch("/api/settings/workload-config", {
@@ -179,6 +184,7 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
         setHoursError(data.error ?? "Error al guardar la configuración");
       } else {
         setHoursPerDay(data.hoursPerDay);
+        setHoursInput(hoursToDisplay(data.hoursPerDay));
         setHoursMsg("Configuración de carga laboral actualizada.");
       }
     } catch {
@@ -496,17 +502,16 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
               </p>
               <div className="flex items-center gap-3 pt-1">
                 <input
-                  type="number"
-                  min={4}
-                  max={8}
-                  step={0.5}
+                  type="text"
+                  inputMode="decimal"
                   value={hoursInput}
                   onChange={(e) => setHoursInput(e.target.value)}
-                  className="w-28 border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                  placeholder="ej: 6.30 = 6h 30min"
+                  className="w-32 border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
                 />
                 <button
                   onClick={handleSaveHours}
-                  disabled={hoursSaving || parseFloat(hoursInput) === hoursPerDay}
+                  disabled={hoursSaving || (validateDisplayHours(hoursInput) && displayToHours(hoursInput) === hoursPerDay)}
                   className="px-4 py-2 bg-primary text-white font-medium rounded-lg text-sm hover:bg-primary-hover disabled:opacity-50 transition-colors"
                 >
                   {hoursSaving ? "Guardando…" : "Guardar configuración"}
@@ -514,17 +519,18 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
               </div>
             </div>
             {(() => {
-              const preview = parseFloat(hoursInput);
-              if (!Number.isFinite(preview) || preview < 4 || preview > 8) return null;
+              if (!validateDisplayHours(hoursInput)) return null;
+              const preview = displayToHours(hoursInput);
+              if (preview < 4 || preview > 8) return null;
               const now = new Date();
               const bizDays = businessDaysInMonth(now.getFullYear(), now.getMonth() + 1);
               const monthLabel = now.toLocaleDateString("es-CL", { month: "long", year: "numeric" });
               return (
                 <div className="rounded-lg bg-background border border-border px-4 py-3 space-y-1 text-sm text-secondary">
-                  <p>Horas semanales: <span className="font-medium text-title">{Math.round(preview * 5 * 10) / 10} horas</span> (5 días × {preview}h)</p>
+                  <p>Horas semanales: <span className="font-medium text-title">{hoursToDisplay(preview * 5)} horas</span> (5 días × {hoursToDisplay(preview)}h)</p>
                   <p>
                     Horas mensuales: varía según días laborables (ej: {monthLabel} = {bizDays} días ×{" "}
-                    {preview}h = <span className="font-medium text-title">{Math.round(preview * bizDays * 10) / 10} horas</span>)
+                    {hoursToDisplay(preview)}h = <span className="font-medium text-title">{hoursToDisplay(preview * bizDays)} horas</span>)
                   </p>
                 </div>
               );

@@ -10,6 +10,7 @@ import { ROLE_LABEL } from "@/lib/roles";
 import type { MonthlyReportSummary, MonthlyReportFull, ReportData, RangeReportData } from "./types";
 import * as XLSX from "xlsx";
 import { formatDate } from "@/lib/utils";
+import { hoursToDisplay } from "@/lib/timeFormat";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -74,7 +75,7 @@ function downloadReportExcel(report: MonthlyReportFull) {
     ["RESUMEN DEL EQUIPO", ""],
     ["Promedio de cumplimiento", `${data.teamSummary.avgCumplimiento}%`],
     ["Total tareas completadas", `${data.teamSummary.totalCompletedTasks} / ${data.teamSummary.totalTasks}`],
-    ["Carga laboral del equipo", `${data.teamSummary.avgCargaPct}% (${data.teamSummary.totalCargaRealHours}h de ${data.teamSummary.totalCargaBaseHours}h base)`],
+    ["Carga laboral del equipo", `${data.teamSummary.avgCargaPct}% (${hoursToDisplay(data.teamSummary.totalCargaRealHours)}h de ${hoursToDisplay(data.teamSummary.totalCargaBaseHours)}h base)`],
     ["Total consultas SEGUIMIENTO", data.teamSummary.totalConsultas],
     [""],
     ["ALERTAS", ""],
@@ -110,8 +111,8 @@ function downloadReportExcel(report: MonthlyReportFull) {
       m.totalTasks,
       m.completedTasks,
       m.overdueCount,
-      m.cargaRealHours,
-      m.cargaBaseHours,
+      hoursToDisplay(m.cargaRealHours),
+      hoursToDisplay(m.cargaBaseHours),
       m.seguimientoTotal,
     ]),
   ];
@@ -167,7 +168,7 @@ function downloadReportPDF(report: MonthlyReportFull) {
       <td>${m.cargaPct}%</td>
       <td>${m.completedTasks}/${m.totalTasks}</td>
       <td>${m.overdueCount}</td>
-      <td>${m.cargaRealHours}h/${m.cargaBaseHours}h</td>
+      <td>${hoursToDisplay(m.cargaRealHours)}h/${hoursToDisplay(m.cargaBaseHours)}h</td>
       <td>${m.seguimientoTotal}</td>
     </tr>`,
     )
@@ -254,7 +255,7 @@ function downloadReportPDF(report: MonthlyReportFull) {
     </div>
     <div class="stat">
       <div class="stat-label">Carga laboral del equipo</div>
-      <div class="stat-value" style="font-size:16px">${data.teamSummary.avgCargaPct}%<span style="color:#94a3b8;font-size:12px"> (${data.teamSummary.totalCargaRealHours}h/${data.teamSummary.totalCargaBaseHours}h)</span></div>
+      <div class="stat-value" style="font-size:16px">${data.teamSummary.avgCargaPct}%<span style="color:#94a3b8;font-size:12px"> (${hoursToDisplay(data.teamSummary.totalCargaRealHours)}h/${hoursToDisplay(data.teamSummary.totalCargaBaseHours)}h)</span></div>
     </div>
   </div>
 
@@ -376,7 +377,7 @@ function downloadRangeExcel(data: RangeReportData) {
     ["RESUMEN ACUMULADO", ""],
     ["Cumplimiento promedio", `${data.aggregated.teamSummary.avgCumplimiento}%`],
     ["Tareas completadas", `${data.aggregated.teamSummary.totalCompletedTasks} / ${data.aggregated.teamSummary.totalTasks}`],
-    ["Carga laboral acumulada", `${data.aggregated.teamSummary.avgCargaPct}% (${data.aggregated.teamSummary.totalCargaRealHours}h de ${data.aggregated.teamSummary.totalCargaBaseHours}h base)`],
+    ["Carga laboral acumulada", `${data.aggregated.teamSummary.avgCargaPct}% (${hoursToDisplay(data.aggregated.teamSummary.totalCargaRealHours)}h de ${hoursToDisplay(data.aggregated.teamSummary.totalCargaBaseHours)}h base)`],
     ["Total consultas SEGUIMIENTO", data.aggregated.teamSummary.totalConsultas],
     [""],
     ["TENDENCIA", ""],
@@ -393,7 +394,7 @@ function downloadRangeExcel(data: RangeReportData) {
     ...data.months.map((ms) => [
       ms.label, ms.teamAvgCumplimiento, ms.totalCompletedTasks, ms.totalTasks,
       ms.totalCargaBaseHours > 0 ? Math.round((ms.totalCargaRealHours / ms.totalCargaBaseHours) * 100) : 0,
-      ms.totalCargaRealHours, ms.totalCargaBaseHours, ms.totalConsultas,
+      hoursToDisplay(ms.totalCargaRealHours), hoursToDisplay(ms.totalCargaBaseHours), ms.totalConsultas,
     ]),
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(evoRows), "Evolución mensual");
@@ -412,7 +413,7 @@ function downloadRangeExcel(data: RangeReportData) {
     ["Nombre", "Cargo", "Score prom.", "Cumpl.%", "Carga%", "Tareas", "Compl.", "Horas reales", "Base (h)", "Consultas"],
     ...data.aggregated.members.map((m) => [
       m.name, ROLE_LABEL[m.role as Role] ?? m.role, m.score, m.completedPct,
-      m.cargaPct, m.totalTasks, m.completedTasks, m.cargaRealHours, m.cargaBaseHours, m.seguimientoTotal,
+      m.cargaPct, m.totalTasks, m.completedTasks, hoursToDisplay(m.cargaRealHours), hoursToDisplay(m.cargaBaseHours), m.seguimientoTotal,
     ]),
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(detailRows), "Detalle");
@@ -445,7 +446,7 @@ function downloadRangePDF(data: RangeReportData) {
       <td>${ms.label}</td>
       <td>${ms.teamAvgCumplimiento}%</td>
       <td>${ms.totalCompletedTasks}/${ms.totalTasks}</td>
-      <td>${ms.totalCargaBaseHours > 0 ? Math.round((ms.totalCargaRealHours / ms.totalCargaBaseHours) * 100) : 0}% (${ms.totalCargaRealHours}h/${ms.totalCargaBaseHours}h)</td>
+      <td>${ms.totalCargaBaseHours > 0 ? Math.round((ms.totalCargaRealHours / ms.totalCargaBaseHours) * 100) : 0}% (${hoursToDisplay(ms.totalCargaRealHours)}h/${hoursToDisplay(ms.totalCargaBaseHours)}h)</td>
       <td>${ms.totalConsultas}</td>
     </tr>`,
   ).join("");
@@ -505,7 +506,7 @@ function downloadRangePDF(data: RangeReportData) {
   <div class="stats">
     <div class="stat"><div class="stat-label">Cumplimiento prom.</div><div class="stat-value">${data.aggregated.teamSummary.avgCumplimiento}%</div></div>
     <div class="stat"><div class="stat-label">Tareas completadas</div><div class="stat-value">${data.aggregated.teamSummary.totalCompletedTasks}<span style="font-size:12px;color:#94a3b8">/${data.aggregated.teamSummary.totalTasks}</span></div></div>
-    <div class="stat"><div class="stat-label">Carga laboral acumulada</div><div class="stat-value" style="font-size:14px">${data.aggregated.teamSummary.avgCargaPct}%<span style="color:#94a3b8;font-size:11px"> (${data.aggregated.teamSummary.totalCargaRealHours}h/${data.aggregated.teamSummary.totalCargaBaseHours}h)</span></div></div>
+    <div class="stat"><div class="stat-label">Carga laboral acumulada</div><div class="stat-value" style="font-size:14px">${data.aggregated.teamSummary.avgCargaPct}%<span style="color:#94a3b8;font-size:11px"> (${hoursToDisplay(data.aggregated.teamSummary.totalCargaRealHours)}h/${hoursToDisplay(data.aggregated.teamSummary.totalCargaBaseHours)}h)</span></div></div>
   </div>
 
   <h2>Alertas Persistentes</h2>${alertsHtml}
@@ -787,7 +788,7 @@ export default function MonthlyReports({ currentUserRole }: Props) {
               <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
                 <MetricStat label="Cumplimiento promedio" value={`${rangeReport.aggregated.teamSummary.avgCumplimiento}%`} sub={`${rangeReport.months.length} meses`} accent />
                 <MetricStat label="Tareas completadas" value={`${rangeReport.aggregated.teamSummary.totalCompletedTasks}`} sub={`de ${rangeReport.aggregated.teamSummary.totalTasks} totales`} />
-                <MetricStat label="Carga laboral acumulada" value={`${rangeReport.aggregated.teamSummary.avgCargaPct}%`} sub={`${rangeReport.aggregated.teamSummary.totalCargaRealHours}h de ${rangeReport.aggregated.teamSummary.totalCargaBaseHours}h base`} />
+                <MetricStat label="Carga laboral acumulada" value={`${rangeReport.aggregated.teamSummary.avgCargaPct}%`} sub={`${hoursToDisplay(rangeReport.aggregated.teamSummary.totalCargaRealHours)}h de ${hoursToDisplay(rangeReport.aggregated.teamSummary.totalCargaBaseHours)}h base`} />
                 <MetricStat label="Total consultas" value={`${rangeReport.aggregated.teamSummary.totalConsultas}`} sub="SEGUIMIENTO acumuladas" />
                 <MetricStat label="Alertas persistentes" value={`${rangeReport.aggregated.alerts.length}`} sub="personas con incidencia recurrente" />
                 <MetricStat label="Colaboradores" value={`${rangeReport.aggregated.members.length}`} sub="incluidos en el rango" />
@@ -862,7 +863,7 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                           <td className="py-2 pr-4 text-main">{ms.totalCompletedTasks}/{ms.totalTasks}</td>
                           <td className="py-2 pr-4 text-main text-xs">
                             {ms.totalCargaBaseHours > 0 ? Math.round((ms.totalCargaRealHours / ms.totalCargaBaseHours) * 100) : 0}%
-                            {" "}({ms.totalCargaRealHours}h/{ms.totalCargaBaseHours}h)
+                            {" "}({hoursToDisplay(ms.totalCargaRealHours)}h/{hoursToDisplay(ms.totalCargaBaseHours)}h)
                           </td>
                           <td className="py-2 pr-4 text-main">{ms.totalConsultas}</td>
                         </tr>
@@ -1067,7 +1068,7 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                 <MetricStat
                   label="Carga laboral equipo"
                   value={`${data.teamSummary.avgCargaPct}%`}
-                  sub={`${data.teamSummary.totalCargaRealHours}h de ${data.teamSummary.totalCargaBaseHours}h base`}
+                  sub={`${hoursToDisplay(data.teamSummary.totalCargaRealHours)}h de ${hoursToDisplay(data.teamSummary.totalCargaBaseHours)}h base`}
                 />
                 <MetricStat
                   label="Total consultas"
@@ -1212,7 +1213,7 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                               <span className="text-disabled">—</span>
                             )}
                           </td>
-                          <td className="py-2.5 pr-4 text-main text-xs">{m.cargaRealHours}h/{m.cargaBaseHours}h</td>
+                          <td className="py-2.5 pr-4 text-main text-xs">{hoursToDisplay(m.cargaRealHours)}h/{hoursToDisplay(m.cargaBaseHours)}h</td>
                           <td className="py-2.5 pr-4 text-main">{m.seguimientoTotal}</td>
                         </tr>
                       ))}
