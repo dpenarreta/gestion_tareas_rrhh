@@ -162,6 +162,7 @@ prisma/
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-11: feat(kpis): carga laboral por rango configurable (base ± tolerancia)
 - 2026-07-11: feat(tasks,kpis): formato HH.MM para horas en toda la aplicación
 - 2026-07-11: feat(hooks): omitir commits chore/docs del changelog automático
 - 2026-07-11: fix(hooks): marcar como ejecutables los scripts de hooks y acotar el ignore de ESLint

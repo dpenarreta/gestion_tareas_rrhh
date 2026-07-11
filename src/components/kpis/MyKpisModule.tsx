@@ -8,7 +8,7 @@ import {
 import * as XLSX from "xlsx";
 import type { Role } from "@/generated/prisma/client";
 import { ROLE_LABEL } from "@/lib/roles";
-import type { KpiData, KpiColor } from "./types";
+import type { KpiData, KpiColor, WorkloadLabel } from "./types";
 import { DonutChart, WeeklyHoursChart, CumplimientoLineChart, REASON_LABEL } from "./KpiCharts";
 import WorkloadCard from "./WorkloadCard";
 import { formatDate } from "@/lib/utils";
@@ -27,6 +27,13 @@ type PersonalMonthSnapshot = {
   estimatedHours: number;
   seguimientoTotal: number;
   score: number;
+  cargaRealHours: number;
+  cargaBaseHours: number;
+  cargaPct: number;
+  cargaColor: KpiColor;
+  cargaLabel: WorkloadLabel;
+  cargaRangeMin: number;
+  cargaRangeMax: number;
 };
 
 type PersonalRangeReport = {
@@ -42,6 +49,13 @@ type PersonalRangeReport = {
     totalEstimatedHours: number;
     totalSeguimiento: number;
     consultasByReason: Array<{ reason: string; count: number; totalMinutes: number }>;
+    totalCargaRealHours: number;
+    totalCargaBaseHours: number;
+    avgCargaPct: number;
+    cargaColor: KpiColor;
+    cargaLabel: WorkloadLabel;
+    cargaRangeMin: number;
+    cargaRangeMax: number;
   };
   trends: {
     cumplimientoTrend: "mejora" | "deterioro" | "estancamiento";
@@ -336,6 +350,10 @@ function downloadRangeExcel(
     ["Tareas completadas", `${data.aggregated.totalCompletedTasks} / ${data.aggregated.totalTasks}`],
     ["Horas reales", `${hoursToDisplay(data.aggregated.totalRealHours)}h`],
     ["Horas estimadas", `${hoursToDisplay(data.aggregated.totalEstimatedHours)}h`],
+    [
+      "Carga laboral (rango)",
+      `${data.aggregated.cargaLabel} — ${hoursToDisplay(data.aggregated.totalCargaRealHours)}h (rango óptimo ${hoursToDisplay(data.aggregated.cargaRangeMin)}-${hoursToDisplay(data.aggregated.cargaRangeMax)}h)`,
+    ],
     ["Total consultas SEGUIMIENTO", data.aggregated.totalSeguimiento],
     [""],
     ["TENDENCIA", ""],
@@ -347,10 +365,10 @@ function downloadRangeExcel(
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(summaryRows), "Resumen");
 
   const evoRows = [
-    ["Mes", "Cumpl.%", "Score", "Completadas", "Total tareas", "H. reales", "H. estim.", "Consultas"],
+    ["Mes", "Cumpl.%", "Score", "Completadas", "Total tareas", "H. reales", "H. estim.", "Carga (rango)", "Consultas"],
     ...data.months.map((m) => [
       m.label, m.completedPct, m.score, m.completedTasks,
-      m.totalTasks, hoursToDisplay(m.realHours), hoursToDisplay(m.estimatedHours), m.seguimientoTotal,
+      m.totalTasks, hoursToDisplay(m.realHours), hoursToDisplay(m.estimatedHours), m.cargaLabel, m.seguimientoTotal,
     ]),
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(evoRows), "Evolución mensual");
@@ -395,6 +413,7 @@ function downloadRangePDF(data: PersonalRangeReport, name: string, role: string)
         <td>${m.score}/100</td>
         <td>${m.completedTasks}/${m.totalTasks}</td>
         <td>${hoursToDisplay(m.realHours)}h/${hoursToDisplay(m.estimatedHours)}h</td>
+        <td>${m.cargaLabel}</td>
         <td>${m.seguimientoTotal}</td>
       </tr>`,
     )
@@ -452,6 +471,9 @@ function downloadRangePDF(data: PersonalRangeReport, name: string, role: string)
     <div class="stat"><div class="stat-label">Consultas SEGUIMIENTO</div><div class="stat-value">${data.aggregated.totalSeguimiento}</div></div>
     <div class="stat"><div class="stat-label">Meses analizados</div><div class="stat-value">${data.months.length}</div></div>
   </div>
+  <div class="stats">
+    <div class="stat"><div class="stat-label">Carga laboral (rango)</div><div class="stat-value" style="font-size:14px">${data.aggregated.cargaLabel}<span style="font-size:11px;color:#94a3b8"> — ${hoursToDisplay(data.aggregated.totalCargaRealHours)}h (óptimo ${hoursToDisplay(data.aggregated.cargaRangeMin)}-${hoursToDisplay(data.aggregated.cargaRangeMax)}h)</span></div></div>
+  </div>
 
   <div class="msg" style="background:${data.aggregated.avgCumplimiento >= 80 ? "#f0fdf4;border:1px solid #bbf7d0" : data.aggregated.avgCumplimiento >= 60 ? "#fffbeb;border:1px solid #fde68a" : "#fef2f2;border:1px solid #fecaca"}">
     ${msg.icon} ${msg.text}
@@ -459,7 +481,7 @@ function downloadRangePDF(data: PersonalRangeReport, name: string, role: string)
 
   <h2>Evolución mensual</h2>
   <table>
-    <thead><tr><th>Mes</th><th>Cumpl.%</th><th>Score</th><th>Compl./Total</th><th>Horas</th><th>Consultas</th></tr></thead>
+    <thead><tr><th>Mes</th><th>Cumpl.%</th><th>Score</th><th>Compl./Total</th><th>Horas</th><th>Carga</th><th>Consultas</th></tr></thead>
     <tbody>${evoRows}</tbody>
   </table>
 
@@ -985,6 +1007,11 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
                 <StatCard label="Score promedio" value={`${rangeReport.aggregated.avgScore}/100`} sub="sin considerar comentarios" />
                 <StatCard label="Tareas completadas" value={`${rangeReport.aggregated.totalCompletedTasks}`} sub={`de ${rangeReport.aggregated.totalTasks} totales`} />
                 <StatCard label="Horas acumuladas" value={`${hoursToDisplay(rangeReport.aggregated.totalRealHours)}h`} sub={`de ${hoursToDisplay(rangeReport.aggregated.totalEstimatedHours)}h estimadas`} />
+                <StatCard
+                  label="Carga laboral (rango)"
+                  value={`${hoursToDisplay(rangeReport.aggregated.totalCargaRealHours)}h`}
+                  sub={`${rangeReport.aggregated.cargaLabel} · rango óptimo ${hoursToDisplay(rangeReport.aggregated.cargaRangeMin)}-${hoursToDisplay(rangeReport.aggregated.cargaRangeMax)}h`}
+                />
                 <StatCard label="Consultas SEGUIMIENTO" value={`${rangeReport.aggregated.totalSeguimiento}`} sub="acumuladas en el período" />
                 <StatCard label="Meses analizados" value={rangeReport.months.length} sub={`${formatMonthLabel(rangeReport.from)} — ${formatMonthLabel(rangeReport.to)}`} />
               </div>
@@ -1043,7 +1070,7 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
                   <table className="w-full text-sm min-w-[520px]">
                     <thead>
                       <tr className="border-b border-border">
-                        {["Mes", "Cumpl.", "Score", "Tareas", "Horas", "Consultas"].map((h) => (
+                        {["Mes", "Cumpl.", "Score", "Tareas", "Horas", "Carga", "Consultas"].map((h) => (
                           <th key={h} className="text-left py-2 pr-4 text-xs font-semibold text-secondary uppercase tracking-wider">{h}</th>
                         ))}
                       </tr>
@@ -1061,6 +1088,12 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
                           <td className="py-2 pr-4 text-main">{m.score}/100</td>
                           <td className="py-2 pr-4 text-main">{m.completedTasks}/{m.totalTasks}</td>
                           <td className="py-2 pr-4 text-main text-xs">{hoursToDisplay(m.realHours)}h/{hoursToDisplay(m.estimatedHours)}h</td>
+                          <td className="py-2 pr-4">
+                            <span className="flex items-center gap-1.5 text-xs text-main">
+                              <div className={`w-2 h-2 rounded-full shrink-0 ${DOT_CLASS[m.cargaColor]}`} />
+                              {m.cargaLabel}
+                            </span>
+                          </td>
                           <td className="py-2 pr-4 text-main">{m.seguimientoTotal}</td>
                         </tr>
                       ))}

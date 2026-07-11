@@ -3,10 +3,11 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canAccessReports, ROLE_LABEL } from "@/lib/roles";
 import { isTaskOverdue } from "@/lib/utils";
-import { monthlyBusinessBase } from "@/lib/workload";
+import { monthlyBusinessBase, computeWorkloadRange } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
 import Groq from "groq-sdk";
 import type { Role, ReportScope } from "@/generated/prisma/client";
+import type { KpiColor, WorkloadLabel } from "@/components/kpis/types";
 
 const REASON_LABEL: Record<string, string> = {
   NOVEDADES_PAGO: "Novedades de pago",
@@ -44,6 +45,10 @@ type MemberKpi = {
   cargaPct: number;
   cargaRealHours: number;
   cargaBaseHours: number;
+  cargaColor: KpiColor;
+  cargaLabel: WorkloadLabel;
+  cargaRangeMin: number;
+  cargaRangeMax: number;
   totalTasks: number;
   completedTasks: number;
   overdueCount: number;
@@ -63,6 +68,9 @@ type ReportData = {
     totalConsultas: number;
     totalTasks: number;
     hoursPerDay: number;
+    workloadTolerance: number;
+    cargaRangeMin: number;
+    cargaRangeMax: number;
   };
   members: MemberKpi[];
   ranking: Array<{ id: string; name: string; role: string; score: number; completedPct: number }>;
@@ -94,7 +102,7 @@ async function buildAiAnalysis(data: ReportData): Promise<string> {
   const membersText = data.members
     .map(
       (m) =>
-        `- ${m.name} (${ROLE_LABEL[m.role as Role] ?? m.role}): Score ${m.score}/100 | Cumplimiento ${m.completedPct}% | Carga ${m.cargaPct}% (${m.cargaRealHours}h de ${m.cargaBaseHours}h base) | Tareas ${m.completedTasks}/${m.totalTasks} | Vencidas ${m.overdueCount} | Consultas SEGUIMIENTO ${m.seguimientoTotal}`,
+        `- ${m.name} (${ROLE_LABEL[m.role as Role] ?? m.role}): Score ${m.score}/100 | Cumplimiento ${m.completedPct}% | Carga ${m.cargaPct}% (${m.cargaRealHours}h de ${m.cargaBaseHours}h base) — ${m.cargaLabel} (rango óptimo ${m.cargaRangeMin}h-${m.cargaRangeMax}h) | Tareas ${m.completedTasks}/${m.totalTasks} | Vencidas ${m.overdueCount} | Consultas SEGUIMIENTO ${m.seguimientoTotal}`,
     )
     .join("\n");
 
@@ -109,7 +117,7 @@ async function buildAiAnalysis(data: ReportData): Promise<string> {
         .map((a) =>
           a.type === "cumplimiento"
             ? `  - ${a.name}: cumplimiento ${a.value}% (umbral: 60%)`
-            : `  - ${a.name}: carga laboral ${a.value}% (umbral: 120%)`,
+            : `  - ${a.name}: carga laboral ${a.value}% (Sobrecarga, por encima del rango óptimo configurado)`,
         )
         .join("\n")
     : "  Ninguna.";
@@ -119,7 +127,7 @@ async function buildAiAnalysis(data: ReportData): Promise<string> {
 RESUMEN DEL EQUIPO:
 - Promedio de cumplimiento: ${data.teamSummary.avgCumplimiento}% (objetivo mínimo: 60%, objetivo ideal: 80%)
 - Total tareas completadas: ${data.teamSummary.totalCompletedTasks} de ${data.teamSummary.totalTasks}
-- Carga laboral del equipo: ${data.teamSummary.avgCargaPct}% (${data.teamSummary.totalCargaRealHours}h reales de ${data.teamSummary.totalCargaBaseHours}h base — la base es dinámica, calculada como días hábiles lunes-viernes del mes × ${data.teamSummary.hoursPerDay}h efectivas configuradas por persona; las horas estimadas por tarea son solo referencia y no forman parte de este cálculo)
+- Carga laboral del equipo: ${data.teamSummary.avgCargaPct}% (${data.teamSummary.totalCargaRealHours}h reales de ${data.teamSummary.totalCargaBaseHours}h base — la base es dinámica, calculada como días hábiles lunes-viernes del mes × ${data.teamSummary.hoursPerDay}h efectivas configuradas por persona; las horas estimadas por tarea son solo referencia y no forman parte de este cálculo). El rango óptimo configurado por persona este mes es de ${data.teamSummary.cargaRangeMin}h a ${data.teamSummary.cargaRangeMax}h (tolerancia diaria configurada: ${data.teamSummary.workloadTolerance}h) — usa ese rango, no un 100% exacto, para juzgar si alguien está en carga óptima, elevada o sobrecarga.
 - Total consultas SEGUIMIENTO atendidas: ${data.teamSummary.totalConsultas}
 
 RANKING DE CUMPLIMIENTO (de mayor a menor):
@@ -183,7 +191,15 @@ export async function POST(request: NextRequest) {
   const month = parseInt(monthStr);
   const { start, end } = monthBounds(year, month);
 
-  const { start: cargaStart, end: cargaEnd, baseHours: monthlyBaseHours, hoursPerDay } = await monthlyBusinessBase(year, month);
+  const {
+    start: cargaStart,
+    end: cargaEnd,
+    baseHours: monthlyBaseHours,
+    hoursPerDay,
+    tolerancePerDay,
+    toleranceHours,
+    elevatedBandHours,
+  } = await monthlyBusinessBase(year, month);
   const { start: cargaRealStart } = businessDayRealRange(cargaStart);
   const { end: cargaRealEnd } = businessDayRealRange(cargaEnd);
 
@@ -249,6 +265,7 @@ export async function POST(request: NextRequest) {
       activitiesForCarga.filter((a) => a.authorId === user.id).reduce((s, a) => s + a.duration, 0) / 60;
     const cargaRealHours = Math.round((fijaHours + activityHours) * 100) / 100;
     const cargaPct = monthlyBaseHours > 0 ? Math.round((cargaRealHours / monthlyBaseHours) * 100) : 0;
+    const cargaRange = computeWorkloadRange(cargaRealHours, monthlyBaseHours, toleranceHours, elevatedBandHours);
 
     const inProgress = tasks.filter((t) => t.status === "EN_PROGRESO");
     const avgProgress =
@@ -288,6 +305,10 @@ export async function POST(request: NextRequest) {
       cargaPct,
       cargaRealHours,
       cargaBaseHours: monthlyBaseHours,
+      cargaColor: cargaRange.color,
+      cargaLabel: cargaRange.label,
+      cargaRangeMin: cargaRange.min,
+      cargaRangeMax: cargaRange.max,
       totalTasks: tasks.length,
       completedTasks: completed,
       overdueCount: overdue,
@@ -334,10 +355,14 @@ export async function POST(request: NextRequest) {
     if (m.completedPct < 60 && m.totalTasks > 0) {
       alerts.push({ userId: m.id, name: m.name, type: "cumplimiento", value: m.completedPct });
     }
-    if (m.cargaPct > 120) {
+    if (m.cargaLabel === "Sobrecarga") {
       alerts.push({ userId: m.id, name: m.name, type: "sobrecarga", value: m.cargaPct });
     }
   }
+
+  // Rango óptimo configurado (por persona, no sumado al equipo) para que la
+  // UI y el análisis de IA den contexto de qué significa el % de carga.
+  const cargaRangePerPerson = computeWorkloadRange(0, monthlyBaseHours, toleranceHours, elevatedBandHours);
 
   const reportData: ReportData = {
     month: monthParam,
@@ -351,6 +376,9 @@ export async function POST(request: NextRequest) {
       totalConsultas,
       totalTasks,
       hoursPerDay,
+      workloadTolerance: tolerancePerDay,
+      cargaRangeMin: cargaRangePerPerson.min,
+      cargaRangeMax: cargaRangePerPerson.max,
     },
     members,
     ranking,

@@ -1,5 +1,8 @@
 export type KpiColor = "green" | "yellow" | "red";
 
+/** Etiqueta del semáforo de carga laboral por rango (base ± tolerancia configurable). */
+export type WorkloadLabel = "Subutilización" | "Óptimo" | "Carga elevada" | "Sobrecarga";
+
 export type ReportMemberKpi = {
   id: string;
   name: string;
@@ -9,6 +12,10 @@ export type ReportMemberKpi = {
   cargaPct: number;
   cargaRealHours: number;
   cargaBaseHours: number;
+  cargaColor: KpiColor;
+  cargaLabel: WorkloadLabel;
+  cargaRangeMin: number;
+  cargaRangeMax: number;
   totalTasks: number;
   completedTasks: number;
   overdueCount: number;
@@ -27,6 +34,10 @@ export type ReportData = {
     totalCompletedTasks: number;
     totalConsultas: number;
     totalTasks: number;
+    hoursPerDay: number;
+    workloadTolerance: number;
+    cargaRangeMin: number;
+    cargaRangeMax: number;
   };
   members: ReportMemberKpi[];
   ranking: Array<{ id: string; name: string; role: string; score: number; completedPct: number }>;
@@ -63,6 +74,8 @@ export type MonthSnapshot = {
     role: string;
     completedPct: number;
     cargaPct: number;
+    cargaColor: KpiColor;
+    cargaLabel: WorkloadLabel;
     score: number;
     totalTasks: number;
   }>;
@@ -82,6 +95,9 @@ export type RangeReportData = {
       totalCargaRealHours: number;
       totalCargaBaseHours: number;
       totalConsultas: number;
+      workloadTolerance: number;
+      cargaRangeMin: number;
+      cargaRangeMax: number;
     };
     members: ReportMemberKpi[];
     ranking: Array<{ id: string; name: string; role: string; avgScore: number; avgCumplimiento: number }>;
@@ -117,12 +133,21 @@ export type KpiByReason = {
   avgMinutes: number;
 };
 
-export type WorkloadMetric = { realHours: number; baseHours: number; pct: number; color: KpiColor };
+export type WorkloadMetric = {
+  realHours: number;
+  baseHours: number;
+  pct: number;
+  color: KpiColor;
+  rangeMin: number;
+  rangeMax: number;
+  label: WorkloadLabel;
+};
 export type CargaTiempo = {
   diaria: WorkloadMetric;
   semanal: WorkloadMetric & { weekStartLabel: string; weekEndLabel: string; businessDays: number };
   mensual: WorkloadMetric & { monthLabel: string; businessDays: number };
   horasEfectivasPorDia: number;
+  workloadTolerance: number;
 };
 
 export type KpiData = {

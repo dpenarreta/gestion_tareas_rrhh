@@ -1,22 +1,10 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { businessCalendarDay, businessDayRealRange } from "@/lib/businessTime";
-import { getEffectiveHorasEfectivas } from "@/lib/systemConfig";
-import type { KpiColor } from "@/components/kpis/types";
+import { getEffectiveHorasEfectivas, getEffectiveWorkloadTolerance } from "@/lib/systemConfig";
+import type { KpiColor, WorkloadMetric, WorkloadLabel, CargaTiempo } from "@/components/kpis/types";
 
-export type WorkloadMetric = {
-  realHours: number;
-  baseHours: number;
-  pct: number;
-  color: KpiColor;
-};
-
-export type CargaTiempo = {
-  diaria: WorkloadMetric;
-  semanal: WorkloadMetric & { weekStartLabel: string; weekEndLabel: string; businessDays: number };
-  mensual: WorkloadMetric & { monthLabel: string; businessDays: number };
-  horasEfectivasPorDia: number;
-};
+export type { WorkloadMetric, CargaTiempo };
 
 const MONTH_NAMES = [
   "enero", "febrero", "marzo", "abril", "mayo", "junio",
@@ -62,14 +50,44 @@ function formatMonthLabel(d: Date): string {
   return `${MONTH_NAMES[d.getUTCMonth()]} ${d.getUTCFullYear()}`;
 }
 
-function workloadColor(pct: number, baseHours: number, realHours: number): KpiColor {
-  if (baseHours === 0) {
-    return realHours > 0 ? "yellow" : "green";
+export type WorkloadRange = {
+  min: number;
+  max: number;
+  elevatedMax: number;
+  color: KpiColor;
+  label: WorkloadLabel;
+};
+
+/**
+ * Semáforo de carga laboral por RANGO (no un punto exacto de 100%):
+ *   🔴 Subutilización : realHours <  base - tolerancia
+ *   🟢 Óptimo         : base - tolerancia <= realHours <= base + tolerancia
+ *   🟡 Carga elevada  : base + tolerancia <  realHours <= base + tolerancia + elevatedBandHours
+ *   🔴 Sobrecarga     : realHours > base + tolerancia + elevatedBandHours
+ *
+ * `toleranceHours` y `elevatedBandHours` ya vienen escalados por quien llama
+ * (p. ej. tolerancia diaria × días hábiles del período), para que el rango
+ * crezca proporcionalmente en vistas semanales/mensuales en vez de usar una
+ * tolerancia absoluta fija sin sentido a esa escala.
+ */
+export function computeWorkloadRange(
+  realHours: number,
+  baseHours: number,
+  toleranceHours: number,
+  elevatedBandHours: number,
+): WorkloadRange {
+  if (baseHours <= 0) {
+    return realHours > 0
+      ? { min: 0, max: 0, elevatedMax: 0, color: "yellow", label: "Carga elevada" }
+      : { min: 0, max: 0, elevatedMax: 0, color: "green", label: "Óptimo" };
   }
-  if (pct > 120) return "red";
-  if (pct >= 100) return "yellow";
-  if (pct >= 60) return "green";
-  return "red";
+  const min = Math.round((baseHours - toleranceHours) * 100) / 100;
+  const max = Math.round((baseHours + toleranceHours) * 100) / 100;
+  const elevatedMax = Math.round((max + elevatedBandHours) * 100) / 100;
+  if (realHours < min) return { min, max, elevatedMax, color: "red", label: "Subutilización" };
+  if (realHours <= max) return { min, max, elevatedMax, color: "green", label: "Óptimo" };
+  if (realHours <= elevatedMax) return { min, max, elevatedMax, color: "yellow", label: "Carga elevada" };
+  return { min, max, elevatedMax, color: "red", label: "Sobrecarga" };
 }
 
 function utcDayStart(d: Date) {
@@ -97,14 +115,35 @@ function utcMonthEnd(d: Date) {
  * calendar month — for historical/report contexts where the month is given
  * directly (no "now" ambiguity, so no business-timezone shift is needed).
  */
-export async function monthlyBusinessBase(year: number, month: number): Promise<{ start: Date; end: Date; businessDays: number; baseHours: number; hoursPerDay: number }> {
+export async function monthlyBusinessBase(year: number, month: number): Promise<{
+  start: Date;
+  end: Date;
+  businessDays: number;
+  baseHours: number;
+  hoursPerDay: number;
+  tolerancePerDay: number;
+  toleranceHours: number;
+  elevatedBandHours: number;
+}> {
   const start = new Date(Date.UTC(year, month - 1, 1));
   const end = new Date(Date.UTC(year, month, 1) - 1);
   const businessDays = countBusinessDays(start, end);
   // El valor vigente al INICIO del mes es el que rigió ese período — así cambios
   // de configuración posteriores no alteran KPIs de meses ya cerrados.
-  const hoursPerDay = await getEffectiveHorasEfectivas(start);
-  return { start, end, businessDays, baseHours: businessDays * hoursPerDay, hoursPerDay };
+  const [hoursPerDay, tolerancePerDay] = await Promise.all([
+    getEffectiveHorasEfectivas(start),
+    getEffectiveWorkloadTolerance(start),
+  ]);
+  return {
+    start,
+    end,
+    businessDays,
+    baseHours: businessDays * hoursPerDay,
+    hoursPerDay,
+    tolerancePerDay,
+    toleranceHours: businessDays * tolerancePerDay,
+    elevatedBandHours: businessDays * 1,
+  };
 }
 
 async function realHoursInWindow(userId: string, calStart: Date, calEnd: Date): Promise<number> {
@@ -132,10 +171,25 @@ async function realHoursInWindow(userId: string, calStart: Date, calEnd: Date): 
   return Math.round((fijaHours + activityHours) * 100) / 100;
 }
 
-function toMetric(realHours: number, baseHours: number, hoursPerDay: number): WorkloadMetric {
+function toMetric(
+  realHours: number,
+  baseHours: number,
+  hoursPerDay: number,
+  toleranceHours: number,
+  elevatedBandHours: number,
+): WorkloadMetric {
   const divisor = baseHours > 0 ? baseHours : hoursPerDay;
   const pct = Math.round((realHours / divisor) * 100);
-  return { realHours, baseHours, pct, color: workloadColor(pct, baseHours, realHours) };
+  const range = computeWorkloadRange(realHours, baseHours, toleranceHours, elevatedBandHours);
+  return {
+    realHours,
+    baseHours,
+    pct,
+    color: range.color,
+    rangeMin: range.min,
+    rangeMax: range.max,
+    label: range.label,
+  };
 }
 
 export async function computeCargaTiempo(userId: string, now: Date = new Date()): Promise<CargaTiempo> {
@@ -152,7 +206,10 @@ export async function computeCargaTiempo(userId: string, now: Date = new Date())
   // histórico), así que las tres usan el valor vigente ahora mismo — comparar
   // contra el instante real (no medianoche del día) para que un cambio de
   // configuración hecho hoy se refleje de inmediato.
-  const hoursPerDay = await getEffectiveHorasEfectivas(now);
+  const [hoursPerDay, tolerancePerDay] = await Promise.all([
+    getEffectiveHorasEfectivas(now),
+    getEffectiveWorkloadTolerance(now),
+  ]);
 
   const dailyBaseHours = isBusinessDay(today) ? hoursPerDay : 0;
   const weeklyBusinessDays = countBusinessDays(weekStart, weekEnd);
@@ -170,18 +227,19 @@ export async function computeCargaTiempo(userId: string, now: Date = new Date())
   const weekBizEnd = lastBusinessDay(weekStart, weekEnd) ?? weekEnd;
 
   return {
-    diaria: toMetric(diariaHours, dailyBaseHours, hoursPerDay),
+    diaria: toMetric(diariaHours, dailyBaseHours, hoursPerDay, tolerancePerDay, 1),
     semanal: {
-      ...toMetric(semanalHours, weeklyBaseHours, hoursPerDay),
+      ...toMetric(semanalHours, weeklyBaseHours, hoursPerDay, tolerancePerDay * weeklyBusinessDays, weeklyBusinessDays),
       weekStartLabel: formatShortDate(weekBizStart),
       weekEndLabel: formatShortDate(weekBizEnd),
       businessDays: weeklyBusinessDays,
     },
     mensual: {
-      ...toMetric(mensualHours, monthlyBaseHours, hoursPerDay),
+      ...toMetric(mensualHours, monthlyBaseHours, hoursPerDay, tolerancePerDay * monthlyBusinessDays, monthlyBusinessDays),
       monthLabel: formatMonthLabel(today),
       businessDays: monthlyBusinessDays,
     },
     horasEfectivasPorDia: hoursPerDay,
+    workloadTolerance: tolerancePerDay,
   };
 }

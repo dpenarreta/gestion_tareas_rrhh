@@ -34,9 +34,13 @@ function Tile({
         <span className="text-xs font-medium text-secondary">{label}</span>
         <span className={`w-2 h-2 rounded-full shrink-0 ${COLOR_DOT[metric.color]}`} />
       </div>
-      <p className={`text-2xl font-bold ${COLOR_TEXT[metric.color]}`}>{metric.pct}%</p>
-      <p className="text-[11px] text-secondary mt-0.5">
-        {hoursToDisplay(metric.realHours)}h de {hoursToDisplay(metric.baseHours)}h
+      <p className={`text-lg font-bold ${COLOR_TEXT[metric.color]}`}>
+        {hoursToDisplay(metric.realHours)}h <span className="text-sm font-semibold">— {metric.label}</span>
+      </p>
+      <p className="text-[11px] text-secondary mt-1">
+        {metric.baseHours > 0
+          ? `rango óptimo ${hoursToDisplay(metric.rangeMin)}-${hoursToDisplay(metric.rangeMax)}h · ${metric.pct}%`
+          : `${metric.pct}%`}
       </p>
       <p className="text-[10px] text-disabled mt-0.5">{periodLabel}</p>
     </div>
@@ -44,7 +48,7 @@ function Tile({
 }
 
 export default function WorkloadCard({ cargaTiempo }: { cargaTiempo: CargaTiempo }) {
-  const { diaria, semanal, mensual, horasEfectivasPorDia } = cargaTiempo;
+  const { diaria, semanal, mensual, horasEfectivasPorDia, workloadTolerance } = cargaTiempo;
 
   return (
     <div className="bg-surface rounded-[14px] border border-border shadow-[var(--shadow)] p-5">
@@ -53,7 +57,7 @@ export default function WorkloadCard({ cargaTiempo }: { cargaTiempo: CargaTiempo
           Carga laboral (horas reales)
         </h3>
         <span className="text-[10px] text-disabled bg-background border border-border px-2 py-0.5 rounded-full">
-          {hoursToDisplay(horasEfectivasPorDia)}h efectivas/día
+          {hoursToDisplay(horasEfectivasPorDia)}h efectivas/día · tolerancia ±{hoursToDisplay(workloadTolerance)}h
         </span>
       </div>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">

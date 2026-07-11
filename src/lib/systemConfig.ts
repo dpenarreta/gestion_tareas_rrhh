@@ -4,6 +4,9 @@ import { prisma } from "@/lib/prisma";
 export const CONFIG_KEY_HORAS_EFECTIVAS = "HORAS_EFECTIVAS_DIA";
 export const DEFAULT_HORAS_EFECTIVAS = 6.5;
 
+export const CONFIG_KEY_WORKLOAD_TOLERANCE = "workload_tolerance";
+export const DEFAULT_WORKLOAD_TOLERANCE = 1.0;
+
 /** Value in effect for `key` at `asOf` (defaults to now). Falls back to `fallback` if no history exists yet. */
 export async function getEffectiveConfigValue(
   key: string,
@@ -25,6 +28,10 @@ export async function getEffectiveConfigValue(
 
 export async function getEffectiveHorasEfectivas(asOf: Date = new Date()): Promise<number> {
   return getEffectiveConfigValue(CONFIG_KEY_HORAS_EFECTIVAS, asOf, DEFAULT_HORAS_EFECTIVAS);
+}
+
+export async function getEffectiveWorkloadTolerance(asOf: Date = new Date()): Promise<number> {
+  return getEffectiveConfigValue(CONFIG_KEY_WORKLOAD_TOLERANCE, asOf, DEFAULT_WORKLOAD_TOLERANCE);
 }
 
 /** Closes the currently-open history record (if any) and opens a new one, effective now. */

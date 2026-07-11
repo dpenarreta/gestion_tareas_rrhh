@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { isTaskOverdue } from "@/lib/utils";
+import { monthlyBusinessBase, computeWorkloadRange } from "@/lib/workload";
+import { businessDayRealRange } from "@/lib/businessTime";
 
 function monthBounds(year: number, month: number) {
   return {
@@ -52,7 +54,23 @@ export async function GET(request: NextRequest) {
   const rangeStart = monthBounds(fy, fm).start;
   const rangeEnd = monthBounds(ty, tm).end;
 
-  const [allTasks, allActivities, fijaCompletedTasks] = await Promise.all([
+  // Base dinámica de carga (días hábiles × horas efectivas/tolerancia vigentes
+  // en cada mes) — el mismo mecanismo que /api/reports/range, para que "Mi
+  // actividad" muestre el semáforo por rango, no solo el ratio real/estimado.
+  const monthBusinessInfo = await Promise.all(
+    months.map(async ({ year, month }) => {
+      const monthStr = `${year}-${String(month).padStart(2, "0")}`;
+      const { start: cargaStart, end: cargaEnd, baseHours, toleranceHours, elevatedBandHours } =
+        await monthlyBusinessBase(year, month);
+      const { start: realStart } = businessDayRealRange(cargaStart);
+      const { end: realEnd } = businessDayRealRange(cargaEnd);
+      return { monthStr, realStart, realEnd, baseHours, toleranceHours, elevatedBandHours };
+    }),
+  );
+  const rangeRealStart = monthBusinessInfo[0].realStart;
+  const rangeRealEnd = monthBusinessInfo[monthBusinessInfo.length - 1].realEnd;
+
+  const [allTasks, allActivities, fijaCompletedTasks, fijaTasksForCarga, activitiesForCarga] = await Promise.all([
     prisma.task.findMany({
       where: { assignedToId: userId, endDate: { gte: rangeStart, lte: rangeEnd } },
       select: {
@@ -76,6 +94,14 @@ export async function GET(request: NextRequest) {
       where: { assignedToId: userId, type: "FIJA", completedAt: { gte: rangeStart, lte: rangeEnd } },
       select: { completedAt: true, realHours: true },
     }),
+    prisma.task.findMany({
+      where: { assignedToId: userId, type: "FIJA", completedAt: { gte: rangeRealStart, lte: rangeRealEnd } },
+      select: { completedAt: true, realHours: true },
+    }),
+    prisma.taskActivity.findMany({
+      where: { authorId: userId, createdAt: { gte: rangeRealStart, lte: rangeRealEnd } },
+      select: { duration: true, createdAt: true },
+    }),
   ]);
 
   const now = new Date();
@@ -84,6 +110,7 @@ export async function GET(request: NextRequest) {
     const { start, end } = monthBounds(year, month);
     const refDate = end < now ? end : now;
     const monthStr = `${year}-${String(month).padStart(2, "0")}`;
+    const bizInfo = monthBusinessInfo.find((b) => b.monthStr === monthStr)!;
 
     const tasks = allTasks.filter((t) => t.endDate >= start && t.endDate <= end);
     const activities = allActivities.filter((a) => a.createdAt >= start && a.createdAt <= end);
@@ -119,6 +146,22 @@ export async function GET(request: NextRequest) {
     // Flag if this month had no real deadline tasks
     const overdueCount = tasks.filter((t) => isTaskOverdue(t.endDate, t.status, refDate)).length;
 
+    // Carga laboral por rango (base = días hábiles × horas efectivas vigentes ese mes)
+    const monthFijaCarga = fijaTasksForCarga.filter(
+      (t) => t.completedAt! >= bizInfo.realStart && t.completedAt! <= bizInfo.realEnd,
+    );
+    const monthActsCarga = activitiesForCarga.filter(
+      (a) => a.createdAt >= bizInfo.realStart && a.createdAt <= bizInfo.realEnd,
+    );
+    const cargaRealHours = Math.round(
+      (monthFijaCarga.reduce((s, t) => s + t.realHours, 0) +
+        monthActsCarga.reduce((s, a) => s + a.duration, 0) / 60) *
+        100,
+    ) / 100;
+    const cargaBaseHours = bizInfo.baseHours;
+    const cargaPct = cargaBaseHours > 0 ? Math.round((cargaRealHours / cargaBaseHours) * 100) : 0;
+    const cargaRange = computeWorkloadRange(cargaRealHours, cargaBaseHours, bizInfo.toleranceHours, bizInfo.elevatedBandHours);
+
     return {
       month: monthStr,
       label: monthLabel(year, month),
@@ -130,6 +173,13 @@ export async function GET(request: NextRequest) {
       estimatedHours: Math.round(totalEstimated * 100) / 100,
       seguimientoTotal: activities.length,
       score,
+      cargaRealHours,
+      cargaBaseHours,
+      cargaPct,
+      cargaColor: cargaRange.color,
+      cargaLabel: cargaRange.label,
+      cargaRangeMin: cargaRange.min,
+      cargaRangeMax: cargaRange.max,
     };
   });
 
@@ -150,6 +200,15 @@ export async function GET(request: NextRequest) {
   const totalEstimatedHours =
     Math.round(monthSnapshots.reduce((s, m) => s + m.estimatedHours, 0) * 100) / 100;
   const totalSeguimiento = monthSnapshots.reduce((s, m) => s + m.seguimientoTotal, 0);
+
+  // Carga laboral acumulada del rango (base/tolerancia sumadas mes a mes, ya
+  // que ambas pueden variar de un mes a otro si cambió la configuración).
+  const totalCargaRealHours = Math.round(monthSnapshots.reduce((s, m) => s + m.cargaRealHours, 0) * 100) / 100;
+  const totalCargaBaseHours = Math.round(monthBusinessInfo.reduce((s, b) => s + b.baseHours, 0) * 100) / 100;
+  const totalToleranceHours = monthBusinessInfo.reduce((s, b) => s + b.toleranceHours, 0);
+  const totalElevatedBandHours = monthBusinessInfo.reduce((s, b) => s + b.elevatedBandHours, 0);
+  const avgCargaPct = totalCargaBaseHours > 0 ? Math.round((totalCargaRealHours / totalCargaBaseHours) * 100) : 0;
+  const cargaRangeAgg = computeWorkloadRange(totalCargaRealHours, totalCargaBaseHours, totalToleranceHours, totalElevatedBandHours);
 
   const byReasonMap: Record<string, { count: number; totalMinutes: number }> = {};
   for (const act of allActivities) {
@@ -184,6 +243,13 @@ export async function GET(request: NextRequest) {
         totalEstimatedHours,
         totalSeguimiento,
         consultasByReason,
+        totalCargaRealHours,
+        totalCargaBaseHours,
+        avgCargaPct,
+        cargaColor: cargaRangeAgg.color,
+        cargaLabel: cargaRangeAgg.label,
+        cargaRangeMin: cargaRangeAgg.min,
+        cargaRangeMax: cargaRangeAgg.max,
       },
       trends: {
         cumplimientoTrend: trend as "mejora" | "deterioro" | "estancamiento",

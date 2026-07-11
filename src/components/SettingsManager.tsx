@@ -96,6 +96,8 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
   // Configuración de carga laboral
   const [hoursPerDay, setHoursPerDay] = useState<number | null>(null);
   const [hoursInput, setHoursInput] = useState("6.30");
+  const [workloadTolerance, setWorkloadTolerance] = useState<number | null>(null);
+  const [toleranceInput, setToleranceInput] = useState("1.00");
   const [hoursLoading, setHoursLoading] = useState(true);
   const [hoursSaving, setHoursSaving] = useState(false);
   const [hoursMsg, setHoursMsg] = useState<string | null>(null);
@@ -139,6 +141,8 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
         const data = await res.json();
         setHoursPerDay(data.hoursPerDay);
         setHoursInput(hoursToDisplay(data.hoursPerDay));
+        setWorkloadTolerance(data.workloadTolerance);
+        setToleranceInput(hoursToDisplay(data.workloadTolerance));
       }
     } finally {
       setHoursLoading(false);
@@ -167,17 +171,18 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
   async function handleSaveHours() {
     setHoursMsg(null);
     setHoursError(null);
-    if (!validateDisplayHours(hoursInput)) {
+    if (!validateDisplayHours(hoursInput) || !validateDisplayHours(toleranceInput)) {
       setHoursError(INVALID_HOURS_MESSAGE);
       return;
     }
-    const value = displayToHours(hoursInput);
+    const hoursValue = displayToHours(hoursInput);
+    const toleranceValue = displayToHours(toleranceInput);
     setHoursSaving(true);
     try {
       const res = await fetch("/api/settings/workload-config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hoursPerDay: value }),
+        body: JSON.stringify({ hoursPerDay: hoursValue, workloadTolerance: toleranceValue }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -185,6 +190,8 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
       } else {
         setHoursPerDay(data.hoursPerDay);
         setHoursInput(hoursToDisplay(data.hoursPerDay));
+        setWorkloadTolerance(data.workloadTolerance);
+        setToleranceInput(hoursToDisplay(data.workloadTolerance));
         setHoursMsg("Configuración de carga laboral actualizada.");
       }
     } catch {
@@ -500,33 +507,45 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
                 Define las horas de trabajo efectivo por día, descontando pausas naturales. Las horas semanales y
                 mensuales se calculan automáticamente.
               </p>
-              <div className="flex items-center gap-3 pt-1">
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={hoursInput}
-                  onChange={(e) => setHoursInput(e.target.value)}
-                  placeholder="ej: 6.30 = 6h 30min"
-                  className="w-32 border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
-                />
-                <button
-                  onClick={handleSaveHours}
-                  disabled={hoursSaving || (validateDisplayHours(hoursInput) && displayToHours(hoursInput) === hoursPerDay)}
-                  className="px-4 py-2 bg-primary text-white font-medium rounded-lg text-sm hover:bg-primary-hover disabled:opacity-50 transition-colors"
-                >
-                  {hoursSaving ? "Guardando…" : "Guardar configuración"}
-                </button>
-              </div>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={hoursInput}
+                onChange={(e) => setHoursInput(e.target.value)}
+                placeholder="ej: 6.30 = 6h 30min"
+                className="w-32 border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+              />
             </div>
+
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-title">Tolerancia del rango óptimo</label>
+              <p className="text-xs text-secondary">
+                Margen de variación aceptable alrededor de las horas efectivas. Con base 6.30 y tolerancia 1.00, el
+                rango óptimo será de 5.30 a 7.30.
+              </p>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={toleranceInput}
+                onChange={(e) => setToleranceInput(e.target.value)}
+                placeholder="ej: 1.00 = 1h de margen"
+                className="w-32 border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+            </div>
+
             {(() => {
-              if (!validateDisplayHours(hoursInput)) return null;
+              if (!validateDisplayHours(hoursInput) || !validateDisplayHours(toleranceInput)) return null;
               const preview = displayToHours(hoursInput);
+              const tolerancePreview = displayToHours(toleranceInput);
               if (preview < 4 || preview > 8) return null;
               const now = new Date();
               const bizDays = businessDaysInMonth(now.getFullYear(), now.getMonth() + 1);
               const monthLabel = now.toLocaleDateString("es-CL", { month: "long", year: "numeric" });
               return (
                 <div className="rounded-lg bg-background border border-border px-4 py-3 space-y-1 text-sm text-secondary">
+                  <p>
+                    Rango óptimo: <span className="font-medium text-title">{hoursToDisplay(Math.max(0, preview - tolerancePreview))} a {hoursToDisplay(preview + tolerancePreview)}</span>
+                  </p>
                   <p>Horas semanales: <span className="font-medium text-title">{hoursToDisplay(preview * 5)} horas</span> (5 días × {hoursToDisplay(preview)}h)</p>
                   <p>
                     Horas mensuales: varía según días laborables (ej: {monthLabel} = {bizDays} días ×{" "}
@@ -535,6 +554,20 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
                 </div>
               );
             })()}
+
+            <button
+              onClick={handleSaveHours}
+              disabled={
+                hoursSaving ||
+                (validateDisplayHours(hoursInput) &&
+                  validateDisplayHours(toleranceInput) &&
+                  displayToHours(hoursInput) === hoursPerDay &&
+                  displayToHours(toleranceInput) === workloadTolerance)
+              }
+              className="px-4 py-2 bg-primary text-white font-medium rounded-lg text-sm hover:bg-primary-hover disabled:opacity-50 transition-colors"
+            >
+              {hoursSaving ? "Guardando…" : "Guardar configuración"}
+            </button>
           </>
         )}
       </SectionCard>

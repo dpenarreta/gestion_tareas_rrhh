@@ -7,7 +7,7 @@ import {
 } from "recharts";
 import type { Role } from "@/generated/prisma/client";
 import { ROLE_LABEL } from "@/lib/roles";
-import type { MonthlyReportSummary, MonthlyReportFull, ReportData, RangeReportData } from "./types";
+import type { MonthlyReportSummary, MonthlyReportFull, ReportData, RangeReportData, KpiColor } from "./types";
 import * as XLSX from "xlsx";
 import { formatDate } from "@/lib/utils";
 import { hoursToDisplay } from "@/lib/timeFormat";
@@ -47,16 +47,17 @@ function formatMonthLabel(monthParam: string) {
   return formatMonthYear(m, y);
 }
 
-function colorDot(pct: number, type: "cumplimiento" | "carga" = "cumplimiento") {
-  if (type === "carga") {
-    if (pct <= 100) return "bg-success";
-    if (pct <= 120) return "bg-warning";
-    return "bg-danger";
-  }
+function colorDot(pct: number) {
   if (pct >= 80) return "bg-success";
   if (pct >= 60) return "bg-warning";
   return "bg-danger";
 }
+
+const KPI_COLOR_DOT: Record<KpiColor, string> = {
+  green: "bg-success",
+  yellow: "bg-warning",
+  red: "bg-danger",
+};
 
 // ── Excel export ──────────────────────────────────────────────────────────────
 
@@ -76,6 +77,7 @@ function downloadReportExcel(report: MonthlyReportFull) {
     ["Promedio de cumplimiento", `${data.teamSummary.avgCumplimiento}%`],
     ["Total tareas completadas", `${data.teamSummary.totalCompletedTasks} / ${data.teamSummary.totalTasks}`],
     ["Carga laboral del equipo", `${data.teamSummary.avgCargaPct}% (${hoursToDisplay(data.teamSummary.totalCargaRealHours)}h de ${hoursToDisplay(data.teamSummary.totalCargaBaseHours)}h base)`],
+    ["Rango óptimo configurado (por persona)", `${hoursToDisplay(data.teamSummary.cargaRangeMin)}h a ${hoursToDisplay(data.teamSummary.cargaRangeMax)}h (tolerancia ${hoursToDisplay(data.teamSummary.workloadTolerance)}h)`],
     ["Total consultas SEGUIMIENTO", data.teamSummary.totalConsultas],
     [""],
     ["ALERTAS", ""],
@@ -101,13 +103,14 @@ function downloadReportExcel(report: MonthlyReportFull) {
 
   // Sheet 3: Detail per person
   const detailRows = [
-    ["Nombre", "Cargo", "Score", "Cumplimiento%", "Carga%", "Tareas", "Completadas", "Vencidas", "Horas reales", "Base (h)", "Consultas"],
+    ["Nombre", "Cargo", "Score", "Cumplimiento%", "Carga%", "Carga (rango)", "Tareas", "Completadas", "Vencidas", "Horas reales", "Base (h)", "Consultas"],
     ...data.members.map((m) => [
       m.name,
       ROLE_LABEL[m.role as Role] ?? m.role,
       m.score,
       m.completedPct,
       m.cargaPct,
+      m.cargaLabel,
       m.totalTasks,
       m.completedTasks,
       m.overdueCount,
@@ -257,6 +260,10 @@ function downloadReportPDF(report: MonthlyReportFull) {
       <div class="stat-label">Carga laboral del equipo</div>
       <div class="stat-value" style="font-size:16px">${data.teamSummary.avgCargaPct}%<span style="color:#94a3b8;font-size:12px"> (${hoursToDisplay(data.teamSummary.totalCargaRealHours)}h/${hoursToDisplay(data.teamSummary.totalCargaBaseHours)}h)</span></div>
     </div>
+    <div class="stat">
+      <div class="stat-label">Rango óptimo (por persona)</div>
+      <div class="stat-value" style="font-size:14px">${hoursToDisplay(data.teamSummary.cargaRangeMin)}h-${hoursToDisplay(data.teamSummary.cargaRangeMax)}h<span style="color:#94a3b8;font-size:11px"> (tolerancia ${hoursToDisplay(data.teamSummary.workloadTolerance)}h)</span></div>
+    </div>
   </div>
 
   <h2>Alertas</h2>
@@ -378,6 +385,7 @@ function downloadRangeExcel(data: RangeReportData) {
     ["Cumplimiento promedio", `${data.aggregated.teamSummary.avgCumplimiento}%`],
     ["Tareas completadas", `${data.aggregated.teamSummary.totalCompletedTasks} / ${data.aggregated.teamSummary.totalTasks}`],
     ["Carga laboral acumulada", `${data.aggregated.teamSummary.avgCargaPct}% (${hoursToDisplay(data.aggregated.teamSummary.totalCargaRealHours)}h de ${hoursToDisplay(data.aggregated.teamSummary.totalCargaBaseHours)}h base)`],
+    ["Rango óptimo configurado (por persona)", `${hoursToDisplay(data.aggregated.teamSummary.cargaRangeMin)}h a ${hoursToDisplay(data.aggregated.teamSummary.cargaRangeMax)}h (tolerancia ${hoursToDisplay(data.aggregated.teamSummary.workloadTolerance)}h)`],
     ["Total consultas SEGUIMIENTO", data.aggregated.teamSummary.totalConsultas],
     [""],
     ["TENDENCIA", ""],
@@ -410,10 +418,10 @@ function downloadRangeExcel(data: RangeReportData) {
 
   // Sheet 4: Detail per person
   const detailRows = [
-    ["Nombre", "Cargo", "Score prom.", "Cumpl.%", "Carga%", "Tareas", "Compl.", "Horas reales", "Base (h)", "Consultas"],
+    ["Nombre", "Cargo", "Score prom.", "Cumpl.%", "Carga%", "Carga (rango)", "Tareas", "Compl.", "Horas reales", "Base (h)", "Consultas"],
     ...data.aggregated.members.map((m) => [
       m.name, ROLE_LABEL[m.role as Role] ?? m.role, m.score, m.completedPct,
-      m.cargaPct, m.totalTasks, m.completedTasks, hoursToDisplay(m.cargaRealHours), hoursToDisplay(m.cargaBaseHours), m.seguimientoTotal,
+      m.cargaPct, m.cargaLabel, m.totalTasks, m.completedTasks, hoursToDisplay(m.cargaRealHours), hoursToDisplay(m.cargaBaseHours), m.seguimientoTotal,
     ]),
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(detailRows), "Detalle");
@@ -507,6 +515,7 @@ function downloadRangePDF(data: RangeReportData) {
     <div class="stat"><div class="stat-label">Cumplimiento prom.</div><div class="stat-value">${data.aggregated.teamSummary.avgCumplimiento}%</div></div>
     <div class="stat"><div class="stat-label">Tareas completadas</div><div class="stat-value">${data.aggregated.teamSummary.totalCompletedTasks}<span style="font-size:12px;color:#94a3b8">/${data.aggregated.teamSummary.totalTasks}</span></div></div>
     <div class="stat"><div class="stat-label">Carga laboral acumulada</div><div class="stat-value" style="font-size:14px">${data.aggregated.teamSummary.avgCargaPct}%<span style="color:#94a3b8;font-size:11px"> (${hoursToDisplay(data.aggregated.teamSummary.totalCargaRealHours)}h/${hoursToDisplay(data.aggregated.teamSummary.totalCargaBaseHours)}h)</span></div></div>
+    <div class="stat"><div class="stat-label">Rango óptimo (por persona)</div><div class="stat-value" style="font-size:13px">${hoursToDisplay(data.aggregated.teamSummary.cargaRangeMin)}h-${hoursToDisplay(data.aggregated.teamSummary.cargaRangeMax)}h</div></div>
   </div>
 
   <h2>Alertas Persistentes</h2>${alertsHtml}
@@ -789,6 +798,7 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                 <MetricStat label="Cumplimiento promedio" value={`${rangeReport.aggregated.teamSummary.avgCumplimiento}%`} sub={`${rangeReport.months.length} meses`} accent />
                 <MetricStat label="Tareas completadas" value={`${rangeReport.aggregated.teamSummary.totalCompletedTasks}`} sub={`de ${rangeReport.aggregated.teamSummary.totalTasks} totales`} />
                 <MetricStat label="Carga laboral acumulada" value={`${rangeReport.aggregated.teamSummary.avgCargaPct}%`} sub={`${hoursToDisplay(rangeReport.aggregated.teamSummary.totalCargaRealHours)}h de ${hoursToDisplay(rangeReport.aggregated.teamSummary.totalCargaBaseHours)}h base`} />
+                <MetricStat label="Rango óptimo (por persona)" value={`${hoursToDisplay(rangeReport.aggregated.teamSummary.cargaRangeMin)}-${hoursToDisplay(rangeReport.aggregated.teamSummary.cargaRangeMax)}h`} sub={`tolerancia ±${hoursToDisplay(rangeReport.aggregated.teamSummary.workloadTolerance)}h`} />
                 <MetricStat label="Total consultas" value={`${rangeReport.aggregated.teamSummary.totalConsultas}`} sub="SEGUIMIENTO acumuladas" />
                 <MetricStat label="Alertas persistentes" value={`${rangeReport.aggregated.alerts.length}`} sub="personas con incidencia recurrente" />
                 <MetricStat label="Colaboradores" value={`${rangeReport.aggregated.members.length}`} sub="incluidos en el rango" />
@@ -1071,6 +1081,11 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                   sub={`${hoursToDisplay(data.teamSummary.totalCargaRealHours)}h de ${hoursToDisplay(data.teamSummary.totalCargaBaseHours)}h base`}
                 />
                 <MetricStat
+                  label="Rango óptimo (por persona)"
+                  value={`${hoursToDisplay(data.teamSummary.cargaRangeMin)}-${hoursToDisplay(data.teamSummary.cargaRangeMax)}h`}
+                  sub={`tolerancia ±${hoursToDisplay(data.teamSummary.workloadTolerance)}h`}
+                />
+                <MetricStat
                   label="Total consultas"
                   value={`${data.teamSummary.totalConsultas}`}
                   sub="SEGUIMIENTO acumuladas"
@@ -1200,9 +1215,9 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                             </span>
                           </td>
                           <td className="py-2.5 pr-4">
-                            <span className="flex items-center gap-1.5">
-                              <div className={`w-2 h-2 rounded-full ${colorDot(m.cargaPct, "carga")}`} />
-                              {m.cargaPct}%
+                            <span className="flex items-center gap-1.5" title={`Rango óptimo ${hoursToDisplay(m.cargaRangeMin)}-${hoursToDisplay(m.cargaRangeMax)}h`}>
+                              <div className={`w-2 h-2 rounded-full ${KPI_COLOR_DOT[m.cargaColor]}`} />
+                              {m.cargaPct}% <span className="text-disabled font-normal">· {m.cargaLabel}</span>
                             </span>
                           </td>
                           <td className="py-2.5 pr-4 text-main">{m.completedTasks}/{m.totalTasks}</td>
