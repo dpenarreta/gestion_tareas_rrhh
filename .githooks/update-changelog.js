@@ -15,6 +15,12 @@ const fs = require("fs");
 const path = require("path");
 const { execSync } = require("child_process");
 
+// Tipos de commit (convención "type(scope): subject" o "type: subject") que
+// no se registran en el Changelog por ser ruido de mantenimiento, no cambios
+// de producto.
+const SKIPPED_TYPES = ["chore", "docs"];
+const SKIP_PATTERN = new RegExp(`^(${SKIPPED_TYPES.join("|")})(\\(.+\\))?:`, "i");
+
 function main() {
   const repoRoot = execSync("git rev-parse --show-toplevel").toString().trim();
 
@@ -29,7 +35,7 @@ function main() {
   }
 
   const subject = execSync("git log -1 --format=%s").toString().trim();
-  if (!subject || subject.startsWith("Merge ")) return;
+  if (!subject || subject.startsWith("Merge ") || SKIP_PATTERN.test(subject)) return;
 
   const readmePath = path.join(repoRoot, "README.md");
   if (!fs.existsSync(readmePath)) return;
