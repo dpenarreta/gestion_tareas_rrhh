@@ -525,23 +525,12 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
                 <button onClick={() => setHoursError(null)} className="ml-2 text-danger hover:brightness-90 font-bold">×</button>
               </div>
             )}
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-title">Horas efectivas por día laboral</label>
-              <p className="text-xs text-secondary">
-                Define las horas de trabajo efectivo por día, descontando pausas naturales. Las horas semanales y
-                mensuales se calculan automáticamente.
-              </p>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={hoursInput}
-                onChange={(e) => setHoursInput(e.target.value)}
-                placeholder="ej: 6.30 = 6h 30min"
-                className="w-32 border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
-              />
-            </div>
+            <p className="text-xs text-secondary">
+              4 límites definen los 5 rangos del semáforo de carga laboral. Cada uno se guarda por separado y debe
+              mantener el orden: Subutilización &lt; Moderado/Óptimo &lt; Óptimo/Elevada &lt; Elevada/Sobrecarga.
+            </p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div className="space-y-1.5">
                 <label className="text-sm font-medium text-title">Límite Subutilización / Moderado</label>
                 <p className="text-xs text-secondary">Por debajo de este valor: Subutilización.</p>
@@ -551,6 +540,22 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
                   value={limitLowInput}
                   onChange={(e) => setLimitLowInput(e.target.value)}
                   placeholder="ej: 5.30"
+                  className="w-32 border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-title">Límite Rendimiento moderado / Rango óptimo</label>
+                <p className="text-xs text-secondary">
+                  Por encima de este valor comienza el Rango óptimo. También define las horas de trabajo efectivo
+                  por día (base para el cálculo semanal y mensual).
+                </p>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={hoursInput}
+                  onChange={(e) => setHoursInput(e.target.value)}
+                  placeholder="ej: 6.30 = 6h 30min"
                   className="w-32 border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
                 />
               </div>
@@ -606,15 +611,14 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
               const bizDays = businessDaysInMonth(now.getFullYear(), now.getMonth() + 1);
               const monthLabel = now.toLocaleDateString("es-CL", { month: "long", year: "numeric" });
               return (
-                <div className="rounded-lg bg-background border border-border px-4 py-3 space-y-1 text-sm text-secondary">
-                  <p>
-                    Rangos:{" "}
-                    <span className="font-medium text-title">
-                      Subutilización &lt;{hoursToDisplay(lowPreview)} | Moderado {hoursToDisplay(lowPreview)}-{hoursToDisplay(preview)} | Óptimo{" "}
-                      {hoursToDisplay(preview)}-{hoursToDisplay(highPreview)} | Elevada {hoursToDisplay(highPreview)}-{hoursToDisplay(overloadPreview)} | Sobrecarga &gt;{hoursToDisplay(overloadPreview)}
-                    </span>
-                  </p>
-                  <p>Horas semanales: <span className="font-medium text-title">{hoursToDisplay(preview * 5)} horas</span> (5 días × {hoursToDisplay(preview)}h)</p>
+                <div className="rounded-lg bg-background border border-border px-4 py-3 space-y-1.5 text-sm text-secondary">
+                  <p className="font-medium text-title">Rangos resultantes:</p>
+                  <p>🔴 Subutilización: menos de <span className="font-medium text-title">{hoursToDisplay(lowPreview)}</span></p>
+                  <p>🟡 Rendimiento moderado: de <span className="font-medium text-title">{hoursToDisplay(lowPreview)}</span> a <span className="font-medium text-title">{hoursToDisplay(preview)}</span></p>
+                  <p>🟢 Rango óptimo: de <span className="font-medium text-title">{hoursToDisplay(preview)}</span> a <span className="font-medium text-title">{hoursToDisplay(highPreview)}</span></p>
+                  <p>🟠 Carga elevada: de <span className="font-medium text-title">{hoursToDisplay(highPreview)}</span> a <span className="font-medium text-title">{hoursToDisplay(overloadPreview)}</span></p>
+                  <p>🔴 Sobrecarga: más de <span className="font-medium text-title">{hoursToDisplay(overloadPreview)}</span></p>
+                  <p className="pt-1.5 border-t border-border">Horas semanales: <span className="font-medium text-title">{hoursToDisplay(preview * 5)} horas</span> (5 días × {hoursToDisplay(preview)}h)</p>
                   <p>
                     Horas mensuales: varía según días laborables (ej: {monthLabel} = {bizDays} días ×{" "}
                     {hoursToDisplay(preview)}h = <span className="font-medium text-title">{hoursToDisplay(preview * bizDays)} horas</span>)

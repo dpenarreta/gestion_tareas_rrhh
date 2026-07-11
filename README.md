@@ -162,6 +162,7 @@ prisma/
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-11: feat(settings): mostrar el 4to limite de carga laboral (Moderado/Optimo) agrupado con los otros 3
 - 2026-07-11: fix(kpis): reemplazar tolerancia por 4 limites independientes y corregir clasificacion/porcentaje de carga laboral
 - 2026-07-11: fix(kpis): techo de 100% en porcentaje de carga dentro del rango optimo
 - 2026-07-11: fix(kpis): corregir superposicion de etiquetas y clipping en graficos de carga en mobile
