@@ -1,0 +1,4 @@
+# Los hooks de git deben mantener saltos de línea LF: un CRLF en la línea
+# shebang ("#!/bin/sh\r") rompe la ejecución del script en Linux/Mac.
+.githooks/* text eol=lf
+scripts/*.js text eol=lf

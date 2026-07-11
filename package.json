@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "seed": "tsx prisma/seed.ts",
-    "postinstall": "prisma generate"
+    "postinstall": "prisma generate && node scripts/setup-git-hooks.js"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"
