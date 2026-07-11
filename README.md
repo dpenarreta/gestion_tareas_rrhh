@@ -165,6 +165,7 @@ prisma/
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit._
 
+- 2026-07-11: fix(hooks): marcar como ejecutables los scripts de hooks y acotar el ignore de ESLint
 - 2026-07-11: fix(hooks): usar post-commit en vez de prepare-commit-msg para el changelog automático
 - 2026-07-11: docs: reescribir README con info completa de Nexo y changelog automático
 - 2026-07-10: fix(security): control de acceso en API, consentimiento vinculante y subida RAG solo Admin
