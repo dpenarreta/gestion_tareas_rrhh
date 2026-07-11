@@ -1,7 +1,14 @@
 #!/usr/bin/env node
 // Inserta una línea "- YYYY-MM-DD: <asunto del commit>" al inicio de la
-// sección "## Changelog" de README.md, y la deja staged para que quede
-// dentro del mismo commit (invocado desde el hook prepare-commit-msg).
+// sección "## Changelog" de README.md y la incluye en el commit recién
+// creado vía `git commit --amend --no-edit`.
+//
+// Se invoca desde el hook post-commit (no prepare-commit-msg): un `git add`
+// hecho en prepare-commit-msg NO queda incluido en el commit que se está
+// creando (comprobado empíricamente), mientras que enmendar el commit desde
+// post-commit sí funciona. El amend vuelve a disparar post-commit, así que
+// esta función debe ser idempotente — si la entrada ya está presente, no
+// hace nada — para no entrar en loop.
 "use strict";
 
 const fs = require("fs");
@@ -9,16 +16,21 @@ const path = require("path");
 const { execSync } = require("child_process");
 
 function main() {
-  const msgFile = process.argv[2];
-  if (!msgFile || !fs.existsSync(msgFile)) return;
-
-  const subject = fs
-    .readFileSync(msgFile, "utf8")
-    .split("\n")[0]
-    .trim();
-  if (!subject) return;
-
   const repoRoot = execSync("git rev-parse --show-toplevel").toString().trim();
+
+  // No tocar commits en medio de un rebase/cherry-pick — evita interferir
+  // con el estado interno de git en esos flujos.
+  if (
+    fs.existsSync(path.join(repoRoot, ".git", "rebase-merge")) ||
+    fs.existsSync(path.join(repoRoot, ".git", "rebase-apply")) ||
+    fs.existsSync(path.join(repoRoot, ".git", "CHERRY_PICK_HEAD"))
+  ) {
+    return;
+  }
+
+  const subject = execSync("git log -1 --format=%s").toString().trim();
+  if (!subject || subject.startsWith("Merge ")) return;
+
   const readmePath = path.join(repoRoot, "README.md");
   if (!fs.existsSync(readmePath)) return;
 
@@ -30,7 +42,8 @@ function main() {
   const headingIdx = lines.findIndex((l) => l.trim() === "## Changelog");
   if (headingIdx === -1) return;
 
-  // Evita duplicados si el hook se dispara más de una vez para el mismo commit.
+  // Idempotencia: si esta entrada ya está en las primeras líneas de la
+  // sección, no hay nada que hacer (rompe la recursión del amend).
   const nextFewLines = lines.slice(headingIdx + 1, headingIdx + 6);
   if (nextFewLines.some((l) => l.trim() === entry.trim())) return;
 
@@ -48,6 +61,10 @@ function main() {
   fs.writeFileSync(readmePath, lines.join("\n"));
 
   execSync(`git add "${readmePath}"`, { cwd: repoRoot });
+  execSync("git commit --amend --no-edit -q", {
+    cwd: repoRoot,
+    env: { ...process.env, GIT_EDITOR: "true" },
+  });
 }
 
 main();

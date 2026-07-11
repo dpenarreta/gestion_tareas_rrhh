@@ -163,8 +163,10 @@ prisma/
 
 ## Changelog
 
-_Se actualiza automáticamente en cada commit vía el hook `.githooks/prepare-commit-msg` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit._
+_Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit._
 
+- 2026-07-11: fix(hooks): usar post-commit en vez de prepare-commit-msg para el changelog automático
+- 2026-07-11: docs: reescribir README con info completa de Nexo y changelog automático
 - 2026-07-10: fix(security): control de acceso en API, consentimiento vinculante y subida RAG solo Admin
 - 2026-07-10: fix(nova): procesar embeddings en lotes concurrentes y subir el timeout de la ruta de documentos
 - 2026-07-08: feat(nova): reemplazar Google Drive por repositorio GitHub para la base de conocimiento RRHH

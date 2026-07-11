@@ -1,0 +1,7 @@
+#!/bin/sh
+# Dispara la actualización automática del Changelog en README.md tras cada
+# commit (ver update-changelog.js para el porqué de usar post-commit en vez
+# de prepare-commit-msg, y la guarda de idempotencia contra el amend).
+
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || exit 0
+node "$REPO_ROOT/.githooks/update-changelog.js" || true

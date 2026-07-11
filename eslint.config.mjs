@@ -28,6 +28,10 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Standalone Node/CJS tooling scripts (git hooks, setup) — not app source,
+    // run directly with `node` outside the Next.js/TS toolchain.
+    ".githooks/**",
+    "scripts/**",
   ]),
 ]);
 
