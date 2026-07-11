@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canAccessReports, ROLE_LABEL } from "@/lib/roles";
 import { isTaskOverdue } from "@/lib/utils";
-import { monthlyBusinessBase, computeWorkloadRange } from "@/lib/workload";
+import { monthlyBusinessBase, computeWorkloadRange, computeWorkloadPct } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
 import Groq from "groq-sdk";
 import type { Role } from "@/generated/prisma/client";
@@ -251,8 +251,8 @@ export async function GET(request: NextRequest) {
         const activityHours =
           monthCargaActs.filter((a) => a.authorId === user.id).reduce((s, a) => s + a.duration, 0) / 60;
         const cargaRealHours = Math.round((fijaHours + activityHours) * 100) / 100;
-        const cargaPct = bizInfo.baseHours > 0 ? Math.round((cargaRealHours / bizInfo.baseHours) * 100) : 0;
         const cargaRange = computeWorkloadRange(cargaRealHours, bizInfo.baseHours, bizInfo.toleranceHours, bizInfo.elevatedBandHours);
+        const cargaPct = computeWorkloadPct(cargaRealHours, bizInfo.baseHours, cargaRange.max);
 
         const inProgress = tasks.filter((t) => t.status === "EN_PROGRESO");
         const avgProgress =
@@ -317,8 +317,8 @@ export async function GET(request: NextRequest) {
         activitiesForCarga.filter((a) => a.authorId === user.id).reduce((s, a) => s + a.duration, 0) / 60;
       const cargaRealHours = Math.round((fijaHours + activityHours) * 100) / 100;
       const cargaBaseHours = rangeBaseHoursPerUser;
-      const cargaPct = cargaBaseHours > 0 ? Math.round((cargaRealHours / cargaBaseHours) * 100) : 0;
       const cargaRange = computeWorkloadRange(cargaRealHours, cargaBaseHours, rangeToleranceHoursPerUser, rangeElevatedBandHoursPerUser);
+      const cargaPct = computeWorkloadPct(cargaRealHours, cargaBaseHours, cargaRange.max);
 
       // Average cumplimiento across months where user had tasks
       const activeSnaps = monthSnapshots.filter(
@@ -383,8 +383,13 @@ export async function GET(request: NextRequest) {
         : 0;
     const totalCargaRealHours = Math.round(aggregatedMembers.reduce((s, m) => s + m.cargaRealHours, 0) * 100) / 100;
     const totalCargaBaseHours = rangeBaseHoursPerUser * users.length;
-    const avgCargaPct =
-      totalCargaBaseHours > 0 ? Math.round((totalCargaRealHours / totalCargaBaseHours) * 100) : 0;
+    const teamCargaRange = computeWorkloadRange(
+      totalCargaRealHours,
+      totalCargaBaseHours,
+      rangeToleranceHoursPerUser * users.length,
+      rangeElevatedBandHoursPerUser * users.length,
+    );
+    const avgCargaPct = computeWorkloadPct(totalCargaRealHours, totalCargaBaseHours, teamCargaRange.max);
 
     // Rango óptimo configurado por persona (no sumado al equipo), usando lo
     // vigente en el último mes del rango, para dar contexto en la UI/IA.

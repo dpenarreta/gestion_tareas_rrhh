@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canAccessReports, ROLE_LABEL } from "@/lib/roles";
 import { isTaskOverdue } from "@/lib/utils";
-import { monthlyBusinessBase, computeWorkloadRange } from "@/lib/workload";
+import { monthlyBusinessBase, computeWorkloadRange, computeWorkloadPct } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
 import Groq from "groq-sdk";
 import type { Role, ReportScope } from "@/generated/prisma/client";
@@ -264,8 +264,8 @@ export async function POST(request: NextRequest) {
     const activityHours =
       activitiesForCarga.filter((a) => a.authorId === user.id).reduce((s, a) => s + a.duration, 0) / 60;
     const cargaRealHours = Math.round((fijaHours + activityHours) * 100) / 100;
-    const cargaPct = monthlyBaseHours > 0 ? Math.round((cargaRealHours / monthlyBaseHours) * 100) : 0;
     const cargaRange = computeWorkloadRange(cargaRealHours, monthlyBaseHours, toleranceHours, elevatedBandHours);
+    const cargaPct = computeWorkloadPct(cargaRealHours, monthlyBaseHours, cargaRange.max);
 
     const inProgress = tasks.filter((t) => t.status === "EN_PROGRESO");
     const avgProgress =
@@ -328,8 +328,13 @@ export async function POST(request: NextRequest) {
   const totalCompletedTasks = allTasks.filter((t) => t.status === "COMPLETADA").length;
   const totalCargaRealHours = Math.round(members.reduce((s, m) => s + m.cargaRealHours, 0) * 100) / 100;
   const totalCargaBaseHours = monthlyBaseHours * users.length;
-  const avgCargaPct =
-    totalCargaBaseHours > 0 ? Math.round((totalCargaRealHours / totalCargaBaseHours) * 100) : 0;
+  const teamCargaRange = computeWorkloadRange(
+    totalCargaRealHours,
+    totalCargaBaseHours,
+    toleranceHours * users.length,
+    elevatedBandHours * users.length,
+  );
+  const avgCargaPct = computeWorkloadPct(totalCargaRealHours, totalCargaBaseHours, teamCargaRange.max);
   const avgCumplimiento =
     members.length > 0
       ? Math.round(members.reduce((s, m) => s + m.completedPct, 0) / members.length)

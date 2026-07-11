@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { isTaskOverdue } from "@/lib/utils";
-import { monthlyBusinessBase, computeWorkloadRange } from "@/lib/workload";
+import { monthlyBusinessBase, computeWorkloadRange, computeWorkloadPct } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
 
 function monthBounds(year: number, month: number) {
@@ -159,8 +159,8 @@ export async function GET(request: NextRequest) {
         100,
     ) / 100;
     const cargaBaseHours = bizInfo.baseHours;
-    const cargaPct = cargaBaseHours > 0 ? Math.round((cargaRealHours / cargaBaseHours) * 100) : 0;
     const cargaRange = computeWorkloadRange(cargaRealHours, cargaBaseHours, bizInfo.toleranceHours, bizInfo.elevatedBandHours);
+    const cargaPct = computeWorkloadPct(cargaRealHours, cargaBaseHours, cargaRange.max);
 
     return {
       month: monthStr,
@@ -207,8 +207,8 @@ export async function GET(request: NextRequest) {
   const totalCargaBaseHours = Math.round(monthBusinessInfo.reduce((s, b) => s + b.baseHours, 0) * 100) / 100;
   const totalToleranceHours = monthBusinessInfo.reduce((s, b) => s + b.toleranceHours, 0);
   const totalElevatedBandHours = monthBusinessInfo.reduce((s, b) => s + b.elevatedBandHours, 0);
-  const avgCargaPct = totalCargaBaseHours > 0 ? Math.round((totalCargaRealHours / totalCargaBaseHours) * 100) : 0;
   const cargaRangeAgg = computeWorkloadRange(totalCargaRealHours, totalCargaBaseHours, totalToleranceHours, totalElevatedBandHours);
+  const avgCargaPct = computeWorkloadPct(totalCargaRealHours, totalCargaBaseHours, cargaRangeAgg.max);
 
   const byReasonMap: Record<string, { count: number; totalMinutes: number }> = {};
   for (const act of allActivities) {

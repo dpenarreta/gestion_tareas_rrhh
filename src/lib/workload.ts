@@ -104,6 +104,21 @@ export function computeWorkloadRange(
   return { min, max, elevatedMax, color: "red", label: "Sobrecarga" };
 }
 
+/**
+ * Porcentaje de carga con techo en 100% dentro del rango óptimo: el % sube
+ * linealmente hasta llegar a la base (100%), se mantiene en 100% mientras
+ * las horas reales queden dentro de la zona Óptima (hasta `optimalMax` =
+ * base + tolerancia), y solo vuelve a subir por encima de 100% al superar
+ * `optimalMax`. Así 7h de 6.5h base no marca 108% si 7h sigue siendo
+ * "óptimo" — el % debe reflejar el semáforo, no solo la razón cruda.
+ */
+export function computeWorkloadPct(realHours: number, baseHours: number, optimalMax: number): number {
+  if (baseHours <= 0) return 0;
+  if (realHours <= baseHours) return Math.round((realHours / baseHours) * 100);
+  if (realHours <= optimalMax) return 100;
+  return Math.round((realHours / baseHours) * 100);
+}
+
 function utcDayStart(d: Date) {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
 }
@@ -192,9 +207,11 @@ function toMetric(
   toleranceHours: number,
   elevatedBandHours: number,
 ): WorkloadMetric {
-  const divisor = baseHours > 0 ? baseHours : hoursPerDay;
-  const pct = Math.round((realHours / divisor) * 100);
   const range = computeWorkloadRange(realHours, baseHours, toleranceHours, elevatedBandHours);
+  const pct =
+    baseHours > 0
+      ? computeWorkloadPct(realHours, baseHours, range.max)
+      : Math.round((realHours / hoursPerDay) * 100);
   return {
     realHours,
     baseHours,
