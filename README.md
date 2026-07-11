@@ -114,18 +114,15 @@ npx prisma studio                       # explorador visual de la base de datos
 
 > **Prisma 7**: requiere un driver adapter para conectar a la base de datos — `new PrismaClient()` sin opciones lanza error en runtime. Ver `src/lib/prisma.ts`. Los tipos se importan desde `@/generated/prisma/client` (no `@/generated/prisma`).
 
-## Credenciales de prueba (seed)
+## Credenciales de prueba
 
-`npm run seed` crea estos usuarios, todos con contraseña `123456`:
+| Email | Contraseña | Rol |
+|---|---|---|
+| administrador@nexo.com | 123456 | ADMINISTRADOR (cuenta de sistema, no una persona) |
 
-| Email | Rol |
-|---|---|
-| administrador@nexo.com | ADMINISTRADOR |
-| jefe@nexo.com | JEFE_NACIONAL |
-| coord.nacional@nexo.com | COORDINADOR_NACIONAL |
-| prueba@nexo.com | COORDINADOR_NACIONAL |
+Para probar con otro rol (Jefe Nacional, Coordinador Nacional, etc.) pide las credenciales a un administrador — este README no documenta correos ni contraseñas de cuentas de personal real. `npm run seed` (`prisma/seed.ts`) crea usuarios de ejemplo adicionales en una base de datos nueva, pero esas cuentas no necesariamente existen en la base compartida de este proyecto.
 
-> La contraseña por defecto al crear usuarios nuevos desde `/admin/users` también es `123456` (bcrypt, 10 rondas).
+> La contraseña por defecto al crear usuarios nuevos desde `/admin/users` es `123456` (bcrypt, 10 rondas).
 
 ## Estructura del proyecto
 
