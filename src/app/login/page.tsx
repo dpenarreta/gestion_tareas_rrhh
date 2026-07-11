@@ -1,10 +1,23 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 
 export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const rejectedNotice =
+    searchParams.get("consentRejected") === "1"
+      ? "Has rechazado el tratamiento de datos. No puedes acceder al sistema."
+      : null;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -77,6 +90,11 @@ export default function LoginPage() {
               <h2 className="text-[22px] font-bold text-title mb-6">
                 Bienvenido a Nexo
               </h2>
+              {rejectedNotice && (
+                <p className="text-sm text-danger bg-danger/[.09] px-3 py-2 rounded-[10px] mb-4">
+                  {rejectedNotice}
+                </p>
+              )}
               <form onSubmit={handleLogin} className="space-y-4">
                 <div>
                   <label className="block text-sm font-medium text-main mb-1">

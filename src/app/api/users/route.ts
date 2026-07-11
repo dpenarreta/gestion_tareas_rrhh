@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { canManageUsers, ROLE_LEVEL } from "@/lib/roles";
+import { canManageUsers, getVisibleRoles, ROLE_LEVEL } from "@/lib/roles";
 import { maskEmail } from "@/lib/mask-email";
 import type { Role } from "@/generated/prisma/client";
 
@@ -15,8 +15,9 @@ export async function GET() {
     return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
   }
 
-  // El Administrador es invisible para el resto de roles.
-  const where = session.role === "ADMINISTRADOR" ? {} : { role: { not: "ADMINISTRADOR" as Role } };
+  // El Administrador ve a todos; el resto solo ve a sus subordinados según jerarquía
+  // (lo que también excluye siempre al Administrador, invisible para el resto de roles).
+  const where = session.role === "ADMINISTRADOR" ? {} : { role: { in: getVisibleRoles(session.role) } };
 
   const users = await prisma.user.findMany({
     where,

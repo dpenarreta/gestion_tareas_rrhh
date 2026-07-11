@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { canManageKnowledgeBase } from "@/lib/roles";
+import { canManageKnowledgeBase, canViewKnowledgeBase } from "@/lib/roles";
 import { uploadPdfToGithub, processGithubDocument } from "@/lib/githubDocuments";
 
 // Documentos grandes (cientos de páginas → cientos de chunks) pueden tardar
@@ -18,6 +18,9 @@ const MAX_SIZE_MESSAGE = "El archivo supera el límite de 4.5MB. Por favor usa u
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+  if (!canViewKnowledgeBase(session.role)) {
+    return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
+  }
 
   const docs = await prisma.knowledgeDocument.findMany({
     orderBy: { createdAt: "desc" },

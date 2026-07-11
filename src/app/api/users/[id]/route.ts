@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { canManageUsers, ROLE_LEVEL } from "@/lib/roles";
+import { canManageUsers, getVisibleRoles, ROLE_LEVEL } from "@/lib/roles";
 import type { Role } from "@/generated/prisma/client";
 
 const VALID_ROLES: Role[] = [
@@ -31,8 +31,9 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
   }
 
-  // El Administrador es invisible para el resto de roles.
-  if (user.role === "ADMINISTRADOR" && session.role !== "ADMINISTRADOR") {
+  // Solo se puede ver el detalle de usuarios dentro de la propia jerarquía visible
+  // (esto también excluye siempre al Administrador para el resto de roles).
+  if (session.role !== "ADMINISTRADOR" && !getVisibleRoles(session.role).includes(user.role)) {
     return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
   }
 
@@ -118,8 +119,9 @@ export async function DELETE(_req: NextRequest, ctx: Ctx) {
   if (!target) {
     return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
   }
-  // Solo un Administrador puede eliminar a otro Administrador
-  if (target.role === "ADMINISTRADOR" && session.role !== "ADMINISTRADOR") {
+  // Solo se puede eliminar usuarios dentro de la propia jerarquía visible
+  // (esto también excluye siempre al Administrador para el resto de roles).
+  if (session.role !== "ADMINISTRADOR" && !getVisibleRoles(session.role).includes(target.role)) {
     return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
   }
 

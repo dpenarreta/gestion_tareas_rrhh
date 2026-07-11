@@ -145,10 +145,17 @@ export function canReviewIdeas(role: Role): boolean {
   return CAN_REVIEW_IDEAS.includes(role);
 }
 
-export const CAN_MANAGE_KNOWLEDGE_BASE: Role[] = ["ADMINISTRADOR", "COORDINADOR_NACIONAL"];
+// Solo el Administrador puede subir/eliminar documentos de la base de conocimiento.
+export const CAN_MANAGE_KNOWLEDGE_BASE: Role[] = ["ADMINISTRADOR"];
 
 export function canManageKnowledgeBase(role: Role): boolean {
   return CAN_MANAGE_KNOWLEDGE_BASE.includes(role);
+}
+
+export const CAN_VIEW_KNOWLEDGE_BASE: Role[] = ["ADMINISTRADOR", "JEFE_NACIONAL", "COORDINADOR_NACIONAL"];
+
+export function canViewKnowledgeBase(role: Role): boolean {
+  return CAN_VIEW_KNOWLEDGE_BASE.includes(role);
 }
 
 export const ALL_ROLES = Object.keys(ROLE_LABEL) as Role[];

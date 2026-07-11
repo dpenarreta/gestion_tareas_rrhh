@@ -82,7 +82,7 @@ function SectionCard({ title, children }: { title: string; children: React.React
 
 export default function SettingsManager({ currentUserRole }: { currentUserRole: Role }) {
   const isAdmin = currentUserRole === "ADMINISTRADOR";
-  const canManageKnowledgeBase = currentUserRole === "ADMINISTRADOR" || currentUserRole === "COORDINADOR_NACIONAL";
+  const canManageKnowledgeBase = isAdmin;
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [msg, setMsg] = useState<string | null>(null);
