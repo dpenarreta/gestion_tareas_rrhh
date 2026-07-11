@@ -300,6 +300,7 @@ export function DailyCargaBarChart({
           axisLine={false}
           tickLine={false}
           tickFormatter={(v: number) => `${hoursToDisplay(v)}h`}
+          domain={[0, (dataMax: number) => Math.ceil(Math.max(dataMax, optimalMax) * 1.15)]}
         />
         <Tooltip
           content={<CargaTooltip tooltipBg={ct.tooltipBg} tooltipBorder={ct.tooltipBorder} tooltipText={ct.tooltipText} />}
@@ -310,7 +311,7 @@ export function DailyCargaBarChart({
             stroke={ct.axis}
             strokeDasharray="4 4"
             strokeWidth={1.5}
-            label={{ value: `Base ${hoursToDisplay(baseHours)}h`, position: "insideTopLeft", fontSize: 10, fill: ct.axis }}
+            label={{ value: `Base ${hoursToDisplay(baseHours)}h`, position: "insideBottomLeft", fontSize: 10, fill: ct.axis }}
           />
         )}
         {optimalMax > 0 && (
@@ -319,7 +320,7 @@ export function DailyCargaBarChart({
             stroke={ct.success}
             strokeDasharray="4 4"
             strokeWidth={1.5}
-            label={{ value: `Límite óptimo ${hoursToDisplay(optimalMax)}h`, position: "insideTopLeft", fontSize: 10, fill: ct.success }}
+            label={{ value: `Límite óptimo ${hoursToDisplay(optimalMax)}h`, position: "insideTopRight", fontSize: 10, fill: ct.success }}
           />
         )}
         <Bar dataKey="realHours" radius={[4, 4, 0, 0]} maxBarSize={32}>
@@ -359,6 +360,7 @@ export function WeeklyCargaLineChart({
           axisLine={false}
           tickLine={false}
           tickFormatter={(v: number) => `${hoursToDisplay(v)}h`}
+          domain={[0, (dataMax: number) => Math.ceil(Math.max(dataMax, optimalMax ?? 0) * 1.15)]}
         />
         <Tooltip
           content={<CargaTooltip tooltipBg={ct.tooltipBg} tooltipBorder={ct.tooltipBorder} tooltipText={ct.tooltipText} />}

@@ -68,8 +68,8 @@ export default function WorkloadCard({ cargaTiempo }: { cargaTiempo: CargaTiempo
 
   return (
     <div className="bg-surface rounded-[14px] border border-border shadow-[var(--shadow)] p-5">
-      <div className="flex items-start justify-between gap-3 mb-1">
-        <h3 className="text-[11px] font-semibold text-secondary uppercase tracking-wider shrink-0">
+      <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1 mb-1">
+        <h3 className="text-[11px] font-semibold text-secondary uppercase tracking-wider">
           Carga laboral (horas reales)
         </h3>
         <span className="text-[10px] text-disabled bg-background border border-border px-2 py-0.5 rounded-full shrink-0">
