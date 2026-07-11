@@ -7,7 +7,7 @@ import {
 } from "recharts";
 import type { Role } from "@/generated/prisma/client";
 import { ROLE_LABEL } from "@/lib/roles";
-import type { MonthlyReportSummary, MonthlyReportFull, ReportData, RangeReportData, KpiColor } from "./types";
+import type { MonthlyReportSummary, MonthlyReportFull, ReportData, RangeReportData, WorkloadColor } from "./types";
 import * as XLSX from "xlsx";
 import { formatDate } from "@/lib/utils";
 import { hoursToDisplay } from "@/lib/timeFormat";
@@ -53,9 +53,10 @@ function colorDot(pct: number) {
   return "bg-danger";
 }
 
-const KPI_COLOR_DOT: Record<KpiColor, string> = {
+const KPI_COLOR_DOT: Record<WorkloadColor, string> = {
   green: "bg-success",
   yellow: "bg-warning",
+  orange: "bg-orange-500",
   red: "bg-danger",
 };
 

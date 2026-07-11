@@ -2,14 +2,23 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import { businessCalendarDay, businessDayRealRange } from "@/lib/businessTime";
 import { getEffectiveHorasEfectivas, getEffectiveWorkloadTolerance } from "@/lib/systemConfig";
-import type { KpiColor, WorkloadMetric, WorkloadLabel, CargaTiempo } from "@/components/kpis/types";
+import type {
+  WorkloadColor,
+  WorkloadMetric,
+  WorkloadLabel,
+  CargaTiempo,
+  DailyCargaPoint,
+  WeeklyCargaPoint,
+} from "@/components/kpis/types";
 
-export type { WorkloadMetric, CargaTiempo };
+export type { WorkloadMetric, CargaTiempo, DailyCargaPoint, WeeklyCargaPoint };
 
 const MONTH_NAMES = [
   "enero", "febrero", "marzo", "abril", "mayo", "junio",
   "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
 ];
+
+const DAY_ABBR = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
 function isBusinessDay(d: Date): boolean {
   const dow = d.getUTCDay();
@@ -51,18 +60,22 @@ function formatMonthLabel(d: Date): string {
 }
 
 export type WorkloadRange = {
+  /** Límite inferior de Subutilización (= base - tolerancia). */
   min: number;
+  /** Límite superior de la zona Óptima ("límite superior óptimo") = base + tolerancia. */
   max: number;
+  /** Límite superior de Carga elevada = max + elevatedBandHours. */
   elevatedMax: number;
-  color: KpiColor;
+  color: WorkloadColor;
   label: WorkloadLabel;
 };
 
 /**
- * Semáforo de carga laboral por RANGO (no un punto exacto de 100%):
+ * Semáforo de carga laboral por RANGO (no un punto exacto de 100%), 5 zonas:
  *   🔴 Subutilización : realHours <  base - tolerancia
- *   🟢 Óptimo         : base - tolerancia <= realHours <= base + tolerancia
- *   🟡 Carga elevada  : base + tolerancia <  realHours <= base + tolerancia + elevatedBandHours
+ *   🟡 Moderado       : base - tolerancia <= realHours < base
+ *   🟢 Óptimo         : base <= realHours <= base + tolerancia
+ *   🟠 Carga elevada  : base + tolerancia <  realHours <= base + tolerancia + elevatedBandHours
  *   🔴 Sobrecarga     : realHours > base + tolerancia + elevatedBandHours
  *
  * `toleranceHours` y `elevatedBandHours` ya vienen escalados por quien llama
@@ -78,15 +91,16 @@ export function computeWorkloadRange(
 ): WorkloadRange {
   if (baseHours <= 0) {
     return realHours > 0
-      ? { min: 0, max: 0, elevatedMax: 0, color: "yellow", label: "Carga elevada" }
+      ? { min: 0, max: 0, elevatedMax: 0, color: "orange", label: "Carga elevada" }
       : { min: 0, max: 0, elevatedMax: 0, color: "green", label: "Óptimo" };
   }
   const min = Math.round((baseHours - toleranceHours) * 100) / 100;
   const max = Math.round((baseHours + toleranceHours) * 100) / 100;
   const elevatedMax = Math.round((max + elevatedBandHours) * 100) / 100;
   if (realHours < min) return { min, max, elevatedMax, color: "red", label: "Subutilización" };
+  if (realHours < baseHours) return { min, max, elevatedMax, color: "yellow", label: "Moderado" };
   if (realHours <= max) return { min, max, elevatedMax, color: "green", label: "Óptimo" };
-  if (realHours <= elevatedMax) return { min, max, elevatedMax, color: "yellow", label: "Carga elevada" };
+  if (realHours <= elevatedMax) return { min, max, elevatedMax, color: "orange", label: "Carga elevada" };
   return { min, max, elevatedMax, color: "red", label: "Sobrecarga" };
 }
 
@@ -186,7 +200,9 @@ function toMetric(
     baseHours,
     pct,
     color: range.color,
-    rangeMin: range.min,
+    // rangeMin/rangeMax describen la zona Óptima (verde) en sí, no toda la
+    // banda de tolerancia — esa banda ahora se reparte entre Moderado y Óptimo.
+    rangeMin: baseHours > 0 ? Math.round(baseHours * 100) / 100 : 0,
     rangeMax: range.max,
     label: range.label,
   };
@@ -241,5 +257,124 @@ export async function computeCargaTiempo(userId: string, now: Date = new Date())
     },
     horasEfectivasPorDia: hoursPerDay,
     workloadTolerance: tolerancePerDay,
+    // El histórico (para los gráficos) es una consulta aparte y más cara
+    // (computeCargaHistory) — se deja vacío aquí para que llamadores que solo
+    // necesitan el snapshot actual (p. ej. el mensaje diario de Nova) no paguen
+    // ese costo. Las rutas de KPI que sí muestran gráficos la completan aparte.
+    dailyHistory: [],
+    weeklyHistory: [],
   };
+}
+
+/**
+ * Histórico para los gráficos de carga laboral: últimos `dailyCount` días
+ * hábiles (barras) y las semanas del mes en curso hasta hoy (línea). Aparte
+ * de computeCargaTiempo a propósito — es una consulta más cara y solo la
+ * necesitan las vistas de Analytics/Mi actividad que renderizan los gráficos.
+ */
+export async function computeCargaHistory(
+  userId: string,
+  now: Date = new Date(),
+  dailyCount = 7,
+): Promise<{ daily: DailyCargaPoint[]; weekly: WeeklyCargaPoint[] }> {
+  const today = businessCalendarDay(now);
+  const [hoursPerDay, tolerancePerDay] = await Promise.all([
+    getEffectiveHorasEfectivas(now),
+    getEffectiveWorkloadTolerance(now),
+  ]);
+
+  // ── Diario: últimos `dailyCount` días hábiles (incluye hoy si es hábil) ──
+  const businessDaysDesc: Date[] = [];
+  for (let cursor = new Date(today); businessDaysDesc.length < dailyCount; cursor = new Date(cursor.getTime() - 86400000)) {
+    if (isBusinessDay(cursor)) businessDaysDesc.push(new Date(cursor));
+  }
+  const businessDaysAsc = businessDaysDesc.reverse();
+
+  const dailyRangeStart = businessDaysAsc[0];
+  const dailyRangeEnd = businessDaysAsc[businessDaysAsc.length - 1];
+  const { start: dailyRealStart } = businessDayRealRange(dailyRangeStart);
+  const { end: dailyRealEnd } = businessDayRealRange(dailyRangeEnd);
+
+  const [dailyFijaTasks, dailyActivities] = await Promise.all([
+    prisma.task.findMany({
+      where: { assignedToId: userId, type: "FIJA", archivedMonth: null, completedAt: { gte: dailyRealStart, lte: dailyRealEnd } },
+      select: { completedAt: true, realHours: true },
+    }),
+    prisma.taskActivity.findMany({
+      where: { authorId: userId, createdAt: { gte: dailyRealStart, lte: dailyRealEnd } },
+      select: { createdAt: true, duration: true },
+    }),
+  ]);
+
+  const daily: DailyCargaPoint[] = businessDaysAsc.map((day) => {
+    const { start, end } = businessDayRealRange(day);
+    const fijaHours = dailyFijaTasks
+      .filter((t) => t.completedAt! >= start && t.completedAt! <= end)
+      .reduce((s, t) => s + t.realHours, 0);
+    const activityHours =
+      dailyActivities.filter((a) => a.createdAt >= start && a.createdAt <= end).reduce((s, a) => s + a.duration, 0) / 60;
+    const realHours = Math.round((fijaHours + activityHours) * 100) / 100;
+    const range = computeWorkloadRange(realHours, hoursPerDay, tolerancePerDay, 1);
+    return {
+      date: `${day.getUTCFullYear()}-${String(day.getUTCMonth() + 1).padStart(2, "0")}-${String(day.getUTCDate()).padStart(2, "0")}`,
+      dayLabel: `${DAY_ABBR[day.getUTCDay()]} ${formatShortDate(day)}`,
+      realHours,
+      baseHours: hoursPerDay,
+      color: range.color,
+      label: range.label,
+    };
+  });
+
+  // ── Semanal: semanas del mes en curso, hasta la semana de hoy ──
+  const monthStart = utcMonthStart(today);
+  const monthEnd = utcMonthEnd(today);
+  const weekSlices: { start: Date; end: Date }[] = [];
+  for (let cursor = monthStart; cursor <= monthEnd && cursor <= today; ) {
+    const weekStartRaw = utcWeekStart(cursor);
+    const weekEndRaw = utcWeekEnd(cursor);
+    const sliceStart = weekStartRaw < monthStart ? monthStart : weekStartRaw;
+    const sliceEndRaw = weekEndRaw > monthEnd ? monthEnd : weekEndRaw;
+    const sliceEnd = sliceEndRaw > today ? today : sliceEndRaw;
+    weekSlices.push({ start: sliceStart, end: sliceEnd });
+    cursor = new Date(weekEndRaw.getTime() + 86400000);
+  }
+
+  const weeklyRangeStart = weekSlices[0].start;
+  const weeklyRangeEnd = weekSlices[weekSlices.length - 1].end;
+  const { start: weeklyRealStart } = businessDayRealRange(weeklyRangeStart);
+  const { end: weeklyRealEnd } = businessDayRealRange(weeklyRangeEnd);
+
+  const [weeklyFijaTasks, weeklyActivities] = await Promise.all([
+    prisma.task.findMany({
+      where: { assignedToId: userId, type: "FIJA", archivedMonth: null, completedAt: { gte: weeklyRealStart, lte: weeklyRealEnd } },
+      select: { completedAt: true, realHours: true },
+    }),
+    prisma.taskActivity.findMany({
+      where: { authorId: userId, createdAt: { gte: weeklyRealStart, lte: weeklyRealEnd } },
+      select: { createdAt: true, duration: true },
+    }),
+  ]);
+
+  const weekly: WeeklyCargaPoint[] = weekSlices.map((slice, i) => {
+    const businessDays = countBusinessDays(slice.start, slice.end);
+    const baseHours = businessDays * hoursPerDay;
+    const { start: realStart } = businessDayRealRange(slice.start);
+    const { end: realEnd } = businessDayRealRange(slice.end);
+    const fijaHours = weeklyFijaTasks
+      .filter((t) => t.completedAt! >= realStart && t.completedAt! <= realEnd)
+      .reduce((s, t) => s + t.realHours, 0);
+    const activityHours =
+      weeklyActivities.filter((a) => a.createdAt >= realStart && a.createdAt <= realEnd).reduce((s, a) => s + a.duration, 0) / 60;
+    const realHours = Math.round((fijaHours + activityHours) * 100) / 100;
+    const range = computeWorkloadRange(realHours, baseHours, tolerancePerDay * businessDays, businessDays * 1);
+    return {
+      weekLabel: `Sem ${i + 1}`,
+      realHours,
+      baseHours: Math.round(baseHours * 100) / 100,
+      color: range.color,
+      label: range.label,
+    };
+  });
+
+  return { daily, weekly };
 }

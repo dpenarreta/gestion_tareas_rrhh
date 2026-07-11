@@ -1,7 +1,14 @@
 export type KpiColor = "green" | "yellow" | "red";
 
+/**
+ * Semáforo de carga laboral por rango — 5 zonas, no solo 3 colores:
+ * rojo (subutilización o sobrecarga), amarillo (moderado), verde (óptimo),
+ * naranja (carga elevada, distinto del amarillo "moderado").
+ */
+export type WorkloadColor = "red" | "yellow" | "green" | "orange";
+
 /** Etiqueta del semáforo de carga laboral por rango (base ± tolerancia configurable). */
-export type WorkloadLabel = "Subutilización" | "Óptimo" | "Carga elevada" | "Sobrecarga";
+export type WorkloadLabel = "Subutilización" | "Moderado" | "Óptimo" | "Carga elevada" | "Sobrecarga";
 
 export type ReportMemberKpi = {
   id: string;
@@ -12,7 +19,7 @@ export type ReportMemberKpi = {
   cargaPct: number;
   cargaRealHours: number;
   cargaBaseHours: number;
-  cargaColor: KpiColor;
+  cargaColor: WorkloadColor;
   cargaLabel: WorkloadLabel;
   cargaRangeMin: number;
   cargaRangeMax: number;
@@ -74,7 +81,7 @@ export type MonthSnapshot = {
     role: string;
     completedPct: number;
     cargaPct: number;
-    cargaColor: KpiColor;
+    cargaColor: WorkloadColor;
     cargaLabel: WorkloadLabel;
     score: number;
     totalTasks: number;
@@ -137,17 +144,40 @@ export type WorkloadMetric = {
   realHours: number;
   baseHours: number;
   pct: number;
-  color: KpiColor;
+  color: WorkloadColor;
+  /** Límites de la zona Óptima (verde): [rangeMin, rangeMax] = [base, base + tolerancia]. */
   rangeMin: number;
   rangeMax: number;
   label: WorkloadLabel;
 };
+
+/** Un día laborable en el histórico de carga (gráfico de barras). */
+export type DailyCargaPoint = {
+  date: string;
+  dayLabel: string;
+  realHours: number;
+  baseHours: number;
+  color: WorkloadColor;
+  label: WorkloadLabel;
+};
+
+/** Una semana (posiblemente parcial) del mes en curso, para el gráfico de línea. */
+export type WeeklyCargaPoint = {
+  weekLabel: string;
+  realHours: number;
+  baseHours: number;
+  color: WorkloadColor;
+  label: WorkloadLabel;
+};
+
 export type CargaTiempo = {
   diaria: WorkloadMetric;
   semanal: WorkloadMetric & { weekStartLabel: string; weekEndLabel: string; businessDays: number };
   mensual: WorkloadMetric & { monthLabel: string; businessDays: number };
   horasEfectivasPorDia: number;
   workloadTolerance: number;
+  dailyHistory: DailyCargaPoint[];
+  weeklyHistory: WeeklyCargaPoint[];
 };
 
 export type KpiData = {

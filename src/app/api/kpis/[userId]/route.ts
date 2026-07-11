@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { getVisibleRoles } from "@/lib/roles";
 import { isTaskOverdue } from "@/lib/utils";
-import { computeCargaTiempo } from "@/lib/workload";
+import { computeCargaTiempo, computeCargaHistory } from "@/lib/workload";
 import type { KpiColor } from "@/components/kpis/types";
 
 function cumplimientoColor(pct: number): KpiColor {
@@ -65,7 +65,11 @@ export async function GET(request: NextRequest, ctx: Ctx) {
     where: { authorId: userId, createdAt: { gte: start, lte: end } },
   });
 
-  const cargaTiempo = await computeCargaTiempo(userId);
+  const [cargaTiempoBase, cargaHistory] = await Promise.all([
+    computeCargaTiempo(userId),
+    computeCargaHistory(userId),
+  ]);
+  const cargaTiempo = { ...cargaTiempoBase, dailyHistory: cargaHistory.daily, weeklyHistory: cargaHistory.weekly };
 
   // ── Cumplimiento ──────────────────────────────────────────────────────────
   const completed = tasks.filter((t) => t.status === "COMPLETADA");

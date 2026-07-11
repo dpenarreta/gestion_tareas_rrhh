@@ -1,21 +1,25 @@
-import type { CargaTiempo, KpiColor, WorkloadMetric } from "./types";
+import type { CargaTiempo, WorkloadColor, WorkloadMetric } from "./types";
 import { hoursToDisplay } from "@/lib/timeFormat";
+import { DailyCargaBarChart, WeeklyCargaLineChart } from "./KpiCharts";
 
-const COLOR_DOT: Record<KpiColor, string> = {
+export const WORKLOAD_COLOR_DOT: Record<WorkloadColor, string> = {
   green: "bg-success",
   yellow: "bg-warning",
+  orange: "bg-orange-500",
   red: "bg-danger",
 };
 
-const COLOR_TEXT: Record<KpiColor, string> = {
+const COLOR_TEXT: Record<WorkloadColor, string> = {
   green: "text-success",
   yellow: "text-warning",
+  orange: "text-orange-600 dark:text-orange-400",
   red: "text-danger",
 };
 
-const COLOR_BG: Record<KpiColor, string> = {
+const COLOR_BG: Record<WorkloadColor, string> = {
   green: "bg-success/[.13]",
   yellow: "bg-warning/[.15]",
+  orange: "bg-orange-500/[.13]",
   red: "bg-danger/[.13]",
 };
 
@@ -32,7 +36,7 @@ function Tile({
     <div className={`rounded-[14px] p-4 ${COLOR_BG[metric.color]}`}>
       <div className="flex items-center justify-between mb-1.5">
         <span className="text-xs font-medium text-secondary">{label}</span>
-        <span className={`w-2 h-2 rounded-full shrink-0 ${COLOR_DOT[metric.color]}`} />
+        <span className={`w-2 h-2 rounded-full shrink-0 ${WORKLOAD_COLOR_DOT[metric.color]}`} />
       </div>
       <p className={`text-lg font-bold ${COLOR_TEXT[metric.color]}`}>
         {hoursToDisplay(metric.realHours)}h <span className="text-sm font-semibold">— {metric.label}</span>
@@ -47,19 +51,34 @@ function Tile({
   );
 }
 
+/** "Rangos: Subutilización <5.30 | Moderado 5.30-6.30 | Óptimo 6.30-7.30 | Elevada 7.30-8.30 | Sobrecarga >8.30" */
+function rangesSummary(base: number, tolerance: number): string {
+  const subMax = hoursToDisplay(Math.max(0, base - tolerance));
+  const optimalMin = hoursToDisplay(base);
+  const optimalMax = hoursToDisplay(base + tolerance);
+  const elevatedMax = hoursToDisplay(base + tolerance + 1);
+  return (
+    `Rangos: Subutilización <${subMax} | Moderado ${subMax}-${optimalMin} | ` +
+    `Óptimo ${optimalMin}-${optimalMax} | Elevada ${optimalMax}-${elevatedMax} | Sobrecarga >${elevatedMax}`
+  );
+}
+
 export default function WorkloadCard({ cargaTiempo }: { cargaTiempo: CargaTiempo }) {
-  const { diaria, semanal, mensual, horasEfectivasPorDia, workloadTolerance } = cargaTiempo;
+  const { diaria, semanal, mensual, horasEfectivasPorDia, workloadTolerance, dailyHistory, weeklyHistory } = cargaTiempo;
 
   return (
     <div className="bg-surface rounded-[14px] border border-border shadow-[var(--shadow)] p-5">
-      <div className="flex items-center justify-between mb-3">
-        <h3 className="text-[11px] font-semibold text-secondary uppercase tracking-wider">
+      <div className="flex items-start justify-between gap-3 mb-1">
+        <h3 className="text-[11px] font-semibold text-secondary uppercase tracking-wider shrink-0">
           Carga laboral (horas reales)
         </h3>
-        <span className="text-[10px] text-disabled bg-background border border-border px-2 py-0.5 rounded-full">
-          {hoursToDisplay(horasEfectivasPorDia)}h efectivas/día · tolerancia ±{hoursToDisplay(workloadTolerance)}h
+        <span className="text-[10px] text-disabled bg-background border border-border px-2 py-0.5 rounded-full shrink-0">
+          {hoursToDisplay(horasEfectivasPorDia)}h efectivas/día
         </span>
       </div>
+      <p className="text-[10px] text-disabled mb-3 leading-relaxed">
+        {rangesSummary(horasEfectivasPorDia, workloadTolerance)}
+      </p>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Tile label="Hoy" metric={diaria} periodLabel="hoy" />
         <Tile
@@ -75,6 +94,24 @@ export default function WorkloadCard({ cargaTiempo }: { cargaTiempo: CargaTiempo
           }`}
         />
       </div>
+
+      {dailyHistory.length > 0 && (
+        <div className="mt-5 pt-4 border-t border-border">
+          <h4 className="text-[11px] font-semibold text-secondary uppercase tracking-wider mb-2">
+            Últimos días laborables
+          </h4>
+          <DailyCargaBarChart points={dailyHistory} baseHours={horasEfectivasPorDia} optimalMax={horasEfectivasPorDia + workloadTolerance} />
+        </div>
+      )}
+
+      {weeklyHistory.length > 0 && (
+        <div className="mt-5 pt-4 border-t border-border">
+          <h4 className="text-[11px] font-semibold text-secondary uppercase tracking-wider mb-2">
+            Semanas de este mes
+          </h4>
+          <WeeklyCargaLineChart points={weeklyHistory} optimalMax={(horasEfectivasPorDia + workloadTolerance) * 5} />
+        </div>
+      )}
     </div>
   );
 }

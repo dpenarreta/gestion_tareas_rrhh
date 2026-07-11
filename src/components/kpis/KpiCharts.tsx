@@ -15,7 +15,7 @@ import {
   ReferenceLine,
   Cell,
 } from "recharts";
-import type { KpiData, KpiColor } from "./types";
+import type { KpiData, KpiColor, WorkloadColor, DailyCargaPoint, WeeklyCargaPoint } from "./types";
 import { hoursToDisplay } from "@/lib/timeFormat";
 
 export const REASON_LABEL: Record<string, string> = {
@@ -50,8 +50,18 @@ function useChartTheme() {
     primary: dark ? "#6E72F2" : "#5155E5",
     success: dark ? "#37B884" : "#1E9E68",
     warning: dark ? "#E2A93B" : "#B27B10",
+    orange: dark ? "#fb923c" : "#f97316",
     danger: dark ? "#E15A5A" : "#D14343",
   };
+}
+
+function workloadColorHex(color: WorkloadColor, ct: ReturnType<typeof useChartTheme>): string {
+  switch (color) {
+    case "green": return ct.success;
+    case "yellow": return ct.warning;
+    case "orange": return ct.orange;
+    case "red": return ct.danger;
+  }
 }
 
 // ── Donut (SVG) ──────────────────────────────────────────────────────────────
@@ -223,6 +233,158 @@ export function ConsultasBarChart({ data }: { data: KpiData["seguimiento"]["byRe
           ))}
         </Bar>
       </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ── Carga laboral: barras diarias (últimos días hábiles) ─────────────────────
+
+function CargaTooltip({
+  active,
+  payload,
+  tooltipBg,
+  tooltipBorder,
+  tooltipText,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload: DailyCargaPoint | WeeklyCargaPoint }>;
+  tooltipBg: string;
+  tooltipBorder: string;
+  tooltipText: string;
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+  const p = payload[0].payload;
+  const title = "dayLabel" in p ? p.dayLabel : p.weekLabel;
+  return (
+    <div
+      style={{
+        borderRadius: 8,
+        border: `1px solid ${tooltipBorder}`,
+        fontSize: 12,
+        background: tooltipBg,
+        color: tooltipText,
+        padding: "8px 10px",
+      }}
+    >
+      <p style={{ fontWeight: 600, marginBottom: 4 }}>{title}</p>
+      <p>{hoursToDisplay(p.realHours)}h reales</p>
+      <p style={{ opacity: 0.75 }}>{p.label}</p>
+    </div>
+  );
+}
+
+export function DailyCargaBarChart({
+  points,
+  baseHours,
+  optimalMax,
+}: {
+  points: DailyCargaPoint[];
+  baseHours: number;
+  optimalMax: number;
+}) {
+  const ct = useChartTheme();
+  if (points.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-40 text-secondary text-sm">
+        Sin días hábiles registrados en el período
+      </div>
+    );
+  }
+  return (
+    <ResponsiveContainer width="100%" height={200}>
+      <BarChart data={points} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} vertical={false} />
+        <XAxis dataKey="dayLabel" tick={{ fontSize: 11, fill: ct.axis }} axisLine={false} tickLine={false} />
+        <YAxis
+          tick={{ fontSize: 11, fill: ct.axisMuted }}
+          axisLine={false}
+          tickLine={false}
+          tickFormatter={(v: number) => `${hoursToDisplay(v)}h`}
+        />
+        <Tooltip
+          content={<CargaTooltip tooltipBg={ct.tooltipBg} tooltipBorder={ct.tooltipBorder} tooltipText={ct.tooltipText} />}
+        />
+        {baseHours > 0 && (
+          <ReferenceLine
+            y={baseHours}
+            stroke={ct.axis}
+            strokeDasharray="4 4"
+            strokeWidth={1.5}
+            label={{ value: `Base ${hoursToDisplay(baseHours)}h`, position: "insideTopLeft", fontSize: 10, fill: ct.axis }}
+          />
+        )}
+        {optimalMax > 0 && (
+          <ReferenceLine
+            y={optimalMax}
+            stroke={ct.success}
+            strokeDasharray="4 4"
+            strokeWidth={1.5}
+            label={{ value: `Límite óptimo ${hoursToDisplay(optimalMax)}h`, position: "insideTopLeft", fontSize: 10, fill: ct.success }}
+          />
+        )}
+        <Bar dataKey="realHours" radius={[4, 4, 0, 0]} maxBarSize={32}>
+          {points.map((p, i) => (
+            <Cell key={i} fill={workloadColorHex(p.color, ct)} />
+          ))}
+        </Bar>
+      </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+// ── Carga laboral: línea semanal (semanas del mes en curso) ──────────────────
+
+export function WeeklyCargaLineChart({
+  points,
+  optimalMax,
+}: {
+  points: WeeklyCargaPoint[];
+  optimalMax?: number;
+}) {
+  const ct = useChartTheme();
+  if (points.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-40 text-secondary text-sm">
+        Sin semanas registradas en el período
+      </div>
+    );
+  }
+  return (
+    <ResponsiveContainer width="100%" height={200}>
+      <LineChart data={points} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} vertical={false} />
+        <XAxis dataKey="weekLabel" tick={{ fontSize: 11, fill: ct.axis }} axisLine={false} tickLine={false} />
+        <YAxis
+          tick={{ fontSize: 11, fill: ct.axisMuted }}
+          axisLine={false}
+          tickLine={false}
+          tickFormatter={(v: number) => `${hoursToDisplay(v)}h`}
+        />
+        <Tooltip
+          content={<CargaTooltip tooltipBg={ct.tooltipBg} tooltipBorder={ct.tooltipBorder} tooltipText={ct.tooltipText} />}
+        />
+        {optimalMax && optimalMax > 0 && (
+          <ReferenceLine
+            y={optimalMax}
+            stroke={ct.success}
+            strokeDasharray="4 4"
+            strokeWidth={1.5}
+            label={{ value: `Límite óptimo ${hoursToDisplay(optimalMax)}h`, position: "insideTopLeft", fontSize: 10, fill: ct.success }}
+          />
+        )}
+        <Line
+          type="monotone"
+          dataKey="realHours"
+          stroke={ct.primary}
+          strokeWidth={2.5}
+          dot={(props: { cx?: number; cy?: number; payload?: WeeklyCargaPoint; index?: number }) => {
+            const { cx, cy, payload, index } = props;
+            if (cx == null || cy == null || !payload) return <g key={index} />;
+            return <circle key={index} cx={cx} cy={cy} r={5} fill={workloadColorHex(payload.color, ct)} stroke={ct.tooltipBg} strokeWidth={1.5} />;
+          }}
+          activeDot={{ r: 7 }}
+        />
+      </LineChart>
     </ResponsiveContainer>
   );
 }

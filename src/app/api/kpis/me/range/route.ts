@@ -178,7 +178,7 @@ export async function GET(request: NextRequest) {
       cargaPct,
       cargaColor: cargaRange.color,
       cargaLabel: cargaRange.label,
-      cargaRangeMin: cargaRange.min,
+      cargaRangeMin: Math.round(cargaBaseHours * 100) / 100,
       cargaRangeMax: cargaRange.max,
     };
   });
@@ -248,7 +248,7 @@ export async function GET(request: NextRequest) {
         avgCargaPct,
         cargaColor: cargaRangeAgg.color,
         cargaLabel: cargaRangeAgg.label,
-        cargaRangeMin: cargaRangeAgg.min,
+        cargaRangeMin: totalCargaBaseHours,
         cargaRangeMax: cargaRangeAgg.max,
       },
       trends: {

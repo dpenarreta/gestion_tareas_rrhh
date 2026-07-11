@@ -8,7 +8,7 @@ import {
 import * as XLSX from "xlsx";
 import type { Role } from "@/generated/prisma/client";
 import { ROLE_LABEL } from "@/lib/roles";
-import type { KpiData, KpiColor, WorkloadLabel } from "./types";
+import type { KpiData, KpiColor, WorkloadColor, WorkloadLabel } from "./types";
 import { DonutChart, WeeklyHoursChart, CumplimientoLineChart, REASON_LABEL } from "./KpiCharts";
 import WorkloadCard from "./WorkloadCard";
 import { formatDate } from "@/lib/utils";
@@ -30,7 +30,7 @@ type PersonalMonthSnapshot = {
   cargaRealHours: number;
   cargaBaseHours: number;
   cargaPct: number;
-  cargaColor: KpiColor;
+  cargaColor: WorkloadColor;
   cargaLabel: WorkloadLabel;
   cargaRangeMin: number;
   cargaRangeMax: number;
@@ -52,7 +52,7 @@ type PersonalRangeReport = {
     totalCargaRealHours: number;
     totalCargaBaseHours: number;
     avgCargaPct: number;
-    cargaColor: KpiColor;
+    cargaColor: WorkloadColor;
     cargaLabel: WorkloadLabel;
     cargaRangeMin: number;
     cargaRangeMax: number;
@@ -88,9 +88,10 @@ function addMonths(base: string, n: number) {
   return `${y}-${String(m).padStart(2, "0")}`;
 }
 
-const DOT_CLASS: Record<KpiColor, string> = {
+const DOT_CLASS: Record<WorkloadColor, string> = {
   green: "bg-success",
   yellow: "bg-warning",
+  orange: "bg-orange-500",
   red: "bg-danger",
 };
 

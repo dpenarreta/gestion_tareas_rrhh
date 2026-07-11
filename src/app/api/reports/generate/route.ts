@@ -307,7 +307,9 @@ export async function POST(request: NextRequest) {
       cargaBaseHours: monthlyBaseHours,
       cargaColor: cargaRange.color,
       cargaLabel: cargaRange.label,
-      cargaRangeMin: cargaRange.min,
+      // cargaRangeMin/Max = límites de la zona Óptima (verde), no toda la
+      // banda de tolerancia (que ahora incluye la zona Moderado, amarilla).
+      cargaRangeMin: Math.round(monthlyBaseHours * 100) / 100,
       cargaRangeMax: cargaRange.max,
       totalTasks: tasks.length,
       completedTasks: completed,
@@ -377,7 +379,7 @@ export async function POST(request: NextRequest) {
       totalTasks,
       hoursPerDay,
       workloadTolerance: tolerancePerDay,
-      cargaRangeMin: cargaRangePerPerson.min,
+      cargaRangeMin: Math.round(monthlyBaseHours * 100) / 100,
       cargaRangeMax: cargaRangePerPerson.max,
     },
     members,
