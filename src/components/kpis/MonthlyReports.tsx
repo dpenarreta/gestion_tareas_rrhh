@@ -78,7 +78,7 @@ function downloadReportExcel(report: MonthlyReportFull) {
     ["Promedio de cumplimiento", `${data.teamSummary.avgCumplimiento}%`],
     ["Total tareas completadas", `${data.teamSummary.totalCompletedTasks} / ${data.teamSummary.totalTasks}`],
     ["Carga laboral del equipo", `${data.teamSummary.avgCargaPct}% (${hoursToDisplay(data.teamSummary.totalCargaRealHours)}h de ${hoursToDisplay(data.teamSummary.totalCargaBaseHours)}h base)`],
-    ["Rango óptimo configurado (por persona)", `${hoursToDisplay(data.teamSummary.cargaRangeMin)}h a ${hoursToDisplay(data.teamSummary.cargaRangeMax)}h (tolerancia ${hoursToDisplay(data.teamSummary.workloadTolerance)}h)`],
+    ["Rango óptimo configurado (por persona)", `${hoursToDisplay(data.teamSummary.cargaRangeMin)}h a ${hoursToDisplay(data.teamSummary.cargaRangeMax)}h`],
     ["Total consultas SEGUIMIENTO", data.teamSummary.totalConsultas],
     [""],
     ["ALERTAS", ""],
@@ -263,7 +263,7 @@ function downloadReportPDF(report: MonthlyReportFull) {
     </div>
     <div class="stat">
       <div class="stat-label">Rango óptimo (por persona)</div>
-      <div class="stat-value" style="font-size:14px">${hoursToDisplay(data.teamSummary.cargaRangeMin)}h-${hoursToDisplay(data.teamSummary.cargaRangeMax)}h<span style="color:#94a3b8;font-size:11px"> (tolerancia ${hoursToDisplay(data.teamSummary.workloadTolerance)}h)</span></div>
+      <div class="stat-value" style="font-size:14px">${hoursToDisplay(data.teamSummary.cargaRangeMin)}h-${hoursToDisplay(data.teamSummary.cargaRangeMax)}h</div>
     </div>
   </div>
 
@@ -386,7 +386,7 @@ function downloadRangeExcel(data: RangeReportData) {
     ["Cumplimiento promedio", `${data.aggregated.teamSummary.avgCumplimiento}%`],
     ["Tareas completadas", `${data.aggregated.teamSummary.totalCompletedTasks} / ${data.aggregated.teamSummary.totalTasks}`],
     ["Carga laboral acumulada", `${data.aggregated.teamSummary.avgCargaPct}% (${hoursToDisplay(data.aggregated.teamSummary.totalCargaRealHours)}h de ${hoursToDisplay(data.aggregated.teamSummary.totalCargaBaseHours)}h base)`],
-    ["Rango óptimo configurado (por persona)", `${hoursToDisplay(data.aggregated.teamSummary.cargaRangeMin)}h a ${hoursToDisplay(data.aggregated.teamSummary.cargaRangeMax)}h (tolerancia ${hoursToDisplay(data.aggregated.teamSummary.workloadTolerance)}h)`],
+    ["Rango óptimo configurado (por persona)", `${hoursToDisplay(data.aggregated.teamSummary.cargaRangeMin)}h a ${hoursToDisplay(data.aggregated.teamSummary.cargaRangeMax)}h`],
     ["Total consultas SEGUIMIENTO", data.aggregated.teamSummary.totalConsultas],
     [""],
     ["TENDENCIA", ""],
@@ -799,7 +799,7 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                 <MetricStat label="Cumplimiento promedio" value={`${rangeReport.aggregated.teamSummary.avgCumplimiento}%`} sub={`${rangeReport.months.length} meses`} accent />
                 <MetricStat label="Tareas completadas" value={`${rangeReport.aggregated.teamSummary.totalCompletedTasks}`} sub={`de ${rangeReport.aggregated.teamSummary.totalTasks} totales`} />
                 <MetricStat label="Carga laboral acumulada" value={`${rangeReport.aggregated.teamSummary.avgCargaPct}%`} sub={`${hoursToDisplay(rangeReport.aggregated.teamSummary.totalCargaRealHours)}h de ${hoursToDisplay(rangeReport.aggregated.teamSummary.totalCargaBaseHours)}h base`} />
-                <MetricStat label="Rango óptimo (por persona)" value={`${hoursToDisplay(rangeReport.aggregated.teamSummary.cargaRangeMin)}-${hoursToDisplay(rangeReport.aggregated.teamSummary.cargaRangeMax)}h`} sub={`tolerancia ±${hoursToDisplay(rangeReport.aggregated.teamSummary.workloadTolerance)}h`} />
+                <MetricStat label="Rango óptimo (por persona)" value={`${hoursToDisplay(rangeReport.aggregated.teamSummary.cargaRangeMin)}-${hoursToDisplay(rangeReport.aggregated.teamSummary.cargaRangeMax)}h`} />
                 <MetricStat label="Total consultas" value={`${rangeReport.aggregated.teamSummary.totalConsultas}`} sub="SEGUIMIENTO acumuladas" />
                 <MetricStat label="Alertas persistentes" value={`${rangeReport.aggregated.alerts.length}`} sub="personas con incidencia recurrente" />
                 <MetricStat label="Colaboradores" value={`${rangeReport.aggregated.members.length}`} sub="incluidos en el rango" />
@@ -1084,7 +1084,6 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                 <MetricStat
                   label="Rango óptimo (por persona)"
                   value={`${hoursToDisplay(data.teamSummary.cargaRangeMin)}-${hoursToDisplay(data.teamSummary.cargaRangeMax)}h`}
-                  sub={`tolerancia ±${hoursToDisplay(data.teamSummary.workloadTolerance)}h`}
                 />
                 <MetricStat
                   label="Total consultas"

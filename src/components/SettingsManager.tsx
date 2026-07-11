@@ -93,11 +93,15 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [infoLoading, setInfoLoading] = useState(true);
 
-  // Configuración de carga laboral
+  // Configuración de carga laboral — 4 límites independientes
   const [hoursPerDay, setHoursPerDay] = useState<number | null>(null);
   const [hoursInput, setHoursInput] = useState("6.30");
-  const [workloadTolerance, setWorkloadTolerance] = useState<number | null>(null);
-  const [toleranceInput, setToleranceInput] = useState("1.00");
+  const [workloadLimitLow, setWorkloadLimitLow] = useState<number | null>(null);
+  const [limitLowInput, setLimitLowInput] = useState("5.30");
+  const [workloadLimitHigh, setWorkloadLimitHigh] = useState<number | null>(null);
+  const [limitHighInput, setLimitHighInput] = useState("7.30");
+  const [workloadLimitOverload, setWorkloadLimitOverload] = useState<number | null>(null);
+  const [limitOverloadInput, setLimitOverloadInput] = useState("8.30");
   const [hoursLoading, setHoursLoading] = useState(true);
   const [hoursSaving, setHoursSaving] = useState(false);
   const [hoursMsg, setHoursMsg] = useState<string | null>(null);
@@ -141,8 +145,12 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
         const data = await res.json();
         setHoursPerDay(data.hoursPerDay);
         setHoursInput(hoursToDisplay(data.hoursPerDay));
-        setWorkloadTolerance(data.workloadTolerance);
-        setToleranceInput(hoursToDisplay(data.workloadTolerance));
+        setWorkloadLimitLow(data.workloadLimitLow);
+        setLimitLowInput(hoursToDisplay(data.workloadLimitLow));
+        setWorkloadLimitHigh(data.workloadLimitHigh);
+        setLimitHighInput(hoursToDisplay(data.workloadLimitHigh));
+        setWorkloadLimitOverload(data.workloadLimitOverload);
+        setLimitOverloadInput(hoursToDisplay(data.workloadLimitOverload));
       }
     } finally {
       setHoursLoading(false);
@@ -171,18 +179,30 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
   async function handleSaveHours() {
     setHoursMsg(null);
     setHoursError(null);
-    if (!validateDisplayHours(hoursInput) || !validateDisplayHours(toleranceInput)) {
+    if (
+      !validateDisplayHours(hoursInput) ||
+      !validateDisplayHours(limitLowInput) ||
+      !validateDisplayHours(limitHighInput) ||
+      !validateDisplayHours(limitOverloadInput)
+    ) {
       setHoursError(INVALID_HOURS_MESSAGE);
       return;
     }
     const hoursValue = displayToHours(hoursInput);
-    const toleranceValue = displayToHours(toleranceInput);
+    const limitLowValue = displayToHours(limitLowInput);
+    const limitHighValue = displayToHours(limitHighInput);
+    const limitOverloadValue = displayToHours(limitOverloadInput);
     setHoursSaving(true);
     try {
       const res = await fetch("/api/settings/workload-config", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hoursPerDay: hoursValue, workloadTolerance: toleranceValue }),
+        body: JSON.stringify({
+          hoursPerDay: hoursValue,
+          workloadLimitLow: limitLowValue,
+          workloadLimitHigh: limitHighValue,
+          workloadLimitOverload: limitOverloadValue,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -190,8 +210,12 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
       } else {
         setHoursPerDay(data.hoursPerDay);
         setHoursInput(hoursToDisplay(data.hoursPerDay));
-        setWorkloadTolerance(data.workloadTolerance);
-        setToleranceInput(hoursToDisplay(data.workloadTolerance));
+        setWorkloadLimitLow(data.workloadLimitLow);
+        setLimitLowInput(hoursToDisplay(data.workloadLimitLow));
+        setWorkloadLimitHigh(data.workloadLimitHigh);
+        setLimitHighInput(hoursToDisplay(data.workloadLimitHigh));
+        setWorkloadLimitOverload(data.workloadLimitOverload);
+        setLimitOverloadInput(hoursToDisplay(data.workloadLimitOverload));
         setHoursMsg("Configuración de carga laboral actualizada.");
       }
     } catch {
@@ -517,34 +541,78 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
               />
             </div>
 
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-title">Tolerancia del rango óptimo</label>
-              <p className="text-xs text-secondary">
-                Margen de variación aceptable alrededor de las horas efectivas. Con base 6.30 y tolerancia 1.00, el
-                rango óptimo será de 5.30 a 7.30.
-              </p>
-              <input
-                type="text"
-                inputMode="decimal"
-                value={toleranceInput}
-                onChange={(e) => setToleranceInput(e.target.value)}
-                placeholder="ej: 1.00 = 1h de margen"
-                className="w-32 border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
-              />
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-title">Límite Subutilización / Moderado</label>
+                <p className="text-xs text-secondary">Por debajo de este valor: Subutilización.</p>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={limitLowInput}
+                  onChange={(e) => setLimitLowInput(e.target.value)}
+                  placeholder="ej: 5.30"
+                  className="w-32 border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-title">Límite Óptimo / Carga elevada</label>
+                <p className="text-xs text-secondary">Por encima de este valor: Carga elevada.</p>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={limitHighInput}
+                  onChange={(e) => setLimitHighInput(e.target.value)}
+                  placeholder="ej: 7.30"
+                  className="w-32 border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-title">Límite Carga elevada / Sobrecarga</label>
+                <p className="text-xs text-secondary">Por encima de este valor: Sobrecarga.</p>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={limitOverloadInput}
+                  onChange={(e) => setLimitOverloadInput(e.target.value)}
+                  placeholder="ej: 8.30"
+                  className="w-32 border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                />
+              </div>
             </div>
 
             {(() => {
-              if (!validateDisplayHours(hoursInput) || !validateDisplayHours(toleranceInput)) return null;
+              if (
+                !validateDisplayHours(hoursInput) ||
+                !validateDisplayHours(limitLowInput) ||
+                !validateDisplayHours(limitHighInput) ||
+                !validateDisplayHours(limitOverloadInput)
+              )
+                return null;
               const preview = displayToHours(hoursInput);
-              const tolerancePreview = displayToHours(toleranceInput);
+              const lowPreview = displayToHours(limitLowInput);
+              const highPreview = displayToHours(limitHighInput);
+              const overloadPreview = displayToHours(limitOverloadInput);
               if (preview < 4 || preview > 8) return null;
+              if (!(lowPreview < preview && preview <= highPreview && highPreview < overloadPreview)) {
+                return (
+                  <div className="rounded-lg bg-danger/[.09] border border-danger/30 px-4 py-3 text-sm text-danger">
+                    Los límites deben cumplir: Subutilización &lt; Horas efectivas ≤ Óptimo &lt; Sobrecarga.
+                  </div>
+                );
+              }
               const now = new Date();
               const bizDays = businessDaysInMonth(now.getFullYear(), now.getMonth() + 1);
               const monthLabel = now.toLocaleDateString("es-CL", { month: "long", year: "numeric" });
               return (
                 <div className="rounded-lg bg-background border border-border px-4 py-3 space-y-1 text-sm text-secondary">
                   <p>
-                    Rango óptimo: <span className="font-medium text-title">{hoursToDisplay(Math.max(0, preview - tolerancePreview))} a {hoursToDisplay(preview + tolerancePreview)}</span>
+                    Rangos:{" "}
+                    <span className="font-medium text-title">
+                      Subutilización &lt;{hoursToDisplay(lowPreview)} | Moderado {hoursToDisplay(lowPreview)}-{hoursToDisplay(preview)} | Óptimo{" "}
+                      {hoursToDisplay(preview)}-{hoursToDisplay(highPreview)} | Elevada {hoursToDisplay(highPreview)}-{hoursToDisplay(overloadPreview)} | Sobrecarga &gt;{hoursToDisplay(overloadPreview)}
+                    </span>
                   </p>
                   <p>Horas semanales: <span className="font-medium text-title">{hoursToDisplay(preview * 5)} horas</span> (5 días × {hoursToDisplay(preview)}h)</p>
                   <p>
@@ -560,9 +628,13 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
               disabled={
                 hoursSaving ||
                 (validateDisplayHours(hoursInput) &&
-                  validateDisplayHours(toleranceInput) &&
+                  validateDisplayHours(limitLowInput) &&
+                  validateDisplayHours(limitHighInput) &&
+                  validateDisplayHours(limitOverloadInput) &&
                   displayToHours(hoursInput) === hoursPerDay &&
-                  displayToHours(toleranceInput) === workloadTolerance)
+                  displayToHours(limitLowInput) === workloadLimitLow &&
+                  displayToHours(limitHighInput) === workloadLimitHigh &&
+                  displayToHours(limitOverloadInput) === workloadLimitOverload)
               }
               className="px-4 py-2 bg-primary text-white font-medium rounded-lg text-sm hover:bg-primary-hover disabled:opacity-50 transition-colors"
             >

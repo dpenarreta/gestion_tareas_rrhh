@@ -68,7 +68,6 @@ type ReportData = {
     totalConsultas: number;
     totalTasks: number;
     hoursPerDay: number;
-    workloadTolerance: number;
     cargaRangeMin: number;
     cargaRangeMax: number;
   };
@@ -127,7 +126,7 @@ async function buildAiAnalysis(data: ReportData): Promise<string> {
 RESUMEN DEL EQUIPO:
 - Promedio de cumplimiento: ${data.teamSummary.avgCumplimiento}% (objetivo mínimo: 60%, objetivo ideal: 80%)
 - Total tareas completadas: ${data.teamSummary.totalCompletedTasks} de ${data.teamSummary.totalTasks}
-- Carga laboral del equipo: ${data.teamSummary.avgCargaPct}% (${data.teamSummary.totalCargaRealHours}h reales de ${data.teamSummary.totalCargaBaseHours}h base — la base es dinámica, calculada como días hábiles lunes-viernes del mes × ${data.teamSummary.hoursPerDay}h efectivas configuradas por persona; las horas estimadas por tarea son solo referencia y no forman parte de este cálculo). El rango óptimo configurado por persona este mes es de ${data.teamSummary.cargaRangeMin}h a ${data.teamSummary.cargaRangeMax}h (tolerancia diaria configurada: ${data.teamSummary.workloadTolerance}h) — usa ese rango, no un 100% exacto, para juzgar si alguien está en carga óptima, elevada o sobrecarga.
+- Carga laboral del equipo: ${data.teamSummary.avgCargaPct}% (${data.teamSummary.totalCargaRealHours}h reales de ${data.teamSummary.totalCargaBaseHours}h base — la base es dinámica, calculada como días hábiles lunes-viernes del mes × ${data.teamSummary.hoursPerDay}h efectivas configuradas por persona; las horas estimadas por tarea son solo referencia y no forman parte de este cálculo). El rango óptimo configurado por persona este mes es de ${data.teamSummary.cargaRangeMin}h a ${data.teamSummary.cargaRangeMax}h — usa ese rango, no un 100% exacto, para juzgar si alguien está en carga óptima, elevada o sobrecarga.
 - Total consultas SEGUIMIENTO atendidas: ${data.teamSummary.totalConsultas}
 
 RANKING DE CUMPLIMIENTO (de mayor a menor):
@@ -196,9 +195,9 @@ export async function POST(request: NextRequest) {
     end: cargaEnd,
     baseHours: monthlyBaseHours,
     hoursPerDay,
-    tolerancePerDay,
-    toleranceHours,
-    elevatedBandHours,
+    limitLowHours,
+    limitHighHours,
+    limitOverloadHours,
   } = await monthlyBusinessBase(year, month);
   const { start: cargaRealStart } = businessDayRealRange(cargaStart);
   const { end: cargaRealEnd } = businessDayRealRange(cargaEnd);
@@ -264,7 +263,7 @@ export async function POST(request: NextRequest) {
     const activityHours =
       activitiesForCarga.filter((a) => a.authorId === user.id).reduce((s, a) => s + a.duration, 0) / 60;
     const cargaRealHours = Math.round((fijaHours + activityHours) * 100) / 100;
-    const cargaRange = computeWorkloadRange(cargaRealHours, monthlyBaseHours, toleranceHours, elevatedBandHours);
+    const cargaRange = computeWorkloadRange(cargaRealHours, monthlyBaseHours, limitLowHours, limitHighHours, limitOverloadHours);
     const cargaPct = computeWorkloadPct(cargaRealHours, monthlyBaseHours, cargaRange.max);
 
     const inProgress = tasks.filter((t) => t.status === "EN_PROGRESO");
@@ -307,8 +306,7 @@ export async function POST(request: NextRequest) {
       cargaBaseHours: monthlyBaseHours,
       cargaColor: cargaRange.color,
       cargaLabel: cargaRange.label,
-      // cargaRangeMin/Max = límites de la zona Óptima (verde), no toda la
-      // banda de tolerancia (que ahora incluye la zona Moderado, amarilla).
+      // cargaRangeMin/Max = límites de la zona Óptima (verde): [base, workload_limit_high].
       cargaRangeMin: Math.round(monthlyBaseHours * 100) / 100,
       cargaRangeMax: cargaRange.max,
       totalTasks: tasks.length,
@@ -331,8 +329,9 @@ export async function POST(request: NextRequest) {
   const teamCargaRange = computeWorkloadRange(
     totalCargaRealHours,
     totalCargaBaseHours,
-    toleranceHours * users.length,
-    elevatedBandHours * users.length,
+    limitLowHours * users.length,
+    limitHighHours * users.length,
+    limitOverloadHours * users.length,
   );
   const avgCargaPct = computeWorkloadPct(totalCargaRealHours, totalCargaBaseHours, teamCargaRange.max);
   const avgCumplimiento =
@@ -369,7 +368,7 @@ export async function POST(request: NextRequest) {
 
   // Rango óptimo configurado (por persona, no sumado al equipo) para que la
   // UI y el análisis de IA den contexto de qué significa el % de carga.
-  const cargaRangePerPerson = computeWorkloadRange(0, monthlyBaseHours, toleranceHours, elevatedBandHours);
+  const cargaRangePerPerson = computeWorkloadRange(0, monthlyBaseHours, limitLowHours, limitHighHours, limitOverloadHours);
 
   const reportData: ReportData = {
     month: monthParam,
@@ -383,7 +382,6 @@ export async function POST(request: NextRequest) {
       totalConsultas,
       totalTasks,
       hoursPerDay,
-      workloadTolerance: tolerancePerDay,
       cargaRangeMin: Math.round(monthlyBaseHours * 100) / 100,
       cargaRangeMax: cargaRangePerPerson.max,
     },

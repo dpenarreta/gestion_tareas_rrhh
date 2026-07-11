@@ -54,17 +54,17 @@ export async function GET(request: NextRequest) {
   const rangeStart = monthBounds(fy, fm).start;
   const rangeEnd = monthBounds(ty, tm).end;
 
-  // Base dinámica de carga (días hábiles × horas efectivas/tolerancia vigentes
+  // Base dinámica de carga (días hábiles × horas efectivas/límites vigentes
   // en cada mes) — el mismo mecanismo que /api/reports/range, para que "Mi
   // actividad" muestre el semáforo por rango, no solo el ratio real/estimado.
   const monthBusinessInfo = await Promise.all(
     months.map(async ({ year, month }) => {
       const monthStr = `${year}-${String(month).padStart(2, "0")}`;
-      const { start: cargaStart, end: cargaEnd, baseHours, toleranceHours, elevatedBandHours } =
+      const { start: cargaStart, end: cargaEnd, baseHours, limitLowHours, limitHighHours, limitOverloadHours } =
         await monthlyBusinessBase(year, month);
       const { start: realStart } = businessDayRealRange(cargaStart);
       const { end: realEnd } = businessDayRealRange(cargaEnd);
-      return { monthStr, realStart, realEnd, baseHours, toleranceHours, elevatedBandHours };
+      return { monthStr, realStart, realEnd, baseHours, limitLowHours, limitHighHours, limitOverloadHours };
     }),
   );
   const rangeRealStart = monthBusinessInfo[0].realStart;
@@ -159,7 +159,13 @@ export async function GET(request: NextRequest) {
         100,
     ) / 100;
     const cargaBaseHours = bizInfo.baseHours;
-    const cargaRange = computeWorkloadRange(cargaRealHours, cargaBaseHours, bizInfo.toleranceHours, bizInfo.elevatedBandHours);
+    const cargaRange = computeWorkloadRange(
+      cargaRealHours,
+      cargaBaseHours,
+      bizInfo.limitLowHours,
+      bizInfo.limitHighHours,
+      bizInfo.limitOverloadHours,
+    );
     const cargaPct = computeWorkloadPct(cargaRealHours, cargaBaseHours, cargaRange.max);
 
     return {
@@ -201,13 +207,14 @@ export async function GET(request: NextRequest) {
     Math.round(monthSnapshots.reduce((s, m) => s + m.estimatedHours, 0) * 100) / 100;
   const totalSeguimiento = monthSnapshots.reduce((s, m) => s + m.seguimientoTotal, 0);
 
-  // Carga laboral acumulada del rango (base/tolerancia sumadas mes a mes, ya
-  // que ambas pueden variar de un mes a otro si cambió la configuración).
+  // Carga laboral acumulada del rango (base/límites sumados mes a mes, ya
+  // que pueden variar de un mes a otro si cambió la configuración).
   const totalCargaRealHours = Math.round(monthSnapshots.reduce((s, m) => s + m.cargaRealHours, 0) * 100) / 100;
   const totalCargaBaseHours = Math.round(monthBusinessInfo.reduce((s, b) => s + b.baseHours, 0) * 100) / 100;
-  const totalToleranceHours = monthBusinessInfo.reduce((s, b) => s + b.toleranceHours, 0);
-  const totalElevatedBandHours = monthBusinessInfo.reduce((s, b) => s + b.elevatedBandHours, 0);
-  const cargaRangeAgg = computeWorkloadRange(totalCargaRealHours, totalCargaBaseHours, totalToleranceHours, totalElevatedBandHours);
+  const totalLimitLowHours = monthBusinessInfo.reduce((s, b) => s + b.limitLowHours, 0);
+  const totalLimitHighHours = monthBusinessInfo.reduce((s, b) => s + b.limitHighHours, 0);
+  const totalLimitOverloadHours = monthBusinessInfo.reduce((s, b) => s + b.limitOverloadHours, 0);
+  const cargaRangeAgg = computeWorkloadRange(totalCargaRealHours, totalCargaBaseHours, totalLimitLowHours, totalLimitHighHours, totalLimitOverloadHours);
   const avgCargaPct = computeWorkloadPct(totalCargaRealHours, totalCargaBaseHours, cargaRangeAgg.max);
 
   const byReasonMap: Record<string, { count: number; totalMinutes: number }> = {};

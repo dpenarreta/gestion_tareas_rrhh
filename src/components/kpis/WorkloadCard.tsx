@@ -52,19 +52,29 @@ function Tile({
 }
 
 /** "Rangos: Subutilización <5.30 | Moderado 5.30-6.30 | Óptimo 6.30-7.30 | Elevada 7.30-8.30 | Sobrecarga >8.30" */
-function rangesSummary(base: number, tolerance: number): string {
-  const subMax = hoursToDisplay(Math.max(0, base - tolerance));
-  const optimalMin = hoursToDisplay(base);
-  const optimalMax = hoursToDisplay(base + tolerance);
-  const elevatedMax = hoursToDisplay(base + tolerance + 1);
+function rangesSummary(base: number, limitLow: number, limitHigh: number, limitOverload: number): string {
+  const low = hoursToDisplay(limitLow);
+  const baseDisplay = hoursToDisplay(base);
+  const high = hoursToDisplay(limitHigh);
+  const overload = hoursToDisplay(limitOverload);
   return (
-    `Rangos: Subutilización <${subMax} | Moderado ${subMax}-${optimalMin} | ` +
-    `Óptimo ${optimalMin}-${optimalMax} | Elevada ${optimalMax}-${elevatedMax} | Sobrecarga >${elevatedMax}`
+    `Rangos: Subutilización <${low} | Moderado ${low}-${baseDisplay} | ` +
+    `Óptimo ${baseDisplay}-${high} | Elevada ${high}-${overload} | Sobrecarga >${overload}`
   );
 }
 
 export default function WorkloadCard({ cargaTiempo }: { cargaTiempo: CargaTiempo }) {
-  const { diaria, semanal, mensual, horasEfectivasPorDia, workloadTolerance, dailyHistory, weeklyHistory } = cargaTiempo;
+  const {
+    diaria,
+    semanal,
+    mensual,
+    horasEfectivasPorDia,
+    workloadLimitLow,
+    workloadLimitHigh,
+    workloadLimitOverload,
+    dailyHistory,
+    weeklyHistory,
+  } = cargaTiempo;
 
   return (
     <div className="bg-surface rounded-[14px] border border-border shadow-[var(--shadow)] p-5">
@@ -77,7 +87,7 @@ export default function WorkloadCard({ cargaTiempo }: { cargaTiempo: CargaTiempo
         </span>
       </div>
       <p className="text-[10px] text-disabled mb-3 leading-relaxed">
-        {rangesSummary(horasEfectivasPorDia, workloadTolerance)}
+        {rangesSummary(horasEfectivasPorDia, workloadLimitLow, workloadLimitHigh, workloadLimitOverload)}
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Tile label="Hoy" metric={diaria} periodLabel="hoy" />
@@ -100,7 +110,7 @@ export default function WorkloadCard({ cargaTiempo }: { cargaTiempo: CargaTiempo
           <h4 className="text-[11px] font-semibold text-secondary uppercase tracking-wider mb-2">
             Últimos días laborables
           </h4>
-          <DailyCargaBarChart points={dailyHistory} baseHours={horasEfectivasPorDia} optimalMax={horasEfectivasPorDia + workloadTolerance} />
+          <DailyCargaBarChart points={dailyHistory} baseHours={horasEfectivasPorDia} optimalMax={workloadLimitHigh} />
         </div>
       )}
 
@@ -109,7 +119,7 @@ export default function WorkloadCard({ cargaTiempo }: { cargaTiempo: CargaTiempo
           <h4 className="text-[11px] font-semibold text-secondary uppercase tracking-wider mb-2">
             Semanas de este mes
           </h4>
-          <WeeklyCargaLineChart points={weeklyHistory} optimalMax={(horasEfectivasPorDia + workloadTolerance) * 5} />
+          <WeeklyCargaLineChart points={weeklyHistory} optimalMax={workloadLimitHigh * 5} />
         </div>
       )}
     </div>

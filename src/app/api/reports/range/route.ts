@@ -94,7 +94,7 @@ ${problematicText}
 RESUMEN ACUMULADO DEL PERÍODO:
 - Cumplimiento promedio: ${data.aggregated.teamSummary.avgCumplimiento}% (objetivo mínimo: 60%, objetivo ideal: 80%)
 - Total tareas completadas: ${data.aggregated.teamSummary.totalCompletedTasks} de ${data.aggregated.teamSummary.totalTasks}
-- Carga laboral acumulada: ${data.aggregated.teamSummary.avgCargaPct}% (${data.aggregated.teamSummary.totalCargaRealHours}h reales de ${data.aggregated.teamSummary.totalCargaBaseHours}h base — base dinámica: días hábiles lunes-viernes de cada mes × horas efectivas configuradas por persona (según lo vigente en cada mes del rango); las horas estimadas por tarea son solo referencia y no forman parte de este cálculo). Rango óptimo configurado por persona en el último mes del rango: ${data.aggregated.teamSummary.cargaRangeMin}h a ${data.aggregated.teamSummary.cargaRangeMax}h (tolerancia diaria: ${data.aggregated.teamSummary.workloadTolerance}h) — usa ese rango, no un 100% exacto, para juzgar carga óptima vs. sobrecarga.
+- Carga laboral acumulada: ${data.aggregated.teamSummary.avgCargaPct}% (${data.aggregated.teamSummary.totalCargaRealHours}h reales de ${data.aggregated.teamSummary.totalCargaBaseHours}h base — base dinámica: días hábiles lunes-viernes de cada mes × horas efectivas configuradas por persona (según lo vigente en cada mes del rango); las horas estimadas por tarea son solo referencia y no forman parte de este cálculo). Rango óptimo configurado por persona en el último mes del rango: ${data.aggregated.teamSummary.cargaRangeMin}h a ${data.aggregated.teamSummary.cargaRangeMax}h — usa ese rango, no un 100% exacto, para juzgar carga óptima vs. sobrecarga.
 - Total consultas SEGUIMIENTO: ${data.aggregated.teamSummary.totalConsultas}
 
 RANKING PROMEDIO DEL PERÍODO:
@@ -181,11 +181,11 @@ export async function GET(request: NextRequest) {
     const monthBusinessInfo = await Promise.all(
       months.map(async (monthStr) => {
         const [y, mo] = monthStr.split("-").map(Number);
-        const { start: cargaStart, end: cargaEnd, baseHours, tolerancePerDay, toleranceHours, elevatedBandHours } =
+        const { start: cargaStart, end: cargaEnd, baseHours, limitLowHours, limitHighHours, limitOverloadHours } =
           await monthlyBusinessBase(y, mo);
         const { start: realStart } = businessDayRealRange(cargaStart);
         const { end: realEnd } = businessDayRealRange(cargaEnd);
-        return { monthStr, cargaStart, cargaEnd, realStart, realEnd, baseHours, tolerancePerDay, toleranceHours, elevatedBandHours };
+        return { monthStr, cargaStart, cargaEnd, realStart, realEnd, baseHours, limitLowHours, limitHighHours, limitOverloadHours };
       }),
     );
     const rangeRealStart = monthBusinessInfo[0].realStart;
@@ -251,7 +251,13 @@ export async function GET(request: NextRequest) {
         const activityHours =
           monthCargaActs.filter((a) => a.authorId === user.id).reduce((s, a) => s + a.duration, 0) / 60;
         const cargaRealHours = Math.round((fijaHours + activityHours) * 100) / 100;
-        const cargaRange = computeWorkloadRange(cargaRealHours, bizInfo.baseHours, bizInfo.toleranceHours, bizInfo.elevatedBandHours);
+        const cargaRange = computeWorkloadRange(
+          cargaRealHours,
+          bizInfo.baseHours,
+          bizInfo.limitLowHours,
+          bizInfo.limitHighHours,
+          bizInfo.limitOverloadHours,
+        );
         const cargaPct = computeWorkloadPct(cargaRealHours, bizInfo.baseHours, cargaRange.max);
 
         const inProgress = tasks.filter((t) => t.status === "EN_PROGRESO");
@@ -300,8 +306,9 @@ export async function GET(request: NextRequest) {
     });
 
     const rangeBaseHoursPerUser = monthBusinessInfo.reduce((s, b) => s + b.baseHours, 0);
-    const rangeToleranceHoursPerUser = monthBusinessInfo.reduce((s, b) => s + b.toleranceHours, 0);
-    const rangeElevatedBandHoursPerUser = monthBusinessInfo.reduce((s, b) => s + b.elevatedBandHours, 0);
+    const rangeLimitLowHoursPerUser = monthBusinessInfo.reduce((s, b) => s + b.limitLowHours, 0);
+    const rangeLimitHighHoursPerUser = monthBusinessInfo.reduce((s, b) => s + b.limitHighHours, 0);
+    const rangeLimitOverloadHoursPerUser = monthBusinessInfo.reduce((s, b) => s + b.limitOverloadHours, 0);
 
     // Aggregate per member across full range
     const aggregatedMembers: ReportMemberKpi[] = users.map((user) => {
@@ -317,7 +324,13 @@ export async function GET(request: NextRequest) {
         activitiesForCarga.filter((a) => a.authorId === user.id).reduce((s, a) => s + a.duration, 0) / 60;
       const cargaRealHours = Math.round((fijaHours + activityHours) * 100) / 100;
       const cargaBaseHours = rangeBaseHoursPerUser;
-      const cargaRange = computeWorkloadRange(cargaRealHours, cargaBaseHours, rangeToleranceHoursPerUser, rangeElevatedBandHoursPerUser);
+      const cargaRange = computeWorkloadRange(
+        cargaRealHours,
+        cargaBaseHours,
+        rangeLimitLowHoursPerUser,
+        rangeLimitHighHoursPerUser,
+        rangeLimitOverloadHoursPerUser,
+      );
       const cargaPct = computeWorkloadPct(cargaRealHours, cargaBaseHours, cargaRange.max);
 
       // Average cumplimiento across months where user had tasks
@@ -386,15 +399,22 @@ export async function GET(request: NextRequest) {
     const teamCargaRange = computeWorkloadRange(
       totalCargaRealHours,
       totalCargaBaseHours,
-      rangeToleranceHoursPerUser * users.length,
-      rangeElevatedBandHoursPerUser * users.length,
+      rangeLimitLowHoursPerUser * users.length,
+      rangeLimitHighHoursPerUser * users.length,
+      rangeLimitOverloadHoursPerUser * users.length,
     );
     const avgCargaPct = computeWorkloadPct(totalCargaRealHours, totalCargaBaseHours, teamCargaRange.max);
 
     // Rango óptimo configurado por persona (no sumado al equipo), usando lo
     // vigente en el último mes del rango, para dar contexto en la UI/IA.
     const lastMonthBizInfo = monthBusinessInfo[monthBusinessInfo.length - 1];
-    const cargaRangeLastMonth = computeWorkloadRange(0, lastMonthBizInfo.baseHours, lastMonthBizInfo.toleranceHours, lastMonthBizInfo.elevatedBandHours);
+    const cargaRangeLastMonth = computeWorkloadRange(
+      0,
+      lastMonthBizInfo.baseHours,
+      lastMonthBizInfo.limitLowHours,
+      lastMonthBizInfo.limitHighHours,
+      lastMonthBizInfo.limitOverloadHours,
+    );
 
     // Consultas by reason
     const reasonMap: Record<string, { count: number; totalMinutes: number }> = {};
@@ -474,7 +494,6 @@ export async function GET(request: NextRequest) {
           totalCargaRealHours,
           totalCargaBaseHours,
           totalConsultas: allActivities.length,
-          workloadTolerance: lastMonthBizInfo.tolerancePerDay,
           cargaRangeMin: Math.round(lastMonthBizInfo.baseHours * 100) / 100,
           cargaRangeMax: cargaRangeLastMonth.max,
         },

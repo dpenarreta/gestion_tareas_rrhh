@@ -7,7 +7,7 @@ export type KpiColor = "green" | "yellow" | "red";
  */
 export type WorkloadColor = "red" | "yellow" | "green" | "orange";
 
-/** Etiqueta del semáforo de carga laboral por rango (base ± tolerancia configurable). */
+/** Etiqueta del semáforo de carga laboral por rango (4 límites independientes configurables). */
 export type WorkloadLabel = "Subutilización" | "Moderado" | "Óptimo" | "Carga elevada" | "Sobrecarga";
 
 export type ReportMemberKpi = {
@@ -42,7 +42,6 @@ export type ReportData = {
     totalConsultas: number;
     totalTasks: number;
     hoursPerDay: number;
-    workloadTolerance: number;
     cargaRangeMin: number;
     cargaRangeMax: number;
   };
@@ -102,7 +101,6 @@ export type RangeReportData = {
       totalCargaRealHours: number;
       totalCargaBaseHours: number;
       totalConsultas: number;
-      workloadTolerance: number;
       cargaRangeMin: number;
       cargaRangeMax: number;
     };
@@ -145,7 +143,7 @@ export type WorkloadMetric = {
   baseHours: number;
   pct: number;
   color: WorkloadColor;
-  /** Límites de la zona Óptima (verde): [rangeMin, rangeMax] = [base, base + tolerancia]. */
+  /** Límites de la zona Óptima (verde): [rangeMin, rangeMax] = [base, workload_limit_high]. */
   rangeMin: number;
   rangeMax: number;
   label: WorkloadLabel;
@@ -175,7 +173,9 @@ export type CargaTiempo = {
   semanal: WorkloadMetric & { weekStartLabel: string; weekEndLabel: string; businessDays: number };
   mensual: WorkloadMetric & { monthLabel: string; businessDays: number };
   horasEfectivasPorDia: number;
-  workloadTolerance: number;
+  workloadLimitLow: number;
+  workloadLimitHigh: number;
+  workloadLimitOverload: number;
   dailyHistory: DailyCargaPoint[];
   weeklyHistory: WeeklyCargaPoint[];
 };
