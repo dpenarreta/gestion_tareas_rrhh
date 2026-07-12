@@ -22,6 +22,7 @@ function buildFallback(ctx: {
   cargaHoyPct: number;
   cargaHoyHoras: number;
   cargaHoyBase: number;
+  esFinDeSemana: boolean;
   completadasMes: number;
 }): string {
   if (ctx.tareasVencidas > 0) {
@@ -30,7 +31,7 @@ function buildFallback(ctx: {
   if (ctx.tareasPorVencer > 0) {
     return `Tienes ${ctx.tareasPorVencer} ${pluralize(ctx.tareasPorVencer, "tarea próxima a vencer", "tareas próximas a vencer")} esta semana.`;
   }
-  if (ctx.cargaHoyPct > 120 || ctx.cargaHoyPct < 60) {
+  if (!ctx.esFinDeSemana && (ctx.cargaHoyPct > 120 || ctx.cargaHoyPct < 60)) {
     return `Tu carga laboral hoy es del ${ctx.cargaHoyPct}% (${ctx.cargaHoyHoras}h de ${ctx.cargaHoyBase}h).`;
   }
   if (ctx.completadasMes > 0) {
@@ -72,6 +73,7 @@ export async function POST() {
     cargaHoyPct: cargaTiempo.diaria.pct,
     cargaHoyHoras: cargaTiempo.diaria.realHours,
     cargaHoyBase: cargaTiempo.diaria.baseHours,
+    esFinDeSemana: cargaTiempo.diaria.isWeekend,
     completadasMes,
   };
 
@@ -93,7 +95,7 @@ export async function POST() {
             "Basa el mensaje ÚNICAMENTE en los datos reales que te doy, usando los números exactos, sin inventar nada. " +
             "Prioriza en este orden: (1) si hay tareas vencidas, alerta sobre eso primero con tono de urgencia; " +
             "(2) si no hay vencidas pero hay tareas por vencer esta semana, menciónalas; " +
-            "(3) si no hay ninguna de las dos pero la carga laboral de hoy es mayor a 120% o menor a 60%, coméntalo con el porcentaje y las horas; " +
+            "(3) si no hay ninguna de las dos, hoy NO es fin de semana (esFinDeSemana=false), y la carga laboral de hoy es mayor a 120% o menor a 60%, coméntalo con el porcentaje y las horas — si esFinDeSemana=true, nunca comentes el porcentaje de carga de hoy, pasa directo a la regla (4); " +
             "(4) si todo está en orden, felicita por las tareas completadas este mes. " +
             "Ejemplos de estilo: \"Revisión urgente: tienes 3 tareas vencidas\", \"Tienes 2 tareas próximas a vencer esta semana\", " +
             "\"Tu carga laboral hoy es del 130% (10.4h de 8h)\", \"Buen ritmo: completaste 5 tareas este mes\".",

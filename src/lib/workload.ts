@@ -217,6 +217,17 @@ async function realHoursInWindow(userId: string, calStart: Date, calEnd: Date): 
   return Math.round((fijaHours + activityHours) * 100) / 100;
 }
 
+/** Suma solo las horas reales de los días sábado/domingo dentro de [rangeStart, rangeEnd]. */
+async function weekendHoursInRange(userId: string, rangeStart: Date, rangeEnd: Date): Promise<number> {
+  let total = 0;
+  for (let t = rangeStart.getTime(); t <= rangeEnd.getTime(); t += 86400000) {
+    const day = new Date(t);
+    if (isBusinessDay(day)) continue;
+    total += await realHoursInWindow(userId, day, day);
+  }
+  return Math.round(total * 100) / 100;
+}
+
 function toMetric(
   realHours: number,
   baseHours: number,
@@ -239,6 +250,7 @@ function toMetric(
     rangeMin: baseHours > 0 ? Math.round(baseHours * 100) / 100 : 0,
     rangeMax: range.max,
     label: range.label,
+    isWeekend: false,
   };
 }
 
@@ -269,17 +281,36 @@ export async function computeCargaTiempo(userId: string, now: Date = new Date())
   const monthlyBusinessDays = countBusinessDays(monthStart, monthEnd);
   const monthlyBaseHours = monthlyBusinessDays * hoursPerDay;
 
-  const [diariaHours, semanalHours, mensualHours] = await Promise.all([
+  const [diariaHours, semanalHours, mensualHours, weekendHours] = await Promise.all([
     realHoursInWindow(userId, today, today),
     realHoursInWindow(userId, weekStart, weekEnd),
     realHoursInWindow(userId, monthStart, monthEnd),
+    weekendHoursInRange(userId, weekStart, weekEnd),
   ]);
 
   const weekBizStart = firstBusinessDay(weekStart, weekEnd) ?? weekStart;
   const weekBizEnd = lastBusinessDay(weekStart, weekEnd) ?? weekEnd;
 
+  // Sábado/domingo: el semáforo de rango no aplica al día (no hay base
+  // laboral con la que comparar) — se muestra como "trabajo en fin de
+  // semana" en vez de forzar una clasificación sin sentido (p. ej. 1h
+  // marcando "Carga elevada" solo por comparar contra 0h de base).
+  const todayIsWeekend = !isBusinessDay(today);
+  const diariaMetric = todayIsWeekend
+    ? {
+        realHours: diariaHours,
+        baseHours: 0,
+        pct: 0,
+        color: "green" as WorkloadColor,
+        rangeMin: 0,
+        rangeMax: 0,
+        label: "Óptimo" as WorkloadLabel,
+        isWeekend: true,
+      }
+    : toMetric(diariaHours, dailyBaseHours, hoursPerDay, limitLowPerDay, limitHighPerDay, limitOverloadPerDay);
+
   return {
-    diaria: toMetric(diariaHours, dailyBaseHours, hoursPerDay, limitLowPerDay, limitHighPerDay, limitOverloadPerDay),
+    diaria: diariaMetric,
     semanal: {
       ...toMetric(
         semanalHours,
@@ -292,6 +323,7 @@ export async function computeCargaTiempo(userId: string, now: Date = new Date())
       weekStartLabel: formatShortDate(weekBizStart),
       weekEndLabel: formatShortDate(weekBizEnd),
       businessDays: weeklyBusinessDays,
+      weekendHours,
     },
     mensual: {
       ...toMetric(

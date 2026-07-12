@@ -147,6 +147,8 @@ export type WorkloadMetric = {
   rangeMin: number;
   rangeMax: number;
   label: WorkloadLabel;
+  /** Sábado/domingo: no aplica el semáforo por rango (sin base laboral con la que comparar). */
+  isWeekend: boolean;
 };
 
 /** Un día laborable en el histórico de carga (gráfico de barras). */
@@ -170,7 +172,13 @@ export type WeeklyCargaPoint = {
 
 export type CargaTiempo = {
   diaria: WorkloadMetric;
-  semanal: WorkloadMetric & { weekStartLabel: string; weekEndLabel: string; businessDays: number };
+  semanal: WorkloadMetric & {
+    weekStartLabel: string;
+    weekEndLabel: string;
+    businessDays: number;
+    /** Horas reales registradas en sábado/domingo dentro de esta semana (ya incluidas en realHours). */
+    weekendHours: number;
+  };
   mensual: WorkloadMetric & { monthLabel: string; businessDays: number };
   horasEfectivasPorDia: number;
   workloadLimitLow: number;

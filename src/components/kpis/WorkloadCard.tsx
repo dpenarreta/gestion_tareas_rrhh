@@ -27,11 +27,26 @@ function Tile({
   label,
   metric,
   periodLabel,
+  extraNote,
 }: {
   label: string;
   metric: WorkloadMetric;
   periodLabel: string;
+  extraNote?: string;
 }) {
+  if (metric.isWeekend) {
+    return (
+      <div className="rounded-[14px] p-4 bg-primary-surface">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-xs font-medium text-secondary">{label}</span>
+        </div>
+        <p className="text-lg font-bold text-primary">
+          ⚡ {hoursToDisplay(metric.realHours)}h <span className="text-sm font-semibold">— Trabajo en fin de semana</span>
+        </p>
+        <p className="text-[10px] text-disabled mt-0.5">{periodLabel}</p>
+      </div>
+    );
+  }
   return (
     <div className={`rounded-[14px] p-4 ${COLOR_BG[metric.color]}`}>
       <div className="flex items-center justify-between mb-1.5">
@@ -46,6 +61,7 @@ function Tile({
           ? `rango óptimo ${hoursToDisplay(metric.rangeMin)}-${hoursToDisplay(metric.rangeMax)}h · ${metric.pct}%`
           : `${metric.pct}%`}
       </p>
+      {extraNote && <p className="text-[10px] text-primary font-medium mt-0.5">{extraNote}</p>}
       <p className="text-[10px] text-disabled mt-0.5">{periodLabel}</p>
     </div>
   );
@@ -95,6 +111,11 @@ export default function WorkloadCard({ cargaTiempo }: { cargaTiempo: CargaTiempo
           label="Esta semana"
           metric={semanal}
           periodLabel={`semana del ${semanal.weekStartLabel} al ${semanal.weekEndLabel}`}
+          extraNote={
+            semanal.weekendHours > 0 && semanal.realHours > semanal.baseHours
+              ? `incluye ${hoursToDisplay(semanal.weekendHours)}h de fin de semana`
+              : undefined
+          }
         />
         <Tile
           label="Este mes"
