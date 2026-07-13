@@ -97,7 +97,7 @@ function DroppableColumn({
             transition={{ duration: 0.2, ease: "easeInOut" }}
             style={{ overflow: "hidden" }}
           >
-            <div className="flex-1 p-3 space-y-2">
+            <div className="flex-1 p-3 grid grid-cols-1 lg:grid-cols-2 gap-2">
               {tasks.map((task) => (
                 <DraggableCard
                   key={task.id}
@@ -111,7 +111,7 @@ function DroppableColumn({
                 />
               ))}
               {tasks.length === 0 && (
-                <div className="flex flex-col items-center justify-center h-24 text-disabled text-xs">
+                <div className="col-span-full flex flex-col items-center justify-center h-24 text-disabled text-xs">
                   <svg className="w-6 h-6 mb-1 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                   </svg>
