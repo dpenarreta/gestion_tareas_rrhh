@@ -58,6 +58,7 @@ export type MonthlyReportSummary = {
   scope: string;
   generatedBy: string;
   createdAt: string;
+  updatedAt: string;
 };
 
 export type MonthlyReportFull = MonthlyReportSummary & {

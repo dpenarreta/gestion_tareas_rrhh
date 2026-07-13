@@ -11,6 +11,7 @@ import type { MonthlyReportSummary, MonthlyReportFull, ReportData, RangeReportDa
 import * as XLSX from "xlsx";
 import { formatDate } from "@/lib/utils";
 import { hoursToDisplay } from "@/lib/timeFormat";
+import { openReportWindow } from "./reportWindow";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -72,7 +73,7 @@ function downloadReportExcel(report: MonthlyReportFull) {
     ["Informe Mensual Consolidado", ""],
     ["Período", periodLabel],
     ["Generado por", report.generatedBy],
-    ["Fecha generación", new Date(report.createdAt).toLocaleDateString("es-CL")],
+    ["Fecha generación", new Date(report.updatedAt).toLocaleDateString("es-CL")],
     [""],
     ["RESUMEN DEL EQUIPO", ""],
     ["Promedio de cumplimiento", `${data.teamSummary.avgCumplimiento}%`],
@@ -215,12 +216,7 @@ function downloadReportPDF(report: MonthlyReportFull) {
   <div class="ai-analysis">${report.aiAnalysis.replace(/\n/g, "<br>").replace(/## /g, "<h3>").replace(/\*\*/g, "<strong>")}</div>`
     : "";
 
-  const html = `<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="utf-8">
-<title>Informe Consolidado – ${periodLabel}</title>
-<style>
+  const styles = `
   body{font-family:system-ui,sans-serif;padding:32px;color:#1e293b;max-width:900px;margin:0 auto;font-size:13px}
   h1{color:#4f46e5;margin-bottom:4px;font-size:22px}
   h2{margin-top:28px;margin-bottom:8px;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:#475569;border-bottom:1px solid #e2e8f0;padding-bottom:6px}
@@ -236,15 +232,14 @@ function downloadReportPDF(report: MonthlyReportFull) {
   th{background:#f8fafc;text-align:left;padding:7px 8px;border:1px solid #e2e8f0;font-size:10px;text-transform:uppercase;letter-spacing:.04em;color:#64748b}
   td{padding:7px 8px;border:1px solid #e2e8f0}
   tr:nth-child(even) td{background:#fafafa}
-  @media print{body{padding:16px}}
-</style>
-</head>
-<body>
+  @media print{body{padding:16px}}`;
+
+  const bodyHtml = `
   <h1>Informe Mensual Consolidado</h1>
   <div class="meta">
     Período: <strong>${periodLabel}</strong> &bull;
     Generado por: <strong>${report.generatedBy}</strong> &bull;
-    ${new Date(report.createdAt).toLocaleDateString("es-CL")}
+    ${new Date(report.updatedAt).toLocaleDateString("es-CL")}
   </div>
 
   <h2>Resumen del Equipo</h2>
@@ -290,16 +285,14 @@ function downloadReportPDF(report: MonthlyReportFull) {
   <h2>Consultas SEGUIMIENTO por Motivo</h2>
   ${consultasHtml}
 
-  ${aiHtml}
-</body>
-</html>`;
+  ${aiHtml}`;
 
-  const win = window.open("", "_blank");
-  if (win) {
-    win.document.write(html);
-    win.document.close();
-    setTimeout(() => win.print(), 300);
-  }
+  openReportWindow({
+    title: `Informe Consolidado – ${periodLabel}`,
+    styles,
+    bodyHtml,
+    pdfFileName: `Informe_Consolidado_${periodLabel.replace(/\s/g, "_")}.pdf`,
+  });
 }
 
 // ── ReportCard ────────────────────────────────────────────────────────────────
@@ -326,7 +319,7 @@ function ReportCard({
         {formatMonthYear(report.month, report.year)}
       </p>
       <p className="text-[11px] text-disabled mt-0.5">
-        {new Date(report.createdAt).toLocaleDateString("es-CL")}
+        {new Date(report.updatedAt).toLocaleDateString("es-CL")}
       </p>
     </button>
   );
@@ -483,10 +476,7 @@ function downloadRangePDF(data: RangeReportData) {
     ? `<h2>Análisis IA</h2><div class="ai-analysis">${data.aiAnalysis.replace(/\n/g, "<br>")}</div>`
     : "";
 
-  const html = `<!DOCTYPE html>
-<html lang="es"><head><meta charset="utf-8">
-<title>Informe Rango – ${periodLabel}</title>
-<style>
+  const styles = `
   body{font-family:system-ui,sans-serif;padding:32px;color:#1e293b;max-width:900px;margin:0 auto;font-size:13px}
   h1{color:#4f46e5;font-size:20px;margin-bottom:4px}
   h2{margin-top:24px;margin-bottom:8px;font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:#475569;border-bottom:1px solid #e2e8f0;padding-bottom:5px}
@@ -502,8 +492,9 @@ function downloadRangePDF(data: RangeReportData) {
   th{background:#f8fafc;text-align:left;padding:6px 8px;border:1px solid #e2e8f0;font-size:10px;text-transform:uppercase;color:#64748b}
   td{padding:6px 8px;border:1px solid #e2e8f0}
   tr:nth-child(even) td{background:#fafafa}
-  @media print{body{padding:16px}}
-</style></head><body>
+  @media print{body{padding:16px}}`;
+
+  const bodyHtml = `
   <h1>Informe de Rango Consolidado</h1>
   <div class="meta">Período: <strong>${periodLabel}</strong> (${data.months.length} meses)</div>
 
@@ -529,11 +520,14 @@ function downloadRangePDF(data: RangeReportData) {
   <table><thead><tr><th>#</th><th>Nombre</th><th>Cargo</th><th>Score prom.</th><th>Cumpl. prom.</th></tr></thead>
   <tbody>${rankingRows}</tbody></table>
 
-  ${aiHtml}
-</body></html>`;
+  ${aiHtml}`;
 
-  const win = window.open("", "_blank");
-  if (win) { win.document.write(html); win.document.close(); setTimeout(() => win.print(), 300); }
+  openReportWindow({
+    title: `Informe Rango – ${periodLabel}`,
+    styles,
+    bodyHtml,
+    pdfFileName: `Informe_Rango_${periodLabel.replace(/\s/g, "_")}.pdf`,
+  });
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -795,7 +789,7 @@ export default function MonthlyReports({ currentUserRole }: Props) {
               })()}
 
               {/* Summary stats */}
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <MetricStat label="Cumplimiento promedio" value={`${rangeReport.aggregated.teamSummary.avgCumplimiento}%`} sub={`${rangeReport.months.length} meses`} accent />
                 <MetricStat label="Tareas completadas" value={`${rangeReport.aggregated.teamSummary.totalCompletedTasks}`} sub={`de ${rangeReport.aggregated.teamSummary.totalTasks} totales`} />
                 <MetricStat label="Carga laboral acumulada" value={`${rangeReport.aggregated.teamSummary.avgCargaPct}%`} sub={`${hoursToDisplay(rangeReport.aggregated.teamSummary.totalCargaRealHours)}h de ${hoursToDisplay(rangeReport.aggregated.teamSummary.totalCargaBaseHours)}h base`} />
@@ -986,9 +980,9 @@ export default function MonthlyReports({ currentUserRole }: Props) {
       )}
 
       {/* Two-panel layout */}
-      <div className="flex gap-5 items-start">
+      <div className="flex flex-col lg:flex-row gap-5 items-stretch lg:items-start">
         {/* Left sidebar */}
-        <aside className="w-[220px] shrink-0 bg-surface rounded-2xl border border-border p-3 sticky top-20">
+        <aside className="w-full lg:w-[220px] shrink-0 bg-surface rounded-2xl border border-border p-3 lg:sticky lg:top-20">
           <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider px-2 mb-2">
             Informes guardados
           </p>
@@ -1031,17 +1025,17 @@ export default function MonthlyReports({ currentUserRole }: Props) {
           {!detailLoading && fullReport && data && selectedSummary && (
             <div className="space-y-5">
               {/* Report header */}
-              <div className="bg-surface rounded-2xl border border-border px-5 py-4 flex items-center justify-between gap-4">
+              <div className="bg-surface rounded-2xl border border-border px-5 py-4 flex flex-wrap items-center justify-between gap-4">
                 <div>
                   <h2 className="text-xl font-bold text-title">
                     {formatMonthYear(selectedSummary.month, selectedSummary.year)}
                   </h2>
                   <p className="text-sm text-secondary">
                     Generado por {selectedSummary.generatedBy} el{" "}
-                    {formatDate(selectedSummary.createdAt)}
+                    {formatDate(selectedSummary.updatedAt)}
                   </p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 flex-wrap">
                   <button
                     onClick={() => downloadReportExcel(fullReport)}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-border rounded-lg text-main hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
@@ -1064,7 +1058,7 @@ export default function MonthlyReports({ currentUserRole }: Props) {
               </div>
 
               {/* Team summary stats */}
-              <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <MetricStat
                   label="Cumplimiento promedio"
                   value={`${data.teamSummary.avgCumplimiento}%`}

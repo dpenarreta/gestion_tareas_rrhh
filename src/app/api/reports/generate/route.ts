@@ -423,6 +423,7 @@ export async function POST(request: NextRequest) {
       aiAnalysis: report.aiAnalysis,
       generatedBy: report.generator.name,
       createdAt: report.createdAt.toISOString(),
+      updatedAt: report.updatedAt.toISOString(),
     },
   });
   } catch (err) {

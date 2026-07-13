@@ -13,6 +13,7 @@ import {
 } from "./KpiCharts";
 import MonthlyReports from "./MonthlyReports";
 import WorkloadCard from "./WorkloadCard";
+import { openReportWindow } from "./reportWindow";
 import * as XLSX from "xlsx";
 import { formatDate } from "@/lib/utils";
 import { hoursToDisplay } from "@/lib/timeFormat";
@@ -321,12 +322,7 @@ function downloadExcel(kpi: KpiData) {
 function downloadPDF(kpi: KpiData) {
   const colorEmoji = (c: KpiColor) => (c === "green" ? "🟢" : c === "yellow" ? "🟡" : "🔴");
 
-  const html = `<!DOCTYPE html>
-<html lang="es">
-<head>
-<meta charset="utf-8">
-<title>KPI – ${kpi.user.name} – ${kpi.period.month}</title>
-<style>
+  const styles = `
   body{font-family:system-ui,sans-serif;padding:32px;color:#1e293b;max-width:800px;margin:0 auto}
   h1{color:#4f46e5;margin-bottom:4px}
   h2{margin-top:28px;margin-bottom:8px;font-size:15px;text-transform:uppercase;letter-spacing:.06em;color:#475569;border-bottom:1px solid #e2e8f0;padding-bottom:6px}
@@ -341,10 +337,9 @@ function downloadPDF(kpi: KpiData) {
   th{background:#f8fafc;text-align:left;padding:8px 10px;border:1px solid #e2e8f0;font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#64748b}
   td{padding:8px 10px;border:1px solid #e2e8f0;vertical-align:middle}
   tr:nth-child(even) td{background:#fafafa}
-  @media print{body{padding:16px}}
-</style>
-</head>
-<body>
+  @media print{body{padding:16px}}`;
+
+  const bodyHtml = `
   <h1>Reporte KPI</h1>
   <div class="meta">
     <strong>${kpi.user.name}</strong> &bull; ${ROLE_LABEL[kpi.user.role as Role]} &bull; ${formatMonthLabel(kpi.period.month)}
@@ -442,16 +437,14 @@ function downloadPDF(kpi: KpiData) {
         )
         .join("")}
     </tbody>
-  </table>
-</body>
-</html>`;
+  </table>`;
 
-  const win = window.open("", "_blank");
-  if (win) {
-    win.document.write(html);
-    win.document.close();
-    setTimeout(() => win.print(), 300);
-  }
+  openReportWindow({
+    title: `KPI – ${kpi.user.name} – ${kpi.period.month}`,
+    styles,
+    bodyHtml,
+    pdfFileName: `KPI_${kpi.user.name.replace(/\s+/g, "_")}_${kpi.period.month}.pdf`,
+  });
 }
 
 // ── KpisModule ────────────────────────────────────────────────────────────────
@@ -611,9 +604,9 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
       </div>
 
       {/* ── Two-panel layout ─────────────────────────────────────────────── */}
-      <div className="flex gap-5 items-start">
+      <div className="flex flex-col lg:flex-row gap-5 items-stretch lg:items-start">
         {/* Left panel */}
-        <aside className="w-[264px] shrink-0 bg-surface rounded-[14px] border border-border p-3 sticky top-20">
+        <aside className="w-full lg:w-[264px] shrink-0 bg-surface rounded-[14px] border border-border p-3 lg:sticky lg:top-20">
           <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider px-2 mb-2">
             Colaboradores
           </p>
@@ -649,8 +642,8 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
           {kpi && (
             <div className="space-y-5">
               {/* ── Person header ────────────────────────────────────────── */}
-              <div className="bg-surface rounded-[14px] border border-border shadow-[var(--shadow)] px-5 py-4 flex items-center justify-between gap-4">
-                <div className="flex items-center gap-4">
+              <div className="bg-surface rounded-[14px] border border-border shadow-[var(--shadow)] px-5 py-4 flex flex-wrap items-center justify-between gap-4">
+                <div className="flex items-center gap-4 flex-wrap">
                   <div
                     className={`w-12 h-12 rounded-xl bg-gradient-to-br ${avatarGradient(kpi.user.name)} flex items-center justify-center shrink-0`}
                   >
@@ -696,7 +689,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
               <WorkloadCard cargaTiempo={kpi.cargaTiempo} />
 
               {/* ── 4 Summary cards ──────────────────────────────────────── */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <SummaryCard
                   title="Cumplimiento"
                   value={kpi.cumplimiento.completedPct}

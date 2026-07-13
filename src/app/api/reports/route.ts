@@ -40,6 +40,7 @@ export async function GET(request: NextRequest) {
         aiAnalysis: report.aiAnalysis,
         generatedBy: report.generator.name,
         createdAt: report.createdAt.toISOString(),
+        updatedAt: report.updatedAt.toISOString(),
       },
     });
   }
@@ -59,6 +60,7 @@ export async function GET(request: NextRequest) {
       scope: r.scope,
       generatedBy: r.generator.name,
       createdAt: r.createdAt.toISOString(),
+      updatedAt: r.updatedAt.toISOString(),
     })),
   });
 }

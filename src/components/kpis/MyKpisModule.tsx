@@ -13,6 +13,7 @@ import { DonutChart, WeeklyHoursChart, CumplimientoLineChart, REASON_LABEL } fro
 import WorkloadCard from "./WorkloadCard";
 import { formatDate } from "@/lib/utils";
 import { hoursToDisplay } from "@/lib/timeFormat";
+import { openReportWindow } from "./reportWindow";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -265,9 +266,7 @@ function downloadKpisPDF(kpi: KpiData, month: string, name: string, role: string
     )
     .join("");
 
-  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
-<title>Mis KPIs — ${period}</title>
-<style>
+  const styles = `
   body{font-family:system-ui,sans-serif;padding:32px;color:#1e293b;max-width:820px;margin:0 auto;font-size:13px}
   h1{color:#4f46e5;font-size:20px;margin-bottom:2px}
   .meta{color:#64748b;font-size:12px;margin-bottom:20px}
@@ -281,8 +280,9 @@ function downloadKpisPDF(kpi: KpiData, month: string, name: string, role: string
   th{background:#f8fafc;text-align:left;padding:6px 8px;border:1px solid #e2e8f0;font-size:10px;text-transform:uppercase;color:#64748b}
   td{padding:6px 8px;border:1px solid #e2e8f0}
   tr:nth-child(even) td{background:#fafafa}
-  @media print{body{padding:16px}}
-</style></head><body>
+  @media print{body{padding:16px}}`;
+
+  const bodyHtml = `
   <h1>Mis KPIs personales</h1>
   <div class="meta">${name} — ${ROLE_LABEL[role as Role] ?? role} &bull; Período: <strong>${period}</strong></div>
 
@@ -314,11 +314,14 @@ function downloadKpisPDF(kpi: KpiData, month: string, name: string, role: string
   <table>
     <thead><tr><th>Motivo</th><th>Consultas</th><th>Tiempo</th></tr></thead>
     <tbody>${reasonRows}</tbody>
-  </table>` : ""}
-</body></html>`;
+  </table>` : ""}`;
 
-  const win = window.open("", "_blank");
-  if (win) { win.document.write(html); win.document.close(); setTimeout(() => win.print(), 300); }
+  openReportWindow({
+    title: `Mis KPIs — ${period}`,
+    styles,
+    bodyHtml,
+    pdfFileName: `Mis_KPIs_${period.replace(/\s/g, "_")}.pdf`,
+  });
 }
 
 // ── PDF/Excel — range ─────────────────────────────────────────────────────────
@@ -437,9 +440,7 @@ function downloadRangePDF(data: PersonalRangeReport, name: string, role: string)
         ? "#fee2e2;color:#991b1b"
         : "#f1f5f9;color:#475569";
 
-  const html = `<!DOCTYPE html><html lang="es"><head><meta charset="utf-8">
-<title>Mis KPIs Rango — ${fromLabel} / ${toLabel}</title>
-<style>
+  const styles = `
   body{font-family:system-ui,sans-serif;padding:32px;color:#1e293b;max-width:820px;margin:0 auto;font-size:13px}
   h1{color:#4f46e5;font-size:20px;margin-bottom:2px}
   .meta{color:#64748b;font-size:12px;margin-bottom:16px}
@@ -454,8 +455,9 @@ function downloadRangePDF(data: PersonalRangeReport, name: string, role: string)
   th{background:#f8fafc;text-align:left;padding:6px 8px;border:1px solid #e2e8f0;font-size:10px;text-transform:uppercase;color:#64748b}
   td{padding:6px 8px;border:1px solid #e2e8f0}
   tr:nth-child(even) td{background:#fafafa}
-  @media print{body{padding:16px}}
-</style></head><body>
+  @media print{body{padding:16px}}`;
+
+  const bodyHtml = `
   <h1>Informe de Rango Personal</h1>
   <div class="meta">${name} — ${ROLE_LABEL[role as Role] ?? role} &bull; ${fromLabel} — ${toLabel} (${data.months.length} meses)</div>
 
@@ -494,11 +496,14 @@ function downloadRangePDF(data: PersonalRangeReport, name: string, role: string)
     <tbody>${reasonRows}</tbody>
   </table>`
       : ""
-  }
-</body></html>`;
+  }`;
 
-  const win = window.open("", "_blank");
-  if (win) { win.document.write(html); win.document.close(); setTimeout(() => win.print(), 300); }
+  openReportWindow({
+    title: `Mis KPIs Rango — ${fromLabel} / ${toLabel}`,
+    styles,
+    bodyHtml,
+    pdfFileName: `Mis_KPIs_Rango_${fromLabel.replace(/\s/g, "_")}_${toLabel.replace(/\s/g, "_")}.pdf`,
+  });
 }
 
 // ── Stat card ─────────────────────────────────────────────────────────────────

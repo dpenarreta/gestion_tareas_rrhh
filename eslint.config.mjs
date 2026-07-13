@@ -33,6 +33,9 @@ const eslintConfig = defineConfig([
     // Scoped narrowly so it doesn't also exempt other scripts/*.ts files.
     ".githooks/**",
     "scripts/setup-git-hooks.js",
+    // Vendored third-party minified builds (jsPDF, html2canvas) served
+    // same-origin to the report print/PDF windows — not app source.
+    "public/vendor/**",
   ]),
 ]);
 
