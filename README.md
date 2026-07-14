@@ -162,6 +162,7 @@ prisma/
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-14: feat(tasks): nuevo formulario de actividad por horas/minutos en tareas SEGUIMIENTO
 - 2026-07-13: feat(kanban): mostrar tarjetas en grid de 2 columnas dentro de cada columna Kanban
 - 2026-07-13: fix(kpis): fecha de generación de informes, PDF sin autoprint y Analytics responsive
 - 2026-07-12: fix(kpis): no aplicar semaforo de rango al KPI diario en fin de semana

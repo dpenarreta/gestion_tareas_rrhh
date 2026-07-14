@@ -33,8 +33,8 @@ export type TaskComment = {
 export type TaskActivity = {
   id: string;
   reason: ActivityReason;
-  startTime: string;
-  endTime: string;
+  startTime: string | null;
+  endTime: string | null;
   duration: number;
   description: string | null;
   author: { id: string; name: string };

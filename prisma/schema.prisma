@@ -192,8 +192,8 @@ model TaskActivity {
   authorId    String
   author      User           @relation(fields: [authorId], references: [id])
   reason      ActivityReason
-  startTime   String
-  endTime     String
+  startTime   String?
+  endTime     String?
   duration    Int
   description String?
   createdAt   DateTime       @default(now())

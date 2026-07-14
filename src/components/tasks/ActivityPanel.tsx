@@ -2,8 +2,6 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import type { Task, TaskActivity, ActivityReason, FollowUpReminder } from "./types";
-import { formatDate } from "@/lib/utils";
-import { hoursToDisplay } from "@/lib/timeFormat";
 import TimeInput24 from "@/components/ui/TimeInput24";
 
 function formatReminderDateTime(iso: string): string {
@@ -13,6 +11,17 @@ function formatReminderDateTime(iso: string): string {
   const hours = String(d.getHours()).padStart(2, "0");
   const mins = String(d.getMinutes()).padStart(2, "0");
   return `${day}/${month} ${hours}:${mins}`;
+}
+
+// Fecha y hora exacta de registro de la actividad: "2026-07-14 09:35".
+function formatActivityDateTime(iso: string): string {
+  const d = new Date(iso);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  const hours = String(d.getHours()).padStart(2, "0");
+  const mins = String(d.getMinutes()).padStart(2, "0");
+  return `${year}-${month}-${day} ${hours}:${mins}`;
 }
 
 // Etiquetas de TODOS los motivos, incluidos los retirados del selector — se
@@ -49,17 +58,18 @@ const REASON_OPTIONS: { value: ActivityReason; label: string }[] = SELECTABLE_RE
   label: REASON_LABELS[value],
 }));
 
-function calcDuration(start: string, end: string): number | null {
-  if (!start || !end) return null;
-  const [sh, sm] = start.split(":").map(Number);
-  const [eh, em] = end.split(":").map(Number);
-  const mins = (eh * 60 + em) - (sh * 60 + sm);
-  return mins > 0 ? mins : null;
+function clampInt(value: string, min: number, max: number): string {
+  if (value === "") return "";
+  const n = Math.trunc(Number(value));
+  if (Number.isNaN(n)) return "";
+  return String(Math.min(max, Math.max(min, n)));
 }
 
-// La duración (minutos, ej: 90) se muestra en formato HH.MM: 90 min → "1.30".
+// La duración (minutos, ej: 90) se muestra como "Xh Ymin": 90 min → "1h 30min".
 function formatDuration(mins: number): string {
-  return hoursToDisplay(mins / 60);
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  return `${h}h ${m}min`;
 }
 
 const REASON_COLORS: Record<ActivityReason, string> = {
@@ -91,8 +101,8 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
   const [error, setError] = useState("");
 
   const [reason, setReason] = useState<ActivityReason>("NOVEDADES_PAGO");
-  const [startTime, setStartTime] = useState("");
-  const [endTime, setEndTime] = useState("");
+  const [hours, setHours] = useState("");
+  const [minutes, setMinutes] = useState("");
   const [description, setDescription] = useState("");
 
   const [reminders, setReminders] = useState<FollowUpReminder[]>([]);
@@ -109,10 +119,12 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
 
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const previewDuration = useMemo(
-    () => calcDuration(startTime, endTime),
-    [startTime, endTime]
-  );
+  const previewDuration = useMemo(() => {
+    const h = Number(hours) || 0;
+    const m = Number(minutes) || 0;
+    const total = h * 60 + m;
+    return total > 0 ? total : null;
+  }, [hours, minutes]);
 
   const totalMinutes = useMemo(
     () => activities.reduce((sum, a) => sum + a.duration, 0),
@@ -196,9 +208,9 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
   }, [activities]);
 
   async function submit() {
-    if (!startTime || !endTime || submitting) return;
+    if (submitting) return;
     if (!previewDuration) {
-      setError("La hora de fin debe ser posterior a la hora de inicio");
+      setError("La duración debe ser mayor a 0");
       return;
     }
     setError("");
@@ -207,13 +219,18 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
       const res = await fetch(`/api/tasks/${task.id}/activities`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason, startTime, endTime, description: description.trim() || null }),
+        body: JSON.stringify({
+          reason,
+          hours: Number(hours) || 0,
+          minutes: Number(minutes) || 0,
+          description: description.trim() || null,
+        }),
       });
       if (res.ok) {
         const activity = await res.json();
         setActivities((prev) => [...prev, activity]);
-        setStartTime("");
-        setEndTime("");
+        setHours("");
+        setMinutes("");
         setDescription("");
         setReason("NOVEDADES_PAGO");
       } else {
@@ -398,7 +415,7 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
                     {label}
                   </span>
                   <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-disabled">{formatDate(a.createdAt)}</span>
+                    <span className="text-[10px] text-disabled">{formatActivityDateTime(a.createdAt)}</span>
                     {canDelete && (
                       <button
                         onClick={() => handleDelete(a.id)}
@@ -413,13 +430,7 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
                     )}
                   </div>
                 </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 text-xs text-main">
-                    <svg className="w-3.5 h-3.5 text-disabled" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    {a.startTime} → {a.endTime}
-                  </div>
+                <div className="flex items-center justify-end">
                   <span className="text-xs font-semibold text-primary">
                     {formatDuration(a.duration)}
                   </span>
@@ -456,22 +467,32 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="block text-[10px] font-semibold text-secondary mb-1 uppercase tracking-wide">
-                Hora inicio
+                Horas
               </label>
-              <TimeInput24
-                value={startTime}
-                onChange={setStartTime}
-                selectClassName="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
+              <input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={23}
+                value={hours}
+                onChange={(e) => setHours(clampInt(e.target.value, 0, 23))}
+                placeholder="0"
+                className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
               />
             </div>
             <div>
               <label className="block text-[10px] font-semibold text-secondary mb-1 uppercase tracking-wide">
-                Hora fin
+                Minutos
               </label>
-              <TimeInput24
-                value={endTime}
-                onChange={setEndTime}
-                selectClassName="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
+              <input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={59}
+                value={minutes}
+                onChange={(e) => setMinutes(clampInt(e.target.value, 0, 59))}
+                placeholder="0"
+                className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
               />
             </div>
           </div>
@@ -509,7 +530,7 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
 
           <button
             onClick={submit}
-            disabled={!startTime || !endTime || !previewDuration || submitting}
+            disabled={!previewDuration || submitting}
             className="w-full bg-primary text-white rounded-xl py-2 text-sm font-medium hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {submitting ? "Registrando…" : "Agregar actividad"}

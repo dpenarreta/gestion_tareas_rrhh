@@ -48,3 +48,6 @@ next-env.d.ts
 
 .vercel
 .env*
+
+# temp migration scripts (may reference env-provided DB creds, never commit)
+/_migration_tmp

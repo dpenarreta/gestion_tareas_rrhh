@@ -65,24 +65,30 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       return NextResponse.json({ error: "Cuerpo de la solicitud inválido" }, { status: 400 });
     }
 
-    const { reason, startTime, endTime, description } = body as {
+    const { reason, hours, minutes, description } = body as {
       reason?: string;
-      startTime?: string;
-      endTime?: string;
+      hours?: number;
+      minutes?: number;
       description?: string;
     };
 
-    if (!reason || !startTime || !endTime) {
+    if (!reason || hours === undefined || minutes === undefined) {
       return NextResponse.json({ error: "Faltan campos requeridos" }, { status: 400 });
     }
 
-    const [sh, sm] = startTime.split(":").map(Number);
-    const [eh, em] = endTime.split(":").map(Number);
-    const duration = (eh * 60 + em) - (sh * 60 + sm);
+    if (!Number.isInteger(hours) || hours < 0 || hours > 23) {
+      return NextResponse.json({ error: "Las horas deben ser un número entre 0 y 23" }, { status: 400 });
+    }
+
+    if (!Number.isInteger(minutes) || minutes < 0 || minutes > 59) {
+      return NextResponse.json({ error: "Los minutos deben ser un número entre 0 y 59" }, { status: 400 });
+    }
+
+    const duration = hours * 60 + minutes;
 
     if (duration <= 0) {
       return NextResponse.json(
-        { error: "La hora de fin debe ser posterior a la hora de inicio" },
+        { error: "La duración debe ser mayor a 0" },
         { status: 400 }
       );
     }
@@ -97,8 +103,6 @@ export async function POST(request: NextRequest, ctx: Ctx) {
         taskId,
         authorId: session.userId,
         reason: reason as ActivityReason,
-        startTime,
-        endTime,
         duration,
         description: description?.trim() || null,
       },
