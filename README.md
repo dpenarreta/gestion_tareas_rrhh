@@ -178,14 +178,22 @@ No se documentan aquí rutas, parámetros ni payloads específicos por tratarse 
 
 ## 13. Pruebas y calidad
 
-El proyecto cuenta con un framework de pruebas automatizadas basado en **Vitest** (compatible con TypeScript y con el App Router de Next.js), configurado en `vitest.config.ts`. Las pruebas viven en `src/__tests__/` y cubren, como prioridad inicial:
+El proyecto cuenta con un framework de pruebas automatizadas basado en **Vitest** (compatible con TypeScript y con el App Router de Next.js), configurado en `vitest.config.ts`. Las pruebas viven en `src/__tests__/` (180+ pruebas) y cubren la mayor parte de `src/lib/`:
 
 - **`src/lib/roles.ts`**: niveles jerárquicos de los 10 roles, visibilidad (`getVisibleRoles`) por rol, invisibilidad de `ADMINISTRADOR` y de `ASISTENTE_NOMINA` fuera de sus roles autorizados, y permisos de gestión de usuarios.
 - **`src/lib/timeFormat.ts`**: conversión entre formato de horas HH.MM y horas decimales en ambos sentidos, y validación de minutos (0-59).
 - **`src/lib/workload.ts`**: clasificación del semáforo de carga laboral por rango (Subutilización/Moderado/Óptimo/Carga elevada/Sobrecarga), cálculo de porcentaje con techo en 100% dentro de la zona óptima, y el caso de fin de semana (sin semáforo aplicable).
+- **`src/lib/businessTime.ts`** y **`src/lib/dateRanges.ts`**: desplazamiento a la zona horaria de negocio (UTC-5) para determinar "hoy", rango real UTC de un día calendario, y límites de día/semana/mes.
+- **`src/lib/utils.ts`**: formateo de fechas con getters UTC y la lógica de "tarea vencida" (el límite exacto en que una tarea pasa a estar overdue, respetando la zona horaria de negocio).
+- **`src/lib/ideas.ts`**: máquina de estados de Mejora Continua (avanzar/retroceder/rechazar en el flujo de una idea).
+- **`src/lib/navLinks.ts`**: navegación filtrada por rol y resolución del título de página.
+- **`src/lib/mask-email.ts`** y **`src/lib/logger.ts`**: enmascarado de correos en respuestas de API y redacción de tokens de integraciones externas antes de llegar a los logs.
+- **`src/lib/session-secret.ts`**: comportamiento fail-closed (la app no arranca sin un `SESSION_SECRET` de al menos 32 caracteres).
+- **`src/lib/storage.ts`**: validación de tamaño/extensión y codificación base64 de adjuntos de ideas.
+- **`src/lib/commentViews.ts`**, **`src/lib/rate-limit.ts`**, **`src/lib/systemConfig.ts`**, **`src/lib/retentionPolicy.ts`**: lógica de negocio (comentarios no leídos, límite de intentos de login, valor de configuración vigente por fecha, candidatos a depuración por política de retención), con `@/lib/prisma` mockeado explícitamente por test.
 - **Control de acceso de endpoints**: respuesta 401/403 de `GET/POST /api/users`, `GET/POST /api/assistant/documents`, `GET/POST /api/tasks/close-month` y `PATCH /api/ideas/[id]/status` para sesiones ausentes o roles sin permiso.
 
-La base de datos configurada en `.env` es un entorno compartido con datos reales, por lo que las pruebas mockean `@/lib/prisma` y `@/lib/session` (ver `vitest.setup.ts`) en vez de conectarse a una base de datos real; cualquier uso no mockeado de `prisma` en un test falla explícitamente.
+La base de datos configurada en `.env` es un entorno compartido con datos reales, por lo que las pruebas mockean `@/lib/prisma` y `@/lib/session` (ver `vitest.setup.ts`) en vez de conectarse a una base de datos real; cualquier uso no mockeado de `prisma` en un test falla explícitamente. Quedan fuera de cobertura, por ser integraciones externas de I/O (HTTP, embeddings, filesystem) con poco valor en pruebas unitarias: `embeddings.ts`, `githubDocuments.ts`, `zoom.ts`, `confetti.ts`, `pdfPolyfill.ts`, `session.ts` y `actions.ts`.
 
 **Comandos**:
 
@@ -296,6 +304,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-15: test: ampliar cobertura de pruebas a los modulos restantes de src/lib
 - 2026-07-15: test: implementar framework de pruebas automatizadas con Vitest
 - 2026-07-15: feat(compliance): solicitudes de titulares, retención de datos, rate limiting persistente y logs sanitizados
 - 2026-07-14: feat(tasks): nuevo formulario de actividad por horas/minutos en tareas SEGUIMIENTO
