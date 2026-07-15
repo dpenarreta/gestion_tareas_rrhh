@@ -2,15 +2,22 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { createSession } from "@/lib/session";
-import { isRateLimited, registerFailedAttempt, clearAttempts, getClientIp } from "@/lib/rate-limit";
+import {
+  isRateLimited,
+  registerFailedAttempt,
+  clearAttempts,
+  getClientIp,
+  getBlockedMinutesRemaining,
+} from "@/lib/rate-limit";
 
 export async function POST(request: NextRequest) {
   const clientIp = getClientIp(request.headers);
 
   try {
-    if (isRateLimited(clientIp)) {
+    if (await isRateLimited(clientIp)) {
+      const minutes = await getBlockedMinutesRemaining(clientIp);
       return NextResponse.json(
-        { error: "Demasiados intentos fallidos. Intenta nuevamente en 15 minutos" },
+        { error: `Demasiados intentos. Intenta nuevamente en ${minutes} minuto${minutes === 1 ? "" : "s"}` },
         { status: 429 }
       );
     }
@@ -26,7 +33,7 @@ export async function POST(request: NextRequest) {
 
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
-      registerFailedAttempt(clientIp);
+      await registerFailedAttempt(clientIp);
       return NextResponse.json(
         { error: "Credenciales inválidas" },
         { status: 401 }
@@ -35,14 +42,14 @@ export async function POST(request: NextRequest) {
 
     const valid = await bcrypt.compare(password, user.password);
     if (!valid) {
-      registerFailedAttempt(clientIp);
+      await registerFailedAttempt(clientIp);
       return NextResponse.json(
         { error: "Credenciales inválidas" },
         { status: 401 }
       );
     }
 
-    clearAttempts(clientIp);
+    await clearAttempts(clientIp);
 
     await prisma.user.update({
       where: { id: user.id },

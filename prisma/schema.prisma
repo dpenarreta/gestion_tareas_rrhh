@@ -26,6 +26,18 @@ enum ThemePreference {
   DARK
 }
 
+enum DataRequestType {
+  ACCESO
+  RECTIFICACION
+  ELIMINACION
+}
+
+enum DataRequestStatus {
+  PENDIENTE
+  EN_PROCESO
+  RESUELTA
+}
+
 enum TaskStatus {
   PENDIENTE
   EN_PROGRESO
@@ -97,6 +109,43 @@ model User {
   taskCommentViews   TaskCommentView[]
   followUpReminders  FollowUpReminder[]
   systemConfigChanges SystemConfigHistory[] @relation("SystemConfigUpdatedBy")
+  dataSubjectRequests         DataSubjectRequest[] @relation("DataSubjectRequestUser")
+  dataSubjectRequestsResolved DataSubjectRequest[] @relation("DataSubjectRequestResolver")
+  dataPurgesExecuted          DataPurgeLog[]        @relation("DataPurgeExecutor")
+}
+
+model DataSubjectRequest {
+  id          String             @id @default(cuid())
+  userId      String
+  user        User               @relation("DataSubjectRequestUser", fields: [userId], references: [id], onDelete: Cascade)
+  type        DataRequestType
+  description String?
+  status      DataRequestStatus  @default(PENDIENTE)
+  resolvedBy  String?
+  resolver    User?              @relation("DataSubjectRequestResolver", fields: [resolvedBy], references: [id])
+  resolvedAt  DateTime?
+  createdAt   DateTime           @default(now())
+
+  @@index([status, createdAt])
+}
+
+model LoginAttempt {
+  id            String    @id @default(cuid())
+  ip            String    @unique
+  attempts      Int       @default(0)
+  blockedUntil  DateTime?
+  lastAttemptAt DateTime
+  createdAt     DateTime  @default(now())
+}
+
+model DataPurgeLog {
+  id             String   @id @default(cuid())
+  executedBy     String
+  executor       User     @relation("DataPurgeExecutor", fields: [executedBy], references: [id])
+  reportsDeleted Int
+  tasksDeleted   Int
+  docsDeleted    Int
+  createdAt      DateTime @default(now())
 }
 
 model SystemConfigHistory {

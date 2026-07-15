@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canCreateMeetings } from "@/lib/roles";
 import { createZoomMeeting } from "@/lib/zoom";
+import { safeLog } from "@/lib/logger";
 
 const meetingInclude = {
   host: { select: { id: true, name: true, role: true } },
@@ -74,7 +75,7 @@ export async function POST(request: NextRequest) {
       zoomJoinUrl = zoomMeeting.zoomJoinUrl;
       zoomPassword = zoomMeeting.zoomPassword;
     } catch (zoomErr) {
-      console.error("[POST /api/meetings] Zoom API falló, usando link simulado", zoomErr);
+      safeLog("error", "[POST /api/meetings] Zoom API falló, usando link simulado", zoomErr);
       zoomMeetingId = String(Math.floor(Math.random() * 9_000_000_000) + 1_000_000_000);
       zoomJoinUrl = `https://zoom.us/j/${zoomMeetingId}`;
       zoomPassword = Math.random().toString(36).slice(2, 8).toUpperCase();

@@ -3,6 +3,7 @@ import "@/lib/pdfPolyfill";
 import { PDFParse } from "pdf-parse";
 import { prisma } from "@/lib/prisma";
 import { getEmbedding } from "@/lib/embeddings";
+import { safeLog } from "@/lib/logger";
 
 const FETCH_TIMEOUT_MS = 45_000;
 const FRIENDLY_PENDING_MESSAGE = "Documento agregado. El texto se procesará cuando esté disponible.";
@@ -11,9 +12,7 @@ const GITHUB_API_VERSION = "2022-11-28";
 function githubConfig(): { token: string; repo: string } {
   const token = process.env.GITHUB_TOKEN;
   const repo = process.env.GITHUB_DOCS_REPO;
-  console.error(
-    `[githubDocuments] GITHUB_TOKEN presente: ${!!token} (prefijo: ${token ? token.slice(0, 10) : "n/a"}), GITHUB_DOCS_REPO: ${repo ?? "n/a"}`
-  );
+  safeLog("log", `[githubDocuments] GITHUB_TOKEN presente: ${!!token}, GITHUB_DOCS_REPO: ${repo ?? "n/a"}`);
   if (!token || !repo) {
     throw new Error("GITHUB_TOKEN o GITHUB_DOCS_REPO no están configurados en las variables de entorno.");
   }
@@ -29,13 +28,12 @@ async function ensureRepoExists(token: string, repo: string): Promise<void> {
   );
   if (checkRes.ok) return;
   if (checkRes.status !== 404) {
-    const body = await checkRes.text().catch(() => "");
-    console.error(`[githubDocuments] verificación de repo devolvió HTTP ${checkRes.status}:`, body);
+    safeLog("error", `[githubDocuments] verificación de repo devolvió HTTP ${checkRes.status}`);
     return;
   }
 
   const name = repo.includes("/") ? repo.split("/")[1] : repo;
-  console.error(`[githubDocuments] el repo "${repo}" no existe, creando "${name}"...`);
+  safeLog("log", `[githubDocuments] el repo no existe, creando "${name}"...`);
   const createRes = await fetchWithTimeout(
     "https://api.github.com/user/repos",
     {
@@ -46,11 +44,10 @@ async function ensureRepoExists(token: string, repo: string): Promise<void> {
     "crear repo"
   );
   if (!createRes.ok) {
-    const body = await createRes.text().catch(() => "");
-    console.error(`[githubDocuments] fallo creando el repo "${name}":`, createRes.status, body);
+    safeLog("error", `[githubDocuments] fallo creando el repo "${name}", HTTP ${createRes.status}`);
     throw new Error(`No se pudo crear el repositorio "${name}" en GitHub (HTTP ${createRes.status}).`);
   }
-  console.error(`[githubDocuments] repo "${name}" creado correctamente`);
+  safeLog("log", `[githubDocuments] repo "${name}" creado correctamente`);
 }
 
 function githubHeaders(token: string, accept = "application/vnd.github+json"): HeadersInit {
@@ -66,12 +63,11 @@ async function fetchWithTimeout(url: string, init: RequestInit, label: string): 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   try {
-    console.error(`[githubDocuments] ${label}: ${init.method ?? "GET"} ${url}`);
     const res = await fetch(url, { ...init, signal: controller.signal });
-    console.error(`[githubDocuments] ${label} -> HTTP ${res.status}`);
+    safeLog("log", `[githubDocuments] ${label} -> HTTP ${res.status}`);
     return res;
   } catch (err) {
-    console.error(`[githubDocuments] ${label} fetch threw:`, err);
+    safeLog("error", `[githubDocuments] ${label} falló`, err);
     throw err;
   } finally {
     clearTimeout(timer);
@@ -108,8 +104,7 @@ export async function uploadPdfToGithub(
   );
 
   if (!res.ok) {
-    const errBody = await res.text().catch(() => "");
-    console.error(`[githubDocuments] fallo al subir "${originalFilename}":`, res.status, errBody);
+    safeLog("error", `[githubDocuments] fallo al subir el documento, HTTP ${res.status}`);
     throw new Error(`No se pudo subir el archivo a GitHub (HTTP ${res.status}).`);
   }
 
@@ -127,8 +122,7 @@ async function downloadFromGithub(path: string, sha: string): Promise<Buffer> {
 
   const res = await fetchWithTimeout(url, { headers: githubHeaders(token) }, "descargar de GitHub");
   if (!res.ok) {
-    const errBody = await res.text().catch(() => "");
-    console.error(`[githubDocuments] fallo al descargar "${path}" (sha ${sha}):`, res.status, errBody);
+    safeLog("error", `[githubDocuments] fallo al descargar el documento, HTTP ${res.status}`);
     throw new Error(`No se pudo descargar el archivo desde GitHub (HTTP ${res.status}).`);
   }
 
@@ -155,8 +149,7 @@ export async function deleteFromGithub(path: string, sha: string): Promise<void>
   );
 
   if (!res.ok) {
-    const errBody = await res.text().catch(() => "");
-    console.error(`[githubDocuments] fallo al eliminar "${path}" de GitHub:`, res.status, errBody);
+    safeLog("error", `[githubDocuments] fallo al eliminar el documento de GitHub, HTTP ${res.status}`);
     // No relanzamos: si el archivo ya no existe en GitHub (404) o el repo cambió,
     // igual queremos que el documento se borre de la base de datos.
   }
@@ -188,7 +181,7 @@ async function extractPages(buffer: Buffer): Promise<Array<{ text: string; pageN
     return result.pages.map((p) => ({ text: p.text, pageNumber: p.num }));
   } finally {
     await parser.destroy().catch((err) => {
-      console.error("[githubDocuments] error liberando el parser de PDF:", err);
+      safeLog("error", "[githubDocuments] error liberando el parser de PDF:", err);
     });
   }
 }
@@ -217,7 +210,7 @@ async function embedChunks(
           const embedding = await getEmbedding(c.content);
           return { ...c, embedding };
         } catch (err) {
-          console.error(`[githubDocuments] fallo generando embedding del chunk ${c.chunkIndex}:`, err);
+          safeLog("error", `[githubDocuments] fallo generando embedding del chunk ${c.chunkIndex}:`, err);
           return { ...c, embedding: [] as number[] };
         }
       })
@@ -240,10 +233,10 @@ export async function processGithubDocument(documentId: string, path: string, sh
     buffer = await downloadFromGithub(path, sha);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    console.error(`[githubDocuments] documento ${documentId}: descarga falló:`, err);
+    safeLog("error", `[githubDocuments] documento ${documentId}: descarga falló:`, err);
     await prisma.knowledgeDocument
       .update({ where: { id: documentId }, data: { status: "ERROR", processingError: message } })
-      .catch((updateErr) => console.error(`[githubDocuments] documento ${documentId}: no se pudo guardar el error:`, updateErr));
+      .catch((updateErr) => safeLog("error", `[githubDocuments] documento ${documentId}: no se pudo guardar el error:`, updateErr));
     return;
   }
 
@@ -251,10 +244,10 @@ export async function processGithubDocument(documentId: string, path: string, sh
   try {
     pages = await extractPages(buffer);
   } catch (err) {
-    console.error(`[githubDocuments] documento ${documentId}: extracción de texto falló:`, err);
+    safeLog("error", `[githubDocuments] documento ${documentId}: extracción de texto falló:`, err);
     await prisma.knowledgeDocument
       .update({ where: { id: documentId }, data: { status: "LISTO", content: null, processingError: FRIENDLY_PENDING_MESSAGE } })
-      .catch((updateErr) => console.error(`[githubDocuments] documento ${documentId}: no se pudo guardar el estado pendiente:`, updateErr));
+      .catch((updateErr) => safeLog("error", `[githubDocuments] documento ${documentId}: no se pudo guardar el estado pendiente:`, updateErr));
     return;
   }
 
@@ -268,10 +261,10 @@ export async function processGithubDocument(documentId: string, path: string, sh
   }
 
   if (fullText.length < 80 || chunkInputs.length === 0) {
-    console.error(`[githubDocuments] documento ${documentId}: sin contenido de texto suficiente para indexar`);
+    safeLog("error", `[githubDocuments] documento ${documentId}: sin contenido de texto suficiente para indexar`);
     await prisma.knowledgeDocument
       .update({ where: { id: documentId }, data: { status: "LISTO", content: fullText || null, processingError: FRIENDLY_PENDING_MESSAGE } })
-      .catch((updateErr) => console.error(`[githubDocuments] documento ${documentId}: no se pudo guardar el estado pendiente:`, updateErr));
+      .catch((updateErr) => safeLog("error", `[githubDocuments] documento ${documentId}: no se pudo guardar el estado pendiente:`, updateErr));
     return;
   }
 
@@ -295,11 +288,11 @@ export async function processGithubDocument(documentId: string, path: string, sh
         },
       },
     });
-    console.error(`[githubDocuments] documento ${documentId}: procesado OK, ${chunksWithEmbeddings.length} chunks`);
+    safeLog("error", `[githubDocuments] documento ${documentId}: procesado OK, ${chunksWithEmbeddings.length} chunks`);
   } catch (err) {
-    console.error(`[githubDocuments] documento ${documentId}: fallo guardando chunks:`, err);
+    safeLog("error", `[githubDocuments] documento ${documentId}: fallo guardando chunks:`, err);
     await prisma.knowledgeDocument
       .update({ where: { id: documentId }, data: { status: "LISTO", content: fullText, processingError: FRIENDLY_PENDING_MESSAGE } })
-      .catch((updateErr) => console.error(`[githubDocuments] documento ${documentId}: no se pudo guardar el estado pendiente:`, updateErr));
+      .catch((updateErr) => safeLog("error", `[githubDocuments] documento ${documentId}: no se pudo guardar el estado pendiente:`, updateErr));
   }
 }

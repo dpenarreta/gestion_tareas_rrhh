@@ -121,7 +121,7 @@ npm run dev                 # inicia el servidor de desarrollo
 - **Motor**: PostgreSQL.
 - **ORM**: Prisma 7, que en esta versión requiere un driver adapter explícito (`@prisma/adapter-pg`) — `new PrismaClient()` sin adapter falla en runtime. La inicialización centralizada está en `src/lib/prisma.ts`.
 - **Tipos**: se importan desde `@/generated/prisma/client` (no desde `@/generated/prisma`).
-- **Modelos principales** (ver `prisma/schema.prisma` para el detalle completo): `User`, `Task`, `TaskActivity`, `Comment`, `Notification`, `FollowUpReminder`, `MonthlyReport`, `MonthClosure`, `ImprovementIdea` (con `IdeaVote` e `IdeaStatusHistory`), `KnowledgeDocument` y `DocumentChunk`, `Meeting` y `MeetingInvitee`, `Announcement`, `SystemConfigHistory`.
+- **Modelos principales** (ver `prisma/schema.prisma` para el detalle completo): `User`, `Task`, `TaskActivity`, `Comment`, `Notification`, `FollowUpReminder`, `MonthlyReport`, `MonthClosure`, `ImprovementIdea` (con `IdeaVote` e `IdeaStatusHistory`), `KnowledgeDocument` y `DocumentChunk`, `Meeting` y `MeetingInvitee`, `Announcement`, `SystemConfigHistory`, `DataSubjectRequest` (solicitudes de titulares de datos), `DataPurgeLog` (auditoría de depuración por política de retención), `LoginAttempt` (límite de intentos de login, persistido en base de datos).
 - **Migraciones**: versionadas en `prisma/migrations/`, aplicadas automáticamente en el build de producción (`npm run build` ejecuta `prisma migrate deploy` antes de compilar).
 - **Datos iniciales**: `prisma/seed.ts` crea un conjunto mínimo de usuarios de ejemplo para desarrollo local; no representa datos de producción.
 
@@ -137,7 +137,7 @@ npm run dev                 # inicia el servidor de desarrollo
 | Reuniones | Creación de reuniones vía Zoom, gestión de invitados, enlace a notas de Otter.ai |
 | Mejora Continua | Registro de ideas de mejora con votación, flujo de estados y adjuntos |
 | Gestión de usuarios | Alta, edición, restablecimiento de acceso y baja de usuarios, restringido a roles con permisos de administración |
-| Ajustes | Consentimiento de tratamiento de datos, configuración de parámetros de carga laboral, administración de la base de conocimiento (según rol) |
+| Ajustes | Consentimiento de tratamiento de datos, configuración de parámetros de carga laboral, gestión de solicitudes de titulares de datos, política de retención/depuración, administración de la base de conocimiento (según rol) |
 | Perfil | Datos personales del usuario autenticado y cambio de contraseña |
 
 ## 10. APIs, rutas o interfaces internas
@@ -155,7 +155,8 @@ Todas las rutas viven bajo `src/app/api/` como route handlers de Next.js. Son de
 | Mejora Continua | CRUD de ideas, votos, historial de cambios de estado |
 | Asistente (Nova) | Conversación del asistente, gestión de documentos de la base de conocimiento |
 | Notificaciones y recordatorios | Listado, marcado como leído, recordatorios pendientes |
-| Ajustes / Sistema | Configuración de carga laboral, información del sistema, comunicados |
+| Ajustes / Sistema | Configuración de carga laboral, política de retención y depuración, información del sistema, comunicados |
+| Titulares de datos | Solicitudes de acceso/rectificación/eliminación, exportación de datos propios, gestión de estado (Administrador) |
 
 No se documentan aquí rutas, parámetros ni payloads específicos por tratarse de detalles de implementación interna.
 
@@ -197,7 +198,7 @@ Se recomienda incorporar un framework de pruebas automatizadas (ver sección 19)
 - Cada endpoint de API valida sesión y rol en el servidor, no solo en el cliente.
 - La cookie de sesión es httpOnly y usa atributos restrictivos de envío entre sitios.
 - El secreto de firma de sesión es fail-closed: la aplicación no arranca si la variable correspondiente falta o no cumple la longitud mínima requerida, evitando un valor por defecto inseguro.
-- Límite de intentos de inicio de sesión por IP con bloqueo temporal.
+- Límite de intentos de inicio de sesión por IP con bloqueo temporal, persistido en base de datos (`LoginAttempt`) para que el límite sea global entre instancias del despliegue, no por proceso.
 - Cabeceras de seguridad HTTP activas de forma global (CSP, HSTS en producción, `X-Frame-Options`, `X-Content-Type-Options`, `Referrer-Policy`, `Permissions-Policy`).
 - Verificación del header `Origin` en peticiones que mutan estado, como defensa adicional frente a ataques cross-site.
 - Roles con visibilidad restringida: cada rol solo accede a los datos de las personas que la jerarquía le permite ver, validado en servidor.
@@ -239,15 +240,13 @@ Gestionar internamente los recursos humanos de la organización: asignación y s
 - Envío de contenido potencialmente sensible (consultas de RRHH, contenido de documentos internos) a un proveedor externo de procesamiento de lenguaje (Groq) como parte del funcionamiento del asistente Nova.
 - Almacenamiento de documentos internos de RRHH, que pueden contener datos de personal, en un repositorio de un proveedor externo (GitHub), fuera del perímetro directo de la base de datos de la aplicación.
 - Transferencia de datos de invitados (nombre/correo) a la API de Zoom al programar reuniones.
-- Ausencia de un mecanismo automatizado identificado en el repositorio para atender solicitudes de titulares de datos (acceso, rectificación, eliminación, portabilidad) más allá de la gestión manual por administradores.
 - Ausencia de un framework de pruebas automatizadas (sección 13) que valide de forma continua las reglas de visibilidad por rol, lo que aumenta el riesgo de regresiones de control de acceso no detectadas.
 
 ### Recomendaciones de cumplimiento
 
 - Formalizar y mantener actualizado un registro de actividades de tratamiento (RAT) que documente estas categorías de datos, sus finalidades y los proveedores externos involucrados.
 - Evaluar la existencia de acuerdos de encargado de tratamiento (o equivalentes) con los proveedores externos utilizados (proveedor de IA, proveedor de repositorio documental, proveedor de videoconferencia), acordes a la LOPDP.
-- Definir y documentar un procedimiento (aunque sea manual) para atender solicitudes de titulares de datos.
-- Establecer políticas de retención y depuración de datos históricos (por ejemplo, conversaciones con el asistente, informes archivados) coherentes con la finalidad del tratamiento.
+- Nexo cuenta con un mecanismo en producto para solicitudes de titulares (acceso, rectificación, eliminación) desde `/profile`, con cola de gestión y trazabilidad para el Administrador en `/settings`, y con una política de retención/depuración configurable para informes mensuales, tareas archivadas y documentos de la base de conocimiento (ver `DataSubjectRequest`, `DataPurgeLog` y la política de retención en `prisma/schema.prisma`). Se recomienda que legal valide que el flujo de eliminación de cuenta (gestión manual del Administrador tras la solicitud) cumple los plazos y garantías exigidos por la LOPDP.
 - Este análisis es de carácter técnico y funcional, basado en la revisión del código y modelos de datos del repositorio. No constituye una conclusión legal definitiva; se recomienda una validación formal por parte de asesoría legal especializada en protección de datos en Ecuador.
 
 ### Mensaje tentativo para informar al usuario
@@ -270,16 +269,17 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 ## 19. Recomendaciones para próximos mantenimientos
 
 - Incorporar un framework de pruebas automatizadas (unitarias e integración), priorizando la cobertura de las reglas de visibilidad y control de acceso por rol descritas en `src/lib/roles.ts`, dado su impacto directo en la protección de datos personales.
-- Revisar los mensajes de log del servidor en las integraciones externas (repositorio documental, IA, videoconferencia) para asegurar que no se registren fragmentos de tokens o credenciales, ni siquiera parcialmente, en entornos de diagnóstico.
+- Mantener `src/lib/logger.ts` (`safeLog`) como punto de paso obligatorio para los logs de integraciones externas nuevas, y ampliar sus patrones de redacción si se incorporan proveedores con otros formatos de token.
 - Formalizar el registro de actividades de tratamiento de datos personales y evaluar la necesidad de acuerdos de encargado de tratamiento con los proveedores externos utilizados (ver sección 16).
-- Evaluar un mecanismo de retención/depuración programada de datos históricos (informes archivados, conversaciones del asistente, documentos obsoletos de la base de conocimiento).
+- Revisar periódicamente los resultados de la depuración programada (`DataPurgeLog`) y ajustar los valores por defecto de la política de retención si la operación de la organización lo requiere.
 - Mantener actualizada la documentación de variables de entorno (`.env.example`) cada vez que se incorpore una nueva integración externa.
-- Considerar mover el límite de intentos de inicio de sesión (actualmente en memoria por instancia) a un almacenamiento compartido si el despliegue pasa a múltiples instancias concurrentes, para que el límite sea global y no por instancia.
+- Evaluar limpieza periódica de la tabla `LoginAttempt` (registros de intentos de login ya expirados) si su volumen crece de forma relevante.
 
 ## Changelog
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-15: feat(compliance): solicitudes de titulares, retención de datos, rate limiting persistente y logs sanitizados
 - 2026-07-14: feat(tasks): nuevo formulario de actividad por horas/minutos en tareas SEGUIMIENTO
 - 2026-07-13: feat(kanban): mostrar tarjetas en grid de 2 columnas dentro de cada columna Kanban
 - 2026-07-13: fix(kpis): fecha de generación de informes, PDF sin autoprint y Analytics responsive

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { ROLE_LABEL } from "@/lib/roles";
-import type { Role } from "@/generated/prisma/client";
+import type { Role, DataRequestType, DataRequestStatus } from "@/generated/prisma/client";
 import { hoursToDisplay, displayToHours, validateDisplayHours, INVALID_HOURS_MESSAGE } from "@/lib/timeFormat";
 
 type User = {
@@ -49,6 +49,49 @@ const DOC_STATUS_CLASS: Record<DocStatus, string> = {
   LISTO: "text-success bg-success/[.13]",
   ERROR: "text-danger bg-danger/[.09]",
 };
+
+type DataRequestRow = {
+  id: string;
+  type: DataRequestType;
+  status: DataRequestStatus;
+  description: string | null;
+  createdAt: string;
+  resolvedAt: string | null;
+  user: { id: string; name: string; role: Role };
+  resolver: { id: string; name: string } | null;
+};
+
+const REQUEST_TYPE_LABEL: Record<DataRequestType, string> = {
+  ACCESO: "Acceso a datos",
+  RECTIFICACION: "Rectificación",
+  ELIMINACION: "Eliminación de cuenta",
+};
+
+const REQUEST_STATUS_LABEL: Record<DataRequestStatus, string> = {
+  PENDIENTE: "Pendiente",
+  EN_PROCESO: "En proceso",
+  RESUELTA: "Resuelta",
+};
+
+const REQUEST_STATUS_CLASS: Record<DataRequestStatus, string> = {
+  PENDIENTE: "text-warning bg-warning/[.15]",
+  EN_PROCESO: "text-primary bg-primary-surface",
+  RESUELTA: "text-success bg-success/[.13]",
+};
+
+type RetentionPolicy = {
+  monthlyReportsMonths: string;
+  archivedTasksMonths: string;
+  knowledgeDocsMonths: string;
+};
+
+const MONTHLY_REPORTS_OPTIONS = ["6", "12", "24", "36"];
+const ARCHIVED_TASKS_OPTIONS = ["6", "12", "24", "36"];
+const KNOWLEDGE_DOCS_OPTIONS = ["12", "24", "36", "indefinite"];
+
+function monthsLabel(value: string): string {
+  return value === "indefinite" ? "Indefinido" : `${value} meses`;
+}
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleString("es-EC", {
@@ -106,6 +149,21 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
   const [hoursSaving, setHoursSaving] = useState(false);
   const [hoursMsg, setHoursMsg] = useState<string | null>(null);
   const [hoursError, setHoursError] = useState<string | null>(null);
+
+  // Solicitudes de titulares de datos (LOPDP)
+  const [dataRequests, setDataRequests] = useState<DataRequestRow[]>([]);
+  const [dataRequestsLoading, setDataRequestsLoading] = useState(true);
+  const [dataRequestBusyId, setDataRequestBusyId] = useState<string | null>(null);
+
+  // Política de retención de datos (LOPDP)
+  const [retentionPolicy, setRetentionPolicy] = useState<RetentionPolicy | null>(null);
+  const [retentionLoading, setRetentionLoading] = useState(true);
+  const [retentionSaving, setRetentionSaving] = useState(false);
+  const [retentionMsg, setRetentionMsg] = useState<string | null>(null);
+  const [retentionError, setRetentionError] = useState<string | null>(null);
+  const [purgeLoading, setPurgeLoading] = useState(false);
+  const [purgeMsg, setPurgeMsg] = useState<string | null>(null);
+  const [purgeError, setPurgeError] = useState<string | null>(null);
 
   // Base de conocimiento RRHH
   const [docs, setDocs] = useState<KnowledgeDoc[]>([]);
@@ -167,14 +225,45 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
     }
   }, []);
 
+  const loadDataRequests = useCallback(async () => {
+    setDataRequestsLoading(true);
+    try {
+      const res = await fetch("/api/data-requests");
+      if (res.ok) setDataRequests(await res.json());
+    } finally {
+      setDataRequestsLoading(false);
+    }
+  }, []);
+
+  const loadRetentionPolicy = useCallback(async () => {
+    setRetentionLoading(true);
+    try {
+      const res = await fetch("/api/settings/retention-policy");
+      if (res.ok) setRetentionPolicy(await res.json());
+    } finally {
+      setRetentionLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (isAdmin) {
       queueMicrotask(loadUsers);
       queueMicrotask(loadSystemInfo);
       queueMicrotask(loadHoursConfig);
+      queueMicrotask(loadDataRequests);
+      queueMicrotask(loadRetentionPolicy);
     }
     if (canManageKnowledgeBase) queueMicrotask(loadDocs);
-  }, [isAdmin, canManageKnowledgeBase, loadUsers, loadSystemInfo, loadHoursConfig, loadDocs]);
+  }, [
+    isAdmin,
+    canManageKnowledgeBase,
+    loadUsers,
+    loadSystemInfo,
+    loadHoursConfig,
+    loadDocs,
+    loadDataRequests,
+    loadRetentionPolicy,
+  ]);
 
   async function handleSaveHours() {
     setHoursMsg(null);
@@ -346,6 +435,97 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
       setError("Error de conexión");
     } finally {
       setBusyId(null);
+    }
+  }
+
+  async function handleUpdateRequestStatus(request: DataRequestRow, status: DataRequestStatus) {
+    setDataRequestBusyId(request.id);
+    try {
+      const res = await fetch(`/api/data-requests/${request.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      if (res.ok) {
+        const updated = await res.json();
+        setDataRequests((prev) => prev.map((r) => (r.id === request.id ? updated : r)));
+      }
+    } finally {
+      setDataRequestBusyId(null);
+    }
+  }
+
+  async function handleSaveRetentionPolicy() {
+    if (!retentionPolicy) return;
+    setRetentionMsg(null);
+    setRetentionError(null);
+    setRetentionSaving(true);
+    try {
+      const res = await fetch("/api/settings/retention-policy", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(retentionPolicy),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setRetentionError(data.error ?? "Error al guardar la política de retención");
+      } else {
+        setRetentionPolicy(data);
+        setRetentionMsg("Política de retención actualizada.");
+      }
+    } catch {
+      setRetentionError("Error de conexión");
+    } finally {
+      setRetentionSaving(false);
+    }
+  }
+
+  async function handleRunPurge() {
+    setPurgeMsg(null);
+    setPurgeError(null);
+    setPurgeLoading(true);
+    try {
+      const previewRes = await fetch("/api/settings/retention-policy/purge");
+      const preview = await previewRes.json();
+      if (!previewRes.ok) {
+        setPurgeError(preview.error ?? "Error al calcular la vista previa de depuración");
+        return;
+      }
+      const { reportsToDelete, tasksToDelete, docsToDelete } = preview;
+      if (reportsToDelete === 0 && tasksToDelete === 0 && docsToDelete === 0) {
+        setPurgeMsg("No hay registros que superen la política de retención vigente.");
+        return;
+      }
+      if (
+        !confirm(
+          `Se eliminarán ${reportsToDelete} informe(s) mensual(es), ${tasksToDelete} tarea(s) archivada(s) y ${docsToDelete} documento(s) de la base de conocimiento. ¿Continuar?`
+        )
+      )
+        return;
+      if (
+        !confirm(
+          "Esta acción no se puede deshacer. ¿Confirmas que deseas ejecutar la depuración ahora?"
+        )
+      )
+        return;
+
+      const res = await fetch("/api/settings/retention-policy/purge", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirm: true }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPurgeError(data.error ?? "Error al ejecutar la depuración");
+      } else {
+        setPurgeMsg(
+          `Depuración completada: ${data.reportsDeleted} informe(s), ${data.tasksDeleted} tarea(s) y ${data.docsDeleted} documento(s) eliminados.`
+        );
+      }
+    } catch {
+      setPurgeError("Error de conexión");
+    } finally {
+      setPurgeLoading(false);
     }
   }
 
@@ -644,6 +824,178 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
             >
               {hoursSaving ? "Guardando…" : "Guardar configuración"}
             </button>
+          </>
+        )}
+      </SectionCard>
+
+      <SectionCard title="Solicitudes de titulares">
+        <p className="text-xs text-secondary">
+          Solicitudes de acceso, rectificación y eliminación enviadas por los usuarios desde su perfil.
+        </p>
+        <div className="rounded-lg border border-border overflow-hidden">
+          {dataRequestsLoading ? (
+            <div className="flex justify-center items-center py-8">
+              <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : dataRequests.length === 0 ? (
+            <p className="text-sm text-disabled text-center py-8">No hay solicitudes de titulares registradas.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-background">
+                  <th className="text-left px-4 py-2.5 font-medium text-main">Usuario</th>
+                  <th className="text-left px-4 py-2.5 font-medium text-main">Tipo</th>
+                  <th className="text-left px-4 py-2.5 font-medium text-main">Fecha</th>
+                  <th className="text-left px-4 py-2.5 font-medium text-main">Estado</th>
+                  <th className="text-right px-4 py-2.5 font-medium text-main">Acción</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {dataRequests.map((r) => (
+                  <tr key={r.id}>
+                    <td className="px-4 py-2.5 text-title font-medium">
+                      {r.user.name}
+                      <span className="ml-2 text-xs text-disabled">{ROLE_LABEL[r.user.role]}</span>
+                      {r.description && (
+                        <span className="block text-xs text-secondary mt-0.5 max-w-xs truncate" title={r.description}>
+                          {r.description}
+                        </span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2.5 text-secondary">{REQUEST_TYPE_LABEL[r.type]}</td>
+                    <td className="px-4 py-2.5 text-secondary">{formatDate(r.createdAt)}</td>
+                    <td className="px-4 py-2.5">
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${REQUEST_STATUS_CLASS[r.status]}`}>
+                        {REQUEST_STATUS_LABEL[r.status]}
+                      </span>
+                    </td>
+                    <td className="px-4 py-2.5 text-right">
+                      {r.status !== "RESUELTA" ? (
+                        <button
+                          onClick={() => handleUpdateRequestStatus(r, "RESUELTA")}
+                          disabled={dataRequestBusyId === r.id}
+                          className="text-xs text-success hover:brightness-90 font-medium px-2 py-1 rounded hover:bg-success/[.13] transition-colors disabled:opacity-50"
+                        >
+                          ✓ Marcar resuelta
+                        </button>
+                      ) : (
+                        <span className="text-xs text-disabled">
+                          {r.resolver ? `Resuelta por ${r.resolver.name}` : "Resuelta"}
+                        </span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Política de retención de datos">
+        {retentionLoading || !retentionPolicy ? (
+          <div className="flex justify-center items-center py-8">
+            <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          </div>
+        ) : (
+          <>
+            {retentionMsg && (
+              <div className="bg-success/[.13] rounded-lg px-4 py-3 text-sm text-success flex items-center justify-between">
+                <span>{retentionMsg}</span>
+                <button onClick={() => setRetentionMsg(null)} className="ml-2 text-success hover:brightness-90 font-bold">×</button>
+              </div>
+            )}
+            {retentionError && (
+              <div className="bg-danger/[.09] rounded-lg px-4 py-3 text-sm text-danger flex items-center justify-between">
+                <span>{retentionError}</span>
+                <button onClick={() => setRetentionError(null)} className="ml-2 text-danger hover:brightness-90 font-bold">×</button>
+              </div>
+            )}
+            <p className="text-xs text-secondary">
+              Define por cuánto tiempo se conservan los informes mensuales, las tareas archivadas y los documentos
+              de la base de conocimiento de Nova antes de poder depurarlos.
+            </p>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-title">Retener informes mensuales por</label>
+                <select
+                  value={retentionPolicy.monthlyReportsMonths}
+                  onChange={(e) =>
+                    setRetentionPolicy({ ...retentionPolicy, monthlyReportsMonths: e.target.value })
+                  }
+                  className="w-full border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  {MONTHLY_REPORTS_OPTIONS.map((v) => (
+                    <option key={v} value={v}>{monthsLabel(v)}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-title">Retener tareas archivadas por</label>
+                <select
+                  value={retentionPolicy.archivedTasksMonths}
+                  onChange={(e) =>
+                    setRetentionPolicy({ ...retentionPolicy, archivedTasksMonths: e.target.value })
+                  }
+                  className="w-full border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  {ARCHIVED_TASKS_OPTIONS.map((v) => (
+                    <option key={v} value={v}>{monthsLabel(v)}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-title">Retener documentos de Nova por</label>
+                <select
+                  value={retentionPolicy.knowledgeDocsMonths}
+                  onChange={(e) =>
+                    setRetentionPolicy({ ...retentionPolicy, knowledgeDocsMonths: e.target.value })
+                  }
+                  className="w-full border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+                >
+                  {KNOWLEDGE_DOCS_OPTIONS.map((v) => (
+                    <option key={v} value={v}>{monthsLabel(v)}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <button
+              onClick={handleSaveRetentionPolicy}
+              disabled={retentionSaving}
+              className="px-4 py-2 bg-primary text-white font-medium rounded-lg text-sm hover:bg-primary-hover disabled:opacity-50 transition-colors"
+            >
+              {retentionSaving ? "Guardando…" : "Guardar política"}
+            </button>
+
+            <div className="pt-4 border-t border-border space-y-3">
+              {purgeMsg && (
+                <div className="bg-success/[.13] rounded-lg px-4 py-3 text-sm text-success flex items-center justify-between">
+                  <span>{purgeMsg}</span>
+                  <button onClick={() => setPurgeMsg(null)} className="ml-2 text-success hover:brightness-90 font-bold">×</button>
+                </div>
+              )}
+              {purgeError && (
+                <div className="bg-danger/[.09] rounded-lg px-4 py-3 text-sm text-danger flex items-center justify-between">
+                  <span>{purgeError}</span>
+                  <button onClick={() => setPurgeError(null)} className="ml-2 text-danger hover:brightness-90 font-bold">×</button>
+                </div>
+              )}
+              <p className="text-xs text-secondary">
+                Elimina permanentemente los registros que superen la política vigente. Se pedirá confirmación
+                y quedará constancia de quién ejecutó la depuración y cuántos registros se eliminaron.
+              </p>
+              <button
+                onClick={handleRunPurge}
+                disabled={purgeLoading}
+                className="px-4 py-2 border border-danger/30 text-danger hover:bg-danger/[.09] font-medium rounded-lg text-sm transition-colors disabled:opacity-50"
+              >
+                {purgeLoading ? "Calculando…" : "🗑️ Ejecutar depuración ahora"}
+              </button>
+            </div>
           </>
         )}
       </SectionCard>

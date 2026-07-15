@@ -16,6 +16,17 @@ export const DEFAULT_WORKLOAD_LIMIT_HIGH = 7.5;
 export const CONFIG_KEY_WORKLOAD_LIMIT_OVERLOAD = "workload_limit_overload";
 export const DEFAULT_WORKLOAD_LIMIT_OVERLOAD = 8.5;
 
+// Política de retención de datos (LOPDP) — meses como string ("6"/"12"/"24"/"36"),
+// o "indefinite" para la base de conocimiento cuando no hay fecha límite.
+export const CONFIG_KEY_RETENTION_MONTHLY_REPORTS = "retention_monthly_reports";
+export const DEFAULT_RETENTION_MONTHLY_REPORTS = "24";
+
+export const CONFIG_KEY_RETENTION_ARCHIVED_TASKS = "retention_archived_tasks";
+export const DEFAULT_RETENTION_ARCHIVED_TASKS = "24";
+
+export const CONFIG_KEY_RETENTION_KNOWLEDGE_DOCS = "retention_knowledge_docs";
+export const DEFAULT_RETENTION_KNOWLEDGE_DOCS = "indefinite";
+
 /** Value in effect for `key` at `asOf` (defaults to now). Falls back to `fallback` if no history exists yet. */
 export async function getEffectiveConfigValue(
   key: string,
@@ -49,6 +60,35 @@ export async function getEffectiveWorkloadLimitHigh(asOf: Date = new Date()): Pr
 
 export async function getEffectiveWorkloadLimitOverload(asOf: Date = new Date()): Promise<number> {
   return getEffectiveConfigValue(CONFIG_KEY_WORKLOAD_LIMIT_OVERLOAD, asOf, DEFAULT_WORKLOAD_LIMIT_OVERLOAD);
+}
+
+/** Igual que `getEffectiveConfigValue` pero para valores que no son numéricos (ej. "indefinite"). */
+export async function getEffectiveConfigString(
+  key: string,
+  asOf: Date = new Date(),
+  fallback: string
+): Promise<string> {
+  const record = await prisma.systemConfigHistory.findFirst({
+    where: {
+      key,
+      validFrom: { lte: asOf },
+      OR: [{ validUntil: null }, { validUntil: { gt: asOf } }],
+    },
+    orderBy: { validFrom: "desc" },
+  });
+  return record ? record.value : fallback;
+}
+
+export async function getEffectiveRetentionMonthlyReports(asOf: Date = new Date()): Promise<string> {
+  return getEffectiveConfigString(CONFIG_KEY_RETENTION_MONTHLY_REPORTS, asOf, DEFAULT_RETENTION_MONTHLY_REPORTS);
+}
+
+export async function getEffectiveRetentionArchivedTasks(asOf: Date = new Date()): Promise<string> {
+  return getEffectiveConfigString(CONFIG_KEY_RETENTION_ARCHIVED_TASKS, asOf, DEFAULT_RETENTION_ARCHIVED_TASKS);
+}
+
+export async function getEffectiveRetentionKnowledgeDocs(asOf: Date = new Date()): Promise<string> {
+  return getEffectiveConfigString(CONFIG_KEY_RETENTION_KNOWLEDGE_DOCS, asOf, DEFAULT_RETENTION_KNOWLEDGE_DOCS);
 }
 
 /** Closes the currently-open history record (if any) and opens a new one, effective now. */

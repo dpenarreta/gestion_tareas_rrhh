@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { ROLE_LABEL, getSubordinateRoles, canViewTeam } from "@/lib/roles";
 import { getEmbedding, cosineSimilarity } from "@/lib/embeddings";
+import { safeLog } from "@/lib/logger";
 import type { Role } from "@/generated/prisma/client";
 
 type Mode = "general" | "tasks" | "hr";
@@ -99,9 +100,9 @@ ${lines.join("\n\n")}`;
 async function buildTeamContext(userId: string, userRole: Role): Promise<string> {
   if (!canViewTeam(userRole)) return "";
 
-  console.log("[buildTeamContext] userRole:", userRole);
+  safeLog("log", "[buildTeamContext] userRole:", userRole);
   const subordinateRoles = getSubordinateRoles(userRole);
-  console.log("[buildTeamContext] subordinateRoles:", subordinateRoles);
+  safeLog("log", "[buildTeamContext] subordinateRoles:", subordinateRoles);
   if (subordinateRoles.length === 0) return "No hay subordinados asignados.";
 
   const today = new Date();
@@ -117,9 +118,9 @@ async function buildTeamContext(userId: string, userRole: Role): Promise<string>
       where: { role: { in: subordinateRoles } },
       select: { id: true, name: true, role: true },
     });
-    console.log("[buildTeamContext] miembros encontrados:", members.length);
+    safeLog("log", "[buildTeamContext] miembros encontrados:", members.length);
   } catch (err) {
-    console.error("[buildTeamContext] ERROR en consulta de usuarios:", err);
+    safeLog("error", "[buildTeamContext] ERROR en consulta de usuarios:", err);
     throw new Error(`Consulta de usuarios falló: ${err instanceof Error ? err.message : String(err)}`);
   }
 
@@ -147,7 +148,7 @@ async function buildTeamContext(userId: string, userRole: Role): Promise<string>
         },
       });
     } catch (err) {
-      console.error(`[buildTeamContext] ERROR obteniendo tareas de ${m.name}:`, err);
+      safeLog("error", `[buildTeamContext] ERROR obteniendo tareas de ${m.name}:`, err);
       tasks = [];
     }
 
@@ -198,7 +199,7 @@ async function findRelevantChunks(question: string, topK = 4): Promise<RelevantC
   try {
     questionEmbedding = await getEmbedding(question);
   } catch (err) {
-    console.error("[findRelevantChunks] fallo generando el embedding de la pregunta:", err);
+    safeLog("error", "[findRelevantChunks] fallo generando el embedding de la pregunta:", err);
     return [];
   }
 
@@ -229,7 +230,7 @@ export async function POST(request: NextRequest) {
   }
 
   const apiKey = process.env.GROQ_API_KEY;
-  console.log("[assistant/chat] GROQ_API_KEY presente:", !!apiKey);
+  safeLog("log", "[assistant/chat] GROQ_API_KEY presente:", !!apiKey);
   if (!apiKey) {
     return NextResponse.json({ error: "GROQ_API_KEY no configurado" }, { status: 503 });
   }
@@ -246,7 +247,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Mensaje vacío" }, { status: 400 });
   }
 
-  console.log(`[assistant/chat] modo=${mode} userId=${session.userId} role=${session.role}`);
+  safeLog("log", `[assistant/chat] modo=${mode} userId=${session.userId} role=${session.role}`);
 
   // Build system prompt + context
   let systemContent = SYSTEM_GENERAL;
@@ -256,32 +257,32 @@ export async function POST(request: NextRequest) {
   try {
     if (mode === "tasks") {
       systemContent = SYSTEM_TASKS;
-      console.log("[assistant/chat] Construyendo contexto de tareas...");
+      safeLog("log", "[assistant/chat] Construyendo contexto de tareas...");
       const taskCtx = await buildTaskContext(session.userId);
       contextBlock = `\n\n${taskCtx}`;
-      console.log("[assistant/chat] Contexto tareas OK, chars:", taskCtx.length);
+      safeLog("log", "[assistant/chat] Contexto tareas OK, chars:", taskCtx.length);
     } else if (mode === "hr") {
       systemContent = buildSystemHR(session.name, session.role as Role);
 
-      console.log("[assistant/chat] Construyendo contexto de equipo...");
+      safeLog("log", "[assistant/chat] Construyendo contexto de equipo...");
       let teamCtx = "";
       try {
         teamCtx = await buildTeamContext(session.userId, session.role as Role);
-        console.log("[assistant/chat] Contexto equipo OK, chars:", teamCtx.length);
+        safeLog("log", "[assistant/chat] Contexto equipo OK, chars:", teamCtx.length);
       } catch (teamErr) {
         const msg = teamErr instanceof Error ? teamErr.message : String(teamErr);
-        console.error("[assistant/chat] ERROR en buildTeamContext:", msg);
+        safeLog("error", "[assistant/chat] ERROR en buildTeamContext:", msg);
         teamCtx = `[No se pudo cargar el contexto del equipo: ${msg}]`;
       }
 
-      console.log("[assistant/chat] Buscando chunks relevantes...");
+      safeLog("log", "[assistant/chat] Buscando chunks relevantes...");
       let chunks: RelevantChunk[] = [];
       try {
         chunks = await findRelevantChunks(message);
-        console.log("[assistant/chat] Chunks encontrados:", chunks.length);
+        safeLog("log", "[assistant/chat] Chunks encontrados:", chunks.length);
       } catch (chunkErr) {
         const msg = chunkErr instanceof Error ? chunkErr.message : String(chunkErr);
-        console.error("[assistant/chat] ERROR en findRelevantChunks:", msg);
+        safeLog("error", "[assistant/chat] ERROR en findRelevantChunks:", msg);
         // Non-fatal: proceed without document context
       }
 
@@ -306,7 +307,7 @@ export async function POST(request: NextRequest) {
       contextBlock = `\n\n${docBlock}\n${teamCtx}`;
     }
   } catch (err) {
-    console.error("[assistant/chat] ERROR construyendo contexto:", err);
+    safeLog("error", "[assistant/chat] ERROR construyendo contexto:", err);
     return NextResponse.json(
       { error: "Error al preparar el contexto de la conversación" },
       { status: 500 }
@@ -314,7 +315,10 @@ export async function POST(request: NextRequest) {
   }
 
   const systemMessage = systemContent + contextBlock;
-  console.log("[assistant/chat] System message chars:", systemMessage.length, "| History messages:", history.length);
+  safeLog(
+    "log",
+    `[assistant/chat] System message chars: ${systemMessage.length} | History messages: ${history.length}`
+  );
 
   const messages: Groq.Chat.ChatCompletionMessageParam[] = [
     { role: "system", content: systemMessage },
@@ -326,7 +330,7 @@ export async function POST(request: NextRequest) {
   ];
 
   try {
-    console.log("[assistant/chat] Llamando a Groq...");
+    safeLog("log", "[assistant/chat] Llamando a Groq...");
     const client = new Groq({ apiKey });
     const response = await client.chat.completions.create({
       model: "llama-3.3-70b-versatile",
@@ -334,10 +338,15 @@ export async function POST(request: NextRequest) {
       messages,
     });
     const content = response.choices[0]?.message?.content ?? "";
-    console.log("[assistant/chat] Respuesta Groq OK, chars:", content.length);
+    // Registro de uso de Groq: solo metadatos (timestamp, userId, modo, tokens aproximados).
+    // Nunca el texto de la consulta, los fragmentos RAG ni la respuesta del modelo.
+    safeLog(
+      "log",
+      `[assistant/chat] uso Groq: ts=${new Date().toISOString()} userId=${session.userId} modo=${mode} tokensAprox=${response.usage?.total_tokens ?? "n/a"}`
+    );
     return NextResponse.json({ content, sources });
   } catch (err) {
-    console.error("[assistant/chat] ERROR Groq:", err);
+    safeLog("error", "[assistant/chat] ERROR Groq:", err);
     // Detectar error de límite de tokens
     const errMsg = err instanceof Error ? err.message : String(err);
     if (errMsg.includes("token") || errMsg.includes("limit") || errMsg.includes("context_length")) {

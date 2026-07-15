@@ -10,7 +10,8 @@ export default async function SettingsPage() {
   return (
     <div className="space-y-6">
       <p className="text-secondary">
-        Consentimiento de datos, gestión de contraseñas, carga laboral y base de conocimiento RRHH
+        Consentimiento de datos, gestión de contraseñas, carga laboral, solicitudes de titulares,
+        política de retención y base de conocimiento RRHH
       </p>
       <SettingsManager currentUserRole={session.role} />
     </div>

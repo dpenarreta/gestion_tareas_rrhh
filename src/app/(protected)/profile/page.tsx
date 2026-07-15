@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useTheme } from "next-themes";
 import { ROLE_LABEL } from "@/lib/roles";
 import { useHasMounted } from "@/hooks/useHasMounted";
-import type { Role } from "@/generated/prisma/client";
+import { Modal, ModalHeader } from "@/components/ui/Modal";
+import type { Role, DataRequestType, DataRequestStatus } from "@/generated/prisma/client";
 
 type UserInfo = {
   userId: string;
@@ -58,6 +59,33 @@ function formatDate(iso: string) {
   });
 }
 
+type DataRequest = {
+  id: string;
+  type: DataRequestType;
+  status: DataRequestStatus;
+  description: string | null;
+  createdAt: string;
+  resolvedAt: string | null;
+};
+
+const REQUEST_TYPE_LABEL: Record<DataRequestType, string> = {
+  ACCESO: "Acceso a mis datos",
+  RECTIFICACION: "Rectificación",
+  ELIMINACION: "Eliminación de cuenta",
+};
+
+const REQUEST_STATUS_LABEL: Record<DataRequestStatus, string> = {
+  PENDIENTE: "Pendiente",
+  EN_PROCESO: "En proceso",
+  RESUELTA: "Resuelta",
+};
+
+const REQUEST_STATUS_CLASS: Record<DataRequestStatus, string> = {
+  PENDIENTE: "text-warning bg-warning/[.15]",
+  EN_PROCESO: "text-primary bg-primary-surface",
+  RESUELTA: "text-success bg-success/[.13]",
+};
+
 type ManualInfo = { href: string; label: string; description: string };
 
 function getManualForRole(role: Role): ManualInfo {
@@ -105,6 +133,24 @@ export default function ProfilePage() {
   const [pwSuccess, setPwSuccess] = useState("");
   const [pwLoading, setPwLoading] = useState(false);
 
+  // Derechos sobre mis datos (LOPDP)
+  const [myRequests, setMyRequests] = useState<DataRequest[]>([]);
+  const [exportLoading, setExportLoading] = useState(false);
+  const [rightsMsg, setRightsMsg] = useState("");
+  const [rightsError, setRightsError] = useState("");
+  const [requestModal, setRequestModal] = useState<"RECTIFICACION" | "ELIMINACION" | null>(null);
+  const [requestReason, setRequestReason] = useState("");
+  const [requestSubmitting, setRequestSubmitting] = useState(false);
+
+  const loadMyRequests = useCallback(async () => {
+    try {
+      const res = await fetch("/api/data-requests");
+      if (res.ok) setMyRequests(await res.json());
+    } catch {
+      // no bloquea el resto de la página si falla
+    }
+  }, []);
+
   useEffect(() => {
     fetch("/api/auth/me")
       .then((r) => r.json())
@@ -120,7 +166,74 @@ export default function ProfilePage() {
         setBadges(b);
         setBadgeStats(stats);
       });
-  }, []);
+
+    queueMicrotask(loadMyRequests);
+  }, [loadMyRequests]);
+
+  async function handleExportData() {
+    setRightsError("");
+    setRightsMsg("");
+    setExportLoading(true);
+    try {
+      const res = await fetch("/api/data-requests/my-data");
+      if (!res.ok) {
+        setRightsError("No se pudo generar la exportación de tus datos.");
+        return;
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "nexo-mis-datos.json";
+      a.click();
+      URL.revokeObjectURL(url);
+      setRightsMsg("Se descargó un archivo con todos tus datos almacenados en Nexo.");
+      loadMyRequests();
+    } catch {
+      setRightsError("Error de conexión al generar la exportación.");
+    } finally {
+      setExportLoading(false);
+    }
+  }
+
+  function openRequestModal(type: "RECTIFICACION" | "ELIMINACION") {
+    setRequestReason("");
+    setRightsError("");
+    setRequestModal(type);
+  }
+
+  async function handleSubmitRequest() {
+    if (!requestModal) return;
+    if (requestModal === "RECTIFICACION" && !requestReason.trim()) {
+      setRightsError("Describe qué dato quieres corregir y por qué.");
+      return;
+    }
+    setRequestSubmitting(true);
+    setRightsError("");
+    try {
+      const res = await fetch("/api/data-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ type: requestModal, description: requestReason.trim() || undefined }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setRightsError(data.error ?? "Error al enviar la solicitud");
+      } else {
+        setRightsMsg(
+          requestModal === "RECTIFICACION"
+            ? "Tu solicitud de rectificación fue enviada al Administrador."
+            : "Tu solicitud de eliminación de cuenta fue enviada al Administrador."
+        );
+        setRequestModal(null);
+        loadMyRequests();
+      }
+    } catch {
+      setRightsError("Error de conexión");
+    } finally {
+      setRequestSubmitting(false);
+    }
+  }
 
   function startEdit() {
     if (!user) return;
@@ -391,6 +504,127 @@ export default function ProfilePage() {
           </svg>
         </a>
       </div>
+
+      {/* Mis derechos sobre mis datos (LOPDP) */}
+      <div className="bg-surface rounded-2xl border border-border p-6">
+        <h2 className="font-semibold text-title mb-1">Mis derechos sobre mis datos</h2>
+        <p className="text-xs text-disabled mb-5">
+          Solicita acceso, rectificación o eliminación de tus datos personales almacenados en Nexo.
+        </p>
+
+        {rightsMsg && (
+          <p className="mb-4 text-sm text-success bg-success/[.13] px-3 py-2 rounded-lg">{rightsMsg}</p>
+        )}
+        {rightsError && !requestModal && (
+          <p className="mb-4 text-sm text-danger bg-danger/[.09] px-3 py-2 rounded-lg">{rightsError}</p>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <button
+            type="button"
+            onClick={handleExportData}
+            disabled={exportLoading}
+            className="px-4 py-2.5 border border-border hover:bg-black/5 dark:hover:bg-white/5 text-main font-medium rounded-xl text-sm transition-colors disabled:opacity-50"
+          >
+            {exportLoading ? "Generando…" : "📋 Solicitar mis datos"}
+          </button>
+          <button
+            type="button"
+            onClick={() => openRequestModal("RECTIFICACION")}
+            className="px-4 py-2.5 border border-border hover:bg-black/5 dark:hover:bg-white/5 text-main font-medium rounded-xl text-sm transition-colors"
+          >
+            ✏️ Solicitar rectificación
+          </button>
+          <button
+            type="button"
+            onClick={() => openRequestModal("ELIMINACION")}
+            className="px-4 py-2.5 border border-danger/30 text-danger hover:bg-danger/[.09] font-medium rounded-xl text-sm transition-colors"
+          >
+            🗑️ Solicitar eliminación de cuenta
+          </button>
+        </div>
+
+        {myRequests.length > 0 && (
+          <div className="mt-5 rounded-lg border border-border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border bg-background">
+                  <th className="text-left px-4 py-2.5 font-medium text-main">Solicitud</th>
+                  <th className="text-left px-4 py-2.5 font-medium text-main">Fecha</th>
+                  <th className="text-left px-4 py-2.5 font-medium text-main">Estado</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-border">
+                {myRequests.map((r) => (
+                  <tr key={r.id}>
+                    <td className="px-4 py-2.5 text-title font-medium">{REQUEST_TYPE_LABEL[r.type]}</td>
+                    <td className="px-4 py-2.5 text-secondary">{formatDate(r.createdAt)}</td>
+                    <td className="px-4 py-2.5">
+                      <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${REQUEST_STATUS_CLASS[r.status]}`}>
+                        {REQUEST_STATUS_LABEL[r.status]}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <Modal open={requestModal !== null} onClose={() => setRequestModal(null)} size="sm">
+        <ModalHeader
+          title={requestModal === "ELIMINACION" ? "Solicitar eliminación de cuenta" : "Solicitar rectificación"}
+          onClose={() => setRequestModal(null)}
+        />
+        <div className="p-6 space-y-4">
+          <p className="text-sm text-secondary">
+            {requestModal === "ELIMINACION"
+              ? "Tu solicitud será enviada al Administrador, quien gestionará la baja de tu cuenta manualmente."
+              : "Describe qué dato quieres corregir y por qué. Tu solicitud será enviada al Administrador."}
+          </p>
+          <div>
+            <label className="block text-xs font-semibold text-main mb-1.5">
+              {requestModal === "ELIMINACION" ? "Motivo (opcional)" : "Descripción"}
+            </label>
+            <textarea
+              value={requestReason}
+              onChange={(e) => setRequestReason(e.target.value)}
+              rows={4}
+              className="w-full px-3 py-2 rounded-xl border border-border text-title bg-surface text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary resize-none"
+              placeholder={
+                requestModal === "ELIMINACION"
+                  ? "Cuéntanos por qué quieres eliminar tu cuenta…"
+                  : "Ej: mi nombre está mal escrito, debería ser…"
+              }
+            />
+          </div>
+          {rightsError && (
+            <p className="text-sm text-danger bg-danger/[.09] px-3 py-2 rounded-lg">{rightsError}</p>
+          )}
+          <div className="flex gap-3 justify-end pt-1">
+            <button
+              type="button"
+              onClick={() => setRequestModal(null)}
+              className="px-4 py-2 text-sm font-medium text-main hover:bg-black/5 dark:hover:bg-white/5 rounded-xl transition-colors"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={handleSubmitRequest}
+              disabled={requestSubmitting}
+              className={`px-4 py-2 text-sm font-medium rounded-xl transition-colors disabled:opacity-50 ${
+                requestModal === "ELIMINACION"
+                  ? "bg-danger hover:brightness-110 text-white"
+                  : "bg-primary hover:bg-primary-hover text-white"
+              }`}
+            >
+              {requestSubmitting ? "Enviando…" : "Enviar solicitud"}
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Reconocimientos */}
       {badges.length > 0 && (

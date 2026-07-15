@@ -1,3 +1,5 @@
+import { safeLog } from "@/lib/logger";
+
 const ZOOM_ACCOUNT_ID = process.env.ZOOM_ACCOUNT_ID;
 const ZOOM_CLIENT_ID = process.env.ZOOM_CLIENT_ID;
 const ZOOM_CLIENT_SECRET = process.env.ZOOM_CLIENT_SECRET;
@@ -26,7 +28,8 @@ async function getZoomAccessToken(): Promise<string> {
   );
 
   if (!res.ok) {
-    throw new Error(`Zoom OAuth falló: ${res.status} ${await res.text()}`);
+    safeLog("error", `[zoom] OAuth falló, HTTP ${res.status}`);
+    throw new Error(`Zoom OAuth falló (HTTP ${res.status})`);
   }
 
   const data = await res.json();
@@ -58,7 +61,8 @@ export async function createZoomMeeting(
   });
 
   if (!res.ok) {
-    throw new Error(`Zoom API falló al crear la reunión: ${res.status} ${await res.text()}`);
+    safeLog("error", `[zoom] fallo al crear la reunión, HTTP ${res.status}`);
+    throw new Error(`Zoom API falló al crear la reunión (HTTP ${res.status})`);
   }
 
   const data = await res.json();
