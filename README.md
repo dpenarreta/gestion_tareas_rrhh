@@ -91,7 +91,7 @@ Ninguna de estas variables debe versionarse con valores reales. `.env` y `.env.l
 ## 6. Instalación local
 
 ```bash
-git clone <url-del-repositorio>
+git clone https://github.com/ajacome0494/nexo.git
 cd nexo
 npm install                 # instala dependencias y configura los git hooks del proyecto
 cp .env.example .env        # completar con valores propios de un entorno de desarrollo
