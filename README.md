@@ -178,13 +178,30 @@ No se documentan aquí rutas, parámetros ni payloads específicos por tratarse 
 
 ## 13. Pruebas y calidad
 
-No identificado en el repositorio un framework de pruebas automatizadas (unitarias, de integración o end-to-end) configurado. La calidad de código se apoya en:
+El proyecto cuenta con un framework de pruebas automatizadas basado en **Vitest** (compatible con TypeScript y con el App Router de Next.js), configurado en `vitest.config.ts`. Las pruebas viven en `src/__tests__/` y cubren, como prioridad inicial:
+
+- **`src/lib/roles.ts`**: niveles jerárquicos de los 10 roles, visibilidad (`getVisibleRoles`) por rol, invisibilidad de `ADMINISTRADOR` y de `ASISTENTE_NOMINA` fuera de sus roles autorizados, y permisos de gestión de usuarios.
+- **`src/lib/timeFormat.ts`**: conversión entre formato de horas HH.MM y horas decimales en ambos sentidos, y validación de minutos (0-59).
+- **`src/lib/workload.ts`**: clasificación del semáforo de carga laboral por rango (Subutilización/Moderado/Óptimo/Carga elevada/Sobrecarga), cálculo de porcentaje con techo en 100% dentro de la zona óptima, y el caso de fin de semana (sin semáforo aplicable).
+- **Control de acceso de endpoints**: respuesta 401/403 de `GET/POST /api/users`, `GET/POST /api/assistant/documents`, `GET/POST /api/tasks/close-month` y `PATCH /api/ideas/[id]/status` para sesiones ausentes o roles sin permiso.
+
+La base de datos configurada en `.env` es un entorno compartido con datos reales, por lo que las pruebas mockean `@/lib/prisma` y `@/lib/session` (ver `vitest.setup.ts`) en vez de conectarse a una base de datos real; cualquier uso no mockeado de `prisma` en un test falla explícitamente.
+
+**Comandos**:
+
+| Comando | Descripción |
+|---|---|
+| `npm run test` | Ejecuta la suite de pruebas en modo watch |
+| `npm run test:ui` | Abre la interfaz visual de Vitest |
+| `npm run test:coverage` | Ejecuta la suite con reporte de cobertura |
+
+Adicionalmente, la calidad de código se apoya en:
 
 - **ESLint** (`npm run lint`), con configuración basada en `eslint-config-next`.
 - **TypeScript en modo estricto**, que actúa como primera línea de verificación de tipos.
 - Validación manual end-to-end de los cambios antes de su despliegue.
 
-Se recomienda incorporar un framework de pruebas automatizadas (ver sección 19) como parte de la evolución del proyecto.
+Queda pendiente ampliar la cobertura a otros módulos de `src/lib/`, a componentes de UI (con `@testing-library/react`, ya instalado) y a pruebas end-to-end.
 
 ## 14. Despliegue
 
@@ -264,11 +281,11 @@ Gestionar internamente los recursos humanos de la organización: asignación y s
 
 ## 18. Estado del proyecto
 
-Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, Nova (asistente IA), Reuniones, Mejora Continua, Gestión de Usuarios y Ajustes están implementados y en uso. No identificado en el repositorio un framework de pruebas automatizadas configurado; la validación de cambios es manual.
+Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, Nova (asistente IA), Reuniones, Mejora Continua, Gestión de Usuarios y Ajustes están implementados y en uso. Framework de pruebas automatizadas (Vitest) configurado, con cobertura inicial de las reglas de visibilidad/permisos por rol, formateo de horas, semáforo de carga laboral y control de acceso de endpoints críticos (ver sección 13); la validación end-to-end de cambios sigue siendo manual.
 
 ## 19. Recomendaciones para próximos mantenimientos
 
-- Incorporar un framework de pruebas automatizadas (unitarias e integración), priorizando la cobertura de las reglas de visibilidad y control de acceso por rol descritas en `src/lib/roles.ts`, dado su impacto directo en la protección de datos personales.
+- Ampliar la cobertura de pruebas automatizadas (ver sección 13) a otros módulos de `src/lib/` (fechas, permisos de reuniones/reportes/base de conocimiento), a componentes de UI con `@testing-library/react` y a pruebas de integración/end-to-end.
 - Mantener `src/lib/logger.ts` (`safeLog`) como punto de paso obligatorio para los logs de integraciones externas nuevas, y ampliar sus patrones de redacción si se incorporan proveedores con otros formatos de token.
 - Formalizar el registro de actividades de tratamiento de datos personales y evaluar la necesidad de acuerdos de encargado de tratamiento con los proveedores externos utilizados (ver sección 16).
 - Revisar periódicamente los resultados de la depuración programada (`DataPurgeLog`) y ajustar los valores por defecto de la política de retención si la operación de la organización lo requiere.
@@ -279,6 +296,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-15: test: implementar framework de pruebas automatizadas con Vitest
 - 2026-07-15: feat(compliance): solicitudes de titulares, retención de datos, rate limiting persistente y logs sanitizados
 - 2026-07-14: feat(tasks): nuevo formulario de actividad por horas/minutos en tareas SEGUIMIENTO
 - 2026-07-13: feat(kanban): mostrar tarjetas en grid de 2 columnas dentro de cada columna Kanban
