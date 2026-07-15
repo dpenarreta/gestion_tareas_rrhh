@@ -178,7 +178,7 @@ No se documentan aquí rutas, parámetros ni payloads específicos por tratarse 
 
 ## 13. Pruebas y calidad
 
-El proyecto cuenta con un framework de pruebas automatizadas basado en **Vitest** (compatible con TypeScript y con el App Router de Next.js), configurado en `vitest.config.ts`. Las pruebas viven en `src/__tests__/` (180+ pruebas) y cubren la mayor parte de `src/lib/`:
+El proyecto cuenta con un framework de pruebas automatizadas basado en **Vitest** (compatible con TypeScript y con el App Router de Next.js), configurado en `vitest.config.ts`. Las pruebas viven en `src/__tests__/` (220+ pruebas) y cubren la mayor parte de `src/lib/`:
 
 - **`src/lib/roles.ts`**: niveles jerárquicos de los 10 roles, visibilidad (`getVisibleRoles`) por rol, invisibilidad de `ADMINISTRADOR` y de `ASISTENTE_NOMINA` fuera de sus roles autorizados, y permisos de gestión de usuarios.
 - **`src/lib/timeFormat.ts`**: conversión entre formato de horas HH.MM y horas decimales en ambos sentidos, y validación de minutos (0-59).
@@ -192,6 +192,7 @@ El proyecto cuenta con un framework de pruebas automatizadas basado en **Vitest*
 - **`src/lib/storage.ts`**: validación de tamaño/extensión y codificación base64 de adjuntos de ideas.
 - **`src/lib/commentViews.ts`**, **`src/lib/rate-limit.ts`**, **`src/lib/systemConfig.ts`**, **`src/lib/retentionPolicy.ts`**: lógica de negocio (comentarios no leídos, límite de intentos de login, valor de configuración vigente por fecha, candidatos a depuración por política de retención), con `@/lib/prisma` mockeado explícitamente por test.
 - **Control de acceso de endpoints**: respuesta 401/403 de `GET/POST /api/users`, `GET/POST /api/assistant/documents`, `GET/POST /api/tasks/close-month` y `PATCH /api/ideas/[id]/status` para sesiones ausentes o roles sin permiso.
+- **Componentes de `src/components/ui/`** (con `@testing-library/react`, en `src/__tests__/components/`): `Badge` y `Button` (variantes, estado disabled, eventos), `Card`/`CardHeader`/`CardTitle`/`CardBody` (composición), `Modal`/`ModalHeader` (abierto/cerrado, variantes centro/drawer, cierre por overlay o botón) y `TimeInput24` (parseo y combinación de hora/minutos). También el hook `useHasMounted` y el componente `Sidebar` (navegación filtrada por rol vía `getNavLinks`, resaltado del enlace activo según la ruta, cierre del menú móvil), este último mockeando `usePathname` de `next/navigation`.
 
 La base de datos configurada en `.env` es un entorno compartido con datos reales, por lo que las pruebas mockean `@/lib/prisma` y `@/lib/session` (ver `vitest.setup.ts`) en vez de conectarse a una base de datos real; cualquier uso no mockeado de `prisma` en un test falla explícitamente. Quedan fuera de cobertura, por ser integraciones externas de I/O (HTTP, embeddings, filesystem) con poco valor en pruebas unitarias: `embeddings.ts`, `githubDocuments.ts`, `zoom.ts`, `confetti.ts`, `pdfPolyfill.ts`, `session.ts` y `actions.ts`.
 
@@ -304,6 +305,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-15: test: agregar pruebas de componentes con @testing-library/react
 - 2026-07-15: test: ampliar cobertura de pruebas a los modulos restantes de src/lib
 - 2026-07-15: test: implementar framework de pruebas automatizadas con Vitest
 - 2026-07-15: feat(compliance): solicitudes de titulares, retención de datos, rate limiting persistente y logs sanitizados
