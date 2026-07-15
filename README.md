@@ -308,6 +308,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-15: test(api): cubrir rutas de auth y gestion individual de usuarios
 - 2026-07-15: test: cubrir la logica de negocio de los endpoints de API, no solo 401/403
 - 2026-07-15: test: agregar pruebas de componentes con @testing-library/react
 - 2026-07-15: test: ampliar cobertura de pruebas a los modulos restantes de src/lib
