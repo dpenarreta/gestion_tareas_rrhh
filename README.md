@@ -269,14 +269,25 @@ Gestionar internamente los recursos humanos de la organización: asignación y s
 - Envío de contenido potencialmente sensible (consultas de RRHH, contenido de documentos internos) a un proveedor externo de procesamiento de lenguaje (Groq) como parte del funcionamiento del asistente Nova.
 - Almacenamiento de documentos internos de RRHH, que pueden contener datos de personal, en un repositorio de un proveedor externo (GitHub), fuera del perímetro directo de la base de datos de la aplicación.
 - Transferencia de datos de invitados (nombre/correo) a la API de Zoom al programar reuniones.
-- Ausencia de un framework de pruebas automatizadas (sección 13) que valide de forma continua las reglas de visibilidad por rol, lo que aumenta el riesgo de regresiones de control de acceso no detectadas.
+- Dependencia de proveedores de infraestructura (Neon para la base de datos, Vercel para el hosting) que alojan la totalidad de los datos personales del sistema, sin acuerdos de encargado de tratamiento formalizados aún con ninguno de los cinco proveedores externos utilizados.
 
-### Recomendaciones de cumplimiento
+### Estado de cumplimiento — mecanismos técnicos implementados
 
-- Formalizar y mantener actualizado un registro de actividades de tratamiento (RAT) que documente estas categorías de datos, sus finalidades y los proveedores externos involucrados.
-- Evaluar la existencia de acuerdos de encargado de tratamiento (o equivalentes) con los proveedores externos utilizados (proveedor de IA, proveedor de repositorio documental, proveedor de videoconferencia), acordes a la LOPDP.
-- Nexo cuenta con un mecanismo en producto para solicitudes de titulares (acceso, rectificación, eliminación) desde `/profile`, con cola de gestión y trazabilidad para el Administrador en `/settings`, y con una política de retención/depuración configurable para informes mensuales, tareas archivadas y documentos de la base de conocimiento (ver `DataSubjectRequest`, `DataPurgeLog` y la política de retención en `prisma/schema.prisma`). Se recomienda que legal valide que el flujo de eliminación de cuenta (gestión manual del Administrador tras la solicitud) cumple los plazos y garantías exigidos por la LOPDP.
-- Este análisis es de carácter técnico y funcional, basado en la revisión del código y modelos de datos del repositorio. No constituye una conclusión legal definitiva; se recomienda una validación formal por parte de asesoría legal especializada en protección de datos en Ecuador.
+- ✅ **Consentimiento informado**: modal obligatorio en el primer inicio de sesión (`ConsentGate`, `PATCH /api/auth/consent`); mientras no se acepta, el resto de la aplicación no se renderiza ni se disparan llamadas a APIs de datos. Queda registrado `User.dataConsentAccepted` y `dataConsentAcceptedAt`.
+- ✅ **Solicitudes de titulares** (acceso, rectificación, eliminación) desde `/profile` → "Mis derechos sobre mis datos" (`DataSubjectRequest`, `POST /api/data-requests`, descarga inmediata de datos propios vía `GET /api/data-requests/my-data`).
+- ✅ **Cola de gestión de solicitudes** para el Administrador en `/settings`, con estado y trazabilidad de quién la resolvió y cuándo (`PATCH /api/data-requests/[id]`).
+- ✅ **Política de retención y depuración configurable**: informes mensuales, tareas archivadas y documentos de la base de conocimiento, con vista previa + ejecución auditada (`DataPurgeLog`, `GET`/`POST /api/settings/retention-policy/purge`).
+- ✅ **Rate limiting persistido en base de datos** (`LoginAttempt`), con limpieza automática de registros expirados (ver README, sección 15, y sección 19).
+- ✅ **`safeLog`** (`src/lib/logger.ts`) como punto de paso obligatorio para los logs de integraciones externas, evitando que tokens/credenciales lleguen a los logs del servidor.
+- ✅ **Registro de Actividades de Tratamiento (RAT)**: borrador técnico documentado en [`docs/RAT.md`](docs/RAT.md), a partir de la revisión del código y el esquema de datos.
+
+### Pendiente — responsabilidad del área legal (no es un pendiente técnico)
+
+- Formalizar acuerdos de encargado de tratamiento (o equivalentes) con los cinco proveedores externos que procesan datos personales de Nexo: **Groq** (IA), **GitHub** (almacenamiento documental), **Zoom** (videoconferencia), **Neon** (base de datos PostgreSQL gestionada) y **Vercel** (hosting/despliegue).
+- Validación legal formal del cumplimiento LOPDP por asesoría jurídica especializada en protección de datos en Ecuador, incluyendo la evaluación de transferencias internacionales de datos (los cinco proveedores operan infraestructura fuera de Ecuador) y de que el flujo de eliminación de cuenta (gestión manual del Administrador tras la solicitud) cumple los plazos y garantías exigidos por la ley.
+- Completar los campos pendientes de `docs/RAT.md` (razón social, RUC, delegado de protección de datos, etc.) con información que solo el área legal/administrativa de la organización posee.
+
+Este análisis es de carácter técnico y funcional, basado en la revisión del código y modelos de datos del repositorio. No constituye una conclusión legal definitiva.
 
 ### Mensaje tentativo para informar al usuario
 
@@ -297,20 +308,10 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 ## 19. Recomendaciones para próximos mantenimientos
 
-**Nota:** los elementos técnicos han sido implementados. Los elementos legales requieren gestión administrativa externa.
+**Los elementos técnicos han sido implementados. Los puntos restantes son de gestión legal y administrativa externa.**
 
-### Implementado
-
-- ✅ **Limpieza periódica de `LoginAttempt`**: `cleanupExpiredLoginAttempts()` (`src/lib/rate-limit.ts`) elimina los registros ya no bloqueantes (`blockedUntil` nulo o vencido) con más de 30 días desde el último intento. Se dispara automáticamente en ~1 de cada 100 llamadas a `POST /api/auth/login` (sin bloquear la respuesta) y también puede ejecutarse bajo demanda desde Ajustes → Información del sistema (botón "🗑️ Limpiar intentos de login expirados", solo Administrador; `GET`/`POST /api/settings/login-attempts/cleanup`).
-- ✅ **Cobertura de pruebas automatizadas** (ver sección 13) ampliada: `src/lib/timeFormat.ts` (`src/__tests__/timeFormat.test.ts`), permisos de reuniones y reportes por rol (`canCreateMeetings`/`canAccessReports` en `src/__tests__/roles.test.ts`), y una prueba de integración para `GET /api/tasks` que verifica que solo se devuelven tareas del usuario autenticado (`src/__tests__/api/tasks-crud.test.ts`).
-- ✅ **`src/lib/logger.ts` (`safeLog`)** en uso como punto de paso obligatorio para los logs de integraciones externas (Groq, GitHub, Zoom); mantenerlo así y ampliar sus patrones de redacción si se incorporan proveedores con otros formatos de token.
-- ✅ **Documentación de variables de entorno**: `.env.example` está al día con todas las variables configurables por el desarrollador (`DATABASE_URL`, `SESSION_SECRET`, `GROQ_API_KEY`, `ZOOM_*`, `GITHUB_TOKEN`, `GITHUB_DOCS_REPO`); mantenerla así cada vez que se incorpore una nueva integración externa. (`NODE_ENV` y `VERCEL_GIT_COMMIT_SHA` se excluyen a propósito por ser inyectadas por la plataforma, no configurables.)
-- ✅ **Depuración de datos (`DataPurgeLog`)**: mecanismo de vista previa + ejecución con auditoría implementado en `/settings` (`GET`/`POST /api/settings/retention-policy/purge`); revisar periódicamente sus resultados y ajustar los valores por defecto de la política de retención si la operación de la organización lo requiere.
-
-### Pendiente (gestión legal externa)
-
-- ⏳ Formalizar el registro de actividades de tratamiento (RAT) con el área legal.
-- ⏳ Acuerdos de encargado de tratamiento con Groq, GitHub y Zoom (ver sección 16).
+- Formalizar acuerdos de encargado de tratamiento con proveedores externos (Groq, GitHub, Zoom, Neon, Vercel) — responsabilidad del área legal.
+- Validar formalmente el cumplimiento LOPDP con asesoría jurídica especializada.
 
 ## Changelog
 
