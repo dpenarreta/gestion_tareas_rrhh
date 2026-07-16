@@ -30,6 +30,13 @@ export type TaskComment = {
   createdAt: string;
 };
 
+export type ActivityComment = {
+  id: string;
+  text: string;
+  author: { id: string; name: string; role: string };
+  createdAt: string;
+};
+
 export type TaskActivity = {
   id: string;
   reason: ActivityReason;
@@ -37,8 +44,14 @@ export type TaskActivity = {
   endTime: string | null;
   duration: number;
   description: string | null;
+  isRetroactive: boolean;
+  activityDate: string | null;
+  adminComment: string | null;
+  modifiedByAdmin: boolean;
+  modifiedAt: string | null;
   author: { id: string; name: string };
   createdAt: string;
+  _count: { comments: number };
 };
 
 export type FollowUpReminder = {

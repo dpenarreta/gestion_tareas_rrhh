@@ -1,9 +1,12 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
+import type { Role } from "@/generated/prisma/client";
 import type { Task, TaskActivity, ActivityReason, FollowUpReminder } from "./types";
 import TimeInput24 from "@/components/ui/TimeInput24";
 import type { ActivityFormat } from "@/lib/activityFormat";
+import { REASON_OPTIONS, formatDuration } from "./activityReasons";
+import ActivityItem from "./ActivityItem";
 
 function formatReminderDateTime(iso: string): string {
   const d = new Date(iso);
@@ -14,63 +17,11 @@ function formatReminderDateTime(iso: string): string {
   return `${day}/${month} ${hours}:${mins}`;
 }
 
-// Fecha y hora exacta de registro de la actividad: "2026-07-14 09:35".
-function formatActivityDateTime(iso: string): string {
-  const d = new Date(iso);
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  const hours = String(d.getHours()).padStart(2, "0");
-  const mins = String(d.getMinutes()).padStart(2, "0");
-  return `${year}-${month}-${day} ${hours}:${mins}`;
-}
-
-// Etiquetas de TODOS los motivos, incluidos los retirados del selector — se
-// necesitan para mostrar correctamente actividades históricas que ya
-// registraron un motivo que hoy no es seleccionable para actividades nuevas.
-const REASON_LABELS: Record<ActivityReason, string> = {
-  NOVEDADES_PAGO: "Novedades de Pago",
-  RETENCION_PAGO: "Retención de Pago",
-  FACTURAS: "Facturas",
-  CONSULTA_OPERACIONES: "Consulta de Operaciones",
-  SOLICITUD_VACACIONES: "Solicitud de Vacaciones",
-  SOLICITUD_PERMISO: "Solicitud de Permiso",
-  VISITA_DOMICILIARIA: "Visita Domiciliaria",
-  SEGUIMIENTO_AUSENTISMOS: "Seguimiento de Ausentismos",
-  RECLUTAMIENTO_SELECCION: "Reclutamiento y Selección",
-  SEGUIMIENTO_DOCUMENTACION: "Seguimiento de documentación",
-  SOLICITUDES_INTERNAS: "Solicitudes internas",
-};
-
-// Motivos disponibles para registrar actividades nuevas.
-const SELECTABLE_REASONS: ActivityReason[] = [
-  "NOVEDADES_PAGO",
-  "FACTURAS",
-  "CONSULTA_OPERACIONES",
-  "VISITA_DOMICILIARIA",
-  "SEGUIMIENTO_AUSENTISMOS",
-  "RECLUTAMIENTO_SELECCION",
-  "SEGUIMIENTO_DOCUMENTACION",
-  "SOLICITUDES_INTERNAS",
-];
-
-const REASON_OPTIONS: { value: ActivityReason; label: string }[] = SELECTABLE_REASONS.map((value) => ({
-  value,
-  label: REASON_LABELS[value],
-}));
-
 function clampInt(value: string, min: number, max: number): string {
   if (value === "") return "";
   const n = Math.trunc(Number(value));
   if (Number.isNaN(n)) return "";
   return String(Math.min(max, Math.max(min, n)));
-}
-
-// La duración (minutos, ej: 90) se muestra como "Xh Ymin": 90 min → "1h 30min".
-function formatDuration(mins: number): string {
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return `${h}h ${m}min`;
 }
 
 function timeToMinutes(value: string): number | null {
@@ -80,33 +31,19 @@ function timeToMinutes(value: string): number | null {
   return h * 60 + m;
 }
 
-const REASON_COLORS: Record<ActivityReason, string> = {
-  NOVEDADES_PAGO: "bg-blue-50 text-blue-700 border-blue-200",
-  RETENCION_PAGO: "bg-orange-50 text-orange-700 border-orange-200",
-  FACTURAS: "bg-amber-50 text-amber-700 border-amber-200",
-  CONSULTA_OPERACIONES: "bg-violet-50 text-violet-700 border-violet-200",
-  SOLICITUD_VACACIONES: "bg-green-50 text-green-700 border-green-200",
-  SOLICITUD_PERMISO: "bg-rose-50 text-rose-700 border-rose-200",
-  VISITA_DOMICILIARIA: "bg-teal-50 text-teal-700 border-teal-200",
-  SEGUIMIENTO_AUSENTISMOS: "bg-cyan-50 text-cyan-700 border-cyan-200",
-  RECLUTAMIENTO_SELECCION: "bg-primary-surface text-primary border-primary/30",
-  SEGUIMIENTO_DOCUMENTACION: "bg-indigo-50 text-indigo-700 border-indigo-200",
-  SOLICITUDES_INTERNAS: "bg-lime-50 text-lime-700 border-lime-200",
-};
-
 type Props = {
   task: Task;
   currentUserId: string;
+  currentUserRole?: Role;
   onClose: () => void;
   readOnly?: boolean;
   activityFormat?: ActivityFormat;
 };
 
-export default function ActivityPanel({ task, currentUserId, onClose, readOnly = false, activityFormat = "duration" }: Props) {
+export default function ActivityPanel({ task, currentUserId, currentUserRole, onClose, readOnly = false, activityFormat = "duration" }: Props) {
   const [activities, setActivities] = useState<TaskActivity[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   const [reason, setReason] = useState<ActivityReason>("NOVEDADES_PAGO");
@@ -278,18 +215,12 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
     }
   }
 
-  async function handleDelete(activityId: string) {
-    setDeletingId(activityId);
-    try {
-      const res = await fetch(`/api/tasks/${task.id}/activities/${activityId}`, {
-        method: "DELETE",
-      });
-      if (res.ok) {
-        setActivities((prev) => prev.filter((a) => a.id !== activityId));
-      }
-    } finally {
-      setDeletingId(null);
-    }
+  function handleActivityDeleted(activityId: string) {
+    setActivities((prev) => prev.filter((a) => a.id !== activityId));
+  }
+
+  function handleActivityUpdated(updated: TaskActivity) {
+    setActivities((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
   }
 
   return (
@@ -436,44 +367,17 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
               Sin actividades registradas
             </div>
           )}
-          {activities.map((a) => {
-            const label = REASON_LABELS[a.reason] ?? a.reason;
-            const colorClass = REASON_COLORS[a.reason];
-            const canDelete = a.author.id === currentUserId;
-            return (
-              <div key={a.id} className="bg-background rounded-xl p-3 space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${colorClass}`}>
-                    {label}
-                  </span>
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-[10px] text-disabled">{formatActivityDateTime(a.createdAt)}</span>
-                    {canDelete && (
-                      <button
-                        onClick={() => handleDelete(a.id)}
-                        disabled={deletingId === a.id}
-                        className="p-0.5 text-disabled hover:text-danger transition-colors disabled:opacity-40"
-                        title="Eliminar actividad"
-                      >
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
-                    )}
-                  </div>
-                </div>
-                <div className="flex items-center justify-end">
-                  <span className="text-xs font-semibold text-primary">
-                    {formatDuration(a.duration)}
-                  </span>
-                </div>
-                {a.description && (
-                  <p className="text-xs text-main leading-relaxed">{a.description}</p>
-                )}
-                <p className="text-[10px] text-disabled">{a.author.name}</p>
-              </div>
-            );
-          })}
+          {activities.map((a) => (
+            <ActivityItem
+              key={a.id}
+              activity={a}
+              taskId={task.id}
+              currentUserId={currentUserId}
+              currentUserRole={currentUserRole}
+              onDeleted={handleActivityDeleted}
+              onUpdated={handleActivityUpdated}
+            />
+          ))}
           <div ref={bottomRef} />
         </div>
 

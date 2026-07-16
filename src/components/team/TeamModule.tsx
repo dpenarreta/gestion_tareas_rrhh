@@ -373,7 +373,7 @@ type Props = {
   currentUserRole: Role;
 };
 
-export default function TeamModule({ currentUserId, currentUserRole: _role }: Props) {
+export default function TeamModule({ currentUserId, currentUserRole }: Props) {
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [membersLoading, setMembersLoading] = useState(true);
 
@@ -564,6 +564,7 @@ export default function TeamModule({ currentUserId, currentUserRole: _role }: Pr
         <ActivityPanel
           task={activityTask}
           currentUserId={currentUserId}
+          currentUserRole={currentUserRole}
           onClose={() => setActivityTask(null)}
           readOnly
         />

@@ -30,3 +30,25 @@ export function businessDayRealRange(calDay: Date): { start: Date; end: Date } {
   );
   return { start, end: new Date(start.getTime() + 86400000 - 1) };
 }
+
+/** Lunes a viernes, evaluado sobre un Date UTC-medianoche (ver businessCalendarDay). */
+export function isBusinessDay(calDay: Date): boolean {
+  const dow = calDay.getUTCDay();
+  return dow !== 0 && dow !== 6;
+}
+
+/**
+ * Los `count` días laborables (lun-vie) más recientes, estrictamente anteriores a
+ * `today`, en orden descendente (el más reciente primero). `today` debe ser un
+ * Date UTC-medianoche (ver businessCalendarDay) — usado para acotar la ventana de
+ * registro retroactivo de horas a los últimos N días laborables.
+ */
+export function previousBusinessDays(today: Date, count: number): Date[] {
+  const days: Date[] = [];
+  const cursor = new Date(today);
+  while (days.length < count) {
+    cursor.setUTCDate(cursor.getUTCDate() - 1);
+    if (isBusinessDay(cursor)) days.push(new Date(cursor));
+  }
+  return days;
+}

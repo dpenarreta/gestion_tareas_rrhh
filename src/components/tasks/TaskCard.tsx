@@ -61,10 +61,11 @@ type Props = {
   onDelete: (id: string) => void;
   onCommentClick: (task: Task) => void;
   onActivityClick?: (task: Task) => void;
+  onRetroactiveClick?: (task: Task) => void;
   onColorChange?: (id: string, color: string | null) => void;
 };
 
-export default function TaskCard({ task, currentUserId, isDragging, onEdit, onDelete, onCommentClick, onActivityClick, onColorChange }: Props) {
+export default function TaskCard({ task, currentUserId, isDragging, onEdit, onDelete, onCommentClick, onActivityClick, onRetroactiveClick, onColorChange }: Props) {
   const [showColorPicker, setShowColorPicker] = useState(false);
   const isOwner = task.assignedTo.id === currentUserId;
   const hex = taskColorHex(task.color);
@@ -161,6 +162,17 @@ export default function TaskCard({ task, currentUserId, isDragging, onEdit, onDe
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </button>
+          )}
+          {task.type === "SEGUIMIENTO" && onRetroactiveClick && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onRetroactiveClick(task); }}
+              className="flex items-center gap-1 text-[10px] text-secondary hover:text-warning transition-colors"
+              title="Registro retroactivo de horas"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
               </svg>
             </button>
           )}

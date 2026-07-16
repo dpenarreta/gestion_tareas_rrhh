@@ -4,6 +4,7 @@ import { useState, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import * as XLSX from "xlsx";
 import type { Task, AssignableUser, TaskStatus } from "./types";
+import type { Role } from "@/generated/prisma/client";
 import type { ActivityFormat } from "@/lib/activityFormat";
 import { taskColorHex } from "./colors";
 import { fireCelebrationConfetti } from "@/lib/confetti";
@@ -13,6 +14,7 @@ import { hoursToDisplay, displayToHours, validateDisplayHours, INVALID_HOURS_MES
 type SortKey = "title" | "frequency" | "status" | "priority" | "startDate" | "endDate" | "estimatedHours" | "realHours";
 import CommentPanel from "./CommentPanel";
 import ActivityPanel from "./ActivityPanel";
+import RetroactiveActivityModal from "./RetroactiveActivityModal";
 
 const STATUS_LABELS: Record<Task["status"], string> = {
   PENDIENTE: "Pendiente",
@@ -141,6 +143,7 @@ function TaskRow({
   onDeleteTask,
   onCommentClick,
   onActivityClick,
+  onRetroactiveClick,
 }: {
   task: Task;
   index: number;
@@ -153,6 +156,7 @@ function TaskRow({
   onDeleteTask: (id: string) => void;
   onCommentClick: (task: Task) => void;
   onActivityClick: (task: Task) => void;
+  onRetroactiveClick: (task: Task) => void;
 }) {
   const rowRef = useRef<HTMLTableRowElement>(null);
   const isOwner = task.assignedTo.id === currentUserId;
@@ -260,6 +264,17 @@ function TaskRow({
               </svg>
             </button>
           )}
+          {task.type === "SEGUIMIENTO" && (
+            <button
+              onClick={() => onRetroactiveClick(task)}
+              className="text-disabled hover:text-warning transition-colors"
+              title="Registro retroactivo de horas"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+              </svg>
+            </button>
+          )}
           <button
             onClick={() => onCommentClick(task)}
             className="relative inline-flex items-center gap-1 text-xs text-secondary hover:text-primary transition-colors"
@@ -303,6 +318,7 @@ function TaskRow({
 type Props = {
   tasks: Task[];
   currentUserId: string;
+  currentUserRole?: Role;
   activityFormat?: ActivityFormat;
   users: AssignableUser[];
   onFieldUpdate: (id: string, field: string, value: unknown) => Promise<void>;
@@ -348,6 +364,7 @@ function exportTasksToExcel(tasks: Task[]) {
 export default function TableView({
   tasks,
   currentUserId,
+  currentUserRole,
   activityFormat,
   users: _users,
   onFieldUpdate,
@@ -362,6 +379,7 @@ export default function TableView({
 }: Props) {
   const [commentTask, setCommentTask] = useState<Task | null>(null);
   const [activityTask, setActivityTask] = useState<Task | null>(null);
+  const [retroactiveTask, setRetroactiveTask] = useState<Task | null>(null);
   const [importing, setImporting] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -636,6 +654,7 @@ export default function TableView({
                               onDeleteTask={onDeleteTask}
                               onCommentClick={(t) => { setCommentTask(t); onCommentsViewed(t.id); }}
                               onActivityClick={setActivityTask}
+                              onRetroactiveClick={setRetroactiveTask}
                             />
                           ))}
                         </AnimatePresence>
@@ -662,8 +681,18 @@ export default function TableView({
         <ActivityPanel
           task={activityTask}
           currentUserId={currentUserId}
+          currentUserRole={currentUserRole}
           activityFormat={activityFormat}
           onClose={() => setActivityTask(null)}
+        />
+      )}
+
+      {retroactiveTask && (
+        <RetroactiveActivityModal
+          task={retroactiveTask}
+          activityFormat={activityFormat}
+          onClose={() => setRetroactiveTask(null)}
+          onSaved={onRefresh}
         />
       )}
 

@@ -78,53 +78,55 @@ enum ActivityReason {
 }
 
 model User {
-  id              String          @id @default(cuid())
-  email           String          @unique
-  name            String
-  password        String
-  role            Role
-  viewPreferences String[]        @default(["KANBAN", "TABLA"])
-  theme           ThemePreference @default(LIGHT)
-  lastLoginAt     DateTime?
-  badges          String[]        @default([])
-  dataConsentAccepted   Boolean   @default(false)
+  id                    String          @id @default(cuid())
+  email                 String          @unique
+  name                  String
+  password              String
+  role                  Role
+  viewPreferences       String[]        @default(["KANBAN", "TABLA"])
+  theme                 ThemePreference @default(LIGHT)
+  lastLoginAt           DateTime?
+  badges                String[]        @default([])
+  dataConsentAccepted   Boolean         @default(false)
   dataConsentAcceptedAt DateTime?
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
 
-  assignedTasks      Task[]              @relation("AssignedTasks")
-  createdTasks       Task[]              @relation("CreatedTasks")
-  comments           Comment[]
-  activities         TaskActivity[]
-  notifications      Notification[]
-  reports            MonthlyReport[]     @relation("GeneratedReports")
-  knowledgeDocs      KnowledgeDocument[]
-  announcements      Announcement[]      @relation("AnnouncementAuthor")
-  hostedMeetings     Meeting[]           @relation("HostedMeetings")
-  meetingInvites     MeetingInvitee[]    @relation("MeetingInvitations")
-  closedMonths       MonthClosure[]      @relation("MonthClosures")
-  proposedIdeas      ImprovementIdea[]   @relation("IdeaAuthor")
-  ideaStatusChanges  IdeaStatusHistory[] @relation("IdeaStatusChanger")
-  ideaVotes          IdeaVote[]
-  taskCommentViews   TaskCommentView[]
-  followUpReminders  FollowUpReminder[]
-  systemConfigChanges SystemConfigHistory[] @relation("SystemConfigUpdatedBy")
-  dataSubjectRequests         DataSubjectRequest[] @relation("DataSubjectRequestUser")
-  dataSubjectRequestsResolved DataSubjectRequest[] @relation("DataSubjectRequestResolver")
+  assignedTasks               Task[]                @relation("AssignedTasks")
+  createdTasks                Task[]                @relation("CreatedTasks")
+  comments                    Comment[]
+  activities                  TaskActivity[]
+  notifications               Notification[]
+  reports                     MonthlyReport[]       @relation("GeneratedReports")
+  knowledgeDocs               KnowledgeDocument[]
+  announcements               Announcement[]        @relation("AnnouncementAuthor")
+  hostedMeetings              Meeting[]             @relation("HostedMeetings")
+  meetingInvites              MeetingInvitee[]      @relation("MeetingInvitations")
+  closedMonths                MonthClosure[]        @relation("MonthClosures")
+  proposedIdeas               ImprovementIdea[]     @relation("IdeaAuthor")
+  ideaStatusChanges           IdeaStatusHistory[]   @relation("IdeaStatusChanger")
+  ideaVotes                   IdeaVote[]
+  taskCommentViews            TaskCommentView[]
+  followUpReminders           FollowUpReminder[]
+  systemConfigChanges         SystemConfigHistory[] @relation("SystemConfigUpdatedBy")
+  dataSubjectRequests         DataSubjectRequest[]  @relation("DataSubjectRequestUser")
+  dataSubjectRequestsResolved DataSubjectRequest[]  @relation("DataSubjectRequestResolver")
   dataPurgesExecuted          DataPurgeLog[]        @relation("DataPurgeExecutor")
+  activityComments            ActivityComment[]
+  activityAuditLogs           ActivityAuditLog[]    @relation("ActivityAuditAdmin")
 }
 
 model DataSubjectRequest {
-  id          String             @id @default(cuid())
+  id          String            @id @default(cuid())
   userId      String
-  user        User               @relation("DataSubjectRequestUser", fields: [userId], references: [id], onDelete: Cascade)
+  user        User              @relation("DataSubjectRequestUser", fields: [userId], references: [id], onDelete: Cascade)
   type        DataRequestType
   description String?
-  status      DataRequestStatus  @default(PENDIENTE)
+  status      DataRequestStatus @default(PENDIENTE)
   resolvedBy  String?
-  resolver    User?              @relation("DataSubjectRequestResolver", fields: [resolvedBy], references: [id])
+  resolver    User?             @relation("DataSubjectRequestResolver", fields: [resolvedBy], references: [id])
   resolvedAt  DateTime?
-  createdAt   DateTime           @default(now())
+  createdAt   DateTime          @default(now())
 
   @@index([status, createdAt])
 }
@@ -173,23 +175,23 @@ model Announcement {
 }
 
 model Task {
-  id             String        @id @default(cuid())
+  id             String             @id @default(cuid())
   title          String
   description    String?
-  status         TaskStatus    @default(PENDIENTE)
+  status         TaskStatus         @default(PENDIENTE)
   priority       TaskPriority
   frequency      TaskFrequency
   startDate      DateTime
   endDate        DateTime
   estimatedHours Float
-  realHours      Float         @default(0)
-  progress       Int           @default(0)
+  realHours      Float              @default(0)
+  progress       Int                @default(0)
   completedAt    DateTime?
-  type           TaskType      @default(FIJA)
+  type           TaskType           @default(FIJA)
   assignedToId   String
-  assignedTo     User          @relation("AssignedTasks", fields: [assignedToId], references: [id])
+  assignedTo     User               @relation("AssignedTasks", fields: [assignedToId], references: [id])
   createdById    String
-  createdBy      User          @relation("CreatedTasks", fields: [createdById], references: [id])
+  createdBy      User               @relation("CreatedTasks", fields: [createdById], references: [id])
   comments       Comment[]
   activities     TaskActivity[]
   commentViews   TaskCommentView[]
@@ -197,9 +199,9 @@ model Task {
   color          String?
   archivedMonth  String?
   archivedAt     DateTime?
-  corrected      Boolean       @default(false)
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  corrected      Boolean            @default(false)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
 }
 
 model Comment {
@@ -235,31 +237,67 @@ model Notification {
 }
 
 model TaskActivity {
-  id          String         @id @default(cuid())
-  taskId      String
-  task        Task           @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  authorId    String
-  author      User           @relation(fields: [authorId], references: [id])
-  reason      ActivityReason
-  startTime   String?
-  endTime     String?
-  duration    Int
-  description String?
-  createdAt   DateTime       @default(now())
+  id              String            @id @default(cuid())
+  taskId          String
+  task            Task              @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  authorId        String
+  author          User              @relation(fields: [authorId], references: [id])
+  reason          ActivityReason
+  startTime       String?
+  endTime         String?
+  duration        Int
+  description     String?
+  // Registro retroactivo (horas de días laborables anteriores).
+  isRetroactive   Boolean           @default(false)
+  activityDate    DateTime?
+  // Edición de horas por un Administrador (ver ActivityAuditLog para el historial completo).
+  adminComment    String?
+  modifiedByAdmin Boolean           @default(false)
+  modifiedAt      DateTime?
+  createdAt       DateTime          @default(now())
+  comments        ActivityComment[]
+}
+
+model ActivityComment {
+  id         String       @id @default(cuid())
+  activityId String
+  activity   TaskActivity @relation(fields: [activityId], references: [id], onDelete: Cascade)
+  authorId   String
+  author     User         @relation(fields: [authorId], references: [id])
+  text       String
+  createdAt  DateTime     @default(now())
+
+  @@index([activityId, createdAt])
+}
+
+// Historial de auditoría de ediciones de horas por un Administrador. activityId es
+// intencionalmente una referencia suelta (sin FK) para que el registro de auditoría
+// sobreviva aunque la actividad o la tarea que la contiene se elimine más adelante.
+model ActivityAuditLog {
+  id          String   @id @default(cuid())
+  activityId  String
+  adminId     String
+  admin       User     @relation("ActivityAuditAdmin", fields: [adminId], references: [id])
+  oldDuration Int
+  newDuration Int
+  comment     String
+  modifiedAt  DateTime @default(now())
+
+  @@index([activityId])
 }
 
 model FollowUpReminder {
-  id            String    @id @default(cuid())
-  taskId        String
-  task          Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  userId        String
-  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  title         String
-  description   String?
-  reminderAt    DateTime
-  snoozedUntil  DateTime?
-  completedAt   DateTime?
-  createdAt     DateTime  @default(now())
+  id           String    @id @default(cuid())
+  taskId       String
+  task         Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title        String
+  description  String?
+  reminderAt   DateTime
+  snoozedUntil DateTime?
+  completedAt  DateTime?
+  createdAt    DateTime  @default(now())
 
   @@index([userId, completedAt, reminderAt])
 }
@@ -316,18 +354,18 @@ enum IdeaStatus {
 }
 
 model ImprovementIdea {
-  id             String     @id @default(cuid())
+  id             String              @id @default(cuid())
   title          String
   description    String
   impact         IdeaImpact
-  status         IdeaStatus @default(PROPUESTA)
-  progress       Int        @default(0)
+  status         IdeaStatus          @default(PROPUESTA)
+  progress       Int                 @default(0)
   authorId       String
-  author         User       @relation("IdeaAuthor", fields: [authorId], references: [id])
+  author         User                @relation("IdeaAuthor", fields: [authorId], references: [id])
   attachmentUrl  String?
-  attachmentData String?    @db.Text
-  createdAt      DateTime   @default(now())
-  updatedAt      DateTime   @updatedAt
+  attachmentData String?             @db.Text
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
   history        IdeaStatusHistory[]
   votes          IdeaVote[]
 }
@@ -377,13 +415,13 @@ model KnowledgeDocument {
 }
 
 model DocumentChunk {
-  id          String            @id @default(cuid())
-  documentId  String
-  document    KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
-  content     String
-  embedding   Json
-  pageNumber  Int
-  chunkIndex  Int
+  id         String            @id @default(cuid())
+  documentId String
+  document   KnowledgeDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  content    String
+  embedding  Json
+  pageNumber Int
+  chunkIndex Int
 }
 
 enum MeetingStatus {
@@ -393,22 +431,22 @@ enum MeetingStatus {
 }
 
 model Meeting {
-  id                 String        @id @default(cuid())
+  id                 String           @id @default(cuid())
   title              String
   description        String?
   hostId             String
-  host               User          @relation("HostedMeetings", fields: [hostId], references: [id])
+  host               User             @relation("HostedMeetings", fields: [hostId], references: [id])
   meetingDate        DateTime
   duration           Int
   zoomMeetingId      String?
   zoomJoinUrl        String?
   zoomPassword       String?
-  status             MeetingStatus @default(PROGRAMADA)
-  otterInvited       Boolean       @default(false)
+  status             MeetingStatus    @default(PROGRAMADA)
+  otterInvited       Boolean          @default(false)
   otterSummary       String?
   otterTranscriptUrl String?
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
   invitees           MeetingInvitee[]
 }
 

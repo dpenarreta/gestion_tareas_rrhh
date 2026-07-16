@@ -295,6 +295,7 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
           <KanbanView
             tasks={filteredTasks}
             currentUserId={currentUserId}
+            currentUserRole={currentUserRole}
             activityFormat={currentActivityFormat}
             onStatusChange={handleStatusChange}
             onCreateTask={openCreate}
@@ -303,12 +304,14 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
             onCommentAdded={handleCommentAdded}
             onCommentsViewed={handleCommentsViewed}
             onColorChange={handleColorChange}
+            onRefresh={refreshTasks}
           />
         )}
         {!showRepository && !noSearchResults && currentView === "TABLA" && (
           <TableView
             tasks={filteredTasks}
             currentUserId={currentUserId}
+            currentUserRole={currentUserRole}
             activityFormat={currentActivityFormat}
             users={initialUsers}
             onFieldUpdate={handleFieldUpdate}

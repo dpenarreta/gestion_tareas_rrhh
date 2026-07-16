@@ -317,6 +317,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-16: feat(activities): registro retroactivo, edición por Administrador y comentarios bidireccionales
 - 2026-07-16: fix(reminders): botones de posponer no hacían nada por un stale closure
 - 2026-07-16: feat(compliance): limpieza de LoginAttempt expirados y ampliar cobertura de pruebas
 - 2026-07-16: feat(activities): preferencia de formato de registro (duración vs. hora inicio/fin)

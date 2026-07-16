@@ -13,10 +13,12 @@ import {
 } from "@dnd-kit/core";
 import { useDroppable, useDraggable } from "@dnd-kit/core";
 import type { Task, TaskStatus } from "./types";
+import type { Role } from "@/generated/prisma/client";
 import type { ActivityFormat } from "@/lib/activityFormat";
 import TaskCard from "./TaskCard";
 import CommentPanel from "./CommentPanel";
 import ActivityPanel from "./ActivityPanel";
+import RetroactiveActivityModal from "./RetroactiveActivityModal";
 import { fireCelebrationConfetti } from "@/lib/confetti";
 
 const COLUMNS: { id: TaskStatus; label: string; headerColor: string; dotColor: string }[] = [
@@ -36,6 +38,7 @@ function DroppableColumn({
   onDeleteTask,
   onCommentClick,
   onActivityClick,
+  onRetroactiveClick,
   onColorChange,
 }: {
   column: (typeof COLUMNS)[0];
@@ -48,6 +51,7 @@ function DroppableColumn({
   onDeleteTask: (id: string) => void;
   onCommentClick: (task: Task) => void;
   onActivityClick: (task: Task) => void;
+  onRetroactiveClick: (task: Task) => void;
   onColorChange: (id: string, color: string | null) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
@@ -108,6 +112,7 @@ function DroppableColumn({
                   onDelete={onDeleteTask}
                   onCommentClick={onCommentClick}
                   onActivityClick={onActivityClick}
+                  onRetroactiveClick={onRetroactiveClick}
                   onColorChange={onColorChange}
                 />
               ))}
@@ -134,6 +139,7 @@ function DraggableCard({
   onDelete,
   onCommentClick,
   onActivityClick,
+  onRetroactiveClick,
   onColorChange,
 }: {
   task: Task;
@@ -142,6 +148,7 @@ function DraggableCard({
   onDelete: (id: string) => void;
   onCommentClick: (task: Task) => void;
   onActivityClick: (task: Task) => void;
+  onRetroactiveClick: (task: Task) => void;
   onColorChange: (id: string, color: string | null) => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
@@ -164,6 +171,7 @@ function DraggableCard({
         onDelete={onDelete}
         onCommentClick={onCommentClick}
         onActivityClick={onActivityClick}
+        onRetroactiveClick={onRetroactiveClick}
         onColorChange={onColorChange}
       />
     </div>
@@ -173,6 +181,7 @@ function DraggableCard({
 type Props = {
   tasks: Task[];
   currentUserId: string;
+  currentUserRole?: Role;
   activityFormat?: ActivityFormat;
   onStatusChange: (id: string, status: TaskStatus) => Promise<void>;
   onCreateTask: (status: TaskStatus) => void;
@@ -181,11 +190,13 @@ type Props = {
   onCommentAdded: (taskId: string) => void;
   onCommentsViewed: (taskId: string) => void;
   onColorChange: (id: string, color: string | null) => void;
+  onRefresh: () => void;
 };
 
 export default function KanbanView({
   tasks,
   currentUserId,
+  currentUserRole,
   activityFormat,
   onStatusChange,
   onCreateTask,
@@ -194,10 +205,12 @@ export default function KanbanView({
   onCommentAdded,
   onCommentsViewed,
   onColorChange,
+  onRefresh,
 }: Props) {
   const [activeTask, setActiveTask] = useState<Task | null>(null);
   const [commentTask, setCommentTask] = useState<Task | null>(null);
   const [activityTask, setActivityTask] = useState<Task | null>(null);
+  const [retroactiveTask, setRetroactiveTask] = useState<Task | null>(null);
   const [collapsed, setCollapsed] = useState<Record<TaskStatus, boolean>>({
     PENDIENTE: false,
     EN_PROGRESO: false,
@@ -249,6 +262,7 @@ export default function KanbanView({
               onDeleteTask={onDeleteTask}
               onCommentClick={(t) => { setCommentTask(t); onCommentsViewed(t.id); }}
               onActivityClick={setActivityTask}
+              onRetroactiveClick={setRetroactiveTask}
               onColorChange={onColorChange}
             />
           ))}
@@ -282,8 +296,18 @@ export default function KanbanView({
         <ActivityPanel
           task={activityTask}
           currentUserId={currentUserId}
+          currentUserRole={currentUserRole}
           activityFormat={activityFormat}
           onClose={() => setActivityTask(null)}
+        />
+      )}
+
+      {retroactiveTask && (
+        <RetroactiveActivityModal
+          task={retroactiveTask}
+          activityFormat={activityFormat}
+          onClose={() => setRetroactiveTask(null)}
+          onSaved={onRefresh}
         />
       )}
     </>

@@ -12,8 +12,14 @@ const activitySelect = {
   endTime: true,
   duration: true,
   description: true,
+  isRetroactive: true,
+  activityDate: true,
+  adminComment: true,
+  modifiedByAdmin: true,
+  modifiedAt: true,
   author: { select: { id: true, name: true } },
   createdAt: true,
+  _count: { select: { comments: true } },
 } as const;
 
 async function recalcRealHours(taskId: string) {
