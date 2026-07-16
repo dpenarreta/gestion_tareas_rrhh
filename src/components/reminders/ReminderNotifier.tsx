@@ -17,6 +17,7 @@ export default function ReminderNotifier() {
   const router = useRouter();
   const [queue, setQueue] = useState<PendingReminder[]>([]);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [showSnooze, setShowSnooze] = useState(false);
   const [showReschedule, setShowReschedule] = useState(false);
   const [rescheduleDate, setRescheduleDate] = useState("");
@@ -46,6 +47,7 @@ export default function ReminderNotifier() {
     queueMicrotask(() => {
       setShowSnooze(false);
       setShowReschedule(false);
+      setError(null);
       if (current) {
         const d = new Date(Date.now() + 24 * 3600 * 1000);
         const { date, time } = formatDateTimeLocal(d);
@@ -61,30 +63,49 @@ export default function ReminderNotifier() {
     setQueue((prev) => prev.slice(1));
   }
 
-  async function patchCurrent(body: Record<string, unknown>) {
-    if (!current || busy) return;
-    setBusy(true);
-    try {
-      const res = await fetch(`/api/reminders/${current.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      if (res.ok) dismissCurrent();
-    } finally {
-      setBusy(false);
-    }
-  }
+  const patchCurrent = useCallback(
+    async (body: Record<string, unknown>) => {
+      if (!current || busy) return;
+      setBusy(true);
+      setError(null);
+      try {
+        const res = await fetch(`/api/reminders/${current.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (res.ok) {
+          dismissCurrent();
+        } else {
+          let message = "No se pudo actualizar el recordatorio";
+          try {
+            const data = await res.json();
+            message = data.error ?? message;
+          } catch {
+            // respuesta sin cuerpo JSON
+          }
+          setError(message);
+        }
+      } catch {
+        setError("Error de conexión. Intenta nuevamente.");
+      } finally {
+        setBusy(false);
+      }
+    },
+    [current, busy]
+  );
 
   function handleGoToTask() {
     dismissCurrent();
     router.push("/tasks");
   }
 
-  const handleSnooze = useCallback((offsetMs: number) => {
-    patchCurrent({ snoozedUntil: new Date(Date.now() + offsetMs).toISOString() });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const handleSnooze = useCallback(
+    (offsetMs: number) => {
+      patchCurrent({ snoozedUntil: new Date(Date.now() + offsetMs).toISOString() });
+    },
+    [patchCurrent]
+  );
 
   function handleReschedule() {
     if (!rescheduleDate || !rescheduleTime) return;
@@ -128,6 +149,12 @@ export default function ReminderNotifier() {
         )}
       </div>
 
+      {error && (
+        <div className="mx-4 mb-3 text-xs text-danger bg-danger/[.09] rounded-lg px-3 py-2">
+          {error}
+        </div>
+      )}
+
       {showReschedule ? (
         <div className="px-4 pb-3 space-y-2">
           <div className="grid grid-cols-2 gap-2">
@@ -169,6 +196,7 @@ export default function ReminderNotifier() {
       ) : showSnooze ? (
         <div className="px-4 pb-3 space-y-1.5">
           {[
+            { label: "5 minutos", ms: 5 * 60 * 1000 },
             { label: "30 minutos", ms: 30 * 60 * 1000 },
             { label: "1 hora", ms: 60 * 60 * 1000 },
             { label: "Mañana, misma hora", ms: 24 * 60 * 60 * 1000 },
