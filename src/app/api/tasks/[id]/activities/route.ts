@@ -65,11 +65,13 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       return NextResponse.json({ error: "Cuerpo de la solicitud inválido" }, { status: 400 });
     }
 
-    const { reason, hours, minutes, description } = body as {
+    const { reason, hours, minutes, description, startTime, endTime } = body as {
       reason?: string;
       hours?: number;
       minutes?: number;
       description?: string;
+      startTime?: string;
+      endTime?: string;
     };
 
     if (!reason || hours === undefined || minutes === undefined) {
@@ -105,6 +107,8 @@ export async function POST(request: NextRequest, ctx: Ctx) {
         reason: reason as ActivityReason,
         duration,
         description: description?.trim() || null,
+        startTime: startTime || null,
+        endTime: endTime || null,
       },
       select: activitySelect,
     });

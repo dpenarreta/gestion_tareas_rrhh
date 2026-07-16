@@ -13,6 +13,7 @@ import {
 } from "@dnd-kit/core";
 import { useDroppable, useDraggable } from "@dnd-kit/core";
 import type { Task, TaskStatus } from "./types";
+import type { ActivityFormat } from "@/lib/activityFormat";
 import TaskCard from "./TaskCard";
 import CommentPanel from "./CommentPanel";
 import ActivityPanel from "./ActivityPanel";
@@ -172,6 +173,7 @@ function DraggableCard({
 type Props = {
   tasks: Task[];
   currentUserId: string;
+  activityFormat?: ActivityFormat;
   onStatusChange: (id: string, status: TaskStatus) => Promise<void>;
   onCreateTask: (status: TaskStatus) => void;
   onEditTask: (task: Task) => void;
@@ -184,6 +186,7 @@ type Props = {
 export default function KanbanView({
   tasks,
   currentUserId,
+  activityFormat,
   onStatusChange,
   onCreateTask,
   onEditTask,
@@ -279,6 +282,7 @@ export default function KanbanView({
         <ActivityPanel
           task={activityTask}
           currentUserId={currentUserId}
+          activityFormat={activityFormat}
           onClose={() => setActivityTask(null)}
         />
       )}

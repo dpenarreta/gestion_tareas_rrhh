@@ -3,6 +3,7 @@
 import { useState, useCallback, useMemo } from "react";
 import type { Role } from "@/generated/prisma/client";
 import type { Task, ViewType, AssignableUser } from "./types";
+import type { ActivityFormat } from "@/lib/activityFormat";
 import { canManageUsers } from "@/lib/roles";
 import KanbanView from "./KanbanView";
 import TableView from "./TableView";
@@ -24,9 +25,10 @@ type Props = {
   initialUsers: AssignableUser[];
   currentUserId: string;
   currentUserRole: Role;
+  currentActivityFormat: ActivityFormat;
 };
 
-export default function TasksModule({ initialTasks, initialViews, initialUsers, currentUserId, currentUserRole }: Props) {
+export default function TasksModule({ initialTasks, initialViews, initialUsers, currentUserId, currentUserRole, currentActivityFormat }: Props) {
   const defaultViews: ViewType[] = initialViews.length > 0 ? initialViews : ["KANBAN", "TABLA"];
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
   const [activeViews, setActiveViews] = useState<ViewType[]>(defaultViews);
@@ -293,6 +295,7 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
           <KanbanView
             tasks={filteredTasks}
             currentUserId={currentUserId}
+            activityFormat={currentActivityFormat}
             onStatusChange={handleStatusChange}
             onCreateTask={openCreate}
             onEditTask={openEdit}
@@ -306,6 +309,7 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
           <TableView
             tasks={filteredTasks}
             currentUserId={currentUserId}
+            activityFormat={currentActivityFormat}
             users={initialUsers}
             onFieldUpdate={handleFieldUpdate}
             onStatusChange={handleStatusChange}

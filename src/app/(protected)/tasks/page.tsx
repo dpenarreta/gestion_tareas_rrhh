@@ -3,6 +3,7 @@ import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 import { getVisibleRoles } from "@/lib/roles";
 import { attachUnreadComments } from "@/lib/commentViews";
+import { getActivityFormat } from "@/lib/activityFormat";
 import TasksModule from "@/components/tasks/TasksModule";
 import type { ViewType } from "@/components/tasks/types";
 
@@ -63,6 +64,8 @@ export default async function TasksPage() {
     VALID_VIEWS.includes(v as ViewType)
   ) as ViewType[];
 
+  const currentActivityFormat = getActivityFormat(user?.viewPreferences);
+
   return (
     <div>
       <TasksModule
@@ -71,6 +74,7 @@ export default async function TasksPage() {
         initialUsers={assignableUsers}
         currentUserId={session.userId}
         currentUserRole={session.role}
+        currentActivityFormat={currentActivityFormat}
       />
     </div>
   );

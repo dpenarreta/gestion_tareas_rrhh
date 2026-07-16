@@ -308,6 +308,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-16: feat(activities): preferencia de formato de registro (duración vs. hora inicio/fin)
 - 2026-07-15: test(api): cubrir informes consolidados (reports) y repositorio de archivados
 - 2026-07-15: test(api): cubrir dashboard, mensaje de Nova, insignias y borrado de documentos
 - 2026-07-15: test(api): cubrir rutas de ajustes del sistema (retencion, purga, workload)

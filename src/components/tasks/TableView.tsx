@@ -4,6 +4,7 @@ import { useState, useRef, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import * as XLSX from "xlsx";
 import type { Task, AssignableUser, TaskStatus } from "./types";
+import type { ActivityFormat } from "@/lib/activityFormat";
 import { taskColorHex } from "./colors";
 import { fireCelebrationConfetti } from "@/lib/confetti";
 import { formatDate, isTaskOverdue } from "@/lib/utils";
@@ -302,6 +303,7 @@ function TaskRow({
 type Props = {
   tasks: Task[];
   currentUserId: string;
+  activityFormat?: ActivityFormat;
   users: AssignableUser[];
   onFieldUpdate: (id: string, field: string, value: unknown) => Promise<void>;
   onStatusChange: (id: string, status: TaskStatus) => Promise<void>;
@@ -346,6 +348,7 @@ function exportTasksToExcel(tasks: Task[]) {
 export default function TableView({
   tasks,
   currentUserId,
+  activityFormat,
   users: _users,
   onFieldUpdate,
   onStatusChange,
@@ -659,6 +662,7 @@ export default function TableView({
         <ActivityPanel
           task={activityTask}
           currentUserId={currentUserId}
+          activityFormat={activityFormat}
           onClose={() => setActivityTask(null)}
         />
       )}

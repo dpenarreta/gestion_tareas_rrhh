@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import type { Task, TaskActivity, ActivityReason, FollowUpReminder } from "./types";
 import TimeInput24 from "@/components/ui/TimeInput24";
+import type { ActivityFormat } from "@/lib/activityFormat";
 
 function formatReminderDateTime(iso: string): string {
   const d = new Date(iso);
@@ -72,6 +73,13 @@ function formatDuration(mins: number): string {
   return `${h}h ${m}min`;
 }
 
+function timeToMinutes(value: string): number | null {
+  if (!value) return null;
+  const [h, m] = value.split(":").map(Number);
+  if (Number.isNaN(h) || Number.isNaN(m)) return null;
+  return h * 60 + m;
+}
+
 const REASON_COLORS: Record<ActivityReason, string> = {
   NOVEDADES_PAGO: "bg-blue-50 text-blue-700 border-blue-200",
   RETENCION_PAGO: "bg-orange-50 text-orange-700 border-orange-200",
@@ -91,9 +99,10 @@ type Props = {
   currentUserId: string;
   onClose: () => void;
   readOnly?: boolean;
+  activityFormat?: ActivityFormat;
 };
 
-export default function ActivityPanel({ task, currentUserId, onClose, readOnly = false }: Props) {
+export default function ActivityPanel({ task, currentUserId, onClose, readOnly = false, activityFormat = "duration" }: Props) {
   const [activities, setActivities] = useState<TaskActivity[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -103,6 +112,8 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
   const [reason, setReason] = useState<ActivityReason>("NOVEDADES_PAGO");
   const [hours, setHours] = useState("");
   const [minutes, setMinutes] = useState("");
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
   const [description, setDescription] = useState("");
 
   const [reminders, setReminders] = useState<FollowUpReminder[]>([]);
@@ -119,12 +130,28 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
 
   const bottomRef = useRef<HTMLDivElement>(null);
 
+  const rangeError = useMemo(() => {
+    if (activityFormat !== "timerange") return "";
+    const startMins = timeToMinutes(startTime);
+    const endMins = timeToMinutes(endTime);
+    if (startMins === null || endMins === null) return "";
+    if (endMins < startMins) return "La hora fin debe ser posterior a la hora inicio";
+    return "";
+  }, [activityFormat, startTime, endTime]);
+
   const previewDuration = useMemo(() => {
+    if (activityFormat === "timerange") {
+      const startMins = timeToMinutes(startTime);
+      const endMins = timeToMinutes(endTime);
+      if (startMins === null || endMins === null) return null;
+      const total = endMins - startMins;
+      return total > 0 ? total : null;
+    }
     const h = Number(hours) || 0;
     const m = Number(minutes) || 0;
     const total = h * 60 + m;
     return total > 0 ? total : null;
-  }, [hours, minutes]);
+  }, [activityFormat, hours, minutes, startTime, endTime]);
 
   const totalMinutes = useMemo(
     () => activities.reduce((sum, a) => sum + a.duration, 0),
@@ -216,14 +243,17 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
     setError("");
     setSubmitting(true);
     try {
+      const h = Math.floor(previewDuration / 60);
+      const m = previewDuration % 60;
       const res = await fetch(`/api/tasks/${task.id}/activities`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           reason,
-          hours: Number(hours) || 0,
-          minutes: Number(minutes) || 0,
+          hours: h,
+          minutes: m,
           description: description.trim() || null,
+          ...(activityFormat === "timerange" ? { startTime, endTime } : {}),
         }),
       });
       if (res.ok) {
@@ -231,6 +261,8 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
         setActivities((prev) => [...prev, activity]);
         setHours("");
         setMinutes("");
+        setStartTime("");
+        setEndTime("");
         setDescription("");
         setReason("NOVEDADES_PAGO");
       } else {
@@ -464,38 +496,60 @@ export default function ActivityPanel({ task, currentUserId, onClose, readOnly =
             </select>
           </div>
 
-          <div className="grid grid-cols-2 gap-2">
+          {activityFormat === "timerange" ? (
             <div>
-              <label className="block text-[10px] font-semibold text-secondary mb-1 uppercase tracking-wide">
-                Horas
-              </label>
-              <input
-                type="number"
-                inputMode="numeric"
-                min={0}
-                max={23}
-                value={hours}
-                onChange={(e) => setHours(clampInt(e.target.value, 0, 23))}
-                placeholder="0"
-                className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
-              />
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-[10px] font-semibold text-secondary mb-1 uppercase tracking-wide">
+                    Hora inicio
+                  </label>
+                  <TimeInput24 value={startTime} onChange={setStartTime} />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-semibold text-secondary mb-1 uppercase tracking-wide">
+                    Hora fin
+                  </label>
+                  <TimeInput24 value={endTime} onChange={setEndTime} />
+                </div>
+              </div>
+              {rangeError && (
+                <p className="text-xs text-danger bg-danger/[.09] rounded-lg px-3 py-2 mt-2">{rangeError}</p>
+              )}
             </div>
-            <div>
-              <label className="block text-[10px] font-semibold text-secondary mb-1 uppercase tracking-wide">
-                Minutos
-              </label>
-              <input
-                type="number"
-                inputMode="numeric"
-                min={0}
-                max={59}
-                value={minutes}
-                onChange={(e) => setMinutes(clampInt(e.target.value, 0, 59))}
-                placeholder="0"
-                className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
-              />
+          ) : (
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="block text-[10px] font-semibold text-secondary mb-1 uppercase tracking-wide">
+                  Horas
+                </label>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={23}
+                  value={hours}
+                  onChange={(e) => setHours(clampInt(e.target.value, 0, 23))}
+                  placeholder="0"
+                  className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-secondary mb-1 uppercase tracking-wide">
+                  Minutos
+                </label>
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  max={59}
+                  value={minutes}
+                  onChange={(e) => setMinutes(clampInt(e.target.value, 0, 59))}
+                  placeholder="0"
+                  className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
+                />
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Auto duration preview */}
           <div className={`flex items-center justify-between text-xs rounded-lg px-3 py-2 ${

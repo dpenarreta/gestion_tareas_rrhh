@@ -6,6 +6,7 @@ import { ROLE_LABEL } from "@/lib/roles";
 import { useHasMounted } from "@/hooks/useHasMounted";
 import { Modal, ModalHeader } from "@/components/ui/Modal";
 import type { Role, DataRequestType, DataRequestStatus } from "@/generated/prisma/client";
+import type { ActivityFormat } from "@/lib/activityFormat";
 
 type UserInfo = {
   userId: string;
@@ -13,6 +14,7 @@ type UserInfo = {
   email: string;
   role: Role;
   createdAt: string;
+  activityFormat: ActivityFormat;
 };
 
 type Badge = {
@@ -292,6 +294,20 @@ export default function ProfilePage() {
     }
   }
 
+  async function handleActivityFormatChange(next: ActivityFormat) {
+    if (!user) return;
+    setUser({ ...user, activityFormat: next });
+    try {
+      await fetch("/api/auth/me", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ activityFormat: next }),
+      });
+    } catch {
+      // el cambio local ya se aplicó; se reintentará sincronizar en el próximo toggle
+    }
+  }
+
   async function handleChangePassword(e: React.FormEvent) {
     e.preventDefault();
     setPwError("");
@@ -478,6 +494,35 @@ export default function ProfilePage() {
             </button>
           </div>
         )}
+      </div>
+
+      {/* Preferencias de trabajo */}
+      <div className="bg-surface rounded-2xl border border-border p-6">
+        <h2 className="font-semibold text-title mb-1">Preferencias de trabajo</h2>
+        <p className="text-xs text-disabled mb-5">
+          Elige cómo prefieres registrar el tiempo de tus actividades de seguimiento
+        </p>
+
+        <div className="flex flex-wrap gap-2 w-fit rounded-xl border border-border p-1 bg-background">
+          <button
+            type="button"
+            onClick={() => handleActivityFormatChange("duration")}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              user.activityFormat === "duration" ? "bg-primary text-white" : "text-secondary hover:text-title"
+            }`}
+          >
+            ⏱️ Duración directa
+          </button>
+          <button
+            type="button"
+            onClick={() => handleActivityFormatChange("timerange")}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              user.activityFormat === "timerange" ? "bg-primary text-white" : "text-secondary hover:text-title"
+            }`}
+          >
+            🕐 Hora inicio / Hora fin
+          </button>
+        </div>
       </div>
 
       {/* Recursos y Manuales */}
