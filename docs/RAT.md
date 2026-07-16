@@ -18,7 +18,15 @@ Gestionar internamente los recursos humanos de la organización: asignación y s
 
 ## 3. Base de legitimación
 
-El tratamiento se realiza en el contexto de la relación laboral/organizacional entre la organización y las personas usuarias del sistema. `[Completar: la base de legitimación específica conforme a la LOPDP — p. ej. ejecución de la relación laboral, interés legítimo del empleador, consentimiento — debe ser determinada por el área legal]`.
+> **Borrador — pendiente de confirmación legal.** El texto siguiente es una propuesta técnica razonable a partir del uso observado del sistema, no una determinación jurídica. Debe ser confirmada, ajustada o reemplazada por el área legal antes de tratarse como definitiva.
+
+El tratamiento se apoya en más de una base de legitimación según el tipo de dato y finalidad, distinción habitual en sistemas de RRHH:
+
+- **Ejecución de la relación laboral y cumplimiento de obligaciones legales del empleador**: es la base principal para los datos estrictamente necesarios para gestionar la relación de trabajo — identificación, cargo/rol, asignación y seguimiento de tareas, registro de horas, coordinación de reuniones. Esta información se trata como consecuencia directa del vínculo laboral, no depende del consentimiento del titular.
+- **Interés legítimo del responsable**: aplica a funcionalidades de apoyo a la gestión que exceden el mínimo legal, como la analítica de desempeño (KPIs), el módulo de mejora continua y el asistente de IA (Nova). En estos casos correspondería documentar una prueba de ponderación (*balancing test*) que confirme que el interés de la organización no prevalece de forma desproporcionada sobre los derechos de las personas usuarias.
+- **Consentimiento informado**: Nexo implementa un mecanismo de aceptación explícita y obligatoria en el primer inicio de sesión (`ConsentGate`, ver sección 8 y README §16). Se documenta aquí como mecanismo de transparencia y trazabilidad, **no como la base de legitimación principal del tratamiento nuclear de RRHH** — en una relación laboral, el consentimiento de la persona empleada frente a su empleador suele considerarse jurídicamente débil como base única (desequilibrio de poder entre las partes), por lo que no debería sustituir a las dos bases anteriores para las finalidades esenciales del sistema. Su rol más sólido es respaldar tratamientos claramente accesorios (p. ej., uso opcional del asistente de IA), si el área legal así lo determina.
+
+`[Completar: el área legal debe confirmar esta triple base, ajustarla a la LOPDP y, si corresponde, formalizar la prueba de ponderación del interés legítimo]`.
 
 ## 4. Categorías de titulares de los datos
 
