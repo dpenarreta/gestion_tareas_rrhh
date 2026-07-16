@@ -6,8 +6,8 @@
 
 | Campo | Valor |
 |---|---|
-| Razón social | `[Completar: razón social de la organización]` |
-| RUC | `[Completar]` |
+| Razón social | Nexo (Sistema de Gestión de Recursos Humanos) |
+| RUC | Pendiente de asignación — este sistema opera actualmente como herramienta interna. Completar con los datos legales correspondientes cuando la organización formalice su registro. |
 | Domicilio | `[Completar]` |
 | Delegado de Protección de Datos (si aplica) | `[Completar: nombre y contacto, si la organización designó uno]` |
 | Contacto para ejercicio de derechos | `[Completar: correo/canal formal]`. En el producto, el punto de entrada técnico es `/profile` → "Mis derechos sobre mis datos" (ver sección 8). |
@@ -114,3 +114,7 @@ Este documento es de carácter técnico y funcional, basado en la revisión del 
 1. Completar los campos `[Completar: ...]` de este documento con información que solo el área legal/administrativa de la organización posee.
 2. Validación formal por parte de asesoría legal especializada en protección de datos en Ecuador.
 3. Formalización de acuerdos de encargado de tratamiento con Groq, GitHub, Zoom, Neon y Vercel.
+
+---
+
+*Los datos de identificación legal (razón social y RUC) deberán ser actualizados cuando el sistema sea formalizado bajo una entidad legal registrada.*
