@@ -77,6 +77,37 @@ describe("GET /api/tasks", () => {
       expect.objectContaining({ where: { assignedToId: "u1", archivedMonth: null } })
     );
   });
+
+  it("solo devuelve tareas del usuario autenticado (integración: query + respuesta)", async () => {
+    mockSession({ userId: "u1" });
+    const ownTasks = [
+      { id: "t1", title: "Propia 1", assignedToId: "u1" },
+      { id: "t2", title: "Propia 2", assignedToId: "u1" },
+    ];
+    taskFindMany.mockResolvedValue(ownTasks);
+
+    const res = await tasksGET();
+
+    expect(res.status).toBe(200);
+    // La consulta a Prisma nunca pide tareas de otro usuario, sin importar quién esté logueado.
+    expect(taskFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { assignedToId: "u1", archivedMonth: null } })
+    );
+    const body = await res.json();
+    expect(body).toHaveLength(2);
+    expect(body.every((t: { assignedToId: string }) => t.assignedToId === "u1")).toBe(true);
+  });
+
+  it("con otro usuario autenticado, la consulta se acota a ese otro userId", async () => {
+    mockSession({ userId: "u2" });
+    taskFindMany.mockResolvedValue([{ id: "t3", title: "De u2", assignedToId: "u2" }]);
+
+    await tasksGET();
+
+    expect(taskFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { assignedToId: "u2", archivedMonth: null } })
+    );
+  });
 });
 
 describe("POST /api/tasks", () => {

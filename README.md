@@ -297,17 +297,26 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 ## 19. Recomendaciones para próximos mantenimientos
 
-- Ampliar la cobertura de pruebas automatizadas (ver sección 13) a otros módulos de `src/lib/` (fechas, permisos de reuniones/reportes/base de conocimiento), a componentes de UI con `@testing-library/react` y a pruebas de integración/end-to-end.
-- Mantener `src/lib/logger.ts` (`safeLog`) como punto de paso obligatorio para los logs de integraciones externas nuevas, y ampliar sus patrones de redacción si se incorporan proveedores con otros formatos de token.
-- Formalizar el registro de actividades de tratamiento de datos personales y evaluar la necesidad de acuerdos de encargado de tratamiento con los proveedores externos utilizados (ver sección 16).
-- Revisar periódicamente los resultados de la depuración programada (`DataPurgeLog`) y ajustar los valores por defecto de la política de retención si la operación de la organización lo requiere.
-- Mantener actualizada la documentación de variables de entorno (`.env.example`) cada vez que se incorpore una nueva integración externa.
-- Evaluar limpieza periódica de la tabla `LoginAttempt` (registros de intentos de login ya expirados) si su volumen crece de forma relevante.
+**Nota:** los elementos técnicos han sido implementados. Los elementos legales requieren gestión administrativa externa.
+
+### Implementado
+
+- ✅ **Limpieza periódica de `LoginAttempt`**: `cleanupExpiredLoginAttempts()` (`src/lib/rate-limit.ts`) elimina los registros ya no bloqueantes (`blockedUntil` nulo o vencido) con más de 30 días desde el último intento. Se dispara automáticamente en ~1 de cada 100 llamadas a `POST /api/auth/login` (sin bloquear la respuesta) y también puede ejecutarse bajo demanda desde Ajustes → Información del sistema (botón "🗑️ Limpiar intentos de login expirados", solo Administrador; `GET`/`POST /api/settings/login-attempts/cleanup`).
+- ✅ **Cobertura de pruebas automatizadas** (ver sección 13) ampliada: `src/lib/timeFormat.ts` (`src/__tests__/timeFormat.test.ts`), permisos de reuniones y reportes por rol (`canCreateMeetings`/`canAccessReports` en `src/__tests__/roles.test.ts`), y una prueba de integración para `GET /api/tasks` que verifica que solo se devuelven tareas del usuario autenticado (`src/__tests__/api/tasks-crud.test.ts`).
+- ✅ **`src/lib/logger.ts` (`safeLog`)** en uso como punto de paso obligatorio para los logs de integraciones externas (Groq, GitHub, Zoom); mantenerlo así y ampliar sus patrones de redacción si se incorporan proveedores con otros formatos de token.
+- ✅ **Documentación de variables de entorno**: `.env.example` está al día con todas las variables configurables por el desarrollador (`DATABASE_URL`, `SESSION_SECRET`, `GROQ_API_KEY`, `ZOOM_*`, `GITHUB_TOKEN`, `GITHUB_DOCS_REPO`); mantenerla así cada vez que se incorpore una nueva integración externa. (`NODE_ENV` y `VERCEL_GIT_COMMIT_SHA` se excluyen a propósito por ser inyectadas por la plataforma, no configurables.)
+- ✅ **Depuración de datos (`DataPurgeLog`)**: mecanismo de vista previa + ejecución con auditoría implementado en `/settings` (`GET`/`POST /api/settings/retention-policy/purge`); revisar periódicamente sus resultados y ajustar los valores por defecto de la política de retención si la operación de la organización lo requiere.
+
+### Pendiente (gestión legal externa)
+
+- ⏳ Formalizar el registro de actividades de tratamiento (RAT) con el área legal.
+- ⏳ Acuerdos de encargado de tratamiento con Groq, GitHub y Zoom (ver sección 16).
 
 ## Changelog
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-16: feat(compliance): limpieza de LoginAttempt expirados y ampliar cobertura de pruebas
 - 2026-07-16: feat(activities): preferencia de formato de registro (duración vs. hora inicio/fin)
 - 2026-07-15: test(api): cubrir informes consolidados (reports) y repositorio de archivados
 - 2026-07-15: test(api): cubrir dashboard, mensaje de Nova, insignias y borrado de documentos

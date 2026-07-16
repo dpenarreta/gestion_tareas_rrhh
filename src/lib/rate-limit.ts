@@ -51,6 +51,29 @@ export async function clearAttempts(ip: string): Promise<void> {
   await prisma.loginAttempt.deleteMany({ where: { ip } });
 }
 
+const CLEANUP_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+
+// Registros ya no bloqueantes (sin blockedUntil o con blockedUntil vencido)
+// y con más de 30 días desde el último intento: ya no aportan nada al rate
+// limiting y se pueden purgar con seguridad.
+function expiredAttemptsWhere(now: Date) {
+  return {
+    OR: [{ blockedUntil: null }, { blockedUntil: { lt: now } }],
+    lastAttemptAt: { lt: new Date(now.getTime() - CLEANUP_MAX_AGE_MS) },
+  };
+}
+
+/** Cuenta los registros de LoginAttempt elegibles para limpieza, sin borrar nada. */
+export async function countExpiredLoginAttempts(): Promise<number> {
+  return prisma.loginAttempt.count({ where: expiredAttemptsWhere(new Date()) });
+}
+
+/** Elimina los registros de LoginAttempt expirados (no bloqueantes y con más de 30 días de antigüedad). */
+export async function cleanupExpiredLoginAttempts(): Promise<number> {
+  const result = await prisma.loginAttempt.deleteMany({ where: expiredAttemptsWhere(new Date()) });
+  return result.count;
+}
+
 export function getClientIp(headers: Headers): string {
   const forwardedFor = headers.get("x-forwarded-for");
   if (forwardedFor) return forwardedFor.split(",")[0].trim();

@@ -42,6 +42,14 @@ vi.mock("@/lib/prisma", () => ({
   },
 }));
 
+const countExpiredLoginAttempts = vi.fn();
+const cleanupExpiredLoginAttempts = vi.fn();
+
+vi.mock("@/lib/rate-limit", () => ({
+  countExpiredLoginAttempts: (...a: unknown[]) => countExpiredLoginAttempts(...a),
+  cleanupExpiredLoginAttempts: (...a: unknown[]) => cleanupExpiredLoginAttempts(...a),
+}));
+
 vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
 
 const { getSession } = await import("@/lib/session");
@@ -49,6 +57,9 @@ const { GET: retentionGET, PUT: retentionPUT } = await import("@/app/api/setting
 const { GET: purgeGET, POST: purgePOST } = await import("@/app/api/settings/retention-policy/purge/route");
 const { GET: systemInfoGET } = await import("@/app/api/settings/system-info/route");
 const { GET: workloadGET, PUT: workloadPUT } = await import("@/app/api/settings/workload-config/route");
+const { GET: loginAttemptsCleanupGET, POST: loginAttemptsCleanupPOST } = await import(
+  "@/app/api/settings/login-attempts/cleanup/route"
+);
 
 function mockSession(overrides: Partial<SessionPayload> | null) {
   vi.mocked(getSession).mockResolvedValue(
@@ -82,6 +93,8 @@ function resetAll() {
   getEffectivePolicy.mockReset().mockResolvedValue({ monthlyReportsMonths: "24", archivedTasksMonths: "24", knowledgeDocsMonths: "indefinite" });
   findPurgeCandidates.mockReset();
   executePurge.mockReset();
+  countExpiredLoginAttempts.mockReset();
+  cleanupExpiredLoginAttempts.mockReset();
   vi.mocked(getSession).mockReset();
 }
 
@@ -190,6 +203,42 @@ describe("GET /api/settings/system-info", () => {
     const res = await systemInfoGET();
     const body = await res.json();
     expect(body).toMatchObject({ totalUsers: 10, totalTasks: 20, totalMeetings: 3, totalIdeas: 5 });
+  });
+});
+
+describe("GET/POST /api/settings/login-attempts/cleanup", () => {
+  beforeEach(resetAll);
+
+  it("GET responde 401/403 según sesión y rol", async () => {
+    mockSession(null);
+    expect((await loginAttemptsCleanupGET()).status).toBe(401);
+    mockSession({ role: "JEFE_NACIONAL" });
+    expect((await loginAttemptsCleanupGET()).status).toBe(403);
+  });
+
+  it("GET devuelve el conteo de intentos expirados sin borrar nada", async () => {
+    mockSession({});
+    countExpiredLoginAttempts.mockResolvedValue(7);
+    const res = await loginAttemptsCleanupGET();
+    const body = await res.json();
+    expect(body).toEqual({ expiredCount: 7 });
+    expect(cleanupExpiredLoginAttempts).not.toHaveBeenCalled();
+  });
+
+  it("POST responde 401/403 según sesión y rol", async () => {
+    mockSession(null);
+    expect((await loginAttemptsCleanupPOST()).status).toBe(401);
+    mockSession({ role: "COORDINADOR_NACIONAL" });
+    expect((await loginAttemptsCleanupPOST()).status).toBe(403);
+  });
+
+  it("POST ejecuta la limpieza y devuelve la cantidad eliminada", async () => {
+    mockSession({});
+    cleanupExpiredLoginAttempts.mockResolvedValue(4);
+    const res = await loginAttemptsCleanupPOST();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ deleted: 4 });
   });
 });
 

@@ -3,6 +3,8 @@ import {
   ALL_ROLES,
   ROLE_LEVEL,
   canManageUsers,
+  canCreateMeetings,
+  canAccessReports,
   getVisibleRoles,
 } from "@/lib/roles";
 import type { Role } from "@/generated/prisma/client";
@@ -104,5 +106,47 @@ describe("canManageUsers", () => {
     expect(canManageUsers("ASISTENTE_GH")).toBe(false);
     expect(canManageUsers("COORDINADOR_ZS")).toBe(false);
     expect(canManageUsers("ANALISTA_CC")).toBe(false);
+  });
+});
+
+describe("canCreateMeetings", () => {
+  it("solo ADMINISTRADOR, JEFE_NACIONAL, COORDINADOR_NACIONAL y COORDINADOR_ZS pueden crear reuniones", () => {
+    const canCreate = ALL_ROLES.filter((r) => canCreateMeetings(r));
+    expect(canCreate.sort()).toEqual(
+      ["ADMINISTRADOR", "JEFE_NACIONAL", "COORDINADOR_NACIONAL", "COORDINADOR_ZS"].sort()
+    );
+  });
+
+  it("los roles de nivel 1 (asistentes, trabajo social) no pueden crear reuniones", () => {
+    expect(canCreateMeetings("ASISTENTE_GH")).toBe(false);
+    expect(canCreateMeetings("ASISTENTE_SELECCION")).toBe(false);
+    expect(canCreateMeetings("ASISTENTE_GH_ZS")).toBe(false);
+    expect(canCreateMeetings("TRABAJO_SOCIAL")).toBe(false);
+    expect(canCreateMeetings("ASISTENTE_NOMINA")).toBe(false);
+  });
+
+  it("ANALISTA_CC y ANALISTA_SELECCION (nivel 2, pero fuera de la lista explícita) no pueden crear reuniones", () => {
+    expect(canCreateMeetings("ANALISTA_CC")).toBe(false);
+    expect(canCreateMeetings("ANALISTA_SELECCION")).toBe(false);
+  });
+});
+
+describe("canAccessReports", () => {
+  it("solo ADMINISTRADOR, JEFE_NACIONAL y COORDINADOR_NACIONAL pueden acceder a informes", () => {
+    const canAccess = ALL_ROLES.filter((r) => canAccessReports(r));
+    expect(canAccess.sort()).toEqual(["ADMINISTRADOR", "JEFE_NACIONAL", "COORDINADOR_NACIONAL"].sort());
+  });
+
+  it("COORDINADOR_ZS no puede acceder a informes, aunque sí puede crear reuniones", () => {
+    expect(canAccessReports("COORDINADOR_ZS")).toBe(false);
+    expect(canCreateMeetings("COORDINADOR_ZS")).toBe(true);
+  });
+
+  it("ningún rol de nivel 1 o 2 (salvo Coordinador Nacional) accede a informes", () => {
+    for (const role of ALL_ROLES) {
+      if (ROLE_LEVEL[role] <= 2) {
+        expect(canAccessReports(role)).toBe(false);
+      }
+    }
   });
 });

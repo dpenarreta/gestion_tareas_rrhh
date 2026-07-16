@@ -23,12 +23,14 @@ const isRateLimited = vi.fn();
 const registerFailedAttempt = vi.fn();
 const clearAttempts = vi.fn();
 const getBlockedMinutesRemaining = vi.fn();
+const cleanupExpiredLoginAttempts = vi.fn();
 
 vi.mock("@/lib/rate-limit", () => ({
   isRateLimited: (...args: unknown[]) => isRateLimited(...args),
   registerFailedAttempt: (...args: unknown[]) => registerFailedAttempt(...args),
   clearAttempts: (...args: unknown[]) => clearAttempts(...args),
   getBlockedMinutesRemaining: (...args: unknown[]) => getBlockedMinutesRemaining(...args),
+  cleanupExpiredLoginAttempts: (...args: unknown[]) => cleanupExpiredLoginAttempts(...args),
   getClientIp: (headers: Headers) => headers.get("x-forwarded-for") ?? "unknown",
 }));
 
@@ -71,6 +73,7 @@ function resetAll() {
   registerFailedAttempt.mockReset().mockResolvedValue(undefined);
   clearAttempts.mockReset().mockResolvedValue(undefined);
   getBlockedMinutesRemaining.mockReset();
+  cleanupExpiredLoginAttempts.mockReset().mockResolvedValue(0);
 }
 
 describe("POST /api/auth/login", () => {
@@ -142,6 +145,54 @@ describe("POST /api/auth/login", () => {
     expect(res.status).toBe(500);
     const body = await res.json();
     expect(body.error).toBe("Error del servidor");
+  });
+
+  it("dispara la limpieza de LoginAttempt expirados en el ~1% de las llamadas (muestreo)", async () => {
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+    try {
+      findUnique.mockResolvedValue(null);
+      await loginPOST(jsonRequest({ email: "noexiste@nexo.com", password: "x" }));
+      expect(cleanupExpiredLoginAttempts).toHaveBeenCalledTimes(1);
+    } finally {
+      randomSpy.mockRestore();
+    }
+  });
+
+  it("no dispara la limpieza fuera de la muestra (~99% de las llamadas)", async () => {
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0.5);
+    try {
+      findUnique.mockResolvedValue(null);
+      await loginPOST(jsonRequest({ email: "noexiste@nexo.com", password: "x" }));
+      expect(cleanupExpiredLoginAttempts).not.toHaveBeenCalled();
+    } finally {
+      randomSpy.mockRestore();
+    }
+  });
+
+  it("no ejecuta la limpieza si la IP ya está bloqueada (corta antes de la muestra)", async () => {
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+    try {
+      isRateLimited.mockResolvedValue(true);
+      getBlockedMinutesRemaining.mockResolvedValue(5);
+      await loginPOST(jsonRequest({ email: "a@nexo.com", password: "x" }));
+      expect(cleanupExpiredLoginAttempts).not.toHaveBeenCalled();
+    } finally {
+      randomSpy.mockRestore();
+    }
+  });
+
+  it("un error en la limpieza en segundo plano no interrumpe el login", async () => {
+    const randomSpy = vi.spyOn(Math, "random").mockReturnValue(0);
+    try {
+      cleanupExpiredLoginAttempts.mockRejectedValue(new Error("fallo de limpieza"));
+      const hash = await bcrypt.hash("correcta", 4);
+      findUnique.mockResolvedValue({ id: "u1", email: "a@nexo.com", password: hash, role: "ASISTENTE_GH", name: "Ana" });
+      userUpdate.mockResolvedValue({});
+      const res = await loginPOST(jsonRequest({ email: "a@nexo.com", password: "correcta" }));
+      expect(res.status).toBe(200);
+    } finally {
+      randomSpy.mockRestore();
+    }
   });
 });
 

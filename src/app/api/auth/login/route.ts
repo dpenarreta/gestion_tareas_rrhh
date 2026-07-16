@@ -8,7 +8,14 @@ import {
   clearAttempts,
   getClientIp,
   getBlockedMinutesRemaining,
+  cleanupExpiredLoginAttempts,
 } from "@/lib/rate-limit";
+
+// Limpieza periódica de LoginAttempt sin cron aparte: se dispara en ~1 de
+// cada 100 llamadas al login, sin bloquear la respuesta ni afectar la
+// latencia percibida. Ver también el botón manual en Ajustes → Información
+// del sistema (/api/settings/login-attempts/cleanup) para ejecutarla bajo demanda.
+const LOGIN_ATTEMPT_CLEANUP_SAMPLE_RATE = 1 / 100;
 
 export async function POST(request: NextRequest) {
   const clientIp = getClientIp(request.headers);
@@ -20,6 +27,10 @@ export async function POST(request: NextRequest) {
         { error: `Demasiados intentos. Intenta nuevamente en ${minutes} minuto${minutes === 1 ? "" : "s"}` },
         { status: 429 }
       );
+    }
+
+    if (Math.random() < LOGIN_ATTEMPT_CLEANUP_SAMPLE_RATE) {
+      cleanupExpiredLoginAttempts().catch(() => {});
     }
 
     const { email, password, rememberMe = false } = await request.json();

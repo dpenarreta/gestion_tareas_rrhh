@@ -135,6 +135,9 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
 
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [infoLoading, setInfoLoading] = useState(true);
+  const [loginAttemptCleanupLoading, setLoginAttemptCleanupLoading] = useState(false);
+  const [loginAttemptCleanupMsg, setLoginAttemptCleanupMsg] = useState<string | null>(null);
+  const [loginAttemptCleanupError, setLoginAttemptCleanupError] = useState<string | null>(null);
 
   // Configuración de carga laboral — 4 límites independientes
   const [hoursPerDay, setHoursPerDay] = useState<number | null>(null);
@@ -529,6 +532,42 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
     }
   }
 
+  async function handleCleanupLoginAttempts() {
+    setLoginAttemptCleanupMsg(null);
+    setLoginAttemptCleanupError(null);
+    setLoginAttemptCleanupLoading(true);
+    try {
+      const previewRes = await fetch("/api/settings/login-attempts/cleanup");
+      const preview = await previewRes.json();
+      if (!previewRes.ok) {
+        setLoginAttemptCleanupError(preview.error ?? "Error al calcular los registros a limpiar");
+        return;
+      }
+      if (preview.expiredCount === 0) {
+        setLoginAttemptCleanupMsg("No hay intentos de login expirados para limpiar.");
+        return;
+      }
+      if (
+        !confirm(
+          `Se eliminarán ${preview.expiredCount} registro(s) de intentos de login expirados (sin bloqueo vigente, con más de 30 días de antigüedad). ¿Continuar?`
+        )
+      )
+        return;
+
+      const res = await fetch("/api/settings/login-attempts/cleanup", { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        setLoginAttemptCleanupError(data.error ?? "Error al limpiar los intentos de login");
+      } else {
+        setLoginAttemptCleanupMsg(`Se eliminaron ${data.deleted} registro(s) de intentos de login expirados.`);
+      }
+    } catch {
+      setLoginAttemptCleanupError("Error de conexión");
+    } finally {
+      setLoginAttemptCleanupLoading(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       {msg && (
@@ -654,35 +693,70 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
             <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
           </div>
         ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-            <div>
-              <p className="text-xs text-disabled">Versión de Nexo</p>
-              <p className="text-sm font-medium text-title">
-                {systemInfo.version}
-                {systemInfo.commitSha && ` (${systemInfo.commitSha})`}
-              </p>
+          <>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+              <div>
+                <p className="text-xs text-disabled">Versión de Nexo</p>
+                <p className="text-sm font-medium text-title">
+                  {systemInfo.version}
+                  {systemInfo.commitSha && ` (${systemInfo.commitSha})`}
+                </p>
+              </div>
+              <div>
+                <p className="text-xs text-disabled">Último despliegue (aprox.)</p>
+                <p className="text-sm font-medium text-title">{formatDate(systemInfo.serverStartedAt)}</p>
+              </div>
+              <div>
+                <p className="text-xs text-disabled">Usuarios registrados</p>
+                <p className="text-sm font-medium text-title">{systemInfo.totalUsers}</p>
+              </div>
+              <div>
+                <p className="text-xs text-disabled">Tareas en el sistema</p>
+                <p className="text-sm font-medium text-title">{systemInfo.totalTasks}</p>
+              </div>
+              <div>
+                <p className="text-xs text-disabled">Reuniones registradas</p>
+                <p className="text-sm font-medium text-title">{systemInfo.totalMeetings}</p>
+              </div>
+              <div>
+                <p className="text-xs text-disabled">Ideas en Mejora Continua</p>
+                <p className="text-sm font-medium text-title">{systemInfo.totalIdeas}</p>
+              </div>
             </div>
-            <div>
-              <p className="text-xs text-disabled">Último despliegue (aprox.)</p>
-              <p className="text-sm font-medium text-title">{formatDate(systemInfo.serverStartedAt)}</p>
+
+            {loginAttemptCleanupMsg && (
+              <div className="bg-success/[.13] rounded-lg px-4 py-3 text-sm text-success flex items-center justify-between">
+                <span>{loginAttemptCleanupMsg}</span>
+                <button
+                  onClick={() => setLoginAttemptCleanupMsg(null)}
+                  className="ml-2 text-success hover:brightness-90 font-bold"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+            {loginAttemptCleanupError && (
+              <div className="bg-danger/[.09] rounded-lg px-4 py-3 text-sm text-danger flex items-center justify-between">
+                <span>{loginAttemptCleanupError}</span>
+                <button
+                  onClick={() => setLoginAttemptCleanupError(null)}
+                  className="ml-2 text-danger hover:brightness-90 font-bold"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+
+            <div className="flex justify-end pt-3 border-t border-border">
+              <button
+                onClick={handleCleanupLoginAttempts}
+                disabled={loginAttemptCleanupLoading}
+                className="px-4 py-2 border border-border hover:bg-black/5 dark:hover:bg-white/5 text-main font-medium rounded-lg text-sm transition-colors disabled:opacity-50"
+              >
+                {loginAttemptCleanupLoading ? "Calculando…" : "🗑️ Limpiar intentos de login expirados"}
+              </button>
             </div>
-            <div>
-              <p className="text-xs text-disabled">Usuarios registrados</p>
-              <p className="text-sm font-medium text-title">{systemInfo.totalUsers}</p>
-            </div>
-            <div>
-              <p className="text-xs text-disabled">Tareas en el sistema</p>
-              <p className="text-sm font-medium text-title">{systemInfo.totalTasks}</p>
-            </div>
-            <div>
-              <p className="text-xs text-disabled">Reuniones registradas</p>
-              <p className="text-sm font-medium text-title">{systemInfo.totalMeetings}</p>
-            </div>
-            <div>
-              <p className="text-xs text-disabled">Ideas en Mejora Continua</p>
-              <p className="text-sm font-medium text-title">{systemInfo.totalIdeas}</p>
-            </div>
-          </div>
+          </>
         )}
       </SectionCard>
 
