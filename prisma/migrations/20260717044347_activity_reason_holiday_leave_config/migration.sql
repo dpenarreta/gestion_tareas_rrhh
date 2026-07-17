@@ -1,0 +1,101 @@
+/*
+  Warnings:
+
+  - Changed the type of `reason` on the `TaskActivity` table. No cast exists, the column would be dropped and recreated, which cannot be done if there is data, since the column is required.
+
+*/
+-- CreateEnum
+CREATE TYPE "LeaveType" AS ENUM ('MEDICO', 'PERSONAL');
+
+-- AlterTable (cast existing enum values to text, preserving data)
+ALTER TABLE "TaskActivity" ALTER COLUMN "reason" TYPE TEXT USING "reason"::TEXT;
+
+-- DropEnum
+DROP TYPE "ActivityReason";
+
+-- CreateTable
+CREATE TABLE "ActivityReason" (
+    "id" TEXT NOT NULL,
+    "key" TEXT NOT NULL,
+    "label" TEXT NOT NULL,
+    "description" TEXT,
+    "isActive" BOOLEAN NOT NULL DEFAULT true,
+    "assignedRoles" TEXT[] DEFAULT ARRAY[]::TEXT[],
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL,
+
+    CONSTRAINT "ActivityReason_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "Holiday" (
+    "id" TEXT NOT NULL,
+    "date" TIMESTAMP(3) NOT NULL,
+    "name" TEXT NOT NULL,
+    "year" INTEGER NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "Holiday_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateTable
+CREATE TABLE "LeaveRecord" (
+    "id" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "type" "LeaveType" NOT NULL,
+    "date" TIMESTAMP(3) NOT NULL,
+    "isFullDay" BOOLEAN NOT NULL,
+    "durationMinutes" INTEGER,
+    "observation" TEXT,
+    "createdBy" TEXT NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT "LeaveRecord_pkey" PRIMARY KEY ("id")
+);
+
+-- CreateIndex
+CREATE UNIQUE INDEX "ActivityReason_key_key" ON "ActivityReason"("key");
+
+-- CreateIndex
+CREATE UNIQUE INDEX "Holiday_date_key" ON "Holiday"("date");
+
+-- CreateIndex
+CREATE INDEX "Holiday_year_idx" ON "Holiday"("year");
+
+-- CreateIndex
+CREATE INDEX "LeaveRecord_userId_date_idx" ON "LeaveRecord"("userId", "date");
+
+-- AddForeignKey
+ALTER TABLE "LeaveRecord" ADD CONSTRAINT "LeaveRecord_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "LeaveRecord" ADD CONSTRAINT "LeaveRecord_createdBy_fkey" FOREIGN KEY ("createdBy") REFERENCES "User"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- Seed: motivos de actividad existentes, preservando el comportamiento actual
+-- (todos los roles pueden usarlos; los 3 "retirados" quedan inactivos igual
+-- que antes con SELECTABLE_REASONS, pero siguen disponibles para mostrar
+-- el histórico).
+INSERT INTO "ActivityReason" ("id", "key", "label", "isActive", "assignedRoles", "createdAt", "updatedAt") VALUES
+  ('ar_novedades_pago', 'NOVEDADES_PAGO', 'Novedades de Pago', true, ARRAY['ADMINISTRADOR','JEFE_NACIONAL','COORDINADOR_NACIONAL','COORDINADOR_ZS','ANALISTA_CC','ANALISTA_SELECCION','ASISTENTE_SELECCION','ASISTENTE_GH','ASISTENTE_GH_ZS','TRABAJO_SOCIAL','ASISTENTE_NOMINA']::TEXT[], CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('ar_retencion_pago', 'RETENCION_PAGO', 'Retención de Pago', false, ARRAY['ADMINISTRADOR','JEFE_NACIONAL','COORDINADOR_NACIONAL','COORDINADOR_ZS','ANALISTA_CC','ANALISTA_SELECCION','ASISTENTE_SELECCION','ASISTENTE_GH','ASISTENTE_GH_ZS','TRABAJO_SOCIAL','ASISTENTE_NOMINA']::TEXT[], CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('ar_facturas', 'FACTURAS', 'Facturas', true, ARRAY['ADMINISTRADOR','JEFE_NACIONAL','COORDINADOR_NACIONAL','COORDINADOR_ZS','ANALISTA_CC','ANALISTA_SELECCION','ASISTENTE_SELECCION','ASISTENTE_GH','ASISTENTE_GH_ZS','TRABAJO_SOCIAL','ASISTENTE_NOMINA']::TEXT[], CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('ar_consulta_operaciones', 'CONSULTA_OPERACIONES', 'Consulta de Operaciones', true, ARRAY['ADMINISTRADOR','JEFE_NACIONAL','COORDINADOR_NACIONAL','COORDINADOR_ZS','ANALISTA_CC','ANALISTA_SELECCION','ASISTENTE_SELECCION','ASISTENTE_GH','ASISTENTE_GH_ZS','TRABAJO_SOCIAL','ASISTENTE_NOMINA']::TEXT[], CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('ar_solicitud_vacaciones', 'SOLICITUD_VACACIONES', 'Solicitud de Vacaciones', false, ARRAY['ADMINISTRADOR','JEFE_NACIONAL','COORDINADOR_NACIONAL','COORDINADOR_ZS','ANALISTA_CC','ANALISTA_SELECCION','ASISTENTE_SELECCION','ASISTENTE_GH','ASISTENTE_GH_ZS','TRABAJO_SOCIAL','ASISTENTE_NOMINA']::TEXT[], CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('ar_solicitud_permiso', 'SOLICITUD_PERMISO', 'Solicitud de Permiso', false, ARRAY['ADMINISTRADOR','JEFE_NACIONAL','COORDINADOR_NACIONAL','COORDINADOR_ZS','ANALISTA_CC','ANALISTA_SELECCION','ASISTENTE_SELECCION','ASISTENTE_GH','ASISTENTE_GH_ZS','TRABAJO_SOCIAL','ASISTENTE_NOMINA']::TEXT[], CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('ar_visita_domiciliaria', 'VISITA_DOMICILIARIA', 'Visita Domiciliaria', true, ARRAY['ADMINISTRADOR','JEFE_NACIONAL','COORDINADOR_NACIONAL','COORDINADOR_ZS','ANALISTA_CC','ANALISTA_SELECCION','ASISTENTE_SELECCION','ASISTENTE_GH','ASISTENTE_GH_ZS','TRABAJO_SOCIAL','ASISTENTE_NOMINA']::TEXT[], CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('ar_seguimiento_ausentismos', 'SEGUIMIENTO_AUSENTISMOS', 'Seguimiento de Ausentismos', true, ARRAY['ADMINISTRADOR','JEFE_NACIONAL','COORDINADOR_NACIONAL','COORDINADOR_ZS','ANALISTA_CC','ANALISTA_SELECCION','ASISTENTE_SELECCION','ASISTENTE_GH','ASISTENTE_GH_ZS','TRABAJO_SOCIAL','ASISTENTE_NOMINA']::TEXT[], CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('ar_reclutamiento_seleccion', 'RECLUTAMIENTO_SELECCION', 'Reclutamiento y Selección', true, ARRAY['ADMINISTRADOR','JEFE_NACIONAL','COORDINADOR_NACIONAL','COORDINADOR_ZS','ANALISTA_CC','ANALISTA_SELECCION','ASISTENTE_SELECCION','ASISTENTE_GH','ASISTENTE_GH_ZS','TRABAJO_SOCIAL','ASISTENTE_NOMINA']::TEXT[], CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('ar_seguimiento_documentacion', 'SEGUIMIENTO_DOCUMENTACION', 'Seguimiento de documentación', true, ARRAY['ADMINISTRADOR','JEFE_NACIONAL','COORDINADOR_NACIONAL','COORDINADOR_ZS','ANALISTA_CC','ANALISTA_SELECCION','ASISTENTE_SELECCION','ASISTENTE_GH','ASISTENTE_GH_ZS','TRABAJO_SOCIAL','ASISTENTE_NOMINA']::TEXT[], CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+  ('ar_solicitudes_internas', 'SOLICITUDES_INTERNAS', 'Solicitudes internas', true, ARRAY['ADMINISTRADOR','JEFE_NACIONAL','COORDINADOR_NACIONAL','COORDINADOR_ZS','ANALISTA_CC','ANALISTA_SELECCION','ASISTENTE_SELECCION','ASISTENTE_GH','ASISTENTE_GH_ZS','TRABAJO_SOCIAL','ASISTENTE_NOMINA']::TEXT[], CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+
+-- Seed: feriados nacionales de Ecuador 2026
+INSERT INTO "Holiday" ("id", "date", "name", "year", "createdAt") VALUES
+  ('holiday_2026_01_01', '2026-01-01T00:00:00Z', 'Año Nuevo', 2026, CURRENT_TIMESTAMP),
+  ('holiday_2026_01_03', '2026-01-03T00:00:00Z', 'Feriado recuperado', 2026, CURRENT_TIMESTAMP),
+  ('holiday_2026_04_20', '2026-04-20T00:00:00Z', 'Viernes Santo', 2026, CURRENT_TIMESTAMP),
+  ('holiday_2026_05_24', '2026-05-24T00:00:00Z', 'Batalla de Pichincha', 2026, CURRENT_TIMESTAMP),
+  ('holiday_2026_08_10', '2026-08-10T00:00:00Z', 'Primer Grito de Independencia', 2026, CURRENT_TIMESTAMP),
+  ('holiday_2026_10_09', '2026-10-09T00:00:00Z', 'Independencia de Guayaquil', 2026, CURRENT_TIMESTAMP),
+  ('holiday_2026_11_02', '2026-11-02T00:00:00Z', 'Día de los Difuntos', 2026, CURRENT_TIMESTAMP),
+  ('holiday_2026_11_03', '2026-11-03T00:00:00Z', 'Independencia de Cuenca', 2026, CURRENT_TIMESTAMP),
+  ('holiday_2026_12_25', '2026-12-25T00:00:00Z', 'Navidad', 2026, CURRENT_TIMESTAMP);

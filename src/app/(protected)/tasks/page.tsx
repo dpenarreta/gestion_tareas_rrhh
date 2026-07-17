@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
@@ -68,14 +69,16 @@ export default async function TasksPage() {
 
   return (
     <div>
-      <TasksModule
-        initialTasks={serializedTasks}
-        initialViews={taskViews.length > 0 ? taskViews : ["KANBAN", "TABLA"]}
-        initialUsers={assignableUsers}
-        currentUserId={session.userId}
-        currentUserRole={session.role}
-        currentActivityFormat={currentActivityFormat}
-      />
+      <Suspense fallback={null}>
+        <TasksModule
+          initialTasks={serializedTasks}
+          initialViews={taskViews.length > 0 ? taskViews : ["KANBAN", "TABLA"]}
+          initialUsers={assignableUsers}
+          currentUserId={session.userId}
+          currentUserRole={session.role}
+          currentActivityFormat={currentActivityFormat}
+        />
+      </Suspense>
     </div>
   );
 }

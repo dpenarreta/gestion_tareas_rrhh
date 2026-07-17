@@ -63,18 +63,9 @@ enum TaskType {
   SEGUIMIENTO
 }
 
-enum ActivityReason {
-  NOVEDADES_PAGO
-  RETENCION_PAGO
-  FACTURAS
-  CONSULTA_OPERACIONES
-  SOLICITUD_VACACIONES
-  SOLICITUD_PERMISO
-  VISITA_DOMICILIARIA
-  SEGUIMIENTO_AUSENTISMOS
-  RECLUTAMIENTO_SELECCION
-  SEGUIMIENTO_DOCUMENTACION
-  SOLICITUDES_INTERNAS
+enum LeaveType {
+  MEDICO
+  PERSONAL
 }
 
 model User {
@@ -114,6 +105,45 @@ model User {
   dataPurgesExecuted          DataPurgeLog[]        @relation("DataPurgeExecutor")
   activityComments            ActivityComment[]
   activityAuditLogs           ActivityAuditLog[]    @relation("ActivityAuditAdmin")
+  leaveRecords                LeaveRecord[]         @relation("LeaveRecordUser")
+  leaveRecordsCreated         LeaveRecord[]         @relation("LeaveRecordCreator")
+}
+
+model ActivityReason {
+  id            String   @id @default(cuid())
+  key           String   @unique
+  label         String
+  description   String?
+  isActive      Boolean  @default(true)
+  assignedRoles String[] @default([])
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model Holiday {
+  id        String   @id @default(cuid())
+  date      DateTime @unique
+  name      String
+  year      Int
+  createdAt DateTime @default(now())
+
+  @@index([year])
+}
+
+model LeaveRecord {
+  id              String    @id @default(cuid())
+  userId          String
+  user            User      @relation("LeaveRecordUser", fields: [userId], references: [id], onDelete: Cascade)
+  type            LeaveType
+  date            DateTime
+  isFullDay       Boolean
+  durationMinutes Int?
+  observation     String?
+  createdBy       String
+  creator         User      @relation("LeaveRecordCreator", fields: [createdBy], references: [id])
+  createdAt       DateTime  @default(now())
+
+  @@index([userId, date])
 }
 
 model DataSubjectRequest {
@@ -242,7 +272,7 @@ model TaskActivity {
   task            Task              @relation(fields: [taskId], references: [id], onDelete: Cascade)
   authorId        String
   author          User              @relation(fields: [authorId], references: [id])
-  reason          ActivityReason
+  reason          String
   startTime       String?
   endTime         String?
   duration        Int

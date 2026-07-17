@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { formatDate } from "@/lib/utils";
 import { businessCalendarDay, businessDayRealRange, previousBusinessDays } from "@/lib/businessTime";
-import type { ActivityReason } from "@/generated/prisma/client";
+import { getNotificationRules } from "@/lib/notificationRules";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -73,6 +73,11 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       return NextResponse.json({ error: "Faltan campos requeridos" }, { status: 400 });
     }
 
+    const reasonRow = await prisma.activityReason.findUnique({ where: { key: reason } });
+    if (!reasonRow || !reasonRow.isActive || !reasonRow.assignedRoles.includes(session.role)) {
+      return NextResponse.json({ error: "Motivo inválido o no disponible para tu rol" }, { status: 400 });
+    }
+
     if (!description?.trim()) {
       return NextResponse.json(
         { error: "La descripción es obligatoria para un registro retroactivo" },
@@ -126,7 +131,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       data: {
         taskId,
         authorId: session.userId,
-        reason: reason as ActivityReason,
+        reason,
         duration,
         description: description.trim(),
         isRetroactive: true,
@@ -138,19 +143,22 @@ export async function POST(request: NextRequest, ctx: Ctx) {
 
     await recalcRealHours(taskId);
 
-    const coordinadores = await prisma.user.findMany({
-      where: { role: "COORDINADOR_NACIONAL" },
-      select: { id: true },
-    });
-    if (coordinadores.length > 0) {
-      await prisma.notification.createMany({
-        data: coordinadores.map((u) => ({
-          userId: u.id,
-          message: `${session.name} registró horas retroactivas del ${formatDate(parsedDate)} en la tarea "${task.title}"`,
-          taskId,
-          taskTitle: task.title,
-        })),
+    const rules = await getNotificationRules();
+    if (rules.retroactiveNotifyRoles.length > 0) {
+      const targetUsers = await prisma.user.findMany({
+        where: { role: { in: rules.retroactiveNotifyRoles } },
+        select: { id: true },
       });
+      if (targetUsers.length > 0) {
+        await prisma.notification.createMany({
+          data: targetUsers.map((u) => ({
+            userId: u.id,
+            message: `${session.name} registró horas retroactivas del ${formatDate(parsedDate)} en la tarea "${task.title}"`,
+            taskId,
+            taskTitle: task.title,
+          })),
+        });
+      }
     }
 
     return NextResponse.json(activity, { status: 201 });

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { getNotificationTargets } from "@/lib/roles";
+import { getNotificationRules } from "@/lib/notificationRules";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -45,12 +45,20 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
   }
 
+  const isFirstComment = (await prisma.comment.count({ where: { taskId } })) === 0;
+
   const comment = await prisma.comment.create({
     data: { text: text.trim(), authorId: session.userId, taskId },
     include: { author: { select: { id: true, name: true, role: true } } },
   });
 
-  const targetRoles = getNotificationTargets(session.role);
+  const rules = await getNotificationRules();
+  const targetRoles = Array.from(
+    new Set([
+      ...(rules.commentTargets[session.role] ?? []),
+      ...(isFirstComment && rules.firstCommentRole ? [rules.firstCommentRole] : []),
+    ])
+  );
   if (targetRoles.length > 0) {
     const targetUsers = await prisma.user.findMany({
       where: { role: { in: targetRoles } },

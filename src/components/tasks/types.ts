@@ -3,18 +3,9 @@ export type TaskStatus = "PENDIENTE" | "EN_PROGRESO" | "COMPLETADA";
 export type TaskPriority = "ALTA" | "MEDIA" | "BAJA";
 export type TaskFrequency = "MENSUAL" | "SEMANAL" | "DIARIA" | "QUINCENAL" | "PUNTUAL";
 export type TaskType = "FIJA" | "SEGUIMIENTO";
-export type ActivityReason =
-  | "NOVEDADES_PAGO"
-  | "RETENCION_PAGO"
-  | "FACTURAS"
-  | "CONSULTA_OPERACIONES"
-  | "SOLICITUD_VACACIONES"
-  | "SOLICITUD_PERMISO"
-  | "VISITA_DOMICILIARIA"
-  | "SEGUIMIENTO_AUSENTISMOS"
-  | "RECLUTAMIENTO_SELECCION"
-  | "SEGUIMIENTO_DOCUMENTACION"
-  | "SOLICITUDES_INTERNAS";
+// Los motivos son configurables por rol desde Ajustes (modelo ActivityReason en
+// BD) — ya no es un enum fijo, solo un identificador (key) libre.
+export type ActivityReason = string;
 
 export type TaskUser = {
   id: string;

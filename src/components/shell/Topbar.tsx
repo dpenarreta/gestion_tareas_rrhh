@@ -63,7 +63,7 @@ export default function Topbar({
         </button>
 
         <ThemeToggle userId={userId} />
-        <NotificationBell />
+        <NotificationBell currentUserId={userId} />
 
         <Link
           href="/profile"

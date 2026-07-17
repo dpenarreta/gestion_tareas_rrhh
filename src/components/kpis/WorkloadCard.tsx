@@ -27,22 +27,28 @@ function Tile({
   label,
   metric,
   periodLabel,
-  extraNote,
+  extraNotes,
 }: {
   label: string;
-  metric: WorkloadMetric;
+  metric: WorkloadMetric & { isHoliday?: boolean };
   periodLabel: string;
-  extraNote?: string;
+  extraNotes?: string[];
 }) {
-  if (metric.isWeekend) {
+  if (metric.isWeekend || metric.isHoliday) {
     return (
       <div className="rounded-[14px] p-4 bg-primary-surface">
         <div className="flex items-center justify-between mb-1.5">
           <span className="text-xs font-medium text-secondary">{label}</span>
         </div>
         <p className="text-lg font-bold text-primary">
-          ⚡ {hoursToDisplay(metric.realHours)}h <span className="text-sm font-semibold">— Trabajo en fin de semana</span>
+          ⚡ {hoursToDisplay(metric.realHours)}h{" "}
+          <span className="text-sm font-semibold">
+            — Trabajo en {metric.isHoliday ? "feriado" : "fin de semana"}
+          </span>
         </p>
+        {extraNotes && extraNotes.map((note) => (
+          <p key={note} className="text-[10px] text-primary font-medium mt-0.5">{note}</p>
+        ))}
         <p className="text-[10px] text-disabled mt-0.5">{periodLabel}</p>
       </div>
     );
@@ -61,10 +67,16 @@ function Tile({
           ? `rango óptimo ${hoursToDisplay(metric.rangeMin)}-${hoursToDisplay(metric.rangeMax)}h · ${metric.pct}%`
           : `${metric.pct}%`}
       </p>
-      {extraNote && <p className="text-[10px] text-primary font-medium mt-0.5">{extraNote}</p>}
+      {extraNotes && extraNotes.map((note) => (
+        <p key={note} className="text-[10px] text-primary font-medium mt-0.5">{note}</p>
+      ))}
       <p className="text-[10px] text-disabled mt-0.5">{periodLabel}</p>
     </div>
   );
+}
+
+function formatMinutesAsHours(mins: number): string {
+  return `${hoursToDisplay(mins / 60)}h`;
 }
 
 /** "Rangos: Subutilización <5.30 | Moderado 5.30-6.30 | Óptimo 6.30-7.30 | Elevada 7.30-8.30 | Sobrecarga >8.30" */
@@ -106,14 +118,30 @@ export default function WorkloadCard({ cargaTiempo }: { cargaTiempo: CargaTiempo
         {rangesSummary(horasEfectivasPorDia, workloadLimitLow, workloadLimitHigh, workloadLimitOverload)}
       </p>
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        <Tile label="Hoy" metric={diaria} periodLabel="hoy" />
+        <Tile
+          label="Hoy"
+          metric={diaria}
+          periodLabel="hoy"
+          extraNotes={[
+            ...(diaria.medicoLeaveFullDay
+              ? ["🏥 Permiso médico: día completo"]
+              : diaria.medicoLeaveMinutes > 0
+                ? [`🏥 Permiso médico: ${formatMinutesAsHours(diaria.medicoLeaveMinutes)}`]
+                : []),
+            ...(diaria.personalLeaveFullDay
+              ? ["📋 Permiso personal: día completo"]
+              : diaria.personalLeaveMinutes > 0
+                ? [`📋 Permiso personal: ${formatMinutesAsHours(diaria.personalLeaveMinutes)}`]
+                : []),
+          ]}
+        />
         <Tile
           label="Esta semana"
           metric={semanal}
           periodLabel={`semana del ${semanal.weekStartLabel} al ${semanal.weekEndLabel}`}
-          extraNote={
+          extraNotes={
             semanal.weekendHours > 0 && semanal.realHours > semanal.baseHours
-              ? `incluye ${hoursToDisplay(semanal.weekendHours)}h de fin de semana`
+              ? [`incluye ${hoursToDisplay(semanal.weekendHours)}h de fin de semana`]
               : undefined
           }
         />
@@ -123,6 +151,12 @@ export default function WorkloadCard({ cargaTiempo }: { cargaTiempo: CargaTiempo
           periodLabel={`${mensual.monthLabel}, ${mensual.businessDays} ${
             mensual.businessDays === 1 ? "día laborable" : "días laborables"
           }`}
+          extraNotes={[
+            ...(mensual.weekendHours > 0 ? [`⚡ Fines de semana: ${hoursToDisplay(mensual.weekendHours)}h`] : []),
+            ...(mensual.holidayHours > 0 ? [`⚡ Feriados trabajados: ${hoursToDisplay(mensual.holidayHours)}h`] : []),
+            ...(mensual.medicoLeaveMinutes > 0 ? [`🏥 Permisos médicos: ${formatMinutesAsHours(mensual.medicoLeaveMinutes)}`] : []),
+            ...(mensual.personalLeaveMinutes > 0 ? [`📋 Permisos personales: ${formatMinutesAsHours(mensual.personalLeaveMinutes)}`] : []),
+          ]}
         />
       </div>
 

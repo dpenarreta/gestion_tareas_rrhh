@@ -4,6 +4,12 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { ROLE_LABEL } from "@/lib/roles";
 import type { Role, DataRequestType, DataRequestStatus } from "@/generated/prisma/client";
 import { hoursToDisplay, displayToHours, validateDisplayHours, INVALID_HOURS_MESSAGE } from "@/lib/timeFormat";
+import SectionCard from "@/components/settings/SectionCard";
+import NotificationRulesSection from "@/components/settings/NotificationRulesSection";
+import ActivityReasonsSection from "@/components/settings/ActivityReasonsSection";
+import HolidaysSection from "@/components/settings/HolidaysSection";
+import LeaveRecordsSection from "@/components/settings/LeaveRecordsSection";
+import WelcomeMessageSection from "@/components/settings/WelcomeMessageSection";
 
 type User = {
   id: string;
@@ -113,15 +119,6 @@ function businessDaysInMonth(year: number, month: number): number {
     if (dow !== 0 && dow !== 6) count++;
   }
   return count;
-}
-
-function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
-  return (
-    <div className="bg-surface rounded-xl border border-border p-5 space-y-4">
-      <h3 className="font-semibold text-title">{title}</h3>
-      {children}
-    </div>
-  );
 }
 
 export default function SettingsManager({ currentUserRole }: { currentUserRole: Role }) {
@@ -901,6 +898,16 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
           </>
         )}
       </SectionCard>
+
+      <WelcomeMessageSection />
+
+      <NotificationRulesSection />
+
+      <ActivityReasonsSection />
+
+      <HolidaysSection />
+
+      <LeaveRecordsSection users={users} />
 
       <SectionCard title="Solicitudes de titulares">
         <p className="text-xs text-secondary">

@@ -2,10 +2,10 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import type { Role } from "@/generated/prisma/client";
-import type { Task, TaskActivity, ActivityReason, FollowUpReminder } from "./types";
+import type { Task, TaskActivity, FollowUpReminder } from "./types";
 import TimeInput24 from "@/components/ui/TimeInput24";
 import type { ActivityFormat } from "@/lib/activityFormat";
-import { REASON_OPTIONS, formatDuration } from "./activityReasons";
+import { fetchActivityReasons, selectableReasons, formatDuration, type ActivityReasonConfig } from "./activityReasons";
 import ActivityItem from "./ActivityItem";
 
 function formatReminderDateTime(iso: string): string {
@@ -46,7 +46,8 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  const [reason, setReason] = useState<ActivityReason>("NOVEDADES_PAGO");
+  const [reasons, setReasons] = useState<ActivityReasonConfig[]>([]);
+  const [reason, setReason] = useState("");
   const [hours, setHours] = useState("");
   const [minutes, setMinutes] = useState("");
   const [startTime, setStartTime] = useState("");
@@ -102,6 +103,15 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
       .catch(() => setActivities([]))
       .finally(() => setLoading(false));
   }, [task.id]);
+
+  useEffect(() => {
+    fetchActivityReasons().then(setReasons);
+  }, []);
+
+  const selectable = useMemo(() => selectableReasons(reasons, currentUserRole), [reasons, currentUserRole]);
+  // Sin sync-effect: mientras el usuario no elija explícitamente, el motivo
+  // efectivo es el primero disponible una vez que la lista carga.
+  const effectiveReason = reason || selectable[0]?.key || "";
 
   useEffect(() => {
     if (readOnly) return;
@@ -173,6 +183,10 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
 
   async function submit() {
     if (submitting) return;
+    if (!effectiveReason) {
+      setError("Selecciona un motivo");
+      return;
+    }
     if (!previewDuration) {
       setError("La duración debe ser mayor a 0");
       return;
@@ -186,7 +200,7 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          reason,
+          reason: effectiveReason,
           hours: h,
           minutes: m,
           description: description.trim() || null,
@@ -201,7 +215,7 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
         setStartTime("");
         setEndTime("");
         setDescription("");
-        setReason("NOVEDADES_PAGO");
+        setReason(selectable[0]?.key ?? "");
       } else {
         let msg = "Error al registrar";
         try {
@@ -374,6 +388,7 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
               taskId={task.id}
               currentUserId={currentUserId}
               currentUserRole={currentUserRole}
+              reasons={reasons}
               onDeleted={handleActivityDeleted}
               onUpdated={handleActivityUpdated}
             />
@@ -390,12 +405,13 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
               Motivo
             </label>
             <select
-              value={reason}
-              onChange={(e) => setReason(e.target.value as ActivityReason)}
+              value={effectiveReason}
+              onChange={(e) => setReason(e.target.value)}
               className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
             >
-              {REASON_OPTIONS.map((o) => (
-                <option key={o.value} value={o.value}>{o.label}</option>
+              {selectable.length === 0 && <option value="">Sin motivos disponibles</option>}
+              {selectable.map((o) => (
+                <option key={o.key} value={o.key}>{o.label}</option>
               ))}
             </select>
           </div>
@@ -488,7 +504,7 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
 
           <button
             onClick={submit}
-            disabled={!previewDuration || submitting}
+            disabled={!previewDuration || !effectiveReason || submitting}
             className="w-full bg-primary text-white rounded-xl py-2 text-sm font-medium hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {submitting ? "Registrando…" : "Agregar actividad"}

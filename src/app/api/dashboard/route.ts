@@ -5,6 +5,8 @@ import { getVisibleRoles, ROLE_LEVEL } from "@/lib/roles";
 import { getVisibleIdeaAuthorIds } from "@/lib/ideas";
 import { isTaskOverdue } from "@/lib/utils";
 import { dayBounds, weekBounds, monthBounds } from "@/lib/dateRanges";
+import { getActivityReasonLabelMap } from "@/lib/activityReasons";
+import { getEffectiveWelcomeMessage, getEffectiveWelcomeMessageActive } from "@/lib/systemConfig";
 
 function taskStatsForRange(tasks: { status: string; endDate: Date }[], start: Date, end: Date) {
   const inRange = tasks.filter((t) => t.endDate >= start && t.endDate <= end);
@@ -14,18 +16,6 @@ function taskStatsForRange(tasks: { status: string; endDate: Date }[], start: Da
     completed: inRange.filter((t) => t.status === "COMPLETADA").length,
   };
 }
-
-const ACTIVITY_REASON_LABEL: Record<string, string> = {
-  NOVEDADES_PAGO: "novedades de pago",
-  RETENCION_PAGO: "retención de pago",
-  FACTURAS: "facturas",
-  CONSULTA_OPERACIONES: "consulta de operaciones",
-  SOLICITUD_VACACIONES: "solicitud de vacaciones",
-  SOLICITUD_PERMISO: "solicitud de permiso",
-  VISITA_DOMICILIARIA: "visita domiciliaria",
-  SEGUIMIENTO_AUSENTISMOS: "seguimiento de ausentismos",
-  RECLUTAMIENTO_SELECCION: "reclutamiento y selección",
-};
 
 export async function GET() {
   const session = await getSession();
@@ -109,6 +99,7 @@ export async function GET() {
   const activityEvents: ActivityEvent[] = [];
 
   if (visibleIds.length > 0) {
+    const activityReasonLabelMap = await getActivityReasonLabelMap();
     const [recentComments, recentActivities, recentCompletions, recentAssignments] = await Promise.all([
       prisma.comment.findMany({
         where: { authorId: { in: visibleIds }, createdAt: { gte: since } },
@@ -140,7 +131,7 @@ export async function GET() {
       activityEvents.push({ time: c.createdAt, text: `${nameMap[c.authorId]} comentó en "${c.task.title}"` });
     }
     for (const a of recentActivities) {
-      const label = ACTIVITY_REASON_LABEL[a.reason] ?? a.reason.toLowerCase();
+      const label = (activityReasonLabelMap[a.reason] ?? a.reason).toLowerCase();
       activityEvents.push({ time: a.createdAt, text: `${nameMap[a.authorId]} registró actividad de ${label}` });
     }
     for (const t of recentCompletions) {
@@ -227,6 +218,11 @@ export async function GET() {
     },
   });
 
+  const [welcomeMessage, welcomeMessageActive] = await Promise.all([
+    getEffectiveWelcomeMessage(),
+    getEffectiveWelcomeMessageActive(),
+  ]);
+
   return NextResponse.json({
     workloadPct,
     completedPct,
@@ -235,6 +231,8 @@ export async function GET() {
     stats: { today: statsToday, week: statsWeek, month: statsMonth },
     areaActivity,
     teamAlerts,
+    welcomeMessage,
+    welcomeMessageActive,
     announcements: announcements.map((a) => ({
       id: a.id,
       title: a.title,

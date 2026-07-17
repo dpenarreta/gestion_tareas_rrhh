@@ -9,18 +9,23 @@ const taskFindUnique = vi.fn();
 const taskUpdate = vi.fn();
 const commentFindMany = vi.fn();
 const commentCreate = vi.fn();
+const commentCount = vi.fn();
 const taskCommentViewUpsert = vi.fn();
 const notificationCreateMany = vi.fn();
 const userFindMany = vi.fn();
+const activityReasonFindUnique = vi.fn();
+const systemConfigHistoryFindFirst = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     taskActivity: { findMany: taskActivityFindMany, findUnique: taskActivityFindUnique, create: taskActivityCreate, delete: taskActivityDelete },
     task: { findUnique: taskFindUnique, update: taskUpdate },
-    comment: { findMany: commentFindMany, create: commentCreate },
+    comment: { findMany: commentFindMany, create: commentCreate, count: commentCount },
     taskCommentView: { upsert: taskCommentViewUpsert },
     notification: { createMany: notificationCreateMany },
     user: { findMany: userFindMany },
+    activityReason: { findUnique: activityReasonFindUnique },
+    systemConfigHistory: { findFirst: systemConfigHistoryFindFirst },
   },
 }));
 
@@ -78,6 +83,13 @@ function resetAll() {
   taskCommentViewUpsert.mockReset().mockResolvedValue({});
   notificationCreateMany.mockReset().mockResolvedValue({});
   userFindMany.mockReset();
+  activityReasonFindUnique.mockReset().mockResolvedValue({
+    key: "REUNION",
+    isActive: true,
+    assignedRoles: ["ASISTENTE_GH", "JEFE_NACIONAL"],
+  });
+  commentCount.mockReset().mockResolvedValue(1);
+  systemConfigHistoryFindFirst.mockReset().mockResolvedValue(null);
   vi.mocked(getSession).mockReset();
 }
 

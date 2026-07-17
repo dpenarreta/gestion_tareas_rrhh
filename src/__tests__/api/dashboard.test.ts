@@ -7,6 +7,7 @@ const userFindMany = vi.fn();
 const taskFindMany = vi.fn();
 const announcementFindMany = vi.fn();
 const meetingFindMany = vi.fn();
+const systemConfigHistoryFindFirst = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -14,6 +15,7 @@ vi.mock("@/lib/prisma", () => ({
     task: { findMany: taskFindMany },
     announcement: { findMany: announcementFindMany },
     meeting: { findMany: meetingFindMany },
+    systemConfigHistory: { findFirst: systemConfigHistoryFindFirst },
   },
 }));
 
@@ -53,6 +55,7 @@ function resetAll() {
   announcementFindMany.mockReset().mockResolvedValue([]);
   meetingFindMany.mockReset().mockResolvedValue([]);
   getVisibleIdeaAuthorIds.mockReset().mockResolvedValue([]);
+  systemConfigHistoryFindFirst.mockReset().mockResolvedValue(null);
   vi.mocked(getSession).mockReset();
 }
 

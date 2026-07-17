@@ -19,7 +19,22 @@ export async function GET() {
     }),
   ]);
 
-  return NextResponse.json({ notifications, unreadCount });
+  // Notification.taskId no es una relación FK (sobrevive aunque la tarea se
+  // borre) — se resuelve el dueño actual de la tarea aparte para que el
+  // cliente sepa a dónde navegar al hacer clic (/tasks si es propia, /team si no).
+  const taskIds = Array.from(new Set(notifications.map((n) => n.taskId).filter((id): id is string => !!id)));
+  const tasks = taskIds.length > 0
+    ? await prisma.task.findMany({ where: { id: { in: taskIds } }, select: { id: true, assignedToId: true } })
+    : [];
+  const taskOwnerMap = new Map(tasks.map((t) => [t.id, t.assignedToId]));
+
+  return NextResponse.json({
+    notifications: notifications.map((n) => ({
+      ...n,
+      taskAssignedToId: n.taskId ? taskOwnerMap.get(n.taskId) ?? null : null,
+    })),
+    unreadCount,
+  });
 }
 
 export async function PATCH() {

@@ -8,6 +8,7 @@ const monthlyReportUpsert = vi.fn();
 const userFindMany = vi.fn();
 const taskFindMany = vi.fn();
 const taskActivityFindMany = vi.fn();
+const activityReasonFindMany = vi.fn().mockResolvedValue([]);
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -15,6 +16,7 @@ vi.mock("@/lib/prisma", () => ({
     user: { findMany: userFindMany },
     task: { findMany: taskFindMany },
     taskActivity: { findMany: taskActivityFindMany },
+    activityReason: { findMany: activityReasonFindMany },
   },
 }));
 
@@ -62,6 +64,7 @@ function resetAll() {
   userFindMany.mockReset().mockResolvedValue([]);
   taskFindMany.mockReset().mockResolvedValue([]);
   taskActivityFindMany.mockReset().mockResolvedValue([]);
+  activityReasonFindMany.mockReset().mockResolvedValue([]);
   monthlyBusinessBase.mockReset().mockImplementation(async (year: number, month: number) => ({
     start: new Date(Date.UTC(year, month - 1, 1)),
     end: new Date(Date.UTC(year, month, 1) - 1),

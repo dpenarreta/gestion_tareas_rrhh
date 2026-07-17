@@ -92,7 +92,7 @@ describe("GET /api/notifications", () => {
     );
     expect(notificationCount).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: "u1", read: false } }));
     const body = await res.json();
-    expect(body).toEqual({ notifications: [{ id: "n1" }], unreadCount: 3 });
+    expect(body).toEqual({ notifications: [{ id: "n1", taskAssignedToId: null }], unreadCount: 3 });
   });
 });
 

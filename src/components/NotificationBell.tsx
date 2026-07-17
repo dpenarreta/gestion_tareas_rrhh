@@ -1,14 +1,20 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 
 type Notification = {
   id: string;
   message: string;
   taskId: string | null;
   taskTitle: string | null;
+  taskAssignedToId: string | null;
   read: boolean;
   createdAt: string;
+};
+
+type Props = {
+  currentUserId: string;
 };
 
 function formatRelative(iso: string) {
@@ -21,11 +27,12 @@ function formatRelative(iso: string) {
   return `${Math.floor(hrs / 24)}d`;
 }
 
-export default function NotificationBell() {
+export default function NotificationBell({ currentUserId }: Props) {
   const [unread, setUnread] = useState(0);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const router = useRouter();
 
   async function load() {
     const res = await fetch("/api/notifications");
@@ -54,6 +61,17 @@ export default function NotificationBell() {
     await fetch(`/api/notifications/${id}`, { method: "PATCH" });
     setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
     setUnread((prev) => Math.max(0, prev - 1));
+  }
+
+  function handleClick(n: Notification) {
+    if (!n.read) markOne(n.id);
+    setOpen(false);
+    if (!n.taskId) return;
+    if (n.taskAssignedToId === currentUserId) {
+      router.push(`/tasks?openTask=${n.taskId}`);
+    } else {
+      router.push(`/team?openTask=${n.taskId}${n.taskAssignedToId ? `&member=${n.taskAssignedToId}` : ""}`);
+    }
   }
 
   return (
@@ -95,12 +113,12 @@ export default function NotificationBell() {
             {notifications.map((n) => (
               <div
                 key={n.id}
-                onClick={() => !n.read && markOne(n.id)}
+                onClick={() => handleClick(n)}
                 className={`px-4 py-3 transition-colors ${
                   n.read
                     ? "bg-surface"
-                    : "bg-primary-surface cursor-pointer hover:brightness-95 dark:hover:brightness-125"
-                }`}
+                    : "bg-primary-surface hover:brightness-95 dark:hover:brightness-125"
+                } ${n.taskId ? "cursor-pointer" : ""}`}
               >
                 <div className="flex items-start gap-2">
                   {!n.read && (

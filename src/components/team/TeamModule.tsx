@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import type { Role } from "@/generated/prisma/client";
 import { ROLE_LABEL } from "@/lib/roles";
@@ -388,6 +389,13 @@ export default function TeamModule({ currentUserId, currentUserRole }: Props) {
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [assignPreselect, setAssignPreselect] = useState<string | undefined>(undefined);
 
+  // Deep link desde una notificación: ?openTask=<taskId>&member=<memberId>
+  const searchParams = useSearchParams();
+  const openTaskId = searchParams.get("openTask");
+  const openMemberId = searchParams.get("member");
+  const autoSelectedRef = useRef(false);
+  const autoOpenedTaskRef = useRef(false);
+
   // Load member list
   const loadMembers = useCallback(async () => {
     const res = await fetch("/api/team");
@@ -410,6 +418,27 @@ export default function TeamModule({ currentUserId, currentUserRole }: Props) {
     setMemberTasks([]);
     loadMemberTasks(member.id);
   }
+
+  // Deep link desde una notificación: selecciona al miembro dueño de la tarea automáticamente.
+  useEffect(() => {
+    if (!openMemberId || autoSelectedRef.current || members.length === 0) return;
+    const member = members.find((m) => m.id === openMemberId);
+    if (member) {
+      autoSelectedRef.current = true;
+      queueMicrotask(() => selectMember(member));
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openMemberId, members]);
+
+  // Una vez cargadas las tareas del miembro seleccionado, abre el panel de comentarios de la tarea del enlace.
+  useEffect(() => {
+    if (!openTaskId || autoOpenedTaskRef.current || memberTasks.length === 0) return;
+    const match = memberTasks.find((t) => t.id === openTaskId);
+    if (match) {
+      autoOpenedTaskRef.current = true;
+      queueMicrotask(() => setCommentTask(match));
+    }
+  }, [openTaskId, memberTasks]);
 
   function goBack() {
     setSelectedMember(null);

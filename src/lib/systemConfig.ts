@@ -27,6 +27,10 @@ export const DEFAULT_RETENTION_ARCHIVED_TASKS = "24";
 export const CONFIG_KEY_RETENTION_KNOWLEDGE_DOCS = "retention_knowledge_docs";
 export const DEFAULT_RETENTION_KNOWLEDGE_DOCS = "indefinite";
 
+// Mensaje de bienvenida configurable por el Admin, mostrado como tarjeta en el Dashboard de todos.
+export const CONFIG_KEY_WELCOME_MESSAGE = "welcome_message";
+export const CONFIG_KEY_WELCOME_MESSAGE_ACTIVE = "welcome_message_active";
+
 /** Value in effect for `key` at `asOf` (defaults to now). Falls back to `fallback` if no history exists yet. */
 export async function getEffectiveConfigValue(
   key: string,
@@ -89,6 +93,14 @@ export async function getEffectiveRetentionArchivedTasks(asOf: Date = new Date()
 
 export async function getEffectiveRetentionKnowledgeDocs(asOf: Date = new Date()): Promise<string> {
   return getEffectiveConfigString(CONFIG_KEY_RETENTION_KNOWLEDGE_DOCS, asOf, DEFAULT_RETENTION_KNOWLEDGE_DOCS);
+}
+
+export async function getEffectiveWelcomeMessage(asOf: Date = new Date()): Promise<string> {
+  return getEffectiveConfigString(CONFIG_KEY_WELCOME_MESSAGE, asOf, "");
+}
+
+export async function getEffectiveWelcomeMessageActive(asOf: Date = new Date()): Promise<boolean> {
+  return (await getEffectiveConfigString(CONFIG_KEY_WELCOME_MESSAGE_ACTIVE, asOf, "false")) === "true";
 }
 
 /** Closes the currently-open history record (if any) and opens a new one, effective now. */

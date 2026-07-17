@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useMemo } from "react";
+import { useSearchParams } from "next/navigation";
 import type { Role } from "@/generated/prisma/client";
 import type { Task, ViewType, AssignableUser } from "./types";
 import type { ActivityFormat } from "@/lib/activityFormat";
@@ -40,6 +41,7 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
   const [showRepository, setShowRepository] = useState(false);
   const [showCloseMonth, setShowCloseMonth] = useState(false);
   const [search, setSearch] = useState("");
+  const openTaskId = useSearchParams().get("openTask");
 
   const filteredTasks = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -297,6 +299,7 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
             currentUserId={currentUserId}
             currentUserRole={currentUserRole}
             activityFormat={currentActivityFormat}
+            openTaskId={openTaskId}
             onStatusChange={handleStatusChange}
             onCreateTask={openCreate}
             onEditTask={openEdit}
@@ -313,6 +316,7 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
             currentUserId={currentUserId}
             currentUserRole={currentUserRole}
             activityFormat={currentActivityFormat}
+            openTaskId={openTaskId}
             users={initialUsers}
             onFieldUpdate={handleFieldUpdate}
             onStatusChange={handleStatusChange}

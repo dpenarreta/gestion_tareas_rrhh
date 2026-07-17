@@ -5,23 +5,10 @@ import { canAccessReports, ROLE_LABEL } from "@/lib/roles";
 import { isTaskOverdue } from "@/lib/utils";
 import { monthlyBusinessBase, computeWorkloadRange, computeWorkloadPct } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
+import { getActivityReasonLabelMap } from "@/lib/activityReasons";
 import Groq from "groq-sdk";
 import type { Role, ReportScope } from "@/generated/prisma/client";
 import type { KpiColor, WorkloadLabel } from "@/components/kpis/types";
-
-const REASON_LABEL: Record<string, string> = {
-  NOVEDADES_PAGO: "Novedades de pago",
-  RETENCION_PAGO: "Retención de pago",
-  FACTURAS: "Facturas",
-  CONSULTA_OPERACIONES: "Consulta operaciones",
-  SOLICITUD_VACACIONES: "Solicitud vacaciones",
-  SOLICITUD_PERMISO: "Solicitud permiso",
-  VISITA_DOMICILIARIA: "Visita domiciliaria",
-  SEGUIMIENTO_AUSENTISMOS: "Seg. ausentismos",
-  RECLUTAMIENTO_SELECCION: "Reclutamiento/Selección",
-  SEGUIMIENTO_DOCUMENTACION: "Seguimiento de documentación",
-  SOLICITUDES_INTERNAS: "Solicitudes internas",
-};
 
 function monthBounds(year: number, month: number) {
   const start = new Date(year, month - 1, 1);
@@ -88,7 +75,7 @@ REGLAS OBLIGATORIAS — aplica todas sin excepción:
 6. Si hay personas con 0 tareas asignadas, señálalo como un posible problema de planificación o registro, no lo ignores.
 7. El tono es profesional y directo. No es ni alarmista ni condescendiente. Es honesto.`;
 
-async function buildAiAnalysis(data: ReportData): Promise<string> {
+async function buildAiAnalysis(data: ReportData, reasonLabelMap: Record<string, string>): Promise<string> {
   const apiKey = process.env.GROQ_API_KEY;
   if (!apiKey) return "";
 
@@ -107,7 +94,7 @@ async function buildAiAnalysis(data: ReportData): Promise<string> {
 
   const consultasText = data.consultasByReason.length > 0
     ? data.consultasByReason
-        .map((r) => `  - ${REASON_LABEL[r.reason] ?? r.reason}: ${r.count} consultas, ${r.totalMinutes} min totales`)
+        .map((r) => `  - ${reasonLabelMap[r.reason] ?? r.reason}: ${r.count} consultas, ${r.totalMinutes} min totales`)
         .join("\n")
     : "  Sin consultas SEGUIMIENTO registradas.";
 
@@ -392,7 +379,8 @@ export async function POST(request: NextRequest) {
   };
 
   // Generate AI analysis
-  const aiAnalysis = await buildAiAnalysis(reportData);
+  const reasonLabelMap = await getActivityReasonLabelMap();
+  const aiAnalysis = await buildAiAnalysis(reportData, reasonLabelMap);
 
   // Upsert report
   const report = await prisma.monthlyReport.upsert({

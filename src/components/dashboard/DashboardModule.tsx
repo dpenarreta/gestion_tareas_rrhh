@@ -67,6 +67,8 @@ type DashboardData = {
   lastLoginAt: string | null;
   badges: string[];
   upcomingMeetings: UpcomingMeeting[];
+  welcomeMessage: string;
+  welcomeMessageActive: boolean;
 };
 
 type Props = {
@@ -645,6 +647,7 @@ export default function DashboardModule({
     },
     areaActivity: [], teamAlerts: 0, announcements: [],
     lastLoginAt: null, badges: [], upcomingMeetings: [],
+    welcomeMessage: "", welcomeMessageActive: false,
   };
 
   const fetchData = useCallback(async () => {
@@ -791,6 +794,12 @@ export default function DashboardModule({
 
   return (
     <div>
+      {data?.welcomeMessageActive && data.welcomeMessage.trim() !== "" && (
+        <div className="mb-5 rounded-2xl border border-primary/20 bg-primary-surface px-5 py-4 flex items-start gap-3">
+          <span className="text-xl shrink-0">👋</span>
+          <p className="text-sm text-title leading-relaxed whitespace-pre-wrap">{data.welcomeMessage}</p>
+        </div>
+      )}
       <DndContext id="dashboard-cards" sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
         <SortableContext items={visibleCards} strategy={rectSortingStrategy}>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-5">

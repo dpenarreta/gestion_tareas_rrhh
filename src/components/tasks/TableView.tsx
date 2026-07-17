@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useMemo } from "react";
+import { useState, useRef, useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import * as XLSX from "xlsx";
 import type { Task, AssignableUser, TaskStatus } from "./types";
@@ -320,6 +320,7 @@ type Props = {
   currentUserId: string;
   currentUserRole?: Role;
   activityFormat?: ActivityFormat;
+  openTaskId?: string | null;
   users: AssignableUser[];
   onFieldUpdate: (id: string, field: string, value: unknown) => Promise<void>;
   onStatusChange: (id: string, status: TaskStatus) => Promise<void>;
@@ -366,6 +367,7 @@ export default function TableView({
   currentUserId,
   currentUserRole,
   activityFormat,
+  openTaskId,
   users: _users,
   onFieldUpdate,
   onStatusChange,
@@ -380,6 +382,16 @@ export default function TableView({
   const [commentTask, setCommentTask] = useState<Task | null>(null);
   const [activityTask, setActivityTask] = useState<Task | null>(null);
   const [retroactiveTask, setRetroactiveTask] = useState<Task | null>(null);
+  const autoOpenedRef = useRef(false);
+
+  useEffect(() => {
+    if (!openTaskId || autoOpenedRef.current) return;
+    const match = tasks.find((t) => t.id === openTaskId);
+    if (match) {
+      autoOpenedRef.current = true;
+      queueMicrotask(() => setCommentTask(match));
+    }
+  }, [openTaskId, tasks]);
   const [importing, setImporting] = useState(false);
   const [sortKey, setSortKey] = useState<SortKey | null>(null);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
@@ -690,6 +702,7 @@ export default function TableView({
       {retroactiveTask && (
         <RetroactiveActivityModal
           task={retroactiveTask}
+          currentUserRole={currentUserRole}
           activityFormat={activityFormat}
           onClose={() => setRetroactiveTask(null)}
           onSaved={onRefresh}

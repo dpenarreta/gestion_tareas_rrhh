@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
-import type { Task, ActivityReason } from "./types";
+import { useEffect, useMemo, useState } from "react";
+import type { Role } from "@/generated/prisma/client";
+import type { Task } from "./types";
 import type { ActivityFormat } from "@/lib/activityFormat";
-import { REASON_OPTIONS, formatDuration } from "./activityReasons";
+import { fetchActivityReasons, selectableReasons, formatDuration, type ActivityReasonConfig } from "./activityReasons";
 import { businessCalendarDay, previousBusinessDays } from "@/lib/businessTime";
 import { Modal, ModalHeader } from "@/components/ui/Modal";
 import TimeInput24 from "@/components/ui/TimeInput24";
@@ -40,16 +41,18 @@ function timeToMinutes(value: string): number | null {
 
 type Props = {
   task: Task;
+  currentUserRole?: Role;
   activityFormat?: ActivityFormat;
   onClose: () => void;
   onSaved: () => void;
 };
 
-export default function RetroactiveActivityModal({ task, activityFormat = "duration", onClose, onSaved }: Props) {
+export default function RetroactiveActivityModal({ task, currentUserRole, activityFormat = "duration", onClose, onSaved }: Props) {
   const validDates = useMemo(() => previousBusinessDays(businessCalendarDay(new Date()), 2), []);
 
   const [activityDate, setActivityDate] = useState(validDates[0] ? dateToValue(validDates[0]) : "");
-  const [reason, setReason] = useState<ActivityReason>("NOVEDADES_PAGO");
+  const [reasons, setReasons] = useState<ActivityReasonConfig[]>([]);
+  const [reason, setReason] = useState("");
   const [hours, setHours] = useState("");
   const [minutes, setMinutes] = useState("");
   const [startTime, setStartTime] = useState("");
@@ -57,6 +60,15 @@ export default function RetroactiveActivityModal({ task, activityFormat = "durat
   const [description, setDescription] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    fetchActivityReasons().then(setReasons);
+  }, []);
+
+  const selectable = useMemo(() => selectableReasons(reasons, currentUserRole), [reasons, currentUserRole]);
+  // Sin sync-effect: mientras el usuario no elija explícitamente, el motivo
+  // efectivo es el primero disponible una vez que la lista carga.
+  const effectiveReason = reason || selectable[0]?.key || "";
 
   const rangeError = useMemo(() => {
     if (activityFormat !== "timerange") return "";
@@ -83,6 +95,10 @@ export default function RetroactiveActivityModal({ task, activityFormat = "durat
 
   async function submit() {
     if (submitting) return;
+    if (!effectiveReason) {
+      setError("Selecciona un motivo");
+      return;
+    }
     if (!previewDuration) {
       setError("La duración debe ser mayor a 0");
       return;
@@ -104,7 +120,7 @@ export default function RetroactiveActivityModal({ task, activityFormat = "durat
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          reason,
+          reason: effectiveReason,
           hours: h,
           minutes: m,
           description: description.trim(),
@@ -165,12 +181,13 @@ export default function RetroactiveActivityModal({ task, activityFormat = "durat
             Motivo
           </label>
           <select
-            value={reason}
-            onChange={(e) => setReason(e.target.value as ActivityReason)}
+            value={effectiveReason}
+            onChange={(e) => setReason(e.target.value)}
             className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
           >
-            {REASON_OPTIONS.map((o) => (
-              <option key={o.value} value={o.value}>{o.label}</option>
+            {selectable.length === 0 && <option value="">Sin motivos disponibles</option>}
+            {selectable.map((o) => (
+              <option key={o.key} value={o.key}>{o.label}</option>
             ))}
           </select>
         </div>
@@ -263,7 +280,7 @@ export default function RetroactiveActivityModal({ task, activityFormat = "durat
           </button>
           <button
             onClick={submit}
-            disabled={submitting || !previewDuration || !description.trim() || validDates.length === 0}
+            disabled={submitting || !effectiveReason || !previewDuration || !description.trim() || validDates.length === 0}
             className="px-4 py-2 bg-primary hover:bg-primary-hover disabled:opacity-40 text-white text-sm font-medium rounded-xl transition-colors"
           >
             {submitting ? "Registrando…" : "Registrar horas retroactivas"}

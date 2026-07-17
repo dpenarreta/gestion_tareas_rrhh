@@ -1,52 +1,58 @@
-import type { ActivityReason } from "./types";
-
-// Etiquetas de TODOS los motivos, incluidos los retirados del selector — se
-// necesitan para mostrar correctamente actividades históricas que ya
-// registraron un motivo que hoy no es seleccionable para actividades nuevas.
-export const REASON_LABELS: Record<ActivityReason, string> = {
-  NOVEDADES_PAGO: "Novedades de Pago",
-  RETENCION_PAGO: "Retención de Pago",
-  FACTURAS: "Facturas",
-  CONSULTA_OPERACIONES: "Consulta de Operaciones",
-  SOLICITUD_VACACIONES: "Solicitud de Vacaciones",
-  SOLICITUD_PERMISO: "Solicitud de Permiso",
-  VISITA_DOMICILIARIA: "Visita Domiciliaria",
-  SEGUIMIENTO_AUSENTISMOS: "Seguimiento de Ausentismos",
-  RECLUTAMIENTO_SELECCION: "Reclutamiento y Selección",
-  SEGUIMIENTO_DOCUMENTACION: "Seguimiento de documentación",
-  SOLICITUDES_INTERNAS: "Solicitudes internas",
+export type ActivityReasonConfig = {
+  id: string;
+  key: string;
+  label: string;
+  description: string | null;
+  isActive: boolean;
+  assignedRoles: string[];
 };
 
-// Motivos disponibles para registrar actividades nuevas.
-export const SELECTABLE_REASONS: ActivityReason[] = [
-  "NOVEDADES_PAGO",
-  "FACTURAS",
-  "CONSULTA_OPERACIONES",
-  "VISITA_DOMICILIARIA",
-  "SEGUIMIENTO_AUSENTISMOS",
-  "RECLUTAMIENTO_SELECCION",
-  "SEGUIMIENTO_DOCUMENTACION",
-  "SOLICITUDES_INTERNAS",
+/** Todos los motivos (activos e inactivos) — usado para el selector y para resolver labels históricos. */
+export async function fetchActivityReasons(): Promise<ActivityReasonConfig[]> {
+  try {
+    const res = await fetch("/api/activity-reasons");
+    if (!res.ok) return [];
+    const data = await res.json();
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Motivos activos y asignados al rol dado — los únicos elegibles para registrar una actividad nueva. */
+export function selectableReasons(reasons: ActivityReasonConfig[], role?: string): ActivityReasonConfig[] {
+  return reasons.filter((r) => r.isActive && (!role || r.assignedRoles.includes(role)));
+}
+
+export function reasonLabel(reasons: ActivityReasonConfig[], key: string): string {
+  return reasons.find((r) => r.key === key)?.label ?? key;
+}
+
+export function reasonIsActive(reasons: ActivityReasonConfig[], key: string): boolean {
+  return reasons.find((r) => r.key === key)?.isActive ?? true;
+}
+
+// Paleta rotativa asignada por hash del key — así un motivo nuevo creado desde
+// Ajustes recibe un color consistente sin necesitar una entrada manual.
+const COLOR_PALETTE = [
+  "bg-blue-50 text-blue-700 border-blue-200",
+  "bg-amber-50 text-amber-700 border-amber-200",
+  "bg-violet-50 text-violet-700 border-violet-200",
+  "bg-teal-50 text-teal-700 border-teal-200",
+  "bg-cyan-50 text-cyan-700 border-cyan-200",
+  "bg-primary-surface text-primary border-primary/30",
+  "bg-indigo-50 text-indigo-700 border-indigo-200",
+  "bg-lime-50 text-lime-700 border-lime-200",
+  "bg-rose-50 text-rose-700 border-rose-200",
+  "bg-orange-50 text-orange-700 border-orange-200",
+  "bg-green-50 text-green-700 border-green-200",
 ];
 
-export const REASON_OPTIONS: { value: ActivityReason; label: string }[] = SELECTABLE_REASONS.map((value) => ({
-  value,
-  label: REASON_LABELS[value],
-}));
-
-export const REASON_COLORS: Record<ActivityReason, string> = {
-  NOVEDADES_PAGO: "bg-blue-50 text-blue-700 border-blue-200",
-  RETENCION_PAGO: "bg-orange-50 text-orange-700 border-orange-200",
-  FACTURAS: "bg-amber-50 text-amber-700 border-amber-200",
-  CONSULTA_OPERACIONES: "bg-violet-50 text-violet-700 border-violet-200",
-  SOLICITUD_VACACIONES: "bg-green-50 text-green-700 border-green-200",
-  SOLICITUD_PERMISO: "bg-rose-50 text-rose-700 border-rose-200",
-  VISITA_DOMICILIARIA: "bg-teal-50 text-teal-700 border-teal-200",
-  SEGUIMIENTO_AUSENTISMOS: "bg-cyan-50 text-cyan-700 border-cyan-200",
-  RECLUTAMIENTO_SELECCION: "bg-primary-surface text-primary border-primary/30",
-  SEGUIMIENTO_DOCUMENTACION: "bg-indigo-50 text-indigo-700 border-indigo-200",
-  SOLICITUDES_INTERNAS: "bg-lime-50 text-lime-700 border-lime-200",
-};
+export function reasonColorClass(key: string): string {
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
+  return COLOR_PALETTE[hash % COLOR_PALETTE.length];
+}
 
 /** "6.30" → "6h 30min" (para mostrar duraciones en minutos como texto legible). */
 export function formatDuration(mins: number): string {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   DndContext,
@@ -183,6 +183,7 @@ type Props = {
   currentUserId: string;
   currentUserRole?: Role;
   activityFormat?: ActivityFormat;
+  openTaskId?: string | null;
   onStatusChange: (id: string, status: TaskStatus) => Promise<void>;
   onCreateTask: (status: TaskStatus) => void;
   onEditTask: (task: Task) => void;
@@ -198,6 +199,7 @@ export default function KanbanView({
   currentUserId,
   currentUserRole,
   activityFormat,
+  openTaskId,
   onStatusChange,
   onCreateTask,
   onEditTask,
@@ -211,6 +213,16 @@ export default function KanbanView({
   const [commentTask, setCommentTask] = useState<Task | null>(null);
   const [activityTask, setActivityTask] = useState<Task | null>(null);
   const [retroactiveTask, setRetroactiveTask] = useState<Task | null>(null);
+  const autoOpenedRef = useRef(false);
+
+  useEffect(() => {
+    if (!openTaskId || autoOpenedRef.current) return;
+    const match = tasks.find((t) => t.id === openTaskId);
+    if (match) {
+      autoOpenedRef.current = true;
+      queueMicrotask(() => setCommentTask(match));
+    }
+  }, [openTaskId, tasks]);
   const [collapsed, setCollapsed] = useState<Record<TaskStatus, boolean>>({
     PENDIENTE: false,
     EN_PROGRESO: false,
@@ -305,6 +317,7 @@ export default function KanbanView({
       {retroactiveTask && (
         <RetroactiveActivityModal
           task={retroactiveTask}
+          currentUserRole={currentUserRole}
           activityFormat={activityFormat}
           onClose={() => setRetroactiveTask(null)}
           onSaved={onRefresh}

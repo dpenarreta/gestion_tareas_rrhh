@@ -1,6 +1,8 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
-import { businessCalendarDay, businessDayRealRange } from "@/lib/businessTime";
+import { businessCalendarDay, businessDayRealRange, isBusinessDay } from "@/lib/businessTime";
+import { getHolidaySet } from "@/lib/holidays";
+import { getLeaveMinutesByDay, leaveHoursForDay, totalLeaveMinutes, type DayLeaveInfo } from "@/lib/leaves";
 import {
   getEffectiveHorasEfectivas,
   getEffectiveWorkloadLimitLow,
@@ -25,33 +27,51 @@ const MONTH_NAMES = [
 
 const DAY_ABBR = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
 
-function isBusinessDay(d: Date): boolean {
-  const dow = d.getUTCDay();
-  return dow !== 0 && dow !== 6;
+/** Lunes a viernes Y no feriado configurado. */
+function isWorkingDay(d: Date, holidays: Set<number>): boolean {
+  return isBusinessDay(d) && !holidays.has(d.getTime());
 }
 
-function countBusinessDays(start: Date, end: Date): number {
+function countBusinessDays(start: Date, end: Date, holidays: Set<number>): number {
   let count = 0;
   for (let t = start.getTime(); t <= end.getTime(); t += 86400000) {
-    if (isBusinessDay(new Date(t))) count++;
+    if (isWorkingDay(new Date(t), holidays)) count++;
   }
   return count;
 }
 
-function firstBusinessDay(start: Date, end: Date): Date | null {
+function firstBusinessDay(start: Date, end: Date, holidays: Set<number>): Date | null {
   for (let t = start.getTime(); t <= end.getTime(); t += 86400000) {
     const d = new Date(t);
-    if (isBusinessDay(d)) return d;
+    if (isWorkingDay(d, holidays)) return d;
   }
   return null;
 }
 
-function lastBusinessDay(start: Date, end: Date): Date | null {
+function lastBusinessDay(start: Date, end: Date, holidays: Set<number>): Date | null {
   for (let t = end.getTime(); t >= start.getTime(); t -= 86400000) {
     const d = new Date(t);
-    if (isBusinessDay(d)) return d;
+    if (isWorkingDay(d, holidays)) return d;
   }
   return null;
+}
+
+/** Suma, día a día, la base efectiva (horasPorDía - permisos ese día) de los días laborables del rango. */
+function sumWeightedBaseHours(
+  start: Date,
+  end: Date,
+  hoursPerDay: number,
+  holidays: Set<number>,
+  leaveMap: Map<number, DayLeaveInfo>
+): number {
+  let total = 0;
+  for (let t = start.getTime(); t <= end.getTime(); t += 86400000) {
+    const d = new Date(t);
+    if (!isWorkingDay(d, holidays)) continue;
+    const leaveHours = leaveHoursForDay(leaveMap.get(d.getTime()), hoursPerDay);
+    total += Math.max(0, hoursPerDay - leaveHours);
+  }
+  return Math.round(total * 100) / 100;
 }
 
 function formatShortDate(d: Date): string {
@@ -149,9 +169,11 @@ function utcMonthEnd(d: Date) {
 }
 
 /**
- * The dynamic business-day base (días lunes-viernes × 8h) for an explicit
- * calendar month — for historical/report contexts where the month is given
- * directly (no "now" ambiguity, so no business-timezone shift is needed).
+ * The dynamic business-day base (días lunes-viernes, excluidos feriados, × horas
+ * efectivas configuradas) for an explicit calendar month — for historical/report
+ * contexts where the month is given directly (no "now" ambiguity, so no
+ * business-timezone shift is needed). No es por usuario — los permisos (que sí
+ * son por persona) se aplican aparte, por miembro, donde se consuma este valor.
  */
 export async function monthlyBusinessBase(year: number, month: number): Promise<{
   start: Date;
@@ -168,7 +190,8 @@ export async function monthlyBusinessBase(year: number, month: number): Promise<
 }> {
   const start = new Date(Date.UTC(year, month - 1, 1));
   const end = new Date(Date.UTC(year, month, 1) - 1);
-  const businessDays = countBusinessDays(start, end);
+  const holidays = await getHolidaySet();
+  const businessDays = countBusinessDays(start, end, holidays);
   // El valor vigente al INICIO del mes es el que rigió ese período — así cambios
   // de configuración posteriores no alteran KPIs de meses ya cerrados.
   const [hoursPerDay, limitLowPerDay, limitHighPerDay, limitOverloadPerDay] = await Promise.all([
@@ -228,6 +251,18 @@ async function weekendHoursInRange(userId: string, rangeStart: Date, rangeEnd: D
   return Math.round(total * 100) / 100;
 }
 
+/** Suma solo las horas reales de días feriados que NO caen en fin de semana (para no duplicar con weekendHoursInRange). */
+async function holidayHoursInRange(userId: string, rangeStart: Date, rangeEnd: Date, holidays: Set<number>): Promise<number> {
+  let total = 0;
+  for (let t = rangeStart.getTime(); t <= rangeEnd.getTime(); t += 86400000) {
+    const day = new Date(t);
+    if (!isBusinessDay(day)) continue; // ya contado como fin de semana
+    if (!holidays.has(day.getTime())) continue;
+    total += await realHoursInWindow(userId, day, day);
+  }
+  return Math.round(total * 100) / 100;
+}
+
 function toMetric(
   realHours: number,
   baseHours: number,
@@ -268,35 +303,51 @@ export async function computeCargaTiempo(userId: string, now: Date = new Date())
   // histórico), así que las tres usan el valor vigente ahora mismo — comparar
   // contra el instante real (no medianoche del día) para que un cambio de
   // configuración hecho hoy se refleje de inmediato.
-  const [hoursPerDay, limitLowPerDay, limitHighPerDay, limitOverloadPerDay] = await Promise.all([
+  const [hoursPerDay, limitLowPerDay, limitHighPerDay, limitOverloadPerDay, holidays, leaveMap] = await Promise.all([
     getEffectiveHorasEfectivas(now),
     getEffectiveWorkloadLimitLow(now),
     getEffectiveWorkloadLimitHigh(now),
     getEffectiveWorkloadLimitOverload(now),
+    getHolidaySet(),
+    getLeaveMinutesByDay(userId, monthStart, monthEnd),
   ]);
 
-  const dailyBaseHours = isBusinessDay(today) ? hoursPerDay : 0;
-  const weeklyBusinessDays = countBusinessDays(weekStart, weekEnd);
-  const weeklyBaseHours = weeklyBusinessDays * hoursPerDay;
-  const monthlyBusinessDays = countBusinessDays(monthStart, monthEnd);
-  const monthlyBaseHours = monthlyBusinessDays * hoursPerDay;
+  const todayIsWeekendDay = !isBusinessDay(today);
+  const todayIsHolidayDay = !todayIsWeekendDay && holidays.has(today.getTime());
+  const todayLeaveInfo = leaveMap.get(today.getTime());
+  const todayLeaveHours = leaveHoursForDay(todayLeaveInfo, hoursPerDay);
+  // Un permiso (parcial o completo) reduce proporcionalmente TODA la envolvente
+  // del día (base y los 3 límites) — así un permiso de 3h en un día de 6.5h no
+  // marca falsamente "Subutilización" solo porque el límite bajo (p. ej. 5.5h)
+  // quedó por encima de la base ya reducida (3.5h).
+  const dayFactor = hoursPerDay > 0 ? Math.max(0, 1 - todayLeaveHours / hoursPerDay) : 1;
+  const dailyBaseHours = todayIsWeekendDay || todayIsHolidayDay ? 0 : hoursPerDay * dayFactor;
+  const dailyLimitLow = limitLowPerDay * dayFactor;
+  const dailyLimitHigh = limitHighPerDay * dayFactor;
+  const dailyLimitOverload = limitOverloadPerDay * dayFactor;
 
-  const [diariaHours, semanalHours, mensualHours, weekendHours] = await Promise.all([
+  const weeklyBusinessDays = countBusinessDays(weekStart, weekEnd, holidays);
+  const weeklyBaseHours = sumWeightedBaseHours(weekStart, weekEnd, hoursPerDay, holidays, leaveMap);
+  const monthlyBusinessDays = countBusinessDays(monthStart, monthEnd, holidays);
+  const monthlyBaseHours = sumWeightedBaseHours(monthStart, monthEnd, hoursPerDay, holidays, leaveMap);
+
+  const [diariaHours, semanalHours, mensualHours, weekendHours, monthlyWeekendHours, monthlyHolidayHours] = await Promise.all([
     realHoursInWindow(userId, today, today),
     realHoursInWindow(userId, weekStart, weekEnd),
     realHoursInWindow(userId, monthStart, monthEnd),
     weekendHoursInRange(userId, weekStart, weekEnd),
+    weekendHoursInRange(userId, monthStart, monthEnd),
+    holidayHoursInRange(userId, monthStart, monthEnd, holidays),
   ]);
+  const monthlyLeaveTotals = totalLeaveMinutes(leaveMap, monthStart, monthEnd, hoursPerDay);
 
-  const weekBizStart = firstBusinessDay(weekStart, weekEnd) ?? weekStart;
-  const weekBizEnd = lastBusinessDay(weekStart, weekEnd) ?? weekEnd;
+  const weekBizStart = firstBusinessDay(weekStart, weekEnd, holidays) ?? weekStart;
+  const weekBizEnd = lastBusinessDay(weekStart, weekEnd, holidays) ?? weekEnd;
 
-  // Sábado/domingo: el semáforo de rango no aplica al día (no hay base
-  // laboral con la que comparar) — se muestra como "trabajo en fin de
-  // semana" en vez de forzar una clasificación sin sentido (p. ej. 1h
-  // marcando "Carga elevada" solo por comparar contra 0h de base).
-  const todayIsWeekend = !isBusinessDay(today);
-  const diariaMetric = todayIsWeekend
+  // Fin de semana o feriado: el semáforo de rango no aplica al día (no hay base
+  // laboral con la que comparar) — se muestra como "trabajo en fin de semana" /
+  // "trabajo en feriado" en vez de forzar una clasificación sin sentido.
+  const diariaMetric = todayIsWeekendDay || todayIsHolidayDay
     ? {
         realHours: diariaHours,
         baseHours: 0,
@@ -305,9 +356,21 @@ export async function computeCargaTiempo(userId: string, now: Date = new Date())
         rangeMin: 0,
         rangeMax: 0,
         label: "Óptimo" as WorkloadLabel,
-        isWeekend: true,
+        isWeekend: todayIsWeekendDay,
+        isHoliday: todayIsHolidayDay,
+        medicoLeaveMinutes: todayLeaveInfo?.medicoMinutes ?? 0,
+        medicoLeaveFullDay: todayLeaveInfo?.medicoFullDay ?? false,
+        personalLeaveMinutes: todayLeaveInfo?.personalMinutes ?? 0,
+        personalLeaveFullDay: todayLeaveInfo?.personalFullDay ?? false,
       }
-    : toMetric(diariaHours, dailyBaseHours, hoursPerDay, limitLowPerDay, limitHighPerDay, limitOverloadPerDay);
+    : {
+        ...toMetric(diariaHours, dailyBaseHours, hoursPerDay, dailyLimitLow, dailyLimitHigh, dailyLimitOverload),
+        isHoliday: false,
+        medicoLeaveMinutes: todayLeaveInfo?.medicoMinutes ?? 0,
+        medicoLeaveFullDay: todayLeaveInfo?.medicoFullDay ?? false,
+        personalLeaveMinutes: todayLeaveInfo?.personalMinutes ?? 0,
+        personalLeaveFullDay: todayLeaveInfo?.personalFullDay ?? false,
+      };
 
   return {
     diaria: diariaMetric,
@@ -336,6 +399,10 @@ export async function computeCargaTiempo(userId: string, now: Date = new Date())
       ),
       monthLabel: formatMonthLabel(today),
       businessDays: monthlyBusinessDays,
+      weekendHours: monthlyWeekendHours,
+      holidayHours: monthlyHolidayHours,
+      medicoLeaveMinutes: monthlyLeaveTotals.medicoMinutes,
+      personalLeaveMinutes: monthlyLeaveTotals.personalMinutes,
     },
     horasEfectivasPorDia: hoursPerDay,
     workloadLimitLow: limitLowPerDay,
@@ -362,17 +429,18 @@ export async function computeCargaHistory(
   dailyCount = 7,
 ): Promise<{ daily: DailyCargaPoint[]; weekly: WeeklyCargaPoint[] }> {
   const today = businessCalendarDay(now);
-  const [hoursPerDay, limitLowPerDay, limitHighPerDay, limitOverloadPerDay] = await Promise.all([
+  const [hoursPerDay, limitLowPerDay, limitHighPerDay, limitOverloadPerDay, holidays] = await Promise.all([
     getEffectiveHorasEfectivas(now),
     getEffectiveWorkloadLimitLow(now),
     getEffectiveWorkloadLimitHigh(now),
     getEffectiveWorkloadLimitOverload(now),
+    getHolidaySet(),
   ]);
 
   // ── Diario: últimos `dailyCount` días hábiles (incluye hoy si es hábil) ──
   const businessDaysDesc: Date[] = [];
   for (let cursor = new Date(today); businessDaysDesc.length < dailyCount; cursor = new Date(cursor.getTime() - 86400000)) {
-    if (isBusinessDay(cursor)) businessDaysDesc.push(new Date(cursor));
+    if (isWorkingDay(cursor, holidays)) businessDaysDesc.push(new Date(cursor));
   }
   const businessDaysAsc = businessDaysDesc.reverse();
 
@@ -442,7 +510,7 @@ export async function computeCargaHistory(
   ]);
 
   const weekly: WeeklyCargaPoint[] = weekSlices.map((slice, i) => {
-    const businessDays = countBusinessDays(slice.start, slice.end);
+    const businessDays = countBusinessDays(slice.start, slice.end, holidays);
     const baseHours = businessDays * hoursPerDay;
     const { start: realStart } = businessDayRealRange(slice.start);
     const { end: realEnd } = businessDayRealRange(slice.end);

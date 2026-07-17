@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { Role } from "@/generated/prisma/client";
 import type { TaskActivity, ActivityComment } from "./types";
-import { REASON_LABELS, REASON_COLORS, formatDuration } from "./activityReasons";
+import { reasonLabel, reasonIsActive, reasonColorClass, formatDuration, type ActivityReasonConfig } from "./activityReasons";
 import { Modal, ModalHeader } from "@/components/ui/Modal";
 
 function formatActivityDateTime(iso: string): string {
@@ -37,11 +37,12 @@ type Props = {
   taskId: string;
   currentUserId: string;
   currentUserRole?: Role;
+  reasons: ActivityReasonConfig[];
   onDeleted: (activityId: string) => void;
   onUpdated: (activity: TaskActivity) => void;
 };
 
-export default function ActivityItem({ activity: a, taskId, currentUserId, currentUserRole, onDeleted, onUpdated }: Props) {
+export default function ActivityItem({ activity: a, taskId, currentUserId, currentUserRole, reasons, onDeleted, onUpdated }: Props) {
   const [deleting, setDeleting] = useState(false);
 
   const [showComments, setShowComments] = useState(false);
@@ -58,8 +59,9 @@ export default function ActivityItem({ activity: a, taskId, currentUserId, curre
   const [editSubmitting, setEditSubmitting] = useState(false);
   const [editError, setEditError] = useState("");
 
-  const label = REASON_LABELS[a.reason] ?? a.reason;
-  const colorClass = REASON_COLORS[a.reason];
+  const label = reasonLabel(reasons, a.reason);
+  const colorClass = reasonColorClass(a.reason);
+  const reasonInactive = !reasonIsActive(reasons, a.reason);
   const canDelete = a.author.id === currentUserId;
   const isAdmin = currentUserRole === "ADMINISTRADOR";
 
@@ -168,9 +170,16 @@ export default function ActivityItem({ activity: a, taskId, currentUserId, curre
   return (
     <div className="bg-background rounded-xl p-3 space-y-2">
       <div className="flex items-center justify-between gap-2">
-        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${colorClass}`}>
-          {label}
-        </span>
+        <div className="flex items-center gap-1 flex-wrap">
+          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${colorClass}`}>
+            {label}
+          </span>
+          {reasonInactive && (
+            <span className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-surface2 text-disabled">
+              Inactivo
+            </span>
+          )}
+        </div>
         <div className="flex items-center gap-1.5">
           <span className="text-[10px] text-disabled">{formatActivityDateTime(a.createdAt)}</span>
           {isAdmin && (

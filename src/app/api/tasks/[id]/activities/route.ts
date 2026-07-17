@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import type { ActivityReason } from "@/generated/prisma/client";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -84,6 +83,11 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       return NextResponse.json({ error: "Faltan campos requeridos" }, { status: 400 });
     }
 
+    const reasonRow = await prisma.activityReason.findUnique({ where: { key: reason } });
+    if (!reasonRow || !reasonRow.isActive || !reasonRow.assignedRoles.includes(session.role)) {
+      return NextResponse.json({ error: "Motivo inválido o no disponible para tu rol" }, { status: 400 });
+    }
+
     if (!Number.isInteger(hours) || hours < 0 || hours > 23) {
       return NextResponse.json({ error: "Las horas deben ser un número entre 0 y 23" }, { status: 400 });
     }
@@ -110,7 +114,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       data: {
         taskId,
         authorId: session.userId,
-        reason: reason as ActivityReason,
+        reason,
         duration,
         description: description?.trim() || null,
         startTime: startTime || null,

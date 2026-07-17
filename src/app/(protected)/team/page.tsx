@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { canViewTeam } from "@/lib/roles";
@@ -9,6 +10,8 @@ export default async function TeamPage() {
   if (!canViewTeam(session.role)) redirect("/dashboard");
 
   return (
-    <TeamModule currentUserId={session.userId} currentUserRole={session.role} />
+    <Suspense fallback={null}>
+      <TeamModule currentUserId={session.userId} currentUserRole={session.role} />
+    </Suspense>
   );
 }

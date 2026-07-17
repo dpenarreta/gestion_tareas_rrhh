@@ -172,7 +172,14 @@ export type WeeklyCargaPoint = {
 };
 
 export type CargaTiempo = {
-  diaria: WorkloadMetric;
+  diaria: WorkloadMetric & {
+    /** Hoy es un feriado configurado (y no cae en fin de semana) — se muestra como "trabajo en feriado". */
+    isHoliday: boolean;
+    medicoLeaveMinutes: number;
+    medicoLeaveFullDay: boolean;
+    personalLeaveMinutes: number;
+    personalLeaveFullDay: boolean;
+  };
   semanal: WorkloadMetric & {
     weekStartLabel: string;
     weekEndLabel: string;
@@ -180,7 +187,15 @@ export type CargaTiempo = {
     /** Horas reales registradas en sábado/domingo dentro de esta semana (ya incluidas en realHours). */
     weekendHours: number;
   };
-  mensual: WorkloadMetric & { monthLabel: string; businessDays: number };
+  mensual: WorkloadMetric & {
+    monthLabel: string;
+    businessDays: number;
+    /** Desglose adicional del mes — cada uno solo es relevante si es > 0. */
+    weekendHours: number;
+    holidayHours: number;
+    medicoLeaveMinutes: number;
+    personalLeaveMinutes: number;
+  };
   horasEfectivasPorDia: number;
   workloadLimitLow: number;
   workloadLimitHigh: number;
