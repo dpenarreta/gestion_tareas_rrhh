@@ -157,7 +157,7 @@ export default function TaskCard({ task, currentUserId, isDragging, onEdit, onDe
           {task.type === "SEGUIMIENTO" && onActivityClick && (
             <button
               onClick={(e) => { e.stopPropagation(); onActivityClick(task); }}
-              className="flex items-center gap-1 text-[10px] text-secondary hover:text-primary transition-colors"
+              className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-primary transition-colors"
               title="Registro de actividades"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -168,7 +168,7 @@ export default function TaskCard({ task, currentUserId, isDragging, onEdit, onDe
           {task.type === "SEGUIMIENTO" && onRetroactiveClick && (
             <button
               onClick={(e) => { e.stopPropagation(); onRetroactiveClick(task); }}
-              className="flex items-center gap-1 text-[10px] text-secondary hover:text-warning transition-colors"
+              className="flex items-center gap-1 text-[10px] text-amber-400 hover:text-amber-500 transition-colors"
               title="Registro retroactivo de horas"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -183,6 +183,58 @@ describe("POST /api/tasks/[id]/activities", () => {
     expect(taskUpdate).toHaveBeenCalledWith({ where: { id: "task-1" }, data: { realHours: 2 } });
   });
 
+  it("responde 409 si el horario se solapa con una actividad existente (de cualquier tarea) ese mismo día", async () => {
+    mockSession({ userId: "u1" });
+    taskFindUnique.mockResolvedValue({ id: "task-1" });
+    taskActivityFindMany.mockResolvedValue([
+      { startTime: "08:40", endTime: "10:30", duration: 110, task: { title: "Otra tarea" } },
+    ]);
+    const res = await activitiesPOST(
+      jsonRequest({ reason: "REUNION", hours: 0, minutes: 45, startTime: "09:30", endTime: "10:15" }),
+      ctx()
+    );
+    expect(res.status).toBe(409);
+    const body = await res.json();
+    expect(body.error).toContain('de 08:40 a 10:30 en la tarea "Otra tarea"');
+    expect(taskActivityCreate).not.toHaveBeenCalled();
+  });
+
+  it("permite guardar cuando el horario no se solapa con nada ese día", async () => {
+    mockSession({ userId: "u1" });
+    taskFindUnique.mockResolvedValue({ id: "task-1" });
+    taskActivityCreate.mockResolvedValue({ id: "a1", duration: 45, startTime: "11:00", endTime: "11:45" });
+    taskActivityFindMany.mockResolvedValue([
+      { startTime: "08:40", endTime: "10:30", duration: 110, task: { title: "Otra tarea" } },
+    ]);
+    const res = await activitiesPOST(
+      jsonRequest({ reason: "REUNION", hours: 0, minutes: 45, startTime: "11:00", endTime: "11:45" }),
+      ctx()
+    );
+    expect(res.status).toBe(201);
+    expect(taskActivityCreate).toHaveBeenCalled();
+  });
+
+  it("responde 400 si la hora fin no es posterior a la hora inicio", async () => {
+    mockSession({});
+    taskFindUnique.mockResolvedValue({ id: "task-1" });
+    const res = await activitiesPOST(
+      jsonRequest({ reason: "REUNION", hours: 0, minutes: 30, startTime: "10:00", endTime: "09:30" }),
+      ctx()
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("no ejecuta el validador de solapamiento si no se usa el formato hora inicio/fin", async () => {
+    mockSession({ userId: "u1" });
+    taskFindUnique.mockResolvedValue({ id: "task-1" });
+    taskActivityCreate.mockResolvedValue({ id: "a1", duration: 90 });
+    taskActivityFindMany.mockResolvedValue([]);
+    const res = await activitiesPOST(jsonRequest({ reason: "REUNION", hours: 1, minutes: 30 }), ctx());
+    expect(res.status).toBe(201);
+    // Solo se llama una vez (recalcRealHours), no hay verificación de solapamiento previa.
+    expect(taskActivityFindMany).toHaveBeenCalledTimes(1);
+  });
+
   it("ante un error inesperado, responde 500", async () => {
     mockSession({});
     taskFindUnique.mockRejectedValue(new Error("boom"));

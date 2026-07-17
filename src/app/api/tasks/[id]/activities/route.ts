@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { businessCalendarDay } from "@/lib/businessTime";
+import { findOverlappingActivity, overlapMessage } from "@/lib/activityOverlap";
+import { timeToMinutes } from "@/lib/timeOverlap";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -108,6 +111,22 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     const task = await prisma.task.findUnique({ where: { id: taskId } });
     if (!task) {
       return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
+    }
+
+    // El validador de solapamiento solo aplica cuando se usa el formato
+    // hora inicio/hora fin (no en tareas FIJA, que no pasan por esta ruta).
+    if (startTime && endTime) {
+      if (timeToMinutes(startTime) === null || timeToMinutes(endTime) === null) {
+        return NextResponse.json({ error: "Hora inválida" }, { status: 400 });
+      }
+      if (timeToMinutes(endTime)! <= timeToMinutes(startTime)!) {
+        return NextResponse.json({ error: "La hora fin debe ser posterior a la hora inicio" }, { status: 400 });
+      }
+      const today = businessCalendarDay(new Date());
+      const conflict = await findOverlappingActivity(session.userId, today, startTime, endTime);
+      if (conflict) {
+        return NextResponse.json({ error: overlapMessage(conflict), conflict }, { status: 409 });
+      }
     }
 
     const activity = await prisma.taskActivity.create({

@@ -4,6 +4,8 @@ import { getSession } from "@/lib/session";
 import { formatDate } from "@/lib/utils";
 import { businessCalendarDay, businessDayRealRange, previousBusinessDays } from "@/lib/businessTime";
 import { getNotificationRules } from "@/lib/notificationRules";
+import { findOverlappingActivity, overlapMessage } from "@/lib/activityOverlap";
+import { timeToMinutes } from "@/lib/timeOverlap";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -61,12 +63,14 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       return NextResponse.json({ error: "Cuerpo de la solicitud inválido" }, { status: 400 });
     }
 
-    const { reason, hours, minutes, description, activityDate } = body as {
+    const { reason, hours, minutes, description, activityDate, startTime, endTime } = body as {
       reason?: string;
       hours?: number;
       minutes?: number;
       description?: string;
       activityDate?: string;
+      startTime?: string;
+      endTime?: string;
     };
 
     if (!reason || hours === undefined || minutes === undefined || !activityDate) {
@@ -122,6 +126,21 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       );
     }
 
+    // El validador de solapamiento solo aplica cuando se usa el formato hora
+    // inicio/hora fin — se verifica contra el día retroactivo, no "hoy".
+    if (startTime && endTime) {
+      if (timeToMinutes(startTime) === null || timeToMinutes(endTime) === null) {
+        return NextResponse.json({ error: "Hora inválida" }, { status: 400 });
+      }
+      if (timeToMinutes(endTime)! <= timeToMinutes(startTime)!) {
+        return NextResponse.json({ error: "La hora fin debe ser posterior a la hora inicio" }, { status: 400 });
+      }
+      const conflict = await findOverlappingActivity(session.userId, parsedDate, startTime, endTime);
+      if (conflict) {
+        return NextResponse.json({ error: overlapMessage(conflict), conflict }, { status: 409 });
+      }
+    }
+
     // createdAt se fija dentro del rango horario real de activityDate (no "ahora") para que
     // todo cálculo de carga/KPI existente, que agrupa TaskActivity por createdAt, atribuya
     // estas horas al día retroactivo sin necesitar cambios en esa lógica.
@@ -137,6 +156,8 @@ export async function POST(request: NextRequest, ctx: Ctx) {
         isRetroactive: true,
         activityDate: parsedDate,
         createdAt: backdatedCreatedAt,
+        startTime: startTime || null,
+        endTime: endTime || null,
       },
       select: activitySelect,
     });

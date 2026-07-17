@@ -201,7 +201,7 @@ function MemberTaskRow({ task, onCommentClick, onActivityClick }: {
           {task.type === "SEGUIMIENTO" && (
             <button
               onClick={() => onActivityClick(task)}
-              className="text-disabled hover:text-primary transition-colors"
+              className="text-gray-400 hover:text-primary transition-colors"
               title="Ver actividades"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

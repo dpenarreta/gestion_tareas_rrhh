@@ -6,7 +6,10 @@ import type { Task, TaskActivity, FollowUpReminder } from "./types";
 import TimeInput24 from "@/components/ui/TimeInput24";
 import type { ActivityFormat } from "@/lib/activityFormat";
 import { fetchActivityReasons, selectableReasons, formatDuration, type ActivityReasonConfig } from "./activityReasons";
+import { rangesOverlap } from "@/lib/timeOverlap";
 import ActivityItem from "./ActivityItem";
+
+type DayScheduleEntry = { id: string; startTime: string; endTime: string; taskId: string; taskTitle: string };
 
 function formatReminderDateTime(iso: string): string {
   const d = new Date(iso);
@@ -53,6 +56,7 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
   const [description, setDescription] = useState("");
+  const [daySchedule, setDaySchedule] = useState<DayScheduleEntry[]>([]);
 
   const [reminders, setReminders] = useState<FollowUpReminder[]>([]);
   const [remindersExpanded, setRemindersExpanded] = useState(true);
@@ -76,6 +80,15 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
     if (endMins < startMins) return "La hora fin debe ser posterior a la hora inicio";
     return "";
   }, [activityFormat, startTime, endTime]);
+
+  const overlapConflict = useMemo(() => {
+    if (activityFormat !== "timerange" || rangeError || !startTime || !endTime) return null;
+    return daySchedule.find((a) => rangesOverlap(startTime, endTime, a.startTime, a.endTime)) ?? null;
+  }, [activityFormat, rangeError, startTime, endTime, daySchedule]);
+
+  const overlapError = overlapConflict
+    ? `Este horario se superpone con una actividad registrada de ${overlapConflict.startTime} a ${overlapConflict.endTime} en la tarea "${overlapConflict.taskTitle}". Por favor ajusta el horario.`
+    : "";
 
   const previewDuration = useMemo(() => {
     if (activityFormat === "timerange") {
@@ -107,6 +120,14 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
   useEffect(() => {
     fetchActivityReasons().then(setReasons);
   }, []);
+
+  useEffect(() => {
+    if (readOnly || activityFormat !== "timerange") return;
+    fetch("/api/activities/day-schedule")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => setDaySchedule(Array.isArray(data) ? data : []))
+      .catch(() => setDaySchedule([]));
+  }, [readOnly, activityFormat]);
 
   const selectable = useMemo(() => selectableReasons(reasons, currentUserRole), [reasons, currentUserRole]);
   // Sin sync-effect: mientras el usuario no elija explícitamente, el motivo
@@ -191,6 +212,10 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
       setError("La duración debe ser mayor a 0");
       return;
     }
+    if (overlapConflict) {
+      setError(overlapError);
+      return;
+    }
     setError("");
     setSubmitting(true);
     try {
@@ -210,6 +235,12 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
       if (res.ok) {
         const activity = await res.json();
         setActivities((prev) => [...prev, activity]);
+        if (activityFormat === "timerange" && activity.startTime && activity.endTime) {
+          setDaySchedule((prev) => [
+            ...prev,
+            { id: activity.id, startTime: activity.startTime, endTime: activity.endTime, taskId: task.id, taskTitle: task.title },
+          ]);
+        }
         setHours("");
         setMinutes("");
         setStartTime("");
@@ -375,7 +406,7 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
           )}
           {!loading && activities.length === 0 && (
             <div className="text-center text-disabled text-sm py-10">
-              <svg className="w-10 h-10 mx-auto mb-2 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-10 h-10 mx-auto mb-2 text-gray-400 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               Sin actividades registradas
@@ -434,6 +465,9 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
               </div>
               {rangeError && (
                 <p className="text-xs text-danger bg-danger/[.09] rounded-lg px-3 py-2 mt-2">{rangeError}</p>
+              )}
+              {overlapError && (
+                <p className="text-xs text-danger bg-danger/[.09] rounded-lg px-3 py-2 mt-2">{overlapError}</p>
               )}
             </div>
           ) : (
@@ -504,7 +538,7 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
 
           <button
             onClick={submit}
-            disabled={!previewDuration || !effectiveReason || submitting}
+            disabled={!previewDuration || !effectiveReason || !!overlapConflict || submitting}
             className="w-full bg-primary text-white rounded-xl py-2 text-sm font-medium hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {submitting ? "Registrando…" : "Agregar actividad"}

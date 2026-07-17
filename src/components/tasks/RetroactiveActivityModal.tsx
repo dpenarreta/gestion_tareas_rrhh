@@ -6,8 +6,11 @@ import type { Task } from "./types";
 import type { ActivityFormat } from "@/lib/activityFormat";
 import { fetchActivityReasons, selectableReasons, formatDuration, type ActivityReasonConfig } from "./activityReasons";
 import { businessCalendarDay, previousBusinessDays } from "@/lib/businessTime";
+import { rangesOverlap } from "@/lib/timeOverlap";
 import { Modal, ModalHeader } from "@/components/ui/Modal";
 import TimeInput24 from "@/components/ui/TimeInput24";
+
+type DayScheduleEntry = { id: string; startTime: string; endTime: string; taskId: string; taskTitle: string };
 
 const WEEKDAY_LABELS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 
@@ -60,10 +63,19 @@ export default function RetroactiveActivityModal({ task, currentUserRole, activi
   const [description, setDescription] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [daySchedule, setDaySchedule] = useState<DayScheduleEntry[]>([]);
 
   useEffect(() => {
     fetchActivityReasons().then(setReasons);
   }, []);
+
+  useEffect(() => {
+    if (activityFormat !== "timerange" || !activityDate) return;
+    fetch(`/api/activities/day-schedule?date=${activityDate}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data) => setDaySchedule(Array.isArray(data) ? data : []))
+      .catch(() => setDaySchedule([]));
+  }, [activityFormat, activityDate]);
 
   const selectable = useMemo(() => selectableReasons(reasons, currentUserRole), [reasons, currentUserRole]);
   // Sin sync-effect: mientras el usuario no elija explícitamente, el motivo
@@ -78,6 +90,15 @@ export default function RetroactiveActivityModal({ task, currentUserRole, activi
     if (endMins < startMins) return "La hora fin debe ser posterior a la hora inicio";
     return "";
   }, [activityFormat, startTime, endTime]);
+
+  const overlapConflict = useMemo(() => {
+    if (activityFormat !== "timerange" || rangeError || !startTime || !endTime) return null;
+    return daySchedule.find((a) => rangesOverlap(startTime, endTime, a.startTime, a.endTime)) ?? null;
+  }, [activityFormat, rangeError, startTime, endTime, daySchedule]);
+
+  const overlapError = overlapConflict
+    ? `Este horario se superpone con una actividad registrada de ${overlapConflict.startTime} a ${overlapConflict.endTime} en la tarea "${overlapConflict.taskTitle}". Por favor ajusta el horario.`
+    : "";
 
   const previewDuration = useMemo(() => {
     if (activityFormat === "timerange") {
@@ -111,6 +132,10 @@ export default function RetroactiveActivityModal({ task, currentUserRole, activi
       setError("Selecciona una fecha");
       return;
     }
+    if (overlapConflict) {
+      setError(overlapError);
+      return;
+    }
     setError("");
     setSubmitting(true);
     try {
@@ -125,6 +150,7 @@ export default function RetroactiveActivityModal({ task, currentUserRole, activi
           minutes: m,
           description: description.trim(),
           activityDate,
+          ...(activityFormat === "timerange" ? { startTime, endTime } : {}),
         }),
       });
       if (res.ok) {
@@ -211,6 +237,9 @@ export default function RetroactiveActivityModal({ task, currentUserRole, activi
             {rangeError && (
               <p className="text-xs text-danger bg-danger/[.09] rounded-lg px-3 py-2 mt-2">{rangeError}</p>
             )}
+            {overlapError && (
+              <p className="text-xs text-danger bg-danger/[.09] rounded-lg px-3 py-2 mt-2">{overlapError}</p>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-2 gap-2">
@@ -280,7 +309,7 @@ export default function RetroactiveActivityModal({ task, currentUserRole, activi
           </button>
           <button
             onClick={submit}
-            disabled={submitting || !effectiveReason || !previewDuration || !description.trim() || validDates.length === 0}
+            disabled={submitting || !effectiveReason || !previewDuration || !description.trim() || !!overlapConflict || validDates.length === 0}
             className="px-4 py-2 bg-primary hover:bg-primary-hover disabled:opacity-40 text-white text-sm font-medium rounded-xl transition-colors"
           >
             {submitting ? "Registrando…" : "Registrar horas retroactivas"}

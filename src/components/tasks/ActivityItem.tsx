@@ -232,8 +232,13 @@ export default function ActivityItem({ activity: a, taskId, currentUserId, curre
         </div>
       )}
 
-      <div className="flex items-center justify-end">
-        <span className="text-xs font-semibold text-primary">
+      <div className="flex items-center justify-between gap-2">
+        {a.startTime && a.endTime && (
+          <span className="text-xs font-medium text-main">
+            {a.startTime} — {a.endTime}
+          </span>
+        )}
+        <span className="text-xs font-semibold text-primary ml-auto">
           {formatDuration(a.duration)}
         </span>
       </div>
