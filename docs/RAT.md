@@ -2,14 +2,16 @@
 
 > **Estado: borrador técnico.** Este documento fue generado a partir de la revisión del código fuente, el esquema de base de datos (`prisma/schema.prisma`) y la configuración del repositorio de Nexo. Describe con precisión **qué hace el sistema hoy**, no constituye una conclusión legal ni sustituye la validación formal exigida por la Ley Orgánica de Protección de Datos Personales (LOPDP) de Ecuador. Los campos marcados como `[Completar: ...]` requieren información que solo el área legal/administrativa de la organización puede proporcionar. Ver también README, sección 16.
 
+> **Este documento es un borrador técnico. Los campos marcados como PENDIENTE deben ser completados y validados por el área legal de la organización antes de su uso formal como Registro de Actividades de Tratamiento conforme a la LOPDP Ecuador.**
+
 ## 1. Responsable del tratamiento
 
 | Campo | Valor |
 |---|---|
-| Razón social | Nexo (Sistema de Gestión de Recursos Humanos) |
-| RUC | Pendiente de asignación — este sistema opera actualmente como herramienta interna. Completar con los datos legales correspondientes cuando la organización formalice su registro. |
+| Razón social | PENDIENTE- EVALUAR DESIGNACION SEGUN EL ART 44. LOPDP |
+| RUC | [PENDIENTE — completar con datos legales de la organización responsable del tratamiento] |
 | Domicilio | `[Completar]` |
-| Delegado de Protección de Datos (si aplica) | `[Completar: nombre y contacto, si la organización designó uno]` |
+| Delegado de Protección de Datos (si aplica) | [PENDIENTE — evaluar designación según Art. 44 LOPDP] |
 | Contacto para ejercicio de derechos | `[Completar: correo/canal formal]`. En el producto, el punto de entrada técnico es `/profile` → "Mis derechos sobre mis datos" (ver sección 8). |
 
 ## 2. Finalidad del tratamiento
