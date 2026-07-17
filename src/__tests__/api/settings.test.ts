@@ -6,6 +6,8 @@ const getEffectiveWorkloadLimitLow = vi.fn();
 const getEffectiveWorkloadLimitHigh = vi.fn();
 const getEffectiveWorkloadLimitOverload = vi.fn();
 const setConfigValue = vi.fn();
+const getEffectiveWelcomeMessage = vi.fn();
+const getEffectiveWelcomeMessageActive = vi.fn();
 
 vi.mock("@/lib/systemConfig", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/systemConfig")>();
@@ -16,6 +18,20 @@ vi.mock("@/lib/systemConfig", async (importOriginal) => {
     getEffectiveWorkloadLimitHigh: (...a: unknown[]) => getEffectiveWorkloadLimitHigh(...a),
     getEffectiveWorkloadLimitOverload: (...a: unknown[]) => getEffectiveWorkloadLimitOverload(...a),
     setConfigValue: (...a: unknown[]) => setConfigValue(...a),
+    getEffectiveWelcomeMessage: (...a: unknown[]) => getEffectiveWelcomeMessage(...a),
+    getEffectiveWelcomeMessageActive: (...a: unknown[]) => getEffectiveWelcomeMessageActive(...a),
+  };
+});
+
+const getNotificationRules = vi.fn();
+const saveNotificationRules = vi.fn();
+
+vi.mock("@/lib/notificationRules", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/notificationRules")>();
+  return {
+    ...actual,
+    getNotificationRules: (...a: unknown[]) => getNotificationRules(...a),
+    saveNotificationRules: (...a: unknown[]) => saveNotificationRules(...a),
   };
 });
 
@@ -60,6 +76,10 @@ const { GET: workloadGET, PUT: workloadPUT } = await import("@/app/api/settings/
 const { GET: loginAttemptsCleanupGET, POST: loginAttemptsCleanupPOST } = await import(
   "@/app/api/settings/login-attempts/cleanup/route"
 );
+const { GET: welcomeMessageGET, PUT: welcomeMessagePUT } = await import("@/app/api/settings/welcome-message/route");
+const { GET: notificationRulesGET, PUT: notificationRulesPUT } = await import(
+  "@/app/api/settings/notification-rules/route"
+);
 
 function mockSession(overrides: Partial<SessionPayload> | null) {
   vi.mocked(getSession).mockResolvedValue(
@@ -95,6 +115,14 @@ function resetAll() {
   executePurge.mockReset();
   countExpiredLoginAttempts.mockReset();
   cleanupExpiredLoginAttempts.mockReset();
+  getEffectiveWelcomeMessage.mockReset().mockResolvedValue("");
+  getEffectiveWelcomeMessageActive.mockReset().mockResolvedValue(false);
+  getNotificationRules.mockReset().mockResolvedValue({
+    commentTargets: {},
+    firstCommentRole: null,
+    retroactiveNotifyRoles: ["COORDINADOR_NACIONAL"],
+  });
+  saveNotificationRules.mockReset().mockResolvedValue(undefined);
   vi.mocked(getSession).mockReset();
 }
 
@@ -303,5 +331,160 @@ describe("GET/PUT /api/settings/workload-config", () => {
     expect(res.status).toBe(200);
     expect(setConfigValue).toHaveBeenCalledTimes(1);
     expect(setConfigValue).toHaveBeenCalledWith("HORAS_EFECTIVAS_DIA", "7", "admin-1");
+  });
+});
+
+describe("GET/PUT /api/settings/welcome-message", () => {
+  beforeEach(resetAll);
+
+  it("GET responde 401 si no hay sesión", async () => {
+    mockSession(null);
+    const res = await welcomeMessageGET();
+    expect(res.status).toBe(401);
+  });
+
+  it("GET devuelve el mensaje efectivo — accesible para cualquier usuario autenticado, no solo Administrador", async () => {
+    mockSession({ role: "ASISTENTE_GH" });
+    getEffectiveWelcomeMessage.mockResolvedValue("Bienvenidos al nuevo mes");
+    getEffectiveWelcomeMessageActive.mockResolvedValue(true);
+    const res = await welcomeMessageGET();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ message: "Bienvenidos al nuevo mes", active: true });
+  });
+
+  it("PUT responde 401/403 según sesión y rol", async () => {
+    mockSession(null);
+    expect((await welcomeMessagePUT(jsonRequest({ message: "x", active: true }))).status).toBe(401);
+    mockSession({ role: "COORDINADOR_NACIONAL" });
+    expect((await welcomeMessagePUT(jsonRequest({ message: "x", active: true }))).status).toBe(403);
+  });
+
+  it("PUT responde 400 si el body no es JSON válido", async () => {
+    mockSession({});
+    const res = await welcomeMessagePUT(badJsonRequest());
+    expect(res.status).toBe(400);
+  });
+
+  it("PUT responde 400 si message o active tienen tipo incorrecto", async () => {
+    mockSession({});
+    expect((await welcomeMessagePUT(jsonRequest({ message: 123, active: true }))).status).toBe(400);
+    expect((await welcomeMessagePUT(jsonRequest({ message: "x", active: "true" }))).status).toBe(400);
+  });
+
+  it("PUT recorta espacios y guarda ambas claves de configuración", async () => {
+    mockSession({ userId: "admin-1" });
+    const res = await welcomeMessagePUT(jsonRequest({ message: "  Hola equipo  ", active: true }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual({ message: "Hola equipo", active: true });
+    expect(setConfigValue).toHaveBeenCalledWith("welcome_message", "Hola equipo", "admin-1");
+    expect(setConfigValue).toHaveBeenCalledWith("welcome_message_active", "true", "admin-1");
+  });
+
+  it("PUT permite desactivar y vaciar el mensaje", async () => {
+    mockSession({ userId: "admin-1" });
+    const res = await welcomeMessagePUT(jsonRequest({ message: "", active: false }));
+    expect(res.status).toBe(200);
+    expect(setConfigValue).toHaveBeenCalledWith("welcome_message", "", "admin-1");
+    expect(setConfigValue).toHaveBeenCalledWith("welcome_message_active", "false", "admin-1");
+  });
+});
+
+describe("GET/PUT /api/settings/notification-rules", () => {
+  beforeEach(resetAll);
+
+  it("GET responde 401 si no hay sesión", async () => {
+    mockSession(null);
+    const res = await notificationRulesGET();
+    expect(res.status).toBe(401);
+  });
+
+  it("GET devuelve la configuración vigente para cualquier usuario autenticado", async () => {
+    mockSession({ role: "ASISTENTE_GH" });
+    const res = await notificationRulesGET();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.retroactiveNotifyRoles).toEqual(["COORDINADOR_NACIONAL"]);
+  });
+
+  it("PUT responde 401/403 según sesión y rol", async () => {
+    mockSession(null);
+    expect((await notificationRulesPUT(jsonRequest({}))).status).toBe(401);
+    mockSession({ role: "COORDINADOR_NACIONAL" });
+    expect((await notificationRulesPUT(jsonRequest({}))).status).toBe(403);
+  });
+
+  it("PUT responde 400 si el body no es JSON válido", async () => {
+    mockSession({});
+    const res = await notificationRulesPUT(badJsonRequest());
+    expect(res.status).toBe(400);
+  });
+
+  it("PUT responde 400 si commentTargets falta o no es un objeto", async () => {
+    mockSession({});
+    const res = await notificationRulesPUT(
+      jsonRequest({ commentTargets: null, firstCommentRole: null, retroactiveNotifyRoles: [] })
+    );
+    expect(res.status).toBe(400);
+    expect(saveNotificationRules).not.toHaveBeenCalled();
+  });
+
+  it("PUT responde 400 si una clave de commentTargets no es un rol válido", async () => {
+    mockSession({});
+    const res = await notificationRulesPUT(
+      jsonRequest({
+        commentTargets: { ROL_INVENTADO: ["JEFE_NACIONAL"] },
+        firstCommentRole: null,
+        retroactiveNotifyRoles: [],
+      })
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("PUT responde 400 si algún rol destino no es válido", async () => {
+    mockSession({});
+    const res = await notificationRulesPUT(
+      jsonRequest({
+        commentTargets: { ASISTENTE_GH: ["NO_EXISTE"] },
+        firstCommentRole: null,
+        retroactiveNotifyRoles: [],
+      })
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("PUT responde 400 si firstCommentRole no es null ni un rol válido", async () => {
+    mockSession({});
+    const res = await notificationRulesPUT(
+      jsonRequest({ commentTargets: {}, firstCommentRole: "INVALIDO", retroactiveNotifyRoles: [] })
+    );
+    expect(res.status).toBe(400);
+  });
+
+  it("PUT acepta commentTargets vacío (equivalente a 'Nadie' para todos los roles)", async () => {
+    mockSession({ userId: "admin-1" });
+    const res = await notificationRulesPUT(
+      jsonRequest({ commentTargets: {}, firstCommentRole: null, retroactiveNotifyRoles: [] })
+    );
+    expect(res.status).toBe(200);
+    expect(saveNotificationRules).toHaveBeenCalledWith(
+      { commentTargets: {}, firstCommentRole: null, retroactiveNotifyRoles: [] },
+      "admin-1"
+    );
+  });
+
+  it("PUT guarda una configuración válida completa", async () => {
+    mockSession({ userId: "admin-1" });
+    const config = {
+      commentTargets: { ASISTENTE_GH: ["ANALISTA_CC"], ANALISTA_CC: [] },
+      firstCommentRole: "COORDINADOR_NACIONAL" as const,
+      retroactiveNotifyRoles: ["COORDINADOR_NACIONAL", "JEFE_NACIONAL"],
+    };
+    const res = await notificationRulesPUT(jsonRequest(config));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual(config);
+    expect(saveNotificationRules).toHaveBeenCalledWith(config, "admin-1");
   });
 });
