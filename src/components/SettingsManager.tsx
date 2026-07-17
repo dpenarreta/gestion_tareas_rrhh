@@ -9,6 +9,7 @@ import NotificationRulesSection from "@/components/settings/NotificationRulesSec
 import ActivityReasonsSection from "@/components/settings/ActivityReasonsSection";
 import HolidaysSection from "@/components/settings/HolidaysSection";
 import LeaveRecordsSection from "@/components/settings/LeaveRecordsSection";
+import KpiStartDateSection from "@/components/settings/KpiStartDateSection";
 import WelcomeMessageSection from "@/components/settings/WelcomeMessageSection";
 
 type User = {
@@ -908,6 +909,8 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
       <HolidaysSection />
 
       <LeaveRecordsSection users={users} />
+
+      <KpiStartDateSection />
 
       <SectionCard title="Solicitudes de titulares">
         <p className="text-xs text-secondary">

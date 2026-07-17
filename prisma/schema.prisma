@@ -66,6 +66,7 @@ enum TaskType {
 enum LeaveType {
   MEDICO
   PERSONAL
+  VACACIONES
 }
 
 model User {
@@ -80,6 +81,9 @@ model User {
   badges                String[]        @default([])
   dataConsentAccepted   Boolean         @default(false)
   dataConsentAcceptedAt DateTime?
+  // Ajuste puntual del Administrador: si está definida, los KPIs mensuales/semanales
+  // de este usuario se calculan desde esta fecha en vez del inicio real del período.
+  kpiStartDate          DateTime?
   createdAt             DateTime        @default(now())
   updatedAt             DateTime        @updatedAt
 
@@ -110,14 +114,20 @@ model User {
 }
 
 model ActivityReason {
-  id            String   @id @default(cuid())
-  key           String   @unique
+  id            String    @id @default(cuid())
+  key           String    @unique
   label         String
   description   String?
-  isActive      Boolean  @default(true)
-  assignedRoles String[] @default([])
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  isActive      Boolean   @default(true)
+  // Archivado: se retira del listado principal de gestión sin borrarse
+  // físicamente — el histórico de TaskActivity sigue resolviendo su label
+  // original. Distinto de isActive (que solo controla si es seleccionable
+  // para actividades nuevas); archivar fuerza isActive=false también.
+  isArchived    Boolean   @default(false)
+  archivedAt    DateTime?
+  assignedRoles String[]  @default([])
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 }
 
 model Holiday {

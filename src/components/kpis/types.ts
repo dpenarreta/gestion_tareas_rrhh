@@ -179,6 +179,7 @@ export type CargaTiempo = {
     medicoLeaveFullDay: boolean;
     personalLeaveMinutes: number;
     personalLeaveFullDay: boolean;
+    vacacionesFullDay: boolean;
   };
   semanal: WorkloadMetric & {
     weekStartLabel: string;
@@ -195,11 +196,14 @@ export type CargaTiempo = {
     holidayHours: number;
     medicoLeaveMinutes: number;
     personalLeaveMinutes: number;
+    vacacionesMinutes: number;
   };
   horasEfectivasPorDia: number;
   workloadLimitLow: number;
   workloadLimitHigh: number;
   workloadLimitOverload: number;
+  /** Ajuste puntual del Administrador (User.kpiStartDate) vigente para este usuario, si existe. */
+  kpiStartDate: string | null;
   dailyHistory: DailyCargaPoint[];
   weeklyHistory: WeeklyCargaPoint[];
 };

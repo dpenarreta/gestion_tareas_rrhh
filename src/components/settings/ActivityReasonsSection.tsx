@@ -11,8 +11,14 @@ type Reason = {
   label: string;
   description: string | null;
   isActive: boolean;
+  isArchived: boolean;
+  archivedAt: string | null;
   assignedRoles: Role[];
 };
+
+function formatArchivedDate(iso: string) {
+  return new Date(iso).toLocaleDateString("es-EC", { year: "numeric", month: "short", day: "numeric" });
+}
 
 function RoleCheckboxGrid({ selected, onChange }: { selected: Role[]; onChange: (roles: Role[]) => void }) {
   function toggle(role: Role) {
@@ -51,7 +57,7 @@ function ReasonRow({ reason, onUpdated }: { reason: Reason; onUpdated: (r: Reaso
     setEditing(true);
   }
 
-  async function save(patch: Partial<{ label: string; description: string | null; assignedRoles: Role[]; isActive: boolean }>) {
+  async function save(patch: Partial<{ label: string; description: string | null; assignedRoles: Role[]; isActive: boolean; isArchived: boolean }>) {
     setSaving(true);
     setError(null);
     try {
@@ -86,6 +92,11 @@ function ReasonRow({ reason, onUpdated }: { reason: Reason; onUpdated: (r: Reaso
 
   async function toggleActive() {
     await save({ isActive: !reason.isActive });
+  }
+
+  async function handleArchive() {
+    if (!confirm(`¿Archivar el motivo "${reason.label}"? Podrás restaurarlo desde el Archivo.`)) return;
+    await save({ isArchived: true });
   }
 
   if (editing) {
@@ -151,7 +162,60 @@ function ReasonRow({ reason, onUpdated }: { reason: Reason; onUpdated: (r: Reaso
         >
           {reason.isActive ? "Desactivar" : "Activar"}
         </button>
+        <button
+          onClick={handleArchive}
+          disabled={saving}
+          className="text-xs font-medium px-2 py-1 rounded text-secondary hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-50"
+        >
+          Archivar
+        </button>
       </div>
+    </div>
+  );
+}
+
+function ArchivedReasonRow({ reason, onRestored }: { reason: Reason; onRestored: (r: Reason) => void }) {
+  const [restoring, setRestoring] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleRestore() {
+    setRestoring(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/settings/activity-reasons/${reason.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ isArchived: false }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "Error al restaurar el motivo");
+      } else {
+        onRestored(data);
+      }
+    } catch {
+      setError("Error de conexión");
+    } finally {
+      setRestoring(false);
+    }
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-3 border border-border rounded-lg p-3">
+      <div className="min-w-0">
+        <span className="text-sm font-medium text-title">{reason.label}</span>
+        <p className="text-[11px] text-disabled mt-0.5">
+          Archivado {reason.archivedAt ? formatArchivedDate(reason.archivedAt) : ""}
+        </p>
+        {error && <p className="text-xs text-danger mt-1">{error}</p>}
+      </div>
+      <button
+        onClick={handleRestore}
+        disabled={restoring}
+        className="text-xs text-primary hover:text-primary-hover font-medium px-2 py-1 rounded hover:bg-primary-surface disabled:opacity-50 shrink-0"
+      >
+        {restoring ? "Restaurando…" : "Restaurar"}
+      </button>
     </div>
   );
 }
@@ -164,6 +228,7 @@ export default function ActivityReasonsSection() {
   const [newRoles, setNewRoles] = useState<Role[]>([]);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [archiveOpen, setArchiveOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -210,6 +275,9 @@ export default function ActivityReasonsSection() {
     setReasons((prev) => prev.map((r) => (r.id === updated.id ? updated : r)));
   }
 
+  const activeReasons = reasons.filter((r) => !r.isArchived);
+  const archivedReasons = reasons.filter((r) => r.isArchived);
+
   return (
     <SectionCard title="Motivos de actividades de seguimiento">
       {error && (
@@ -253,16 +321,42 @@ export default function ActivityReasonsSection() {
           <div className="flex justify-center items-center py-8">
             <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
           </div>
-        ) : reasons.length === 0 ? (
+        ) : activeReasons.length === 0 ? (
           <p className="text-sm text-disabled text-center py-6">No hay motivos registrados.</p>
         ) : (
           <div className="space-y-2">
-            {reasons.map((r) => (
+            {activeReasons.map((r) => (
               <ReasonRow key={r.id} reason={r} onUpdated={handleUpdated} />
             ))}
           </div>
         )}
       </div>
+
+      {!loading && archivedReasons.length > 0 && (
+        <div className="pt-2 border-t border-border">
+          <button
+            onClick={() => setArchiveOpen((v) => !v)}
+            className="w-full flex items-center gap-1.5 text-sm font-medium text-main hover:text-primary transition-colors"
+          >
+            <svg
+              className={`w-3.5 h-3.5 shrink-0 transition-transform duration-200 ${archiveOpen ? "rotate-90" : ""}`}
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+            </svg>
+            Archivo ({archivedReasons.length})
+          </button>
+          {archiveOpen && (
+            <div className="space-y-2 mt-2">
+              {archivedReasons.map((r) => (
+                <ArchivedReasonRow key={r.id} reason={r} onRestored={handleUpdated} />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </SectionCard>
   );
 }

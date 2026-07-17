@@ -303,14 +303,24 @@ export async function computeCargaTiempo(userId: string, now: Date = new Date())
   // histórico), así que las tres usan el valor vigente ahora mismo — comparar
   // contra el instante real (no medianoche del día) para que un cambio de
   // configuración hecho hoy se refleje de inmediato.
-  const [hoursPerDay, limitLowPerDay, limitHighPerDay, limitOverloadPerDay, holidays, leaveMap] = await Promise.all([
+  const [hoursPerDay, limitLowPerDay, limitHighPerDay, limitOverloadPerDay, holidays, leaveMap, user] = await Promise.all([
     getEffectiveHorasEfectivas(now),
     getEffectiveWorkloadLimitLow(now),
     getEffectiveWorkloadLimitHigh(now),
     getEffectiveWorkloadLimitOverload(now),
     getHolidaySet(),
     getLeaveMinutesByDay(userId, monthStart, monthEnd),
+    prisma.user.findUnique({ where: { id: userId }, select: { kpiStartDate: true } }),
   ]);
+
+  // Ajuste puntual del Administrador (User.kpiStartDate): si cae dentro del mes
+  // en curso, los días anteriores a esa fecha no cuentan para la base laboral
+  // ni para las horas reales de la semana/mes — solo aplica si realmente recorta
+  // el mes que se está mostrando (una fecha de un mes ya pasado no tiene efecto).
+  const kpiStartDate = user?.kpiStartDate ?? null;
+  const kpiStartApplies = !!kpiStartDate && kpiStartDate.getTime() > monthStart.getTime();
+  const effectiveMonthStart = kpiStartApplies ? kpiStartDate! : monthStart;
+  const effectiveWeekStart = kpiStartDate && kpiStartDate.getTime() > weekStart.getTime() ? kpiStartDate : weekStart;
 
   const todayIsWeekendDay = !isBusinessDay(today);
   const todayIsHolidayDay = !todayIsWeekendDay && holidays.has(today.getTime());
@@ -326,20 +336,20 @@ export async function computeCargaTiempo(userId: string, now: Date = new Date())
   const dailyLimitHigh = limitHighPerDay * dayFactor;
   const dailyLimitOverload = limitOverloadPerDay * dayFactor;
 
-  const weeklyBusinessDays = countBusinessDays(weekStart, weekEnd, holidays);
-  const weeklyBaseHours = sumWeightedBaseHours(weekStart, weekEnd, hoursPerDay, holidays, leaveMap);
-  const monthlyBusinessDays = countBusinessDays(monthStart, monthEnd, holidays);
-  const monthlyBaseHours = sumWeightedBaseHours(monthStart, monthEnd, hoursPerDay, holidays, leaveMap);
+  const weeklyBusinessDays = countBusinessDays(effectiveWeekStart, weekEnd, holidays);
+  const weeklyBaseHours = sumWeightedBaseHours(effectiveWeekStart, weekEnd, hoursPerDay, holidays, leaveMap);
+  const monthlyBusinessDays = countBusinessDays(effectiveMonthStart, monthEnd, holidays);
+  const monthlyBaseHours = sumWeightedBaseHours(effectiveMonthStart, monthEnd, hoursPerDay, holidays, leaveMap);
 
   const [diariaHours, semanalHours, mensualHours, weekendHours, monthlyWeekendHours, monthlyHolidayHours] = await Promise.all([
     realHoursInWindow(userId, today, today),
-    realHoursInWindow(userId, weekStart, weekEnd),
-    realHoursInWindow(userId, monthStart, monthEnd),
-    weekendHoursInRange(userId, weekStart, weekEnd),
-    weekendHoursInRange(userId, monthStart, monthEnd),
-    holidayHoursInRange(userId, monthStart, monthEnd, holidays),
+    realHoursInWindow(userId, effectiveWeekStart, weekEnd),
+    realHoursInWindow(userId, effectiveMonthStart, monthEnd),
+    weekendHoursInRange(userId, effectiveWeekStart, weekEnd),
+    weekendHoursInRange(userId, effectiveMonthStart, monthEnd),
+    holidayHoursInRange(userId, effectiveMonthStart, monthEnd, holidays),
   ]);
-  const monthlyLeaveTotals = totalLeaveMinutes(leaveMap, monthStart, monthEnd, hoursPerDay);
+  const monthlyLeaveTotals = totalLeaveMinutes(leaveMap, effectiveMonthStart, monthEnd, hoursPerDay);
 
   const weekBizStart = firstBusinessDay(weekStart, weekEnd, holidays) ?? weekStart;
   const weekBizEnd = lastBusinessDay(weekStart, weekEnd, holidays) ?? weekEnd;
@@ -362,6 +372,7 @@ export async function computeCargaTiempo(userId: string, now: Date = new Date())
         medicoLeaveFullDay: todayLeaveInfo?.medicoFullDay ?? false,
         personalLeaveMinutes: todayLeaveInfo?.personalMinutes ?? 0,
         personalLeaveFullDay: todayLeaveInfo?.personalFullDay ?? false,
+        vacacionesFullDay: todayLeaveInfo?.vacacionesFullDay ?? false,
       }
     : {
         ...toMetric(diariaHours, dailyBaseHours, hoursPerDay, dailyLimitLow, dailyLimitHigh, dailyLimitOverload),
@@ -370,6 +381,7 @@ export async function computeCargaTiempo(userId: string, now: Date = new Date())
         medicoLeaveFullDay: todayLeaveInfo?.medicoFullDay ?? false,
         personalLeaveMinutes: todayLeaveInfo?.personalMinutes ?? 0,
         personalLeaveFullDay: todayLeaveInfo?.personalFullDay ?? false,
+        vacacionesFullDay: todayLeaveInfo?.vacacionesFullDay ?? false,
       };
 
   return {
@@ -403,11 +415,13 @@ export async function computeCargaTiempo(userId: string, now: Date = new Date())
       holidayHours: monthlyHolidayHours,
       medicoLeaveMinutes: monthlyLeaveTotals.medicoMinutes,
       personalLeaveMinutes: monthlyLeaveTotals.personalMinutes,
+      vacacionesMinutes: monthlyLeaveTotals.vacacionesMinutes,
     },
     horasEfectivasPorDia: hoursPerDay,
     workloadLimitLow: limitLowPerDay,
     workloadLimitHigh: limitHighPerDay,
     workloadLimitOverload: limitOverloadPerDay,
+    kpiStartDate: kpiStartApplies ? kpiStartDate!.toISOString() : null,
     // El histórico (para los gráficos) es una consulta aparte y más cara
     // (computeCargaHistory) — se deja vacío aquí para que llamadores que solo
     // necesitan el snapshot actual (p. ej. el mensaje diario de Nova) no paguen
@@ -429,20 +443,32 @@ export async function computeCargaHistory(
   dailyCount = 7,
 ): Promise<{ daily: DailyCargaPoint[]; weekly: WeeklyCargaPoint[] }> {
   const today = businessCalendarDay(now);
-  const [hoursPerDay, limitLowPerDay, limitHighPerDay, limitOverloadPerDay, holidays] = await Promise.all([
+  const [hoursPerDay, limitLowPerDay, limitHighPerDay, limitOverloadPerDay, holidays, user] = await Promise.all([
     getEffectiveHorasEfectivas(now),
     getEffectiveWorkloadLimitLow(now),
     getEffectiveWorkloadLimitHigh(now),
     getEffectiveWorkloadLimitOverload(now),
     getHolidaySet(),
+    prisma.user.findUnique({ where: { id: userId }, select: { kpiStartDate: true } }),
   ]);
+  const kpiStartDate = user?.kpiStartDate ?? null;
 
   // ── Diario: últimos `dailyCount` días hábiles (incluye hoy si es hábil) ──
+  // Un kpiStartDate por usuario detiene la búsqueda hacia atrás en esa fecha:
+  // los días anteriores no cuentan para su histórico.
   const businessDaysDesc: Date[] = [];
-  for (let cursor = new Date(today); businessDaysDesc.length < dailyCount; cursor = new Date(cursor.getTime() - 86400000)) {
+  for (
+    let cursor = new Date(today);
+    businessDaysDesc.length < dailyCount && (!kpiStartDate || cursor.getTime() >= kpiStartDate.getTime());
+    cursor = new Date(cursor.getTime() - 86400000)
+  ) {
     if (isWorkingDay(cursor, holidays)) businessDaysDesc.push(new Date(cursor));
   }
   const businessDaysAsc = businessDaysDesc.reverse();
+
+  if (businessDaysAsc.length === 0) {
+    return { daily: [], weekly: [] };
+  }
 
   const dailyRangeStart = businessDaysAsc[0];
   const dailyRangeEnd = businessDaysAsc[businessDaysAsc.length - 1];
@@ -482,15 +508,19 @@ export async function computeCargaHistory(
   // ── Semanal: semanas del mes en curso, hasta la semana de hoy ──
   const monthStart = utcMonthStart(today);
   const monthEnd = utcMonthEnd(today);
+  const flooredMonthStart = kpiStartDate && kpiStartDate.getTime() > monthStart.getTime() ? kpiStartDate : monthStart;
   const weekSlices: { start: Date; end: Date }[] = [];
-  for (let cursor = monthStart; cursor <= monthEnd && cursor <= today; ) {
+  for (let cursor = flooredMonthStart; cursor <= monthEnd && cursor <= today; ) {
     const weekStartRaw = utcWeekStart(cursor);
     const weekEndRaw = utcWeekEnd(cursor);
-    const sliceStart = weekStartRaw < monthStart ? monthStart : weekStartRaw;
+    const sliceStart = weekStartRaw < flooredMonthStart ? flooredMonthStart : weekStartRaw;
     const sliceEndRaw = weekEndRaw > monthEnd ? monthEnd : weekEndRaw;
     const sliceEnd = sliceEndRaw > today ? today : sliceEndRaw;
     weekSlices.push({ start: sliceStart, end: sliceEnd });
     cursor = new Date(weekEndRaw.getTime() + 86400000);
+  }
+  if (weekSlices.length === 0) {
+    return { daily, weekly: [] };
   }
 
   const weeklyRangeStart = weekSlices[0].start;

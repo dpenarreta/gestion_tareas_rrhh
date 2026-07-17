@@ -11,7 +11,16 @@ export async function GET() {
 
   const reasons = await prisma.activityReason.findMany({
     orderBy: { createdAt: "asc" },
-    select: { id: true, key: true, label: true, description: true, isActive: true, assignedRoles: true },
+    select: {
+      id: true,
+      key: true,
+      label: true,
+      description: true,
+      isActive: true,
+      isArchived: true,
+      archivedAt: true,
+      assignedRoles: true,
+    },
   });
   return NextResponse.json(reasons);
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import type { Role } from "@/generated/prisma/client";
 import SectionCard from "./SectionCard";
 
@@ -9,7 +9,7 @@ type SimpleUser = { id: string; name: string; email: string; role: Role };
 type LeaveRecord = {
   id: string;
   userId: string;
-  type: "MEDICO" | "PERSONAL";
+  type: "MEDICO" | "PERSONAL" | "VACACIONES";
   date: string;
   isFullDay: boolean;
   durationMinutes: number | null;
@@ -20,6 +20,7 @@ type LeaveRecord = {
 const TYPE_LABEL: Record<LeaveRecord["type"], string> = {
   MEDICO: "🏥 Permiso médico",
   PERSONAL: "📋 Permiso personal",
+  VACACIONES: "🌴 Vacaciones",
 };
 
 function formatLeaveDate(iso: string) {
@@ -41,15 +42,34 @@ function clampInt(value: string, min: number, max: number): string {
   return String(Math.min(max, Math.max(min, n)));
 }
 
+/** "YYYY-MM-DD" (de un <input type="date">) -> Date UTC-medianoche, para contar días laborables igual que el servidor. */
+function parseDateOnly(value: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const [y, m, d] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(y, m - 1, d));
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function countBusinessDays(start: Date, end: Date, holidays: Set<number>): number {
+  let count = 0;
+  for (let t = start.getTime(); t <= end.getTime(); t += 86400000) {
+    const dow = new Date(t).getUTCDay();
+    if (dow !== 0 && dow !== 6 && !holidays.has(t)) count++;
+  }
+  return count;
+}
+
 export default function LeaveRecordsSection({ users }: { users: SimpleUser[] }) {
   const [records, setRecords] = useState<LeaveRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterUserId, setFilterUserId] = useState("");
   const [filterMonth, setFilterMonth] = useState(currentMonthParam());
+  const [holidays, setHolidays] = useState<Set<number>>(new Set());
 
   const [formUserId, setFormUserId] = useState("");
   const [formType, setFormType] = useState<LeaveRecord["type"]>("MEDICO");
-  const [formDate, setFormDate] = useState("");
+  const [formStartDate, setFormStartDate] = useState("");
+  const [formEndDate, setFormEndDate] = useState("");
   const [formFullDay, setFormFullDay] = useState(true);
   const [formHours, setFormHours] = useState("");
   const [formMinutes, setFormMinutes] = useState("");
@@ -57,6 +77,7 @@ export default function LeaveRecordsSection({ users }: { users: SimpleUser[] }) 
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
 
   const load = useCallback(async (userId: string, month: string) => {
     setLoading(true);
@@ -73,17 +94,36 @@ export default function LeaveRecordsSection({ users }: { users: SimpleUser[] }) 
 
   useEffect(() => { queueMicrotask(() => load(filterUserId, filterMonth)); }, [load, filterUserId, filterMonth]);
 
+  useEffect(() => {
+    queueMicrotask(async () => {
+      const res = await fetch("/api/settings/holidays");
+      if (res.ok) {
+        const data: { date: string }[] = await res.json();
+        setHolidays(new Set(data.map((h) => new Date(h.date).getTime())));
+      }
+    });
+  }, []);
+
+  const businessDaysPreview = useMemo(() => {
+    const start = parseDateOnly(formStartDate);
+    const end = parseDateOnly(formEndDate);
+    if (!start || !end || end < start) return null;
+    return countBusinessDays(start, end, holidays);
+  }, [formStartDate, formEndDate, holidays]);
+
   async function handleCreate() {
-    if (!formUserId || !formDate) {
-      setError("El usuario y la fecha son obligatorios");
+    if (!formUserId || !formStartDate || !formEndDate) {
+      setError("El usuario y el rango de fechas son obligatorios");
       return;
     }
+    const effectiveFullDay = formType === "VACACIONES" ? true : formFullDay;
     const durationMinutes = Number(formHours || 0) * 60 + Number(formMinutes || 0);
-    if (!formFullDay && durationMinutes <= 0) {
+    if (!effectiveFullDay && durationMinutes <= 0) {
       setError("Ingresa la duración del permiso parcial");
       return;
     }
     setError(null);
+    setMsg(null);
     setCreating(true);
     try {
       const res = await fetch("/api/settings/leave-records", {
@@ -92,9 +132,10 @@ export default function LeaveRecordsSection({ users }: { users: SimpleUser[] }) 
         body: JSON.stringify({
           userId: formUserId,
           type: formType,
-          date: formDate,
-          isFullDay: formFullDay,
-          durationMinutes: formFullDay ? undefined : durationMinutes,
+          startDate: formStartDate,
+          endDate: formEndDate,
+          isFullDay: effectiveFullDay,
+          durationMinutes: effectiveFullDay ? undefined : durationMinutes,
           observation: formObservation.trim() || undefined,
         }),
       });
@@ -102,7 +143,11 @@ export default function LeaveRecordsSection({ users }: { users: SimpleUser[] }) 
       if (!res.ok) {
         setError(data.error ?? "Error al registrar el permiso");
       } else {
-        setFormDate("");
+        setMsg(
+          `Permiso registrado: ${data.businessDaysCount} ${data.businessDaysCount === 1 ? "día laborable" : "días laborables"}.`
+        );
+        setFormStartDate("");
+        setFormEndDate("");
         setFormHours("");
         setFormMinutes("");
         setFormObservation("");
@@ -128,6 +173,12 @@ export default function LeaveRecordsSection({ users }: { users: SimpleUser[] }) 
 
   return (
     <SectionCard title="Permisos del personal">
+      {msg && (
+        <div className="bg-success/[.13] rounded-lg px-4 py-3 text-sm text-success flex items-center justify-between">
+          <span>{msg}</span>
+          <button onClick={() => setMsg(null)} className="ml-2 text-success hover:brightness-90 font-bold">×</button>
+        </div>
+      )}
       {error && (
         <div className="bg-danger/[.09] rounded-lg px-4 py-3 text-sm text-danger flex items-center justify-between">
           <span>{error}</span>
@@ -150,19 +201,39 @@ export default function LeaveRecordsSection({ users }: { users: SimpleUser[] }) 
           </select>
           <select
             value={formType}
-            onChange={(e) => setFormType(e.target.value as LeaveRecord["type"])}
+            onChange={(e) => {
+              const nextType = e.target.value as LeaveRecord["type"];
+              setFormType(nextType);
+              if (nextType === "VACACIONES") setFormFullDay(true);
+            }}
             className="border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
           >
             <option value="MEDICO">Permiso médico</option>
             <option value="PERSONAL">Permiso personal</option>
+            <option value="VACACIONES">Vacaciones</option>
           </select>
-          <input
-            type="date"
-            value={formDate}
-            onChange={(e) => setFormDate(e.target.value)}
-            className="border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
-          />
-          <label className="flex items-center gap-2 text-sm text-title cursor-pointer">
+          <div>
+            <label className="block text-[10px] font-semibold text-secondary mb-1 uppercase tracking-wide">Fecha inicio</label>
+            <input
+              type="date"
+              value={formStartDate}
+              onChange={(e) => setFormStartDate(e.target.value)}
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-semibold text-secondary mb-1 uppercase tracking-wide">Fecha fin</label>
+            <input
+              type="date"
+              value={formEndDate}
+              onChange={(e) => setFormEndDate(e.target.value)}
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+          </div>
+        </div>
+
+        {formType !== "VACACIONES" && (
+          <label className="flex items-center gap-2 text-sm text-title cursor-pointer w-fit">
             <input
               type="checkbox"
               checked={formFullDay}
@@ -171,9 +242,9 @@ export default function LeaveRecordsSection({ users }: { users: SimpleUser[] }) 
             />
             Día completo
           </label>
-        </div>
+        )}
 
-        {!formFullDay && (
+        {!formFullDay && formType !== "VACACIONES" && (
           <div className="grid grid-cols-2 gap-2 max-w-xs">
             <div>
               <label className="block text-[10px] font-semibold text-secondary mb-1 uppercase tracking-wide">Horas</label>
@@ -202,6 +273,14 @@ export default function LeaveRecordsSection({ users }: { users: SimpleUser[] }) 
               />
             </div>
           </div>
+        )}
+
+        {businessDaysPreview !== null && (
+          <p className={`text-xs rounded-lg px-3 py-2 ${businessDaysPreview > 0 ? "bg-primary-surface text-primary" : "bg-danger/[.09] text-danger"}`}>
+            {businessDaysPreview > 0
+              ? `Este permiso cubre ${businessDaysPreview} ${businessDaysPreview === 1 ? "día laborable" : "días laborables"}.`
+              : "El rango seleccionado no incluye días laborables (excluye fines de semana y feriados)."}
+          </p>
         )}
 
         <input

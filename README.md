@@ -321,6 +321,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-17: feat(settings,kpis): deseleccionar notificaciones, archivo de motivos, permisos por rango, ajuste de KPI por usuario
 - 2026-07-17: feat(settings): notificaciones configurables, motivos dinámicos, feriados, permisos y mensaje de bienvenida
 - 2026-07-16: fix(tasks): usar ícono de triángulo de alerta real para registro retroactivo
 - 2026-07-16: feat(activities): registro retroactivo, edición por Administrador y comentarios bidireccionales

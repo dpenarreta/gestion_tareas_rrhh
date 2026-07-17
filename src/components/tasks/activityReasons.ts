@@ -4,6 +4,8 @@ export type ActivityReasonConfig = {
   label: string;
   description: string | null;
   isActive: boolean;
+  isArchived: boolean;
+  archivedAt: string | null;
   assignedRoles: string[];
 };
 
@@ -19,9 +21,9 @@ export async function fetchActivityReasons(): Promise<ActivityReasonConfig[]> {
   }
 }
 
-/** Motivos activos y asignados al rol dado — los únicos elegibles para registrar una actividad nueva. */
+/** Motivos activos, no archivados y asignados al rol dado — los únicos elegibles para registrar una actividad nueva. */
 export function selectableReasons(reasons: ActivityReasonConfig[], role?: string): ActivityReasonConfig[] {
-  return reasons.filter((r) => r.isActive && (!role || r.assignedRoles.includes(role)));
+  return reasons.filter((r) => r.isActive && !r.isArchived && (!role || r.assignedRoles.includes(role)));
 }
 
 export function reasonLabel(reasons: ActivityReasonConfig[], key: string): string {
@@ -30,6 +32,10 @@ export function reasonLabel(reasons: ActivityReasonConfig[], key: string): strin
 
 export function reasonIsActive(reasons: ActivityReasonConfig[], key: string): boolean {
   return reasons.find((r) => r.key === key)?.isActive ?? true;
+}
+
+export function reasonIsArchived(reasons: ActivityReasonConfig[], key: string): boolean {
+  return reasons.find((r) => r.key === key)?.isArchived ?? false;
 }
 
 // Paleta rotativa asignada por hash del key — así un motivo nuevo creado desde

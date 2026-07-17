@@ -6,6 +6,7 @@ vi.mock("@/lib/prisma", () => ({
     taskActivity: { findMany: vi.fn().mockResolvedValue([]) },
     holiday: { findMany: vi.fn().mockResolvedValue([]) },
     leaveRecord: { findMany: vi.fn().mockResolvedValue([]) },
+    user: { findUnique: vi.fn().mockResolvedValue({ kpiStartDate: null }) },
   },
 }));
 
@@ -97,5 +98,47 @@ describe("computeCargaTiempo — permisos", () => {
     expect(result.diaria.personalLeaveMinutes).toBe(180);
     // factor = 1 - 3/6.5 ≈ 0.5385 → base ≈ 3.5h
     expect(result.diaria.baseHours).toBeCloseTo(3.5, 1);
+  });
+
+  it("vacaciones de día completo reducen la base diaria a 0, igual que un permiso médico completo", async () => {
+    vi.mocked(prisma.leaveRecord.findMany).mockResolvedValueOnce([
+      {
+        userId: "user-1",
+        type: "VACACIONES",
+        date: new Date(Date.UTC(2024, 0, 10)),
+        isFullDay: true,
+        durationMinutes: null,
+      },
+    ] as never);
+    const result = await computeCargaTiempo("user-1", WEDNESDAY_NOON_UTC);
+    expect(result.diaria.vacacionesFullDay).toBe(true);
+    expect(result.diaria.baseHours).toBe(0);
+    expect(result.diaria.color).toBe("green");
+  });
+});
+
+describe("computeCargaTiempo — kpiStartDate por usuario", () => {
+  it("un kpiStartDate a mitad de mes recorta la base mensual a los días laborables desde esa fecha", async () => {
+    // Miércoles 2024-01-10 "ahora"; kpiStartDate = 2024-01-08 (lunes) → el mes
+    // cuenta solo desde el lunes 8 en vez del lunes 1.
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
+      kpiStartDate: new Date(Date.UTC(2024, 0, 8)),
+    } as never);
+    const withStart = await computeCargaTiempo("user-1", WEDNESDAY_NOON_UTC);
+
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({ kpiStartDate: null } as never);
+    const withoutStart = await computeCargaTiempo("user-1", WEDNESDAY_NOON_UTC);
+
+    expect(withStart.kpiStartDate).not.toBeNull();
+    expect(withoutStart.kpiStartDate).toBeNull();
+    expect(withStart.mensual.businessDays).toBeLessThan(withoutStart.mensual.businessDays);
+  });
+
+  it("un kpiStartDate de un mes ya pasado no afecta el mes en curso", async () => {
+    vi.mocked(prisma.user.findUnique).mockResolvedValueOnce({
+      kpiStartDate: new Date(Date.UTC(2023, 11, 15)),
+    } as never);
+    const result = await computeCargaTiempo("user-1", WEDNESDAY_NOON_UTC);
+    expect(result.kpiStartDate).toBeNull();
   });
 });

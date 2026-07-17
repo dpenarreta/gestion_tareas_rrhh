@@ -28,14 +28,22 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: "Cuerpo de la solicitud inválido" }, { status: 400 });
   }
 
-  const { label, description, assignedRoles, isActive } = body as {
+  const { label, description, assignedRoles, isActive, isArchived } = body as {
     label?: string;
     description?: string | null;
     assignedRoles?: unknown;
     isActive?: boolean;
+    isArchived?: boolean;
   };
 
-  const data: { label?: string; description?: string | null; assignedRoles?: Role[]; isActive?: boolean } = {};
+  const data: {
+    label?: string;
+    description?: string | null;
+    assignedRoles?: Role[];
+    isActive?: boolean;
+    isArchived?: boolean;
+    archivedAt?: Date | null;
+  } = {};
 
   if (label !== undefined) {
     if (!label.trim()) {
@@ -55,6 +63,14 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   }
   if (isActive !== undefined) {
     data.isActive = Boolean(isActive);
+  }
+  // Archivar retira el motivo del listado principal (sin borrarlo) y lo
+  // fuerza a no-seleccionable; restaurar solo lo devuelve al listado — no
+  // reactiva automáticamente su selectabilidad.
+  if (isArchived !== undefined) {
+    data.isArchived = Boolean(isArchived);
+    data.archivedAt = isArchived ? new Date() : null;
+    if (isArchived) data.isActive = false;
   }
 
   const existing = await prisma.activityReason.findUnique({ where: { id } });

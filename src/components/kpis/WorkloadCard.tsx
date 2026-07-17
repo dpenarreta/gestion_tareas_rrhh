@@ -28,11 +28,14 @@ function Tile({
   metric,
   periodLabel,
   extraNotes,
+  leaveLines,
 }: {
   label: string;
   metric: WorkloadMetric & { isHoliday?: boolean };
   periodLabel: string;
   extraNotes?: string[];
+  /** Cuando el día tiene un permiso registrado: reemplaza la barra/semáforo por texto descriptivo. */
+  leaveLines?: string[];
 }) {
   if (metric.isWeekend || metric.isHoliday) {
     return (
@@ -50,6 +53,19 @@ function Tile({
           <p key={note} className="text-[10px] text-primary font-medium mt-0.5">{note}</p>
         ))}
         <p className="text-[10px] text-disabled mt-0.5">{periodLabel}</p>
+      </div>
+    );
+  }
+  if (leaveLines && leaveLines.length > 0) {
+    return (
+      <div className="rounded-[14px] p-4 bg-primary-surface">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-xs font-medium text-secondary">{label}</span>
+        </div>
+        {leaveLines.map((line) => (
+          <p key={line} className="text-lg font-bold text-primary leading-snug">{line}</p>
+        ))}
+        <p className="text-[10px] text-disabled mt-1">{periodLabel}</p>
       </div>
     );
   }
@@ -79,6 +95,17 @@ function formatMinutesAsHours(mins: number): string {
   return `${hoursToDisplay(mins / 60)}h`;
 }
 
+/** Líneas descriptivas del permiso del día — reemplazan la barra/semáforo cuando hay alguno registrado. */
+function dailyLeaveLines(diaria: CargaTiempo["diaria"]): string[] {
+  const lines: string[] = [];
+  if (diaria.vacacionesFullDay) lines.push("🌴 Vacaciones");
+  if (diaria.medicoLeaveFullDay) lines.push("🏥 Permiso médico");
+  else if (diaria.medicoLeaveMinutes > 0) lines.push(`🏥 Permiso médico (${hoursToDisplay(diaria.medicoLeaveMinutes / 60)}h)`);
+  if (diaria.personalLeaveFullDay) lines.push("📋 Permiso personal");
+  else if (diaria.personalLeaveMinutes > 0) lines.push(`📋 Permiso personal (${hoursToDisplay(diaria.personalLeaveMinutes / 60)}h)`);
+  return lines;
+}
+
 /** "Rangos: Subutilización <5.30 | Moderado 5.30-6.30 | Óptimo 6.30-7.30 | Elevada 7.30-8.30 | Sobrecarga >8.30" */
 function rangesSummary(base: number, limitLow: number, limitHigh: number, limitOverload: number): string {
   const low = hoursToDisplay(limitLow);
@@ -100,6 +127,7 @@ export default function WorkloadCard({ cargaTiempo }: { cargaTiempo: CargaTiempo
     workloadLimitLow,
     workloadLimitHigh,
     workloadLimitOverload,
+    kpiStartDate,
     dailyHistory,
     weeklyHistory,
   } = cargaTiempo;
@@ -114,26 +142,20 @@ export default function WorkloadCard({ cargaTiempo }: { cargaTiempo: CargaTiempo
           {hoursToDisplay(horasEfectivasPorDia)}h efectivas/día
         </span>
       </div>
-      <p className="text-[10px] text-disabled mb-3 leading-relaxed">
+      <p className={`text-[10px] text-disabled leading-relaxed ${kpiStartDate ? "mb-1" : "mb-3"}`}>
         {rangesSummary(horasEfectivasPorDia, workloadLimitLow, workloadLimitHigh, workloadLimitOverload)}
       </p>
+      {kpiStartDate && (
+        <p className="text-[10px] text-primary font-medium mb-3">
+          KPIs calculados desde {new Date(kpiStartDate).toLocaleDateString("es-EC", { day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" })} por configuración de administrador
+        </p>
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
         <Tile
           label="Hoy"
           metric={diaria}
           periodLabel="hoy"
-          extraNotes={[
-            ...(diaria.medicoLeaveFullDay
-              ? ["🏥 Permiso médico: día completo"]
-              : diaria.medicoLeaveMinutes > 0
-                ? [`🏥 Permiso médico: ${formatMinutesAsHours(diaria.medicoLeaveMinutes)}`]
-                : []),
-            ...(diaria.personalLeaveFullDay
-              ? ["📋 Permiso personal: día completo"]
-              : diaria.personalLeaveMinutes > 0
-                ? [`📋 Permiso personal: ${formatMinutesAsHours(diaria.personalLeaveMinutes)}`]
-                : []),
-          ]}
+          leaveLines={dailyLeaveLines(diaria)}
         />
         <Tile
           label="Esta semana"
@@ -156,6 +178,7 @@ export default function WorkloadCard({ cargaTiempo }: { cargaTiempo: CargaTiempo
             ...(mensual.holidayHours > 0 ? [`⚡ Feriados trabajados: ${hoursToDisplay(mensual.holidayHours)}h`] : []),
             ...(mensual.medicoLeaveMinutes > 0 ? [`🏥 Permisos médicos: ${formatMinutesAsHours(mensual.medicoLeaveMinutes)}`] : []),
             ...(mensual.personalLeaveMinutes > 0 ? [`📋 Permisos personales: ${formatMinutesAsHours(mensual.personalLeaveMinutes)}`] : []),
+            ...(mensual.vacacionesMinutes > 0 ? [`🌴 Vacaciones: ${formatMinutesAsHours(mensual.vacacionesMinutes)}`] : []),
           ]}
         />
       </div>

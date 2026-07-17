@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { Role } from "@/generated/prisma/client";
 import type { TaskActivity, ActivityComment } from "./types";
-import { reasonLabel, reasonIsActive, reasonColorClass, formatDuration, type ActivityReasonConfig } from "./activityReasons";
+import { reasonLabel, reasonIsActive, reasonIsArchived, reasonColorClass, formatDuration, type ActivityReasonConfig } from "./activityReasons";
 import { Modal, ModalHeader } from "@/components/ui/Modal";
 
 function formatActivityDateTime(iso: string): string {
@@ -61,7 +61,8 @@ export default function ActivityItem({ activity: a, taskId, currentUserId, curre
 
   const label = reasonLabel(reasons, a.reason);
   const colorClass = reasonColorClass(a.reason);
-  const reasonInactive = !reasonIsActive(reasons, a.reason);
+  const reasonArchived = reasonIsArchived(reasons, a.reason);
+  const reasonInactive = !reasonArchived && !reasonIsActive(reasons, a.reason);
   const canDelete = a.author.id === currentUserId;
   const isAdmin = currentUserRole === "ADMINISTRADOR";
 
@@ -174,6 +175,11 @@ export default function ActivityItem({ activity: a, taskId, currentUserId, curre
           <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border ${colorClass}`}>
             {label}
           </span>
+          {reasonArchived && (
+            <span className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-surface2 text-disabled">
+              Archivado
+            </span>
+          )}
           {reasonInactive && (
             <span className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-surface2 text-disabled">
               Inactivo

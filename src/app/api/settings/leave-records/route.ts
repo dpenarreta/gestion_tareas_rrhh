@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { isBusinessDay } from "@/lib/businessTime";
+import { getHolidaySet } from "@/lib/holidays";
 import type { LeaveType } from "@/generated/prisma/client";
 
 function parseDateOnly(value: string): Date | null {
@@ -50,21 +52,37 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Cuerpo de la solicitud inválido" }, { status: 400 });
   }
 
-  const { userId, type, date, isFullDay, durationMinutes, observation } = body as {
+  const { userId, type, startDate, endDate, isFullDay, durationMinutes, observation } = body as {
     userId?: string;
     type?: string;
-    date?: string;
+    startDate?: string;
+    endDate?: string;
     isFullDay?: boolean;
     durationMinutes?: number;
     observation?: string;
   };
 
-  if (!userId || !date || (type !== "MEDICO" && type !== "PERSONAL") || typeof isFullDay !== "boolean") {
+  if (
+    !userId ||
+    !startDate ||
+    !endDate ||
+    (type !== "MEDICO" && type !== "PERSONAL" && type !== "VACACIONES") ||
+    typeof isFullDay !== "boolean"
+  ) {
     return NextResponse.json({ error: "Faltan campos requeridos" }, { status: 400 });
   }
-  const parsedDate = parseDateOnly(date);
-  if (!parsedDate) {
+
+  const parsedStart = parseDateOnly(startDate);
+  const parsedEnd = parseDateOnly(endDate);
+  if (!parsedStart || !parsedEnd) {
     return NextResponse.json({ error: "Fecha inválida" }, { status: 400 });
+  }
+  if (parsedEnd < parsedStart) {
+    return NextResponse.json({ error: "La fecha fin debe ser igual o posterior a la fecha inicio" }, { status: 400 });
+  }
+
+  if (type === "VACACIONES" && !isFullDay) {
+    return NextResponse.json({ error: "Las vacaciones siempre son de día completo" }, { status: 400 });
   }
   if (!isFullDay) {
     if (!Number.isInteger(durationMinutes) || durationMinutes! <= 0 || durationMinutes! > 1440) {
@@ -77,17 +95,32 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
   }
 
-  const record = await prisma.leaveRecord.create({
-    data: {
-      userId,
-      type: type as LeaveType,
-      date: parsedDate,
-      isFullDay,
-      durationMinutes: isFullDay ? null : durationMinutes,
-      observation: observation?.trim() || null,
-      createdBy: session.userId,
-    },
-    include: { user: { select: { id: true, name: true } } },
-  });
-  return NextResponse.json(record, { status: 201 });
+  const holidays = await getHolidaySet();
+  const businessDays: Date[] = [];
+  for (let t = parsedStart.getTime(); t <= parsedEnd.getTime(); t += 86400000) {
+    const d = new Date(t);
+    if (isBusinessDay(d) && !holidays.has(d.getTime())) businessDays.push(d);
+  }
+  if (businessDays.length === 0) {
+    return NextResponse.json({ error: "El rango seleccionado no incluye días laborables" }, { status: 400 });
+  }
+
+  const trimmedObservation = observation?.trim() || null;
+  const records = await prisma.$transaction(
+    businessDays.map((date) =>
+      prisma.leaveRecord.create({
+        data: {
+          userId,
+          type: type as LeaveType,
+          date,
+          isFullDay,
+          durationMinutes: isFullDay ? null : durationMinutes,
+          observation: trimmedObservation,
+          createdBy: session.userId,
+        },
+        include: { user: { select: { id: true, name: true } } },
+      })
+    )
+  );
+  return NextResponse.json({ records, businessDaysCount: businessDays.length }, { status: 201 });
 }
