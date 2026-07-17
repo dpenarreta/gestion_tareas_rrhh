@@ -28,6 +28,8 @@ El tratamiento se apoya en más de una base de legitimación según el tipo de d
 
 `[Completar: el área legal debe confirmar esta triple base, ajustarla a la LOPDP y, si corresponde, formalizar la prueba de ponderación del interés legítimo]`.
 
+> **Nota sobre datos de salud (2026-07-17):** el registro de permisos médicos (`LeaveRecord`, tipo `MEDICO`) introduce una **categoría especial de datos personales** (dato de salud) bajo la LOPDP, que normalmente exige una base de legitimación diferenciada y más estricta que la relación laboral general — no basta con "ejecución de la relación laboral" ni con "interés legítimo" sin más. `[Completar: el área legal debe determinar la base de legitimación aplicable a los permisos médicos — p. ej. cumplimiento de una obligación legal del empleador en materia laboral/seguridad social, o consentimiento explícito diferenciado — y si corresponde alguna medida de seguridad adicional específica para esta categoría]`.
+
 ## 4. Categorías de titulares de los datos
 
 Personas colaboradoras de la organización con cuenta de usuario en Nexo (todos los roles definidos en `src/lib/roles.ts`: Jefe Nacional, Coordinador Nacional, Coordinador ZS, Analista de Clima y Cultura, Analista de Selección, Asistentes de Selección/Gestión Humana/GH ZS, Trabajo Social, Asistente de Nómina, Administrador).
@@ -49,6 +51,7 @@ Personas colaboradoras de la organización con cuenta de usuario en Nexo (todos 
 | Solicitudes de ejercicio de derechos (acceso, rectificación, eliminación) | Ejercicio de derechos por el titular desde `/profile` | `DataSubjectRequest` |
 | Intentos de inicio de sesión por IP (para limitar fuerza bruta) | Uso del sistema | `LoginAttempt` |
 | Auditoría de depuraciones ejecutadas (qué se eliminó, cuándo y por quién) | Ejecución de la política de retención por el Administrador | `DataPurgeLog` |
+| **Permisos médicos y personales** (tipo, fecha, duración u observación) — **dato de salud cuando el tipo es `MEDICO`** | Registro manual exclusivo del Administrador, no autoservicio del titular | `LeaveRecord` |
 
 ## 6. Categorías de destinatarios / encargados de tratamiento (proveedores externos)
 
@@ -87,6 +90,8 @@ Configurables por el Administrador en `/settings` → "Política de retención d
 
 La depuración de informes/tareas/documentos no es automática: el Administrador revisa una vista previa de lo que se eliminaría (`GET /api/settings/retention-policy/purge`) y confirma explícitamente la ejecución (`POST .../purge`), que queda registrada en `DataPurgeLog` con quién la ejecutó y cuántos registros de cada tipo se eliminaron.
 
+> **Pendiente (2026-07-17):** los permisos médicos y personales (`LeaveRecord`) **no tienen plazo de conservación definido ni mecanismo de depuración** — se conservan indefinidamente una vez creados, sin opción de eliminación salvo borrado manual individual por el Administrador desde `/settings`. Al tratarse de datos de salud en el caso `MEDICO`, esto es un vacío a resolver: `[Completar: el área legal debe definir el plazo de conservación aplicable a los registros de permisos, y si corresponde, se debe extender la política de retención/depuración técnica para cubrir este modelo]`.
+
 ## 10. Medidas de seguridad técnicas y organizativas
 
 - Contraseñas almacenadas únicamente en forma hasheada (`bcrypt`, 10 rondas), nunca en texto plano.
@@ -97,6 +102,7 @@ La depuración de informes/tareas/documentos no es automática: el Administrador
 - Verificación del header `Origin` en peticiones que mutan estado, como defensa adicional frente a ataques cross-site.
 - Redacción automática de tokens de integraciones externas en los logs del servidor (`src/lib/logger.ts`, `safeLog`), para que no se registren credenciales ni siquiera parcialmente.
 - Framework de pruebas automatizadas (Vitest) con cobertura de las reglas de visibilidad/permisos por rol y del control de acceso de endpoints críticos (ver README, sección 13).
+- Los permisos médicos y personales (`LeaveRecord`) están restringidos exclusivamente al rol Administrador: es el único rol que puede crear, listar o eliminar estos registros (validado en servidor en `/api/settings/leave-records`); ningún otro rol —incluida la persona titular del permiso— tiene acceso de autoservicio a esta categoría de dato.
 
 > **Nota de verificación (2026-07-16):** los hallazgos de auditoría de IT H6 (control de acceso por jerarquía en `/api/users/*`), H7 (acceso a la base de conocimiento restringido por rol) y H8 (consentimiento vinculante que bloquea el render de la app) fueron implementados el 2026-07-10 en el commit [`02e948c`](https://github.com/ajacome0494/nexo/commit/02e948c9c8f95cd359aef069fe7cc519f26ffd39) y re-verificados el 2026-07-16 en vivo contra producción (`https://nexo-phi-eight.vercel.app`, desplegada desde ese mismo commit): matriz de autorización con cuentas desechables en los cuatro niveles de rol (Coordinador Nacional bloqueado con `404` al intentar ver/eliminar/resetear una cuenta de Jefe Nacional; acceso a `/api/assistant/documents` limitado a Administrador/Jefe/Coordinador Nacional y la subida de documentos restringida solo a Administrador; SSR de `/dashboard` sin consentimiento aceptado muestra únicamente el modal, sin `AppShell` ni llamadas a datos), más confirmación de cabeceras de seguridad (CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy) presentes en la respuesta de producción. Ningún commit posterior a `02e948c` modificó los archivos que corrigió.
 
@@ -106,6 +112,7 @@ La depuración de informes/tareas/documentos no es automática: el Administrador
 - Almacenamiento de documentos internos de RRHH, que pueden contener datos de personal, en un repositorio de un proveedor externo (GitHub), fuera del perímetro directo de la base de datos de la aplicación.
 - Transferencia de datos de invitados (nombre/correo) a la API de Zoom al programar reuniones.
 - Dependencia de proveedores de infraestructura (Neon, Vercel) que alojan la totalidad de los datos personales y el tráfico de la aplicación, sin que existan hoy acuerdos de encargado de tratamiento formalizados con ninguno de los cinco proveedores externos.
+- Almacenamiento de datos de salud (permisos médicos, `LeaveRecord`) sin plazo de conservación definido ni base de legitimación diferenciada — categoría especial de datos que requiere una evaluación legal específica, distinta del resto del tratamiento de RRHH (ver sección 3 y sección 9).
 
 ## 12. Validación pendiente
 

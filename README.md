@@ -137,7 +137,7 @@ npm run dev                 # inicia el servidor de desarrollo
 | Reuniones | Creación de reuniones vía Zoom, gestión de invitados, enlace a notas de Otter.ai |
 | Mejora Continua | Registro de ideas de mejora con votación, flujo de estados y adjuntos |
 | Gestión de usuarios | Alta, edición, restablecimiento de acceso y baja de usuarios, restringido a roles con permisos de administración |
-| Ajustes | Consentimiento de tratamiento de datos, configuración de parámetros de carga laboral, gestión de solicitudes de titulares de datos, política de retención/depuración, administración de la base de conocimiento (según rol) |
+| Ajustes | Consentimiento de tratamiento de datos, configuración de parámetros de carga laboral (feriados y permisos incluidos en la base laboral), reglas de notificación por rol, motivos de actividad configurables por rol, calendario de feriados nacionales, registro de permisos médicos/personales (solo Administrador), mensaje de bienvenida del Dashboard, gestión de solicitudes de titulares de datos, política de retención/depuración, administración de la base de conocimiento (según rol) |
 | Perfil | Datos personales del usuario autenticado y cambio de contraseña |
 
 ## 10. APIs, rutas o interfaces internas
@@ -250,6 +250,7 @@ Queda pendiente ampliar la cobertura a otros módulos de `src/lib/`, a component
 | Contenido conversacional con el asistente de IA | Interacción con Nova | Procesado por el proveedor de IA en tiempo de respuesta; el contexto de tareas del usuario se construye desde la base de datos para la consulta |
 | Ideas propuestas y votos (asociados a un autor) | Módulo de mejora continua | `ImprovementIdea`, `IdeaVote`, `IdeaStatusHistory` |
 | Documentos internos de RRHH (pueden contener datos de personal) | Carga manual por roles autorizados | Repositorio privado externo (GitHub) + fragmentos indexados (`KnowledgeDocument`, `DocumentChunk`) |
+| **Permisos médicos y personales** (tipo, fecha, duración u observación) — **dato de salud cuando el tipo es médico** | Registro manual exclusivo del Administrador | `LeaveRecord` |
 
 ### Forma de tratamiento
 
@@ -270,6 +271,7 @@ Gestionar internamente los recursos humanos de la organización: asignación y s
 - Almacenamiento de documentos internos de RRHH, que pueden contener datos de personal, en un repositorio de un proveedor externo (GitHub), fuera del perímetro directo de la base de datos de la aplicación.
 - Transferencia de datos de invitados (nombre/correo) a la API de Zoom al programar reuniones.
 - Dependencia de proveedores de infraestructura (Neon para la base de datos, Vercel para el hosting) que alojan la totalidad de los datos personales del sistema, sin acuerdos de encargado de tratamiento formalizados aún con ninguno de los cinco proveedores externos utilizados.
+- Almacenamiento de datos de salud (permisos médicos, `LeaveRecord`) sin plazo de conservación definido ni base de legitimación diferenciada — categoría especial de datos que requiere evaluación legal específica (ver `docs/RAT.md`, secciones 3, 9 y 11).
 
 ### Estado de cumplimiento — mecanismos técnicos implementados
 
@@ -286,6 +288,7 @@ Gestionar internamente los recursos humanos de la organización: asignación y s
 - Formalizar acuerdos de encargado de tratamiento (o equivalentes) con los cinco proveedores externos que procesan datos personales de Nexo: **Groq** (IA), **GitHub** (almacenamiento documental), **Zoom** (videoconferencia), **Neon** (base de datos PostgreSQL gestionada) y **Vercel** (hosting/despliegue).
 - Validación legal formal del cumplimiento LOPDP por asesoría jurídica especializada en protección de datos en Ecuador, incluyendo la evaluación de transferencias internacionales de datos (los cinco proveedores operan infraestructura fuera de Ecuador) y de que el flujo de eliminación de cuenta (gestión manual del Administrador tras la solicitud) cumple los plazos y garantías exigidos por la ley.
 - Completar los campos pendientes de `docs/RAT.md` (razón social, RUC, delegado de protección de datos, etc.) con información que solo el área legal/administrativa de la organización posee.
+- Definir la base de legitimación y el plazo de conservación de los permisos médicos y personales (`LeaveRecord`), dado que incluyen datos de salud — categoría especial sin cobertura aún en la política de retención (ver `docs/RAT.md`, secciones 3 y 9).
 
 Este análisis es de carácter técnico y funcional, basado en la revisión del código y modelos de datos del repositorio. No constituye una conclusión legal definitiva.
 
@@ -312,6 +315,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 - Formalizar acuerdos de encargado de tratamiento con proveedores externos (Groq, GitHub, Zoom, Neon, Vercel) — responsabilidad del área legal.
 - Validar formalmente el cumplimiento LOPDP con asesoría jurídica especializada.
+- Definir base de legitimación y plazo de conservación para los permisos médicos y personales (`LeaveRecord`) — dato de salud sin política de retención técnica aún (área legal + posterior implementación técnica).
 
 ## Changelog
 
