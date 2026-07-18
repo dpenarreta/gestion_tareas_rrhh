@@ -621,24 +621,37 @@ export function redactSensitiveWorkloadDetail(cargaTiempo: CargaTiempo): CargaTi
       vacacionesMinutes: 0,
       specialStatusType: null,
     },
-    dailyHistory: cargaTiempo.dailyHistory.map((p) => ({ ...p, specialStatusType: null })),
+    dailyHistory: cargaTiempo.dailyHistory.map((p) => ({
+      ...p,
+      specialStatusType: null,
+      kind:
+        p.kind === "leave-medico" || p.kind === "leave-personal" || p.kind === "leave-vacaciones"
+          ? "leave-generic"
+          : p.kind,
+    })),
     weeklyHistory: cargaTiempo.weeklyHistory.map((p) => ({ ...p, specialStatusType: null })),
     sensitiveDetailVisible: false,
   };
 }
 
+function formatIsoDate(d: Date): string {
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
+}
+
 /**
- * Histórico para los gráficos de carga laboral: últimos `dailyCount` días
- * hábiles (barras) y las semanas del mes en curso hasta hoy (línea). Aparte
- * de computeCargaTiempo a propósito — es una consulta más cara y solo la
+ * Histórico para los gráficos de carga laboral: TODOS los días del mes en
+ * curso desde `kpiStartDate` (si está configurado) o el día 1, hasta HOY
+ * (nunca días futuros) — para el gráfico deslizable de "Días laborables del
+ * mes" — y las semanas del mes en curso hasta hoy (línea). Aparte de
+ * computeCargaTiempo a propósito — es una consulta más cara y solo la
  * necesitan las vistas de Analytics/Mi actividad que renderizan los gráficos.
  */
 export async function computeCargaHistory(
   userId: string,
   now: Date = new Date(),
-  dailyCount = 7,
 ): Promise<{ daily: DailyCargaPoint[]; weekly: WeeklyCargaPoint[] }> {
   const today = businessCalendarDay(now);
+  const monthStart = utcMonthStart(today);
   const [hoursPerDay, limitLowPerDay, limitHighPerDay, limitOverloadPerDay, holidays, user] = await Promise.all([
     getEffectiveHorasEfectivas(now),
     getEffectiveWorkloadLimitLow(now),
@@ -649,68 +662,110 @@ export async function computeCargaHistory(
   ]);
   const kpiStartDate = user?.kpiStartDate ?? null;
 
-  // ── Diario: últimos `dailyCount` días hábiles (incluye hoy si es hábil) ──
-  // Un kpiStartDate por usuario detiene la búsqueda hacia atrás en esa fecha:
-  // los días anteriores no cuentan para su histórico.
-  const businessDaysDesc: Date[] = [];
-  for (
-    let cursor = new Date(today);
-    businessDaysDesc.length < dailyCount && (!kpiStartDate || cursor.getTime() >= kpiStartDate.getTime());
-    cursor = new Date(cursor.getTime() - 86400000)
-  ) {
-    if (isWorkingDay(cursor, holidays)) businessDaysDesc.push(new Date(cursor));
-  }
-  const businessDaysAsc = businessDaysDesc.reverse();
+  // ── Diario: todo el rango kpiStartDate/día 1 → hoy (nunca futuro) ──
+  const effectiveMonthStart = kpiStartDate && kpiStartDate.getTime() > monthStart.getTime() ? kpiStartDate : monthStart;
+  const rangeEnd = today;
 
-  if (businessDaysAsc.length === 0) {
-    return { daily: [], weekly: [] };
-  }
+  const daily: DailyCargaPoint[] = [];
+  if (effectiveMonthStart.getTime() <= rangeEnd.getTime()) {
+    const [leaveMap, dailySpecialMap] = await Promise.all([
+      getLeaveMinutesByDay(userId, effectiveMonthStart, rangeEnd),
+      getSpecialStatusDayMap(userId, effectiveMonthStart, rangeEnd),
+    ]);
+    const { start: dailyRealStart } = businessDayRealRange(effectiveMonthStart);
+    const { end: dailyRealEnd } = businessDayRealRange(rangeEnd);
+    const [dailyFijaTasks, dailyActivities] = await Promise.all([
+      prisma.task.findMany({
+        where: { assignedToId: userId, type: "FIJA", archivedMonth: null, completedAt: { gte: dailyRealStart, lte: dailyRealEnd } },
+        select: { completedAt: true, realHours: true },
+      }),
+      prisma.taskActivity.findMany({
+        where: { authorId: userId, createdAt: { gte: dailyRealStart, lte: dailyRealEnd } },
+        select: { createdAt: true, duration: true },
+      }),
+    ]);
 
-  const dailyRangeStart = businessDaysAsc[0];
-  const dailyRangeEnd = businessDaysAsc[businessDaysAsc.length - 1];
-  const { start: dailyRealStart } = businessDayRealRange(dailyRangeStart);
-  const { end: dailyRealEnd } = businessDayRealRange(dailyRangeEnd);
-  const dailySpecialMap = await getSpecialStatusDayMap(userId, dailyRangeStart, dailyRangeEnd);
-
-  const [dailyFijaTasks, dailyActivities] = await Promise.all([
-    prisma.task.findMany({
-      where: { assignedToId: userId, type: "FIJA", archivedMonth: null, completedAt: { gte: dailyRealStart, lte: dailyRealEnd } },
-      select: { completedAt: true, realHours: true },
-    }),
-    prisma.taskActivity.findMany({
-      where: { authorId: userId, createdAt: { gte: dailyRealStart, lte: dailyRealEnd } },
-      select: { createdAt: true, duration: true },
-    }),
-  ]);
-
-  const daily: DailyCargaPoint[] = businessDaysAsc.map((day) => {
-    const { start, end } = businessDayRealRange(day);
-    const fijaHours = dailyFijaTasks
-      .filter((t) => t.completedAt! >= start && t.completedAt! <= end)
-      .reduce((s, t) => s + t.realHours, 0);
-    const activityHours =
-      dailyActivities.filter((a) => a.createdAt >= start && a.createdAt <= end).reduce((s, a) => s + a.duration, 0) / 60;
-    const realHours = Math.round((fijaHours + activityHours) * 100) / 100;
-    const dayCfg = dailySpecialMap.get(day.getTime()) ?? null;
-    const dayBaseHours = dayCfg ? dayCfg.dailyHours : hoursPerDay;
-    const dayClassificationBase = dayCfg ? dayCfg.limitBase : hoursPerDay;
-    const dayLimitLow = dayCfg ? dayCfg.limitLow : limitLowPerDay;
-    const dayLimitHigh = dayCfg ? dayCfg.limitHigh : limitHighPerDay;
-    const dayLimitOverload = dayCfg ? dayCfg.limitOverload : limitOverloadPerDay;
-    const range = computeWorkloadRange(realHours, dayClassificationBase, dayLimitLow, dayLimitHigh, dayLimitOverload);
-    return {
-      date: `${day.getUTCFullYear()}-${String(day.getUTCMonth() + 1).padStart(2, "0")}-${String(day.getUTCDate()).padStart(2, "0")}`,
-      dayLabel: `${DAY_ABBR[day.getUTCDay()]} ${formatShortDate(day)}`,
-      realHours,
-      baseHours: dayBaseHours,
-      color: range.color,
-      label: range.label,
-      specialStatusType: dayCfg?.type ?? null,
+    const realHoursForDay = (day: Date): number => {
+      const { start, end } = businessDayRealRange(day);
+      const fijaHours = dailyFijaTasks
+        .filter((t) => t.completedAt! >= start && t.completedAt! <= end)
+        .reduce((s, t) => s + t.realHours, 0);
+      const activityHours =
+        dailyActivities.filter((a) => a.createdAt >= start && a.createdAt <= end).reduce((s, a) => s + a.duration, 0) / 60;
+      return Math.round((fijaHours + activityHours) * 100) / 100;
     };
-  });
+
+    for (let t = effectiveMonthStart.getTime(); t <= rangeEnd.getTime(); t += 86400000) {
+      const day = new Date(t);
+      const realHours = realHoursForDay(day);
+      const dayCfg = dailySpecialMap.get(t) ?? null;
+      const specialStatusType = dayCfg?.type ?? null;
+      const base = {
+        date: formatIsoDate(day),
+        dayLabel: `${DAY_ABBR[day.getUTCDay()]} ${formatShortDate(day)}`,
+        specialStatusType,
+      };
+
+      // Fin de semana: sin base laboral — solo aparece si se trabajó ese día (extra).
+      if (!isBusinessDay(day)) {
+        if (realHours > 0) {
+          daily.push({ ...base, realHours, baseHours: 0, color: "orange", label: "Carga elevada", kind: "weekend-extra" });
+        }
+        continue;
+      }
+
+      // Feriado configurado: sin base laboral, se muestra igual (barra gris).
+      if (holidays.has(t)) {
+        daily.push({ ...base, realHours, baseHours: 0, color: "green", label: "Óptimo", kind: "holiday" });
+        continue;
+      }
+
+      const leaveInfo = leaveMap.get(t);
+      if (leaveInfo?.medicoFullDay) {
+        daily.push({ ...base, realHours, baseHours: 0, color: "green", label: "Óptimo", kind: "leave-medico" });
+        continue;
+      }
+      if (leaveInfo?.personalFullDay) {
+        daily.push({ ...base, realHours, baseHours: 0, color: "green", label: "Óptimo", kind: "leave-personal" });
+        continue;
+      }
+      if (leaveInfo?.vacacionesFullDay) {
+        daily.push({ ...base, realHours, baseHours: 0, color: "green", label: "Óptimo", kind: "leave-vacaciones" });
+        continue;
+      }
+
+      // Día laborable normal — un permiso parcial (médico/personal) reduce
+      // proporcionalmente la base y los 4 límites del día, igual que en
+      // computeCargaTiempo (ver dayFactor allí).
+      const dayDailyHours = dayCfg ? dayCfg.dailyHours : hoursPerDay;
+      const dayClassificationBase = dayCfg ? dayCfg.limitBase : hoursPerDay;
+      const dayLimitLow = dayCfg ? dayCfg.limitLow : limitLowPerDay;
+      const dayLimitHigh = dayCfg ? dayCfg.limitHigh : limitHighPerDay;
+      const dayLimitOverload = dayCfg ? dayCfg.limitOverload : limitOverloadPerDay;
+      const leaveHours = leaveHoursForDay(leaveInfo, dayDailyHours);
+      const dayFactor = dayDailyHours > 0 ? Math.max(0, 1 - leaveHours / dayDailyHours) : 1;
+      const dayBaseHours = dayDailyHours * dayFactor;
+      const dayClassBase = dayClassificationBase * dayFactor;
+      const range = computeWorkloadRange(
+        realHours,
+        dayClassBase,
+        dayLimitLow * dayFactor,
+        dayLimitHigh * dayFactor,
+        dayLimitOverload * dayFactor,
+      );
+      const isEmpty = realHours === 0 && leaveHours === 0;
+      daily.push({
+        ...base,
+        realHours,
+        baseHours: dayBaseHours,
+        color: range.color,
+        label: range.label,
+        kind: isEmpty ? "empty" : "normal",
+      });
+    }
+  }
 
   // ── Semanal: semanas del mes en curso, hasta la semana de hoy ──
-  const monthStart = utcMonthStart(today);
   const monthEnd = utcMonthEnd(today);
   const flooredMonthStart = kpiStartDate && kpiStartDate.getTime() > monthStart.getTime() ? kpiStartDate : monthStart;
   const weekSlices: { start: Date; end: Date }[] = [];

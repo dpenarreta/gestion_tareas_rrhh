@@ -50,6 +50,16 @@ describe("Sidebar", () => {
     expect(screen.getByText("Ajustes")).toBeInTheDocument();
   });
 
+  it("JEFE_NACIONAL no ve el enlace 'Trabajo' (no gestiona tareas propias)", () => {
+    renderSidebar({ role: "JEFE_NACIONAL" });
+    expect(screen.queryByText("Trabajo")).not.toBeInTheDocument();
+  });
+
+  it("otros roles con equipo (COORDINADOR_NACIONAL) sí ven 'Trabajo'", () => {
+    renderSidebar({ role: "COORDINADOR_NACIONAL" });
+    expect(screen.getByText("Trabajo")).toBeInTheDocument();
+  });
+
   it("marca como activo el enlace cuya href coincide con el pathname actual", () => {
     usePathname.mockReturnValue("/tasks");
     renderSidebar({ role: "ASISTENTE_GH" });

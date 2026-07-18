@@ -155,7 +155,28 @@ export type WorkloadMetric = {
 /** Estado especial de personal (maternidad/lactancia) — mientras esté vigente, sus límites configurados por registro reemplazan a los globales. */
 export type SpecialStatusType = "MATERNIDAD" | "LACTANCIA";
 
-/** Un día laborable en el histórico de carga (gráfico de barras). */
+/**
+ * Tipo de día en el histórico mensual de carga — determina el color/etiqueta de
+ * la barra en el gráfico deslizable (ver DailyCargaBarChart en KpiCharts.tsx):
+ * - `normal`/`empty`: día laborable con/sin registro, usa el semáforo de color.
+ * - `holiday`: feriado configurado.
+ * - `leave-medico`/`leave-personal`/`leave-vacaciones`: permiso o vacaciones de día completo.
+ * - `leave-generic`: igual que los anteriores pero con el tipo redactado (ver
+ *   `redactSensitiveWorkloadDetail`) — dato de salud visible solo para el
+ *   propio titular y el Administrador.
+ * - `weekend-extra`: sábado/domingo con horas registradas (fuera de la base laboral).
+ */
+export type CargaDayKind =
+  | "normal"
+  | "empty"
+  | "holiday"
+  | "leave-medico"
+  | "leave-personal"
+  | "leave-vacaciones"
+  | "leave-generic"
+  | "weekend-extra";
+
+/** Un día del histórico mensual de carga (gráfico de barras deslizable). */
 export type DailyCargaPoint = {
   date: string;
   dayLabel: string;
@@ -165,6 +186,7 @@ export type DailyCargaPoint = {
   label: WorkloadLabel;
   /** Estado especial vigente ese día (si alguno) — para la etiqueta "👶 Jornada especial" en el gráfico. */
   specialStatusType: SpecialStatusType | null;
+  kind: CargaDayKind;
 };
 
 /** Una semana (posiblemente parcial) del mes en curso, para el gráfico de línea. */
@@ -237,6 +259,68 @@ export type CargaTiempo = {
    * Ver `redactSensitiveWorkloadDetail` en `src/lib/workload.ts` y `docs/RAT.md`.
    */
   sensitiveDetailVisible: boolean;
+};
+
+// ── Dashboard ejecutivo (JEFE_NACIONAL) ─────────────────────────────────────
+
+export type ExecutiveAlertPerson = {
+  type: "cumplimiento" | "sobrecarga";
+  userId: string;
+  name: string;
+  value: number;
+};
+
+export type ExecutivePendingIdea = {
+  id: string;
+  title: string;
+  status: string;
+  authorName: string;
+};
+
+export type ExecutiveRankingMember = {
+  id: string;
+  name: string;
+  role: string;
+  score: number;
+  /** score de este mes menos el del mes anterior (0 si no hay mes anterior con datos). */
+  scoreTrend: number;
+  completedPct: number;
+  cargaPct: number;
+  cargaRealHours: number;
+  cargaBaseHours: number;
+  cargaColor: WorkloadColor;
+  cargaLabel: WorkloadLabel;
+  totalTasks: number;
+};
+
+export type ExecutiveWorkloadPoint = {
+  id: string;
+  name: string;
+  realHours: number;
+  baseHours: number;
+  color: WorkloadColor;
+};
+
+export type ExecutiveDashboardData = {
+  month: string;
+  overview: {
+    avgCumplimiento: number;
+    avgCumplimientoColor: KpiColor;
+    sobrecargaCount: number;
+    subutilizacionCount: number;
+    totalHoras: number;
+    totalConsultas: number;
+  };
+  trend: Array<{ month: string; label: string; avgCumplimiento: number }>;
+  /** Cumplimiento promedio de este mes menos el del mes anterior. */
+  trendDelta: number;
+  alerts: {
+    lowCumplimiento: ExecutiveAlertPerson[];
+    sobrecarga: ExecutiveAlertPerson[];
+    pendingIdeas: ExecutivePendingIdea[];
+  };
+  ranking: ExecutiveRankingMember[];
+  workload: ExecutiveWorkloadPoint[];
 };
 
 export type KpiData = {

@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef } from "react";
 import { useTheme } from "next-themes";
 import {
   BarChart,
@@ -15,7 +16,7 @@ import {
   ReferenceLine,
   Cell,
 } from "recharts";
-import type { KpiData, KpiColor, WorkloadColor, DailyCargaPoint, WeeklyCargaPoint } from "./types";
+import type { KpiData, KpiColor, WorkloadColor, CargaDayKind, DailyCargaPoint, WeeklyCargaPoint } from "./types";
 import { hoursToDisplay } from "@/lib/timeFormat";
 
 export const REASON_LABEL: Record<string, string> = {
@@ -52,6 +53,10 @@ function useChartTheme() {
     warning: dark ? "#E2A93B" : "#B27B10",
     orange: dark ? "#fb923c" : "#f97316",
     danger: dark ? "#E15A5A" : "#D14343",
+    // Días especiales del gráfico mensual deslizable (permisos/vacaciones/feriado).
+    leaveBlue: dark ? "#60a5fa" : "#93c5fd",
+    leaveGreen: dark ? "#4ade80" : "#86efac",
+    holidayGray: dark ? "#6b7280" : "#94a3b8",
   };
 }
 
@@ -237,7 +242,45 @@ export function ConsultasBarChart({ data }: { data: KpiData["seguimiento"]["byRe
   );
 }
 
-// ── Carga laboral: barras diarias (últimos días hábiles) ─────────────────────
+// ── Carga laboral: barras diarias (mes en curso, deslizable) ─────────────────
+
+const KIND_LABEL: Record<CargaDayKind, string> = {
+  normal: "",
+  empty: "Sin registro",
+  holiday: "Feriado",
+  "leave-medico": "🏥 Permiso médico",
+  "leave-personal": "📋 Permiso personal",
+  "leave-vacaciones": "🌴 Vacaciones",
+  "leave-generic": "📋 Ausencia justificada",
+  "weekend-extra": "⚡ Extra (fin de semana)",
+};
+
+/** Alto nominal (h) para que días con 0 horas reales (feriado/permiso/vacío) se vean como una barra fina. */
+const NOMINAL_BAR_HEIGHT = 0.15;
+
+function dayBarValue(p: DailyCargaPoint): number {
+  if (p.realHours > 0) return p.realHours;
+  return p.kind === "normal" ? 0 : NOMINAL_BAR_HEIGHT;
+}
+
+function dayFill(p: DailyCargaPoint, ct: ReturnType<typeof useChartTheme>): string {
+  switch (p.kind) {
+    case "holiday":
+      return ct.holidayGray;
+    case "leave-medico":
+    case "leave-personal":
+    case "leave-generic":
+      return ct.leaveBlue;
+    case "leave-vacaciones":
+      return ct.leaveGreen;
+    case "weekend-extra":
+      return ct.primary;
+    case "empty":
+      return "transparent";
+    default:
+      return workloadColorHex(p.color, ct);
+  }
+}
 
 function CargaTooltip({
   active,
@@ -255,6 +298,7 @@ function CargaTooltip({
   if (!active || !payload || payload.length === 0) return null;
   const p = payload[0].payload;
   const title = "dayLabel" in p ? p.dayLabel : p.weekLabel;
+  const kind = "kind" in p ? p.kind : "normal";
   return (
     <div
       style={{
@@ -267,13 +311,38 @@ function CargaTooltip({
       }}
     >
       <p style={{ fontWeight: 600, marginBottom: 4 }}>{title}</p>
-      <p>{hoursToDisplay(p.realHours)}h reales</p>
-      <p style={{ opacity: 0.75 }}>{p.label}</p>
+      <p>{hoursToDisplay(p.realHours)}h registradas</p>
+      {kind === "normal" ? (
+        <p style={{ opacity: 0.75 }}>{p.label}</p>
+      ) : (
+        <p style={{ opacity: 0.85 }}>{KIND_LABEL[kind]}</p>
+      )}
       {p.specialStatusType && <p style={{ marginTop: 2 }}>👶 Jornada especial</p>}
     </div>
   );
 }
 
+function LegendDot({ color, label, dashed }: { color: string; label: string; dashed?: boolean }) {
+  return (
+    <span className="flex items-center gap-1.5">
+      <span
+        className="w-2.5 h-2.5 rounded-sm shrink-0"
+        style={{ background: dashed ? "transparent" : color, border: `1.5px ${dashed ? "dashed" : "solid"} ${color}` }}
+      />
+      {label}
+    </span>
+  );
+}
+
+const DAY_SLOT_WIDTH = 44;
+const MIN_CHART_WIDTH = 320;
+
+/**
+ * Gráfico deslizable de días laborables del mes en curso (kpiStartDate o día 1
+ * → hoy). Muestra scroll horizontal cuando hay más días de los que caben en el
+ * ancho visible, posicionado por defecto en el extremo derecho (días más
+ * recientes) — el usuario desliza hacia la izquierda para ver días anteriores.
+ */
 export function DailyCargaBarChart({
   points,
   baseHours,
@@ -284,53 +353,80 @@ export function DailyCargaBarChart({
   optimalMax: number;
 }) {
   const ct = useChartTheme();
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
+  }, [points.length]);
+
   if (points.length === 0) {
     return (
       <div className="flex items-center justify-center h-40 text-secondary text-sm">
-        Sin días hábiles registrados en el período
+        Sin días registrados en el período
       </div>
     );
   }
+
+  const chartData = points.map((p) => ({ ...p, barValue: dayBarValue(p) }));
+  const chartWidth = Math.max(points.length * DAY_SLOT_WIDTH, MIN_CHART_WIDTH);
+  const hasSpecialKinds = points.some((p) => p.kind !== "normal" && p.kind !== "empty");
+
   return (
-    <ResponsiveContainer width="100%" height={200}>
-      <BarChart data={points} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} vertical={false} />
-        <XAxis dataKey="dayLabel" tick={{ fontSize: 11, fill: ct.axis }} axisLine={false} tickLine={false} />
-        <YAxis
-          tick={{ fontSize: 11, fill: ct.axisMuted }}
-          axisLine={false}
-          tickLine={false}
-          tickFormatter={(v: number) => `${hoursToDisplay(v)}h`}
-          domain={[0, (dataMax: number) => Math.ceil(Math.max(dataMax, optimalMax) * 1.15)]}
-        />
-        <Tooltip
-          content={<CargaTooltip tooltipBg={ct.tooltipBg} tooltipBorder={ct.tooltipBorder} tooltipText={ct.tooltipText} />}
-        />
-        {baseHours > 0 && (
-          <ReferenceLine
-            y={baseHours}
-            stroke={ct.axis}
-            strokeDasharray="4 4"
-            strokeWidth={1.5}
-            label={{ value: `Base ${hoursToDisplay(baseHours)}h`, position: "insideBottomLeft", fontSize: 10, fill: ct.axis }}
+    <div>
+      <div ref={scrollRef} className="overflow-x-auto">
+        <BarChart width={chartWidth} height={200} data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} vertical={false} />
+          <XAxis dataKey="dayLabel" tick={{ fontSize: 11, fill: ct.axis }} axisLine={false} tickLine={false} interval={0} />
+          <YAxis
+            tick={{ fontSize: 11, fill: ct.axisMuted }}
+            axisLine={false}
+            tickLine={false}
+            tickFormatter={(v: number) => `${hoursToDisplay(v)}h`}
+            domain={[0, (dataMax: number) => Math.ceil(Math.max(dataMax, optimalMax) * 1.15)]}
           />
-        )}
-        {optimalMax > 0 && (
-          <ReferenceLine
-            y={optimalMax}
-            stroke={ct.success}
-            strokeDasharray="4 4"
-            strokeWidth={1.5}
-            label={{ value: `Límite óptimo ${hoursToDisplay(optimalMax)}h`, position: "insideTopRight", fontSize: 10, fill: ct.success }}
+          <Tooltip
+            content={<CargaTooltip tooltipBg={ct.tooltipBg} tooltipBorder={ct.tooltipBorder} tooltipText={ct.tooltipText} />}
           />
-        )}
-        <Bar dataKey="realHours" radius={[4, 4, 0, 0]} maxBarSize={32}>
-          {points.map((p, i) => (
-            <Cell key={i} fill={workloadColorHex(p.color, ct)} />
-          ))}
-        </Bar>
-      </BarChart>
-    </ResponsiveContainer>
+          {baseHours > 0 && (
+            <ReferenceLine
+              y={baseHours}
+              stroke={ct.axis}
+              strokeDasharray="4 4"
+              strokeWidth={1.5}
+              label={{ value: `Base ${hoursToDisplay(baseHours)}h`, position: "insideBottomLeft", fontSize: 10, fill: ct.axis }}
+            />
+          )}
+          {optimalMax > 0 && (
+            <ReferenceLine
+              y={optimalMax}
+              stroke={ct.success}
+              strokeDasharray="4 4"
+              strokeWidth={1.5}
+              label={{ value: `Límite óptimo ${hoursToDisplay(optimalMax)}h`, position: "insideTopRight", fontSize: 10, fill: ct.success }}
+            />
+          )}
+          <Bar dataKey="barValue" radius={[4, 4, 0, 0]} maxBarSize={26}>
+            {chartData.map((p, i) => (
+              <Cell
+                key={i}
+                fill={dayFill(p, ct)}
+                stroke={p.kind === "weekend-extra" ? ct.primary : p.kind === "empty" ? ct.grid : "none"}
+                strokeDasharray={p.kind === "weekend-extra" || p.kind === "empty" ? "3 2" : undefined}
+                strokeWidth={p.kind === "weekend-extra" || p.kind === "empty" ? 1.5 : 0}
+              />
+            ))}
+          </Bar>
+        </BarChart>
+      </div>
+      {hasSpecialKinds && (
+        <div className="flex flex-wrap gap-x-4 gap-y-1 mt-2 text-[10px] text-secondary">
+          <LegendDot color={ct.holidayGray} label="Feriado" />
+          <LegendDot color={ct.leaveBlue} label="🏥/📋 Permiso" />
+          <LegendDot color={ct.leaveGreen} label="🌴 Vacaciones" />
+          <LegendDot color={ct.primary} dashed label="⚡ Extra fin de semana" />
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -389,5 +485,93 @@ export function WeeklyCargaLineChart({
         />
       </LineChart>
     </ResponsiveContainer>
+  );
+}
+
+// ── Carga laboral del equipo: barras agrupadas por persona (real vs base) ────
+
+const TEAM_SLOT_WIDTH = 68;
+const TEAM_MIN_CHART_WIDTH = 320;
+
+function TeamWorkloadTooltip({
+  active,
+  payload,
+  tooltipBg,
+  tooltipBorder,
+  tooltipText,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload: { name: string; realHours: number; baseHours: number; color: WorkloadColor } }>;
+  tooltipBg: string;
+  tooltipBorder: string;
+  tooltipText: string;
+}) {
+  if (!active || !payload || payload.length === 0) return null;
+  const p = payload[0].payload;
+  return (
+    <div
+      style={{
+        borderRadius: 8,
+        border: `1px solid ${tooltipBorder}`,
+        fontSize: 12,
+        background: tooltipBg,
+        color: tooltipText,
+        padding: "8px 10px",
+      }}
+    >
+      <p style={{ fontWeight: 600, marginBottom: 4 }}>{p.name}</p>
+      <p>{hoursToDisplay(p.realHours)}h reales</p>
+      <p style={{ opacity: 0.75 }}>Base esperada: {hoursToDisplay(p.baseHours)}h</p>
+    </div>
+  );
+}
+
+/** Gráfico de carga laboral del equipo: horas reales (coloreadas por semáforo) vs base esperada, por persona. Deslizable si hay muchas personas. */
+export function TeamWorkloadBarChart({
+  data,
+}: {
+  data: Array<{ id: string; name: string; realHours: number; baseHours: number; color: WorkloadColor }>;
+}) {
+  const ct = useChartTheme();
+  if (data.length === 0) {
+    return (
+      <div className="flex items-center justify-center h-40 text-secondary text-sm">
+        Sin colaboradores para mostrar
+      </div>
+    );
+  }
+  const chartWidth = Math.max(data.length * TEAM_SLOT_WIDTH, TEAM_MIN_CHART_WIDTH);
+  return (
+    <div className="overflow-x-auto">
+      <BarChart width={chartWidth} height={260} data={data} margin={{ top: 5, right: 10, left: -10, bottom: 40 }}>
+        <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} vertical={false} />
+        <XAxis
+          dataKey="name"
+          tick={{ fontSize: 10, fill: ct.axis }}
+          axisLine={false}
+          tickLine={false}
+          interval={0}
+          angle={-35}
+          textAnchor="end"
+          height={60}
+        />
+        <YAxis
+          tick={{ fontSize: 11, fill: ct.axisMuted }}
+          axisLine={false}
+          tickLine={false}
+          tickFormatter={(v: number) => `${hoursToDisplay(v)}h`}
+        />
+        <Tooltip
+          content={<TeamWorkloadTooltip tooltipBg={ct.tooltipBg} tooltipBorder={ct.tooltipBorder} tooltipText={ct.tooltipText} />}
+        />
+        <Legend wrapperStyle={{ fontSize: 12, paddingTop: 4, color: ct.axis }} />
+        <Bar dataKey="baseHours" name="Base esperada" fill={ct.track} radius={[4, 4, 0, 0]} maxBarSize={20} />
+        <Bar dataKey="realHours" name="Horas reales" radius={[4, 4, 0, 0]} maxBarSize={20}>
+          {data.map((d, i) => (
+            <Cell key={i} fill={workloadColorHex(d.color, ct)} />
+          ))}
+        </Bar>
+      </BarChart>
+    </div>
   );
 }

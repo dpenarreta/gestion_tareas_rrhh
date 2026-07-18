@@ -1,0 +1,221 @@
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { getSession } from "@/lib/session";
+import { getSubordinateRoles } from "@/lib/roles";
+import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct, type MonthlyBusinessBase } from "@/lib/workload";
+import { businessDayRealRange } from "@/lib/businessTime";
+import type { ExecutiveDashboardData } from "@/components/kpis/types";
+import type { KpiColor, WorkloadColor, WorkloadLabel } from "@/components/kpis/types";
+
+function monthBounds(year: number, month: number) {
+  const start = new Date(year, month - 1, 1);
+  const end = new Date(year, month, 0, 23, 59, 59, 999);
+  return { start, end };
+}
+
+function monthLabel(year: number, month: number) {
+  return new Date(year, month - 1, 1).toLocaleDateString("es-CL", { month: "short", year: "2-digit" });
+}
+
+function cumplimientoColor(pct: number): KpiColor {
+  if (pct >= 80) return "green";
+  if (pct >= 60) return "yellow";
+  return "red";
+}
+
+type MemberMonthKpi = {
+  id: string;
+  name: string;
+  role: string;
+  completedPct: number;
+  cargaPct: number;
+  cargaRealHours: number;
+  cargaBaseHours: number;
+  cargaColor: WorkloadColor;
+  cargaLabel: WorkloadLabel;
+  totalTasks: number;
+  score: number;
+};
+
+const EMPTY_RESPONSE: ExecutiveDashboardData = {
+  month: "",
+  overview: { avgCumplimiento: 0, avgCumplimientoColor: "red", sobrecargaCount: 0, subutilizacionCount: 0, totalHoras: 0, totalConsultas: 0 },
+  trend: [],
+  trendDelta: 0,
+  alerts: { lowCumplimiento: [], sobrecarga: [], pendingIdeas: [] },
+  ranking: [],
+  workload: [],
+};
+
+export async function GET() {
+  const session = await getSession();
+  if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+  // Dashboard ejecutivo exclusivo de Jefe Nacional (ver Analytics § dashboard ejecutivo).
+  if (session.role !== "JEFE_NACIONAL")
+    return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
+
+  // getSubordinateRoles(JEFE_NACIONAL) excluye tanto al propio Jefe Nacional como
+  // al Administrador (VISIBLE_ROLES no lo incluye) — el ranking nunca los muestra.
+  const subordinateRoles = getSubordinateRoles(session.role);
+  const users = await prisma.user.findMany({
+    where: { role: { in: subordinateRoles } },
+    select: { id: true, name: true, role: true },
+    orderBy: { name: "asc" },
+  });
+  const userIds = users.map((u) => u.id);
+
+  if (userIds.length === 0) {
+    return NextResponse.json(EMPTY_RESPONSE);
+  }
+
+  const now = new Date();
+  const months = Array.from({ length: 6 }, (_, i) => {
+    const d = new Date(now.getFullYear(), now.getMonth() - (5 - i), 1);
+    return { year: d.getFullYear(), month: d.getMonth() + 1 };
+  });
+
+  const rangeStart = monthBounds(months[0].year, months[0].month).start;
+  const rangeEnd = monthBounds(months[months.length - 1].year, months[months.length - 1].month).end;
+
+  const monthBusinessInfo = await Promise.all(
+    months.map(async ({ year, month }) => {
+      const { shared, perUser } = await monthlyBusinessBaseForUsers(userIds, year, month);
+      const { start: realStart } = businessDayRealRange(shared.start);
+      const { end: realEnd } = businessDayRealRange(shared.end);
+      return { year, month, ...shared, realStart, realEnd, perUser };
+    }),
+  );
+  const rangeRealStart = monthBusinessInfo[0].realStart;
+  const rangeRealEnd = monthBusinessInfo[monthBusinessInfo.length - 1].realEnd;
+
+  const [allTasks, allActivities, fijaTasksForCarga, activitiesForCarga, pendingIdeasRaw] = await Promise.all([
+    prisma.task.findMany({
+      where: { assignedToId: { in: userIds }, endDate: { gte: rangeStart, lte: rangeEnd } },
+      select: { assignedToId: true, status: true, endDate: true, progress: true },
+    }),
+    prisma.taskActivity.findMany({
+      where: { authorId: { in: userIds }, createdAt: { gte: rangeStart, lte: rangeEnd }, task: { type: "SEGUIMIENTO" } },
+      select: { authorId: true, createdAt: true },
+    }),
+    prisma.task.findMany({
+      where: { assignedToId: { in: userIds }, type: "FIJA", archivedMonth: null, completedAt: { gte: rangeRealStart, lte: rangeRealEnd } },
+      select: { assignedToId: true, realHours: true, completedAt: true },
+    }),
+    prisma.taskActivity.findMany({
+      where: { authorId: { in: userIds }, createdAt: { gte: rangeRealStart, lte: rangeRealEnd } },
+      select: { authorId: true, duration: true, createdAt: true },
+    }),
+    prisma.improvementIdea.findMany({
+      where: { status: { in: ["PROPUESTA", "EN_REVISION"] } },
+      select: { id: true, title: true, status: true, author: { select: { name: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 10,
+    }),
+  ]);
+
+  function bizForUser(bizInfo: (typeof monthBusinessInfo)[number], userId: string): MonthlyBusinessBase {
+    return bizInfo.perUser.get(userId) ?? bizInfo;
+  }
+
+  const monthSnapshots = monthBusinessInfo.map((bizInfo) => {
+    const { start, end } = monthBounds(bizInfo.year, bizInfo.month);
+    const monthTasks = allTasks.filter((t) => t.endDate >= start && t.endDate <= end);
+    const monthActs = allActivities.filter((a) => a.createdAt >= start && a.createdAt <= end);
+    const monthFija = fijaTasksForCarga.filter((t) => t.completedAt! >= bizInfo.realStart && t.completedAt! <= bizInfo.realEnd);
+    const monthCargaActs = activitiesForCarga.filter((a) => a.createdAt >= bizInfo.realStart && a.createdAt <= bizInfo.realEnd);
+
+    const members: MemberMonthKpi[] = users.map((user) => {
+      const tasks = monthTasks.filter((t) => t.assignedToId === user.id);
+      const completed = tasks.filter((t) => t.status === "COMPLETADA").length;
+      const completedPct = tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0;
+
+      const fijaHours = monthFija.filter((t) => t.assignedToId === user.id).reduce((s, t) => s + t.realHours, 0);
+      const activityHours = monthCargaActs.filter((a) => a.authorId === user.id).reduce((s, a) => s + a.duration, 0) / 60;
+      const cargaRealHours = Math.round((fijaHours + activityHours) * 100) / 100;
+
+      const userBiz = bizForUser(bizInfo, user.id);
+      const cargaRange = computeWorkloadRange(cargaRealHours, userBiz.limitBaseHours, userBiz.limitLowHours, userBiz.limitHighHours, userBiz.limitOverloadHours);
+      const cargaPct = computeWorkloadPct(cargaRealHours, userBiz.limitBaseHours, cargaRange.max);
+
+      const inProgress = tasks.filter((t) => t.status === "EN_PROGRESO");
+      const avgProgress = inProgress.length > 0 ? Math.round(inProgress.reduce((s, t) => s + t.progress, 0) / inProgress.length) : 0;
+      const scoreC = (completedPct / 100) * 40;
+      const scoreL = Math.max(0, 20 - Math.max(0, cargaPct - 100) * 0.5);
+      const scoreA = (avgProgress / 100) * 20;
+      const score = Math.round(scoreC + scoreL + scoreA);
+
+      return {
+        id: user.id,
+        name: user.name,
+        role: user.role,
+        completedPct,
+        cargaPct,
+        cargaRealHours,
+        cargaBaseHours: userBiz.baseHours,
+        cargaColor: cargaRange.color,
+        cargaLabel: cargaRange.label,
+        totalTasks: tasks.length,
+        score,
+      };
+    });
+
+    const activeMembers = members.filter((m) => m.totalTasks > 0);
+    const avgCumplimiento = activeMembers.length > 0 ? Math.round(activeMembers.reduce((s, m) => s + m.completedPct, 0) / activeMembers.length) : 0;
+
+    return {
+      key: `${bizInfo.year}-${String(bizInfo.month).padStart(2, "0")}`,
+      label: monthLabel(bizInfo.year, bizInfo.month),
+      avgCumplimiento,
+      totalHoras: Math.round(members.reduce((s, m) => s + m.cargaRealHours, 0) * 100) / 100,
+      totalConsultas: monthActs.length,
+      members,
+    };
+  });
+
+  const current = monthSnapshots[monthSnapshots.length - 1];
+  const previous = monthSnapshots[monthSnapshots.length - 2] ?? null;
+  const previousByUser = new Map(previous?.members.map((m) => [m.id, m]) ?? []);
+
+  const sobrecargaCount = current.members.filter((m) => m.cargaLabel === "Sobrecarga").length;
+  const subutilizacionCount = current.members.filter((m) => m.cargaLabel === "Subutilización").length;
+
+  const trend = monthSnapshots.map((ms) => ({ month: ms.key, label: ms.label, avgCumplimiento: ms.avgCumplimiento }));
+  const trendDelta = previous ? current.avgCumplimiento - previous.avgCumplimiento : 0;
+
+  const lowCumplimiento = current.members
+    .filter((m) => m.totalTasks > 0 && m.completedPct < 60)
+    .map((m) => ({ type: "cumplimiento" as const, userId: m.id, name: m.name, value: m.completedPct }));
+  const sobrecargaAlerts = current.members
+    .filter((m) => m.cargaLabel === "Sobrecarga")
+    .map((m) => ({ type: "sobrecarga" as const, userId: m.id, name: m.name, value: m.cargaPct }));
+
+  const pendingIdeas = pendingIdeasRaw.map((i) => ({ id: i.id, title: i.title, status: i.status, authorName: i.author.name }));
+
+  const ranking = [...current.members]
+    .sort((a, b) => b.score - a.score)
+    .map((m) => ({
+      ...m,
+      scoreTrend: m.score - (previousByUser.get(m.id)?.score ?? m.score),
+    }));
+
+  const workload = current.members.map((m) => ({ id: m.id, name: m.name, realHours: m.cargaRealHours, baseHours: m.cargaBaseHours, color: m.cargaColor }));
+
+  const response: ExecutiveDashboardData = {
+    month: current.key,
+    overview: {
+      avgCumplimiento: current.avgCumplimiento,
+      avgCumplimientoColor: cumplimientoColor(current.avgCumplimiento),
+      sobrecargaCount,
+      subutilizacionCount,
+      totalHoras: current.totalHoras,
+      totalConsultas: current.totalConsultas,
+    },
+    trend,
+    trendDelta,
+    alerts: { lowCumplimiento, sobrecarga: sobrecargaAlerts, pendingIdeas },
+    ranking,
+    workload,
+  };
+
+  return NextResponse.json(response);
+}

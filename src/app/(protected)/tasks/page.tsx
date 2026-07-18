@@ -11,6 +11,10 @@ import type { ViewType } from "@/components/tasks/types";
 export default async function TasksPage() {
   const session = await getSession();
   if (!session) redirect("/login");
+  // El Jefe Nacional no gestiona tareas propias — el módulo Trabajo está oculto
+  // en el navbar (ver src/lib/navLinks.ts) y esta ruta no debe ser accesible
+  // directamente tampoco.
+  if (session.role === "JEFE_NACIONAL") redirect("/dashboard");
 
   const visibleRoles = getVisibleRoles(session.role);
 

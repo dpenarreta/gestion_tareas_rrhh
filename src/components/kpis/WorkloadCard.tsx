@@ -221,7 +221,7 @@ export default function WorkloadCard({ cargaTiempo }: { cargaTiempo: CargaTiempo
         <div className="mt-5 pt-4 border-t border-border">
           <div className="flex items-center gap-2 mb-2">
             <h4 className="text-[11px] font-semibold text-secondary uppercase tracking-wider">
-              Últimos días laborables
+              Días laborables del mes
             </h4>
             {dailyChartHasSpecial && (
               <span className="text-[10px] text-primary bg-primary-surface px-2 py-0.5 rounded-full font-medium">

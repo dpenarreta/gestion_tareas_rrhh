@@ -43,12 +43,19 @@ describe("getNavLinks", () => {
     }
   });
 
-  it("todos los roles ven Inicio, Trabajo, Reuniones y Mejora Continua", () => {
-    const common = ["/dashboard", "/tasks", "/meetings", "/mejora-continua"];
+  it("todos los roles ven Inicio, Reuniones y Mejora Continua", () => {
+    const common = ["/dashboard", "/meetings", "/mejora-continua"];
     for (const role of ["ASISTENTE_GH", "COORDINADOR_ZS", "JEFE_NACIONAL", "ADMINISTRADOR"] as const) {
       const links = hrefs(role);
       for (const href of common) expect(links).toContain(href);
     }
+  });
+
+  it("todos los roles excepto JEFE_NACIONAL ven 'Trabajo' (no gestiona tareas propias)", () => {
+    for (const role of ["ASISTENTE_GH", "COORDINADOR_ZS", "ADMINISTRADOR"] as const) {
+      expect(hrefs(role)).toContain("/tasks");
+    }
+    expect(hrefs("JEFE_NACIONAL")).not.toContain("/tasks");
   });
 });
 

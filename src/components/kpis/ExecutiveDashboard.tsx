@@ -1,0 +1,314 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import type { Role } from "@/generated/prisma/client";
+import { ROLE_LABEL } from "@/lib/roles";
+import type { ExecutiveDashboardData, KpiColor } from "./types";
+import { CumplimientoLineChart, TeamWorkloadBarChart } from "./KpiCharts";
+import { hoursToDisplay } from "@/lib/timeFormat";
+
+const DOT_CLASS: Record<KpiColor, string> = {
+  green: "bg-success",
+  yellow: "bg-warning",
+  red: "bg-danger",
+};
+
+const CARD_BG: Record<KpiColor, string> = {
+  green: "bg-success/[.13] border-transparent",
+  yellow: "bg-warning/[.15] border-transparent",
+  red: "bg-danger/[.13] border-transparent",
+};
+
+const CARD_VALUE: Record<KpiColor, string> = {
+  green: "text-success",
+  yellow: "text-warning",
+  red: "text-danger",
+};
+
+const WORKLOAD_DOT: Record<string, string> = {
+  green: "bg-success",
+  yellow: "bg-warning",
+  orange: "bg-orange-500",
+  red: "bg-danger",
+};
+
+function OverviewCard({
+  title,
+  value,
+  unit,
+  color,
+  icon,
+}: {
+  title: string;
+  value: number;
+  unit?: string;
+  color: KpiColor | "gray";
+  icon: React.ReactNode;
+}) {
+  const bg = color === "gray" ? "bg-background border-border" : CARD_BG[color];
+  const valueColor = color === "gray" ? "text-main" : CARD_VALUE[color];
+  return (
+    <div className={`rounded-[14px] border p-5 ${bg}`}>
+      <div className="flex items-start justify-between mb-3">
+        <div className="p-2 bg-surface rounded-xl shadow-sm">{icon}</div>
+        {color !== "gray" && <span className={`w-2.5 h-2.5 rounded-full mt-1 ${DOT_CLASS[color]}`} />}
+      </div>
+      <p className="text-xs font-medium text-secondary mb-1">{title}</p>
+      <p className={`text-3xl font-bold ${valueColor}`}>
+        {value}
+        {unit && <span className="text-lg ml-0.5">{unit}</span>}
+      </p>
+    </div>
+  );
+}
+
+function Section({ title, children, action }: { title: string; children: React.ReactNode; action?: React.ReactNode }) {
+  return (
+    <div className="bg-surface rounded-[14px] border border-border shadow-[var(--shadow)] p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h3 className="text-sm font-semibold text-main uppercase tracking-wider">{title}</h3>
+        {action}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+const IdeaStatusLabel: Record<string, string> = {
+  PROPUESTA: "Propuesta",
+  EN_REVISION: "En revisión",
+};
+
+export default function ExecutiveDashboard() {
+  const [data, setData] = useState<ExecutiveDashboardData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(false);
+      try {
+        const res = await fetch("/api/kpis/executive");
+        if (!res.ok) throw new Error("failed");
+        const json: ExecutiveDashboardData = await res.json();
+        if (!cancelled) setData(json);
+      } catch {
+        if (!cancelled) setError(true);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex justify-center items-center py-32">
+        <div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="flex items-center justify-center py-24 text-disabled text-sm">
+        Error al cargar el resumen ejecutivo. Intenta de nuevo.
+      </div>
+    );
+  }
+
+  if (data.ranking.length === 0) {
+    return (
+      <div className="flex flex-col items-center justify-center py-32 text-disabled">
+        <svg className="w-12 h-12 mb-4 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+        </svg>
+        <p className="text-sm">No hay colaboradores para mostrar en el resumen ejecutivo</p>
+      </div>
+    );
+  }
+
+  const totalAlerts = data.alerts.lowCumplimiento.length + data.alerts.sobrecarga.length + data.alerts.pendingIdeas.length;
+
+  return (
+    <div className="flex flex-col gap-5">
+      {/* ── Overview cards ─────────────────────────────────────────────── */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <OverviewCard
+          title="Cumplimiento del equipo"
+          value={data.overview.avgCumplimiento}
+          unit="%"
+          color={data.overview.avgCumplimientoColor}
+          icon={
+            <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          }
+        />
+        <OverviewCard
+          title="En sobrecarga"
+          value={data.overview.sobrecargaCount}
+          color={data.overview.sobrecargaCount > 0 ? "red" : "green"}
+          icon={
+            <svg className="w-5 h-5 text-danger" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+            </svg>
+          }
+        />
+        <OverviewCard
+          title="En subutilización"
+          value={data.overview.subutilizacionCount}
+          color={data.overview.subutilizacionCount > 0 ? "red" : "green"}
+          icon={
+            <svg className="w-5 h-5 text-danger" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19.5 12h-15" />
+            </svg>
+          }
+        />
+        <OverviewCard
+          title="Horas del equipo este mes"
+          value={Math.round(data.overview.totalHoras)}
+          unit="h"
+          color="gray"
+          icon={
+            <svg className="w-5 h-5 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          }
+        />
+        <OverviewCard
+          title="Consultas SEGUIMIENTO"
+          value={data.overview.totalConsultas}
+          color="gray"
+          icon={
+            <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z" />
+            </svg>
+          }
+        />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        {/* ── Trend ────────────────────────────────────────────────────── */}
+        <div className="lg:col-span-2">
+          <Section
+            title="Cumplimiento del equipo — últimos 6 meses"
+            action={
+              <span
+                className={`flex items-center gap-1 text-xs font-semibold ${
+                  data.trendDelta > 0 ? "text-success" : data.trendDelta < 0 ? "text-danger" : "text-disabled"
+                }`}
+              >
+                {data.trendDelta > 0 ? "▲" : data.trendDelta < 0 ? "▼" : "="} {Math.abs(data.trendDelta)} pp vs mes anterior
+              </span>
+            }
+          >
+            <CumplimientoLineChart data={data.trend.map((t) => ({ month: t.month, label: t.label, completedPct: t.avgCumplimiento }))} />
+          </Section>
+        </div>
+
+        {/* ── Alerts ───────────────────────────────────────────────────── */}
+        <div className="rounded-[14px] border border-danger/30 bg-danger/[.05] shadow-[var(--shadow)] p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-semibold text-danger uppercase tracking-wider">Alertas críticas</h3>
+            <span className="text-xs font-bold text-danger bg-danger/[.15] px-2 py-0.5 rounded-full">{totalAlerts}</span>
+          </div>
+
+          {totalAlerts === 0 ? (
+            <p className="text-sm text-disabled py-4 text-center">Sin alertas este mes 🎉</p>
+          ) : (
+            <div className="space-y-4">
+              {data.alerts.lowCumplimiento.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-semibold text-secondary uppercase tracking-wider mb-1.5">
+                    Cumplimiento &lt; 60%
+                  </p>
+                  <ul className="space-y-1">
+                    {data.alerts.lowCumplimiento.map((a) => (
+                      <li key={a.userId} className="flex items-center justify-between text-sm">
+                        <span className="text-title truncate">{a.name}</span>
+                        <span className="text-danger font-semibold shrink-0 ml-2">{a.value}%</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {data.alerts.sobrecarga.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-semibold text-secondary uppercase tracking-wider mb-1.5">Sobrecarga</p>
+                  <ul className="space-y-1">
+                    {data.alerts.sobrecarga.map((a) => (
+                      <li key={a.userId} className="flex items-center justify-between text-sm">
+                        <span className="text-title truncate">{a.name}</span>
+                        <span className="text-danger font-semibold shrink-0 ml-2">{a.value}%</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {data.alerts.pendingIdeas.length > 0 && (
+                <div>
+                  <p className="text-[11px] font-semibold text-secondary uppercase tracking-wider mb-1.5">
+                    Ideas pendientes de revisión
+                  </p>
+                  <ul className="space-y-1">
+                    {data.alerts.pendingIdeas.map((idea) => (
+                      <li key={idea.id} className="text-sm">
+                        <span className="text-title truncate">{idea.title}</span>
+                        <span className="text-disabled">
+                          {" "}
+                          — {IdeaStatusLabel[idea.status] ?? idea.status} · {idea.authorName}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Ranking ──────────────────────────────────────────────────────── */}
+      <Section title={`Ranking del equipo (${data.ranking.length})`}>
+        <div className="space-y-1">
+          {data.ranking.map((m, i) => (
+            <div
+              key={m.id}
+              className="flex items-center gap-3 py-2.5 px-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/5 transition-colors border-b border-border last:border-0"
+            >
+              <span className="text-xs font-bold text-disabled w-5 shrink-0">{i + 1}</span>
+              <span className={`w-2 h-2 rounded-full shrink-0 ${WORKLOAD_DOT[m.cargaColor]}`} />
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-title truncate">{m.name}</p>
+                <p className="text-[11px] text-secondary truncate">{ROLE_LABEL[m.role as Role] ?? m.role}</p>
+              </div>
+              <span className="text-xs text-secondary shrink-0 hidden sm:inline">{m.completedPct}% cumpl.</span>
+              <span
+                className={`text-xs font-semibold shrink-0 w-14 text-right ${
+                  m.scoreTrend > 0 ? "text-success" : m.scoreTrend < 0 ? "text-danger" : "text-disabled"
+                }`}
+              >
+                {m.scoreTrend > 0 ? "▲" : m.scoreTrend < 0 ? "▼" : "="} {Math.abs(m.scoreTrend)}
+              </span>
+              <span className="text-sm font-bold text-main shrink-0 w-12 text-right">{m.score}/100</span>
+            </div>
+          ))}
+        </div>
+      </Section>
+
+      {/* ── Team workload chart ─────────────────────────────────────────── */}
+      <Section title="Carga laboral del equipo este mes">
+        <TeamWorkloadBarChart data={data.workload} />
+        <p className="text-[10px] text-disabled mt-2">
+          Base esperada según horas efectivas configuradas; horas reales coloreadas según el semáforo de cada persona
+          {data.workload.length > 0 && ` — total ${hoursToDisplay(data.workload.reduce((s, w) => s + w.realHours, 0))}h reales`}.
+        </p>
+      </Section>
+    </div>
+  );
+}

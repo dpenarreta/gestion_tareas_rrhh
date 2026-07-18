@@ -33,7 +33,9 @@ export function getNavLinks(role: Role): NavLink[] {
 
   const links: NavLink[] = [
     { href: "/dashboard", label: "Inicio", icon: Home, section: "general" },
-    { href: "/tasks", label: "Trabajo", icon: ListTodo, section: "general" },
+    ...(role === "JEFE_NACIONAL"
+      ? []
+      : [{ href: "/tasks", label: "Trabajo", icon: ListTodo, section: "general" as const }]),
     { href: "/meetings", label: "Reuniones", icon: CalendarDays, section: "general" },
     { href: "/mejora-continua", label: "Mejora Continua", icon: Lightbulb, section: "general" },
   ];
