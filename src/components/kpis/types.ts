@@ -171,6 +171,9 @@ export type WeeklyCargaPoint = {
   label: WorkloadLabel;
 };
 
+/** Estado especial de personal (maternidad/lactancia) — base diaria fija de 6h mientras esté vigente. */
+export type SpecialStatusType = "MATERNIDAD" | "LACTANCIA";
+
 export type CargaTiempo = {
   diaria: WorkloadMetric & {
     /** Hoy es un feriado configurado (y no cae en fin de semana) — se muestra como "trabajo en feriado". */
@@ -180,6 +183,7 @@ export type CargaTiempo = {
     personalLeaveMinutes: number;
     personalLeaveFullDay: boolean;
     vacacionesFullDay: boolean;
+    specialStatusType: SpecialStatusType | null;
   };
   semanal: WorkloadMetric & {
     weekStartLabel: string;

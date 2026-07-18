@@ -9,6 +9,7 @@ import NotificationRulesSection from "@/components/settings/NotificationRulesSec
 import ActivityReasonsSection from "@/components/settings/ActivityReasonsSection";
 import HolidaysSection from "@/components/settings/HolidaysSection";
 import LeaveRecordsSection from "@/components/settings/LeaveRecordsSection";
+import SpecialStatusSection from "@/components/settings/SpecialStatusSection";
 import KpiStartDateSection from "@/components/settings/KpiStartDateSection";
 import WelcomeMessageSection from "@/components/settings/WelcomeMessageSection";
 
@@ -909,6 +910,8 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
       <HolidaysSection />
 
       <LeaveRecordsSection users={users} />
+
+      <SpecialStatusSection users={users} />
 
       <KpiStartDateSection />
 

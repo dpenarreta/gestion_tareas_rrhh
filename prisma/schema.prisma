@@ -69,6 +69,11 @@ enum LeaveType {
   VACACIONES
 }
 
+enum SpecialStatusType {
+  MATERNIDAD
+  LACTANCIA
+}
+
 model User {
   id                    String          @id @default(cuid())
   email                 String          @unique
@@ -111,6 +116,8 @@ model User {
   activityAuditLogs           ActivityAuditLog[]    @relation("ActivityAuditAdmin")
   leaveRecords                LeaveRecord[]         @relation("LeaveRecordUser")
   leaveRecordsCreated         LeaveRecord[]         @relation("LeaveRecordCreator")
+  specialStatuses             SpecialStatus[]       @relation("SpecialStatusUser")
+  specialStatusesCreated      SpecialStatus[]       @relation("SpecialStatusCreator")
 }
 
 model ActivityReason {
@@ -154,6 +161,24 @@ model LeaveRecord {
   createdAt       DateTime  @default(now())
 
   @@index([userId, date])
+}
+
+// Estado especial de personal (maternidad/lactancia) — mientras esté vigente para un
+// día, la base diaria de KPI de ese usuario ese día es 6h fijas (no las horas
+// efectivas configuradas globalmente). Ver src/lib/specialStatus.ts.
+model SpecialStatus {
+  id        String            @id @default(cuid())
+  userId    String
+  user      User              @relation("SpecialStatusUser", fields: [userId], references: [id], onDelete: Cascade)
+  type      SpecialStatusType
+  startDate DateTime
+  endDate   DateTime?
+  isActive  Boolean           @default(true)
+  createdBy String
+  creator   User              @relation("SpecialStatusCreator", fields: [createdBy], references: [id])
+  createdAt DateTime          @default(now())
+
+  @@index([userId, startDate])
 }
 
 model DataSubjectRequest {

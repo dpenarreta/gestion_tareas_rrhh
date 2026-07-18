@@ -65,6 +65,9 @@ function Tile({
         {leaveLines.map((line) => (
           <p key={line} className="text-lg font-bold text-primary leading-snug">{line}</p>
         ))}
+        {extraNotes && extraNotes.map((note) => (
+          <p key={note} className="text-[10px] text-primary font-medium mt-0.5">{note}</p>
+        ))}
         <p className="text-[10px] text-disabled mt-1">{periodLabel}</p>
       </div>
     );
@@ -156,6 +159,7 @@ export default function WorkloadCard({ cargaTiempo }: { cargaTiempo: CargaTiempo
           metric={diaria}
           periodLabel="hoy"
           leaveLines={dailyLeaveLines(diaria)}
+          extraNotes={diaria.specialStatusType ? ["👶 Maternidad/Lactancia"] : undefined}
         />
         <Tile
           label="Esta semana"

@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canAccessReports, ROLE_LABEL } from "@/lib/roles";
 import { isTaskOverdue } from "@/lib/utils";
-import { monthlyBusinessBase, computeWorkloadRange, computeWorkloadPct } from "@/lib/workload";
+import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
 import Groq from "groq-sdk";
 import type { Role } from "@/generated/prisma/client";
@@ -177,17 +177,24 @@ export async function GET(request: NextRequest) {
     const rangeStart = monthBounds(fromYear, fromMonth).start;
     const rangeEnd = monthBounds(toYear, toMonth).end;
 
-    // Dynamic business-day base per month (días lunes-viernes × horas efectivas vigentes ese mes)
+    // Dynamic business-day base per month (días lunes-viernes × horas efectivas vigentes ese mes).
+    // `perUser` trae overrides (base 6h/límites 5-7-8) para quienes tengan un estado
+    // especial (maternidad/lactancia) vigente ese mes — el resto del equipo usa los
+    // campos compartidos de este mismo objeto.
     const monthBusinessInfo = await Promise.all(
       months.map(async (monthStr) => {
         const [y, mo] = monthStr.split("-").map(Number);
-        const { start: cargaStart, end: cargaEnd, baseHours, limitLowHours, limitHighHours, limitOverloadHours } =
-          await monthlyBusinessBase(y, mo);
+        const { shared, perUser } = await monthlyBusinessBaseForUsers(userIds, y, mo);
+        const { start: cargaStart, end: cargaEnd, baseHours, limitLowHours, limitHighHours, limitOverloadHours } = shared;
         const { start: realStart } = businessDayRealRange(cargaStart);
         const { end: realEnd } = businessDayRealRange(cargaEnd);
-        return { monthStr, cargaStart, cargaEnd, realStart, realEnd, baseHours, limitLowHours, limitHighHours, limitOverloadHours };
+        return { monthStr, cargaStart, cargaEnd, realStart, realEnd, baseHours, limitLowHours, limitHighHours, limitOverloadHours, perUser };
       }),
     );
+
+    function bizInfoForUser(bizInfo: (typeof monthBusinessInfo)[number], userId: string) {
+      return bizInfo.perUser.get(userId) ?? bizInfo;
+    }
     const rangeRealStart = monthBusinessInfo[0].realStart;
     const rangeRealEnd = monthBusinessInfo[monthBusinessInfo.length - 1].realEnd;
 
@@ -251,14 +258,15 @@ export async function GET(request: NextRequest) {
         const activityHours =
           monthCargaActs.filter((a) => a.authorId === user.id).reduce((s, a) => s + a.duration, 0) / 60;
         const cargaRealHours = Math.round((fijaHours + activityHours) * 100) / 100;
+        const userBiz = bizInfoForUser(bizInfo, user.id);
         const cargaRange = computeWorkloadRange(
           cargaRealHours,
-          bizInfo.baseHours,
-          bizInfo.limitLowHours,
-          bizInfo.limitHighHours,
-          bizInfo.limitOverloadHours,
+          userBiz.baseHours,
+          userBiz.limitLowHours,
+          userBiz.limitHighHours,
+          userBiz.limitOverloadHours,
         );
-        const cargaPct = computeWorkloadPct(cargaRealHours, bizInfo.baseHours, cargaRange.max);
+        const cargaPct = computeWorkloadPct(cargaRealHours, userBiz.baseHours, cargaRange.max);
 
         const inProgress = tasks.filter((t) => t.status === "EN_PROGRESO");
         const avgProgress =
@@ -278,6 +286,7 @@ export async function GET(request: NextRequest) {
           completedPct,
           cargaPct,
           cargaRealHours,
+          cargaBaseHours: userBiz.baseHours,
           cargaColor: cargaRange.color,
           cargaLabel: cargaRange.label,
           score,
@@ -299,16 +308,28 @@ export async function GET(request: NextRequest) {
         totalCompletedTasks: monthTasks.filter((t) => t.status === "COMPLETADA").length,
         totalTasks: monthTasks.length,
         totalCargaRealHours: Math.round(memberSnapshots.reduce((s, m) => s + m.cargaRealHours, 0) * 100) / 100,
-        totalCargaBaseHours: bizInfo.baseHours * users.length,
+        totalCargaBaseHours: Math.round(memberSnapshots.reduce((s, m) => s + m.cargaBaseHours, 0) * 100) / 100,
         totalConsultas: monthActs.length,
-        memberSnapshots: memberSnapshots.map(({ overdueCount: _oc, cargaRealHours: _crh, ...rest }) => rest),
+        memberSnapshots: memberSnapshots.map(({ overdueCount: _oc, cargaRealHours: _crh, cargaBaseHours: _cbh, ...rest }) => rest),
       };
     });
 
-    const rangeBaseHoursPerUser = monthBusinessInfo.reduce((s, b) => s + b.baseHours, 0);
-    const rangeLimitLowHoursPerUser = monthBusinessInfo.reduce((s, b) => s + b.limitLowHours, 0);
-    const rangeLimitHighHoursPerUser = monthBusinessInfo.reduce((s, b) => s + b.limitHighHours, 0);
-    const rangeLimitOverloadHoursPerUser = monthBusinessInfo.reduce((s, b) => s + b.limitOverloadHours, 0);
+    // Suma la base/límites de cada mes del rango PARA ESE usuario en particular
+    // (los meses en que tuvo estado especial vigente aportan su override de 6h/5-7-8).
+    function rangeBizForUser(userId: string) {
+      return monthBusinessInfo.reduce(
+        (acc, b) => {
+          const u = bizInfoForUser(b, userId);
+          return {
+            baseHours: acc.baseHours + u.baseHours,
+            limitLowHours: acc.limitLowHours + u.limitLowHours,
+            limitHighHours: acc.limitHighHours + u.limitHighHours,
+            limitOverloadHours: acc.limitOverloadHours + u.limitOverloadHours,
+          };
+        },
+        { baseHours: 0, limitLowHours: 0, limitHighHours: 0, limitOverloadHours: 0 },
+      );
+    }
 
     // Aggregate per member across full range
     const aggregatedMembers: ReportMemberKpi[] = users.map((user) => {
@@ -323,13 +344,14 @@ export async function GET(request: NextRequest) {
       const activityHours =
         activitiesForCarga.filter((a) => a.authorId === user.id).reduce((s, a) => s + a.duration, 0) / 60;
       const cargaRealHours = Math.round((fijaHours + activityHours) * 100) / 100;
-      const cargaBaseHours = rangeBaseHoursPerUser;
+      const userRangeBiz = rangeBizForUser(user.id);
+      const cargaBaseHours = userRangeBiz.baseHours;
       const cargaRange = computeWorkloadRange(
         cargaRealHours,
         cargaBaseHours,
-        rangeLimitLowHoursPerUser,
-        rangeLimitHighHoursPerUser,
-        rangeLimitOverloadHoursPerUser,
+        userRangeBiz.limitLowHours,
+        userRangeBiz.limitHighHours,
+        userRangeBiz.limitOverloadHours,
       );
       const cargaPct = computeWorkloadPct(cargaRealHours, cargaBaseHours, cargaRange.max);
 
@@ -395,13 +417,16 @@ export async function GET(request: NextRequest) {
         ? Math.round(activeMonths.reduce((s, ms) => s + ms.teamAvgCumplimiento, 0) / activeMonths.length)
         : 0;
     const totalCargaRealHours = Math.round(aggregatedMembers.reduce((s, m) => s + m.cargaRealHours, 0) * 100) / 100;
-    const totalCargaBaseHours = rangeBaseHoursPerUser * users.length;
+    const totalCargaBaseHours = Math.round(aggregatedMembers.reduce((s, m) => s + m.cargaBaseHours, 0) * 100) / 100;
+    const totalLimitLowHours = users.reduce((s, u) => s + rangeBizForUser(u.id).limitLowHours, 0);
+    const totalLimitHighHours = users.reduce((s, u) => s + rangeBizForUser(u.id).limitHighHours, 0);
+    const totalLimitOverloadHours = users.reduce((s, u) => s + rangeBizForUser(u.id).limitOverloadHours, 0);
     const teamCargaRange = computeWorkloadRange(
       totalCargaRealHours,
       totalCargaBaseHours,
-      rangeLimitLowHoursPerUser * users.length,
-      rangeLimitHighHoursPerUser * users.length,
-      rangeLimitOverloadHoursPerUser * users.length,
+      totalLimitLowHours,
+      totalLimitHighHours,
+      totalLimitOverloadHours,
     );
     const avgCargaPct = computeWorkloadPct(totalCargaRealHours, totalCargaBaseHours, teamCargaRange.max);
 

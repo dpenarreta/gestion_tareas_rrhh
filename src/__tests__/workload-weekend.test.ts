@@ -6,6 +6,7 @@ vi.mock("@/lib/prisma", () => ({
     taskActivity: { findMany: vi.fn().mockResolvedValue([]) },
     holiday: { findMany: vi.fn().mockResolvedValue([]) },
     leaveRecord: { findMany: vi.fn().mockResolvedValue([]) },
+    specialStatus: { findMany: vi.fn().mockResolvedValue([]) },
     user: { findUnique: vi.fn().mockResolvedValue({ kpiStartDate: null }) },
   },
 }));
