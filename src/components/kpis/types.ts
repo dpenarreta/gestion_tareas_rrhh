@@ -152,6 +152,9 @@ export type WorkloadMetric = {
   isWeekend: boolean;
 };
 
+/** Estado especial de personal (maternidad/lactancia) — mientras esté vigente, sus límites configurados por registro reemplazan a los globales. */
+export type SpecialStatusType = "MATERNIDAD" | "LACTANCIA";
+
 /** Un día laborable en el histórico de carga (gráfico de barras). */
 export type DailyCargaPoint = {
   date: string;
@@ -160,6 +163,8 @@ export type DailyCargaPoint = {
   baseHours: number;
   color: WorkloadColor;
   label: WorkloadLabel;
+  /** Estado especial vigente ese día (si alguno) — para la etiqueta "👶 Jornada especial" en el gráfico. */
+  specialStatusType: SpecialStatusType | null;
 };
 
 /** Una semana (posiblemente parcial) del mes en curso, para el gráfico de línea. */
@@ -169,10 +174,9 @@ export type WeeklyCargaPoint = {
   baseHours: number;
   color: WorkloadColor;
   label: WorkloadLabel;
+  /** Estado especial vigente en algún día de esta semana (si alguno). */
+  specialStatusType: SpecialStatusType | null;
 };
-
-/** Estado especial de personal (maternidad/lactancia) — base diaria fija de 6h mientras esté vigente. */
-export type SpecialStatusType = "MATERNIDAD" | "LACTANCIA";
 
 export type CargaTiempo = {
   diaria: WorkloadMetric & {
@@ -191,6 +195,8 @@ export type CargaTiempo = {
     businessDays: number;
     /** Horas reales registradas en sábado/domingo dentro de esta semana (ya incluidas en realHours). */
     weekendHours: number;
+    /** Estado especial vigente en algún día de esta semana (si alguno). */
+    specialStatusType: SpecialStatusType | null;
   };
   mensual: WorkloadMetric & {
     monthLabel: string;
@@ -201,11 +207,25 @@ export type CargaTiempo = {
     medicoLeaveMinutes: number;
     personalLeaveMinutes: number;
     vacacionesMinutes: number;
+    /** Estado especial vigente en algún día de este mes (si alguno). */
+    specialStatusType: SpecialStatusType | null;
   };
+  /** Horas efectivas GLOBALES configuradas (SystemConfigHistory) — no ajustadas por estado especial. */
   horasEfectivasPorDia: number;
   workloadLimitLow: number;
   workloadLimitHigh: number;
   workloadLimitOverload: number;
+  /**
+   * Base/límites REALMENTE vigentes HOY para este usuario: los del estado especial
+   * activo hoy (si hay) o, si no, los mismos valores globales de arriba. Úsalos para
+   * el resumen de rangos y las líneas de referencia de los gráficos en vez de asumir
+   * siempre la configuración global — ver diaria.specialStatusType para saber cuál es.
+   */
+  effectiveHoursPerDia: number;
+  effectiveLimitLow: number;
+  effectiveLimitBase: number;
+  effectiveLimitHigh: number;
+  effectiveLimitOverload: number;
   /** Ajuste puntual del Administrador (User.kpiStartDate) vigente para este usuario, si existe. */
   kpiStartDate: string | null;
   dailyHistory: DailyCargaPoint[];

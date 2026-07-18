@@ -21,7 +21,16 @@ vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
 const monthlyBusinessBase = vi.fn();
 vi.mock("@/lib/workload", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/workload")>();
-  return { ...actual, monthlyBusinessBase: (...args: unknown[]) => monthlyBusinessBase(...args) };
+  return {
+    ...actual,
+    monthlyBusinessBase: (...args: unknown[]) => monthlyBusinessBase(...args),
+    // Sin usuarios con estado especial en estos tests — perUser vacío hace que los
+    // llamadores usen siempre la base compartida (mock de monthlyBusinessBase).
+    monthlyBusinessBaseForUsers: async (_userIds: string[], year: number, month: number) => ({
+      shared: await monthlyBusinessBase(year, month),
+      perUser: new Map(),
+    }),
+  };
 });
 
 const { getSession } = await import("@/lib/session");
@@ -62,6 +71,7 @@ function resetAll() {
     limitHighPerDay: 7.5,
     limitOverloadPerDay: 8.5,
     limitLowHours: 80,
+    limitBaseHours: 100,
     limitHighHours: 120,
     limitOverloadHours: 140,
   }));

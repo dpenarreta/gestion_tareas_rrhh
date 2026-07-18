@@ -266,7 +266,7 @@ export async function GET(request: NextRequest) {
           userBiz.limitHighHours,
           userBiz.limitOverloadHours,
         );
-        const cargaPct = computeWorkloadPct(cargaRealHours, userBiz.baseHours, cargaRange.max);
+        const cargaPct = computeWorkloadPct(cargaRealHours, userBiz.limitBaseHours, cargaRange.max);
 
         const inProgress = tasks.filter((t) => t.status === "EN_PROGRESO");
         const avgProgress =
@@ -354,7 +354,7 @@ export async function GET(request: NextRequest) {
         userRangeBiz.limitHighHours,
         userRangeBiz.limitOverloadHours,
       );
-      const cargaPct = computeWorkloadPct(cargaRealHours, cargaBaseHours, cargaRange.max);
+      const cargaPct = computeWorkloadPct(cargaRealHours, userRangeBiz.limitBaseHours, cargaRange.max);
 
       // Average cumplimiento across months where user had tasks
       const activeSnaps = monthSnapshots.filter(
@@ -430,7 +430,7 @@ export async function GET(request: NextRequest) {
       totalLimitHighHours,
       totalLimitOverloadHours,
     );
-    const avgCargaPct = computeWorkloadPct(totalCargaRealHours, totalCargaBaseHours, teamCargaRange.max);
+    const avgCargaPct = computeWorkloadPct(totalCargaRealHours, totalLimitBaseHours, teamCargaRange.max);
 
     // Rango óptimo configurado por persona (no sumado al equipo), usando lo
     // vigente en el último mes del rango, para dar contexto en la UI/IA.

@@ -10,6 +10,7 @@ import {
   getEffectiveWorkloadLimitOverload,
 } from "@/lib/systemConfig";
 import { getSpecialStatusDayMap, getTeamSpecialStatusDayMap, type SpecialStatusDayMap } from "@/lib/specialStatus";
+import type { SpecialStatusType } from "@/generated/prisma/client";
 import type {
   WorkloadColor,
   WorkloadMetric,
@@ -57,15 +58,17 @@ function lastBusinessDay(start: Date, end: Date, holidays: Set<number>): Date | 
   return null;
 }
 
+type SpecialStatusBaseField = "dailyHours" | "limitBase";
+
 /**
- * Suma, día a día, la base efectiva (horasPorDía - permisos ese día) de los días
- * laborables del rango. Si `specialMap` marca un día con estado especial
- * (maternidad/lactancia), ese día usa su `dailyHours` configurado (por registro,
- * ver src/lib/specialStatus.ts) en vez de `hoursPerDay` (las horas efectivas
- * configuradas globalmente) — el permiso, si lo hay ese mismo día, se descuenta
- * sobre esa base ya reducida. Este total es el `baseHours` "de exhibición" (horas
- * objetivo/denominador del %) — distinto del umbral de clasificación Moderado/
- * Óptimo, que usa `limitBase` vía sumWeightedLimit (pueden diferir por diseño).
+ * Suma, día a día, una base "leave-aware" (horasPorDía - permisos ese día) de los
+ * días laborables del rango — `field` decide qué usar como horas del día en días
+ * con estado especial vigente: `dailyHours` da el `baseHours` "de exhibición" (horas
+ * objetivo/denominador del %); `limitBase` da el umbral real de clasificación
+ * Moderado/Óptimo (ver computeWorkloadRange). Ambos son sensibles a permisos (igual
+ * que el sistema global, donde ambos roles históricamente los cumplía una sola
+ * variable, `hoursPerDay`) — a diferencia de limitLow/High/Overload (sumWeightedLimit),
+ * que nunca se ajustan por permisos.
  */
 function sumWeightedBaseHours(
   start: Date,
@@ -73,28 +76,28 @@ function sumWeightedBaseHours(
   hoursPerDay: number,
   holidays: Set<number>,
   leaveMap: Map<number, DayLeaveInfo>,
-  specialMap: SpecialStatusDayMap = new Map()
+  specialMap: SpecialStatusDayMap = new Map(),
+  field: SpecialStatusBaseField = "dailyHours"
 ): number {
   let total = 0;
   for (let t = start.getTime(); t <= end.getTime(); t += 86400000) {
     const d = new Date(t);
     if (!isWorkingDay(d, holidays)) continue;
     const cfg = specialMap.get(t);
-    const dayHoursPerDay = cfg ? cfg.dailyHours : hoursPerDay;
-    const leaveHours = leaveHoursForDay(leaveMap.get(t), dayHoursPerDay);
-    total += Math.max(0, dayHoursPerDay - leaveHours);
+    const dayValue = cfg ? cfg[field] : hoursPerDay;
+    const leaveHours = leaveHoursForDay(leaveMap.get(t), dayValue);
+    total += Math.max(0, dayValue - leaveHours);
   }
   return Math.round(total * 100) / 100;
 }
 
-type SpecialStatusLimitField = "limitLow" | "limitBase" | "limitHigh" | "limitOverload";
+type SpecialStatusLimitField = "limitLow" | "limitHigh" | "limitOverload";
 
 /**
- * Suma, día a día, uno de los 4 límites del semáforo (low/base/high/overload) de
- * los días laborables del rango — usa el valor configurado por registro en días con
- * estado especial vigente (`specialMap`), y el límite global (per-día) el resto de
- * días. `limitBase` es el umbral real de clasificación Moderado/Óptimo (ver
- * computeWorkloadRange) — independiente de dailyHours.
+ * Suma, día a día, uno de los 3 límites externos del semáforo (low/high/overload,
+ * NUNCA ajustados por permisos — igual que el sistema global) de los días laborables
+ * del rango — usa el valor configurado por registro en días con estado especial
+ * vigente (`specialMap`), y el límite global (per-día) el resto de días.
  */
 function sumWeightedLimit(
   start: Date,
@@ -112,6 +115,19 @@ function sumWeightedLimit(
     total += cfg ? cfg[field] : globalLimitPerDay;
   }
   return Math.round(total * 100) / 100;
+}
+
+/** Tipo de estado especial (si alguno) vigente en cualquier día dentro de [start, end]. */
+function specialStatusTypeInRange(
+  specialMap: SpecialStatusDayMap,
+  start: Date,
+  end: Date
+): SpecialStatusType | null {
+  for (let t = start.getTime(); t <= end.getTime(); t += 86400000) {
+    const cfg = specialMap.get(t);
+    if (cfg) return cfg.type;
+  }
+  return null;
 }
 
 function formatShortDate(d: Date): string {
@@ -286,8 +302,8 @@ export async function monthlyBusinessBaseForUsers(
   const holidays = await getHolidaySet();
   for (const [userId, dayMap] of teamSpecialMap) {
     if (dayMap.size === 0) continue;
-    const baseHours = sumWeightedBaseHours(shared.start, shared.end, shared.hoursPerDay, holidays, new Map(), dayMap);
-    const limitBaseHours = sumWeightedLimit(shared.start, shared.end, holidays, dayMap, shared.hoursPerDay, "limitBase");
+    const baseHours = sumWeightedBaseHours(shared.start, shared.end, shared.hoursPerDay, holidays, new Map(), dayMap, "dailyHours");
+    const limitBaseHours = sumWeightedBaseHours(shared.start, shared.end, shared.hoursPerDay, holidays, new Map(), dayMap, "limitBase");
     const limitLowHours = sumWeightedLimit(shared.start, shared.end, holidays, dayMap, shared.limitLowPerDay, "limitLow");
     const limitHighHours = sumWeightedLimit(shared.start, shared.end, holidays, dayMap, shared.limitHighPerDay, "limitHigh");
     const limitOverloadHours = sumWeightedLimit(shared.start, shared.end, holidays, dayMap, shared.limitOverloadPerDay, "limitOverload");
@@ -345,12 +361,16 @@ async function holidayHoursInRange(userId: string, rangeStart: Date, rangeEnd: D
 }
 
 /**
- * `baseHours` es la base de exhibición (horas objetivo, denominador del % — dailyHours-
- * derivada) y `classificationBase` es el umbral real de clasificación Moderado/Óptimo
- * (limitBase-derivado) que alimenta a computeWorkloadRange. Para todo período SIN
- * estado especial ambos valores son idénticos (los dos vienen de `hoursPerDay`), así
- * que el comportamiento no cambia; solo se separan para permitir que un registro de
- * estado especial configure dailyHours y limitBase de forma independiente.
+ * `baseHours` es la base de exhibición (horas objetivo — dailyHours-derivada, usada
+ * para narrativa/comparaciones como "X horas reales de Y horas base") y
+ * `classificationBase` es el umbral real de clasificación Moderado/Óptimo
+ * (limitBase-derivado). El techo de 100% del % de carga se mide TAMBIÉN sobre
+ * `classificationBase` (no sobre `baseHours`) para que el % nunca contradiga al
+ * semáforo — p. ej. si dailyHours < limitBase, alcanzar el 100% antes de tiempo
+ * mientras el semáforo aún marca "Moderado" sería inconsistente. Para todo período
+ * SIN estado especial ambos valores son idénticos (los dos vienen de `hoursPerDay`),
+ * así que el comportamiento no cambia; solo se separan para permitir que un registro
+ * de estado especial configure dailyHours y limitBase de forma independiente.
  */
 function toMetric(
   realHours: number,
@@ -363,8 +383,8 @@ function toMetric(
 ): WorkloadMetric {
   const range = computeWorkloadRange(realHours, classificationBase, limitLow, limitHigh, limitOverload);
   const pct =
-    baseHours > 0
-      ? computeWorkloadPct(realHours, baseHours, range.max)
+    classificationBase > 0
+      ? computeWorkloadPct(realHours, classificationBase, range.max)
       : Math.round((realHours / hoursPerDay) * 100);
   return {
     realHours,
@@ -439,17 +459,19 @@ export async function computeCargaTiempo(userId: string, now: Date = new Date())
   const dailyLimitOverload = todayLimitOverloadPerDay * dayFactor;
 
   const weeklyBusinessDays = countBusinessDays(effectiveWeekStart, weekEnd, holidays);
-  const weeklyBaseHours = sumWeightedBaseHours(effectiveWeekStart, weekEnd, hoursPerDay, holidays, leaveMap, specialMap);
-  const weeklyClassificationBase = sumWeightedLimit(effectiveWeekStart, weekEnd, holidays, specialMap, hoursPerDay, "limitBase");
+  const weeklyBaseHours = sumWeightedBaseHours(effectiveWeekStart, weekEnd, hoursPerDay, holidays, leaveMap, specialMap, "dailyHours");
+  const weeklyClassificationBase = sumWeightedBaseHours(effectiveWeekStart, weekEnd, hoursPerDay, holidays, leaveMap, specialMap, "limitBase");
   const weeklyLimitLowHours = sumWeightedLimit(effectiveWeekStart, weekEnd, holidays, specialMap, limitLowPerDay, "limitLow");
   const weeklyLimitHighHours = sumWeightedLimit(effectiveWeekStart, weekEnd, holidays, specialMap, limitHighPerDay, "limitHigh");
   const weeklyLimitOverloadHours = sumWeightedLimit(effectiveWeekStart, weekEnd, holidays, specialMap, limitOverloadPerDay, "limitOverload");
+  const weeklySpecialStatusType = specialStatusTypeInRange(specialMap, effectiveWeekStart, weekEnd);
   const monthlyBusinessDays = countBusinessDays(effectiveMonthStart, monthEnd, holidays);
-  const monthlyBaseHours = sumWeightedBaseHours(effectiveMonthStart, monthEnd, hoursPerDay, holidays, leaveMap, specialMap);
-  const monthlyClassificationBase = sumWeightedLimit(effectiveMonthStart, monthEnd, holidays, specialMap, hoursPerDay, "limitBase");
+  const monthlyBaseHours = sumWeightedBaseHours(effectiveMonthStart, monthEnd, hoursPerDay, holidays, leaveMap, specialMap, "dailyHours");
+  const monthlyClassificationBase = sumWeightedBaseHours(effectiveMonthStart, monthEnd, hoursPerDay, holidays, leaveMap, specialMap, "limitBase");
   const monthlyLimitLowHours = sumWeightedLimit(effectiveMonthStart, monthEnd, holidays, specialMap, limitLowPerDay, "limitLow");
   const monthlyLimitHighHours = sumWeightedLimit(effectiveMonthStart, monthEnd, holidays, specialMap, limitHighPerDay, "limitHigh");
   const monthlyLimitOverloadHours = sumWeightedLimit(effectiveMonthStart, monthEnd, holidays, specialMap, limitOverloadPerDay, "limitOverload");
+  const monthlySpecialStatusType = specialStatusTypeInRange(specialMap, effectiveMonthStart, monthEnd);
 
   const [diariaHours, semanalHours, mensualHours, weekendHours, monthlyWeekendHours, monthlyHolidayHours] = await Promise.all([
     realHoursInWindow(userId, today, today),
@@ -512,6 +534,7 @@ export async function computeCargaTiempo(userId: string, now: Date = new Date())
       weekEndLabel: formatShortDate(weekBizEnd),
       businessDays: weeklyBusinessDays,
       weekendHours,
+      specialStatusType: weeklySpecialStatusType,
     },
     mensual: {
       ...toMetric(
@@ -530,11 +553,20 @@ export async function computeCargaTiempo(userId: string, now: Date = new Date())
       medicoLeaveMinutes: monthlyLeaveTotals.medicoMinutes,
       personalLeaveMinutes: monthlyLeaveTotals.personalMinutes,
       vacacionesMinutes: monthlyLeaveTotals.vacacionesMinutes,
+      specialStatusType: monthlySpecialStatusType,
     },
     horasEfectivasPorDia: hoursPerDay,
     workloadLimitLow: limitLowPerDay,
     workloadLimitHigh: limitHighPerDay,
     workloadLimitOverload: limitOverloadPerDay,
+    // "Efectivos hoy": el estado especial vigente HOY (si hay) o, si no, los valores
+    // globales — usados para el resumen de rangos y las líneas de referencia de los
+    // gráficos, en vez de asumir siempre la configuración global (ver WorkloadCard.tsx).
+    effectiveHoursPerDia: todayDailyHours,
+    effectiveLimitLow: todayLimitLowPerDay,
+    effectiveLimitBase: todayClassificationBase,
+    effectiveLimitHigh: todayLimitHighPerDay,
+    effectiveLimitOverload: todayLimitOverloadPerDay,
     kpiStartDate: kpiStartApplies ? kpiStartDate!.toISOString() : null,
     // El histórico (para los gráficos) es una consulta aparte y más cara
     // (computeCargaHistory) — se deja vacío aquí para que llamadores que solo
@@ -623,6 +655,7 @@ export async function computeCargaHistory(
       baseHours: dayBaseHours,
       color: range.color,
       label: range.label,
+      specialStatusType: dayCfg?.type ?? null,
     };
   });
 
@@ -664,8 +697,8 @@ export async function computeCargaHistory(
   const weekly: WeeklyCargaPoint[] = weekSlices.map((slice, i) => {
     // sumWeightedBaseHours/sumWeightedLimit ponderan día a día por si la semana mezcla
     // días con estado especial y días con las horas efectivas/límites globales.
-    const baseHours = sumWeightedBaseHours(slice.start, slice.end, hoursPerDay, holidays, new Map(), weeklySpecialMap);
-    const classificationBase = sumWeightedLimit(slice.start, slice.end, holidays, weeklySpecialMap, hoursPerDay, "limitBase");
+    const baseHours = sumWeightedBaseHours(slice.start, slice.end, hoursPerDay, holidays, new Map(), weeklySpecialMap, "dailyHours");
+    const classificationBase = sumWeightedBaseHours(slice.start, slice.end, hoursPerDay, holidays, new Map(), weeklySpecialMap, "limitBase");
     const limitLowHours = sumWeightedLimit(slice.start, slice.end, holidays, weeklySpecialMap, limitLowPerDay, "limitLow");
     const limitHighHours = sumWeightedLimit(slice.start, slice.end, holidays, weeklySpecialMap, limitHighPerDay, "limitHigh");
     const limitOverloadHours = sumWeightedLimit(slice.start, slice.end, holidays, weeklySpecialMap, limitOverloadPerDay, "limitOverload");
@@ -684,6 +717,7 @@ export async function computeCargaHistory(
       baseHours: Math.round(baseHours * 100) / 100,
       color: range.color,
       label: range.label,
+      specialStatusType: specialStatusTypeInRange(weeklySpecialMap, slice.start, slice.end),
     };
   });
 

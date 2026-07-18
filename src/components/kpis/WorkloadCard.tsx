@@ -126,14 +126,18 @@ export default function WorkloadCard({ cargaTiempo }: { cargaTiempo: CargaTiempo
     diaria,
     semanal,
     mensual,
-    horasEfectivasPorDia,
-    workloadLimitLow,
-    workloadLimitHigh,
-    workloadLimitOverload,
+    effectiveHoursPerDia,
+    effectiveLimitLow,
+    effectiveLimitBase,
+    effectiveLimitHigh,
+    effectiveLimitOverload,
     kpiStartDate,
     dailyHistory,
     weeklyHistory,
   } = cargaTiempo;
+
+  const dailyChartHasSpecial = diaria.specialStatusType != null || dailyHistory.some((p) => p.specialStatusType != null);
+  const weeklyChartHasSpecial = diaria.specialStatusType != null || weeklyHistory.some((p) => p.specialStatusType != null);
 
   return (
     <div className="bg-surface rounded-[14px] border border-border shadow-[var(--shadow)] p-5">
@@ -141,12 +145,19 @@ export default function WorkloadCard({ cargaTiempo }: { cargaTiempo: CargaTiempo
         <h3 className="text-[11px] font-semibold text-secondary uppercase tracking-wider">
           Carga laboral (horas reales)
         </h3>
-        <span className="text-[10px] text-disabled bg-background border border-border px-2 py-0.5 rounded-full shrink-0">
-          {hoursToDisplay(horasEfectivasPorDia)}h efectivas/día
+        <span className="flex items-center gap-1.5 shrink-0">
+          {diaria.specialStatusType && (
+            <span className="text-[10px] text-primary bg-primary-surface px-2 py-0.5 rounded-full font-medium">
+              👶 Jornada especial
+            </span>
+          )}
+          <span className="text-[10px] text-disabled bg-background border border-border px-2 py-0.5 rounded-full">
+            {hoursToDisplay(effectiveHoursPerDia)}h efectivas/día
+          </span>
         </span>
       </div>
       <p className={`text-[10px] text-disabled leading-relaxed ${kpiStartDate ? "mb-1" : "mb-3"}`}>
-        {rangesSummary(horasEfectivasPorDia, workloadLimitLow, workloadLimitHigh, workloadLimitOverload)}
+        {rangesSummary(effectiveLimitBase, effectiveLimitLow, effectiveLimitHigh, effectiveLimitOverload)}
       </p>
       {kpiStartDate && (
         <p className="text-[10px] text-primary font-medium mb-3">
@@ -165,11 +176,12 @@ export default function WorkloadCard({ cargaTiempo }: { cargaTiempo: CargaTiempo
           label="Esta semana"
           metric={semanal}
           periodLabel={`semana del ${semanal.weekStartLabel} al ${semanal.weekEndLabel}`}
-          extraNotes={
-            semanal.weekendHours > 0 && semanal.realHours > semanal.baseHours
+          extraNotes={[
+            ...(semanal.specialStatusType ? ["👶 Maternidad/Lactancia"] : []),
+            ...(semanal.weekendHours > 0 && semanal.realHours > semanal.baseHours
               ? [`incluye ${hoursToDisplay(semanal.weekendHours)}h de fin de semana`]
-              : undefined
-          }
+              : []),
+          ]}
         />
         <Tile
           label="Este mes"
@@ -178,6 +190,7 @@ export default function WorkloadCard({ cargaTiempo }: { cargaTiempo: CargaTiempo
             mensual.businessDays === 1 ? "día laborable" : "días laborables"
           }`}
           extraNotes={[
+            ...(mensual.specialStatusType ? ["👶 Maternidad/Lactancia"] : []),
             ...(mensual.weekendHours > 0 ? [`⚡ Fines de semana: ${hoursToDisplay(mensual.weekendHours)}h`] : []),
             ...(mensual.holidayHours > 0 ? [`⚡ Feriados trabajados: ${hoursToDisplay(mensual.holidayHours)}h`] : []),
             ...(mensual.medicoLeaveMinutes > 0 ? [`🏥 Permisos médicos: ${formatMinutesAsHours(mensual.medicoLeaveMinutes)}`] : []),
@@ -189,19 +202,33 @@ export default function WorkloadCard({ cargaTiempo }: { cargaTiempo: CargaTiempo
 
       {dailyHistory.length > 0 && (
         <div className="mt-5 pt-4 border-t border-border">
-          <h4 className="text-[11px] font-semibold text-secondary uppercase tracking-wider mb-2">
-            Últimos días laborables
-          </h4>
-          <DailyCargaBarChart points={dailyHistory} baseHours={horasEfectivasPorDia} optimalMax={workloadLimitHigh} />
+          <div className="flex items-center gap-2 mb-2">
+            <h4 className="text-[11px] font-semibold text-secondary uppercase tracking-wider">
+              Últimos días laborables
+            </h4>
+            {dailyChartHasSpecial && (
+              <span className="text-[10px] text-primary bg-primary-surface px-2 py-0.5 rounded-full font-medium">
+                👶 Jornada especial
+              </span>
+            )}
+          </div>
+          <DailyCargaBarChart points={dailyHistory} baseHours={effectiveHoursPerDia} optimalMax={effectiveLimitHigh} />
         </div>
       )}
 
       {weeklyHistory.length > 0 && (
         <div className="mt-5 pt-4 border-t border-border">
-          <h4 className="text-[11px] font-semibold text-secondary uppercase tracking-wider mb-2">
-            Semanas de este mes
-          </h4>
-          <WeeklyCargaLineChart points={weeklyHistory} optimalMax={workloadLimitHigh * 5} />
+          <div className="flex items-center gap-2 mb-2">
+            <h4 className="text-[11px] font-semibold text-secondary uppercase tracking-wider">
+              Semanas de este mes
+            </h4>
+            {weeklyChartHasSpecial && (
+              <span className="text-[10px] text-primary bg-primary-surface px-2 py-0.5 rounded-full font-medium">
+                👶 Jornada especial
+              </span>
+            )}
+          </div>
+          <WeeklyCargaLineChart points={weeklyHistory} optimalMax={effectiveLimitHigh * 5} />
         </div>
       )}
     </div>

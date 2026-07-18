@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { isTaskOverdue } from "@/lib/utils";
-import { monthlyBusinessBase, computeWorkloadRange, computeWorkloadPct } from "@/lib/workload";
+import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
 
 function monthBounds(year: number, month: number) {
@@ -57,14 +57,18 @@ export async function GET(request: NextRequest) {
   // Base dinámica de carga (días hábiles × horas efectivas/límites vigentes
   // en cada mes) — el mismo mecanismo que /api/reports/range, para que "Mi
   // actividad" muestre el semáforo por rango, no solo el ratio real/estimado.
+  // monthlyBusinessBaseForUsers (no monthlyBusinessBase) para que un estado especial
+  // (maternidad/lactancia) vigente en ESTE usuario reemplace la base/límites globales
+  // en los meses donde aplique — antes esta ruta ignoraba el estado especial.
   const monthBusinessInfo = await Promise.all(
     months.map(async ({ year, month }) => {
       const monthStr = `${year}-${String(month).padStart(2, "0")}`;
-      const { start: cargaStart, end: cargaEnd, baseHours, limitLowHours, limitHighHours, limitOverloadHours } =
-        await monthlyBusinessBase(year, month);
+      const { shared, perUser } = await monthlyBusinessBaseForUsers([userId], year, month);
+      const { start: cargaStart, end: cargaEnd, baseHours, limitBaseHours, limitLowHours, limitHighHours, limitOverloadHours } =
+        perUser.get(userId) ?? shared;
       const { start: realStart } = businessDayRealRange(cargaStart);
       const { end: realEnd } = businessDayRealRange(cargaEnd);
-      return { monthStr, realStart, realEnd, baseHours, limitLowHours, limitHighHours, limitOverloadHours };
+      return { monthStr, realStart, realEnd, baseHours, limitBaseHours, limitLowHours, limitHighHours, limitOverloadHours };
     }),
   );
   const rangeRealStart = monthBusinessInfo[0].realStart;
@@ -161,12 +165,12 @@ export async function GET(request: NextRequest) {
     const cargaBaseHours = bizInfo.baseHours;
     const cargaRange = computeWorkloadRange(
       cargaRealHours,
-      cargaBaseHours,
+      bizInfo.limitBaseHours,
       bizInfo.limitLowHours,
       bizInfo.limitHighHours,
       bizInfo.limitOverloadHours,
     );
-    const cargaPct = computeWorkloadPct(cargaRealHours, cargaBaseHours, cargaRange.max);
+    const cargaPct = computeWorkloadPct(cargaRealHours, bizInfo.limitBaseHours, cargaRange.max);
 
     return {
       month: monthStr,
@@ -184,7 +188,7 @@ export async function GET(request: NextRequest) {
       cargaPct,
       cargaColor: cargaRange.color,
       cargaLabel: cargaRange.label,
-      cargaRangeMin: Math.round(cargaBaseHours * 100) / 100,
+      cargaRangeMin: Math.round(bizInfo.limitBaseHours * 100) / 100,
       cargaRangeMax: cargaRange.max,
     };
   });
@@ -211,11 +215,12 @@ export async function GET(request: NextRequest) {
   // que pueden variar de un mes a otro si cambió la configuración).
   const totalCargaRealHours = Math.round(monthSnapshots.reduce((s, m) => s + m.cargaRealHours, 0) * 100) / 100;
   const totalCargaBaseHours = Math.round(monthBusinessInfo.reduce((s, b) => s + b.baseHours, 0) * 100) / 100;
+  const totalLimitBaseHours = monthBusinessInfo.reduce((s, b) => s + b.limitBaseHours, 0);
   const totalLimitLowHours = monthBusinessInfo.reduce((s, b) => s + b.limitLowHours, 0);
   const totalLimitHighHours = monthBusinessInfo.reduce((s, b) => s + b.limitHighHours, 0);
   const totalLimitOverloadHours = monthBusinessInfo.reduce((s, b) => s + b.limitOverloadHours, 0);
-  const cargaRangeAgg = computeWorkloadRange(totalCargaRealHours, totalCargaBaseHours, totalLimitLowHours, totalLimitHighHours, totalLimitOverloadHours);
-  const avgCargaPct = computeWorkloadPct(totalCargaRealHours, totalCargaBaseHours, cargaRangeAgg.max);
+  const cargaRangeAgg = computeWorkloadRange(totalCargaRealHours, totalLimitBaseHours, totalLimitLowHours, totalLimitHighHours, totalLimitOverloadHours);
+  const avgCargaPct = computeWorkloadPct(totalCargaRealHours, totalLimitBaseHours, cargaRangeAgg.max);
 
   const byReasonMap: Record<string, { count: number; totalMinutes: number }> = {};
   for (const act of allActivities) {
@@ -255,7 +260,7 @@ export async function GET(request: NextRequest) {
         avgCargaPct,
         cargaColor: cargaRangeAgg.color,
         cargaLabel: cargaRangeAgg.label,
-        cargaRangeMin: totalCargaBaseHours,
+        cargaRangeMin: Math.round(totalLimitBaseHours * 100) / 100,
         cargaRangeMax: cargaRangeAgg.max,
       },
       trends: {

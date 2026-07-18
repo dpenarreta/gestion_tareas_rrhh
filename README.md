@@ -321,6 +321,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-18: fix(kpis): rangos, gráficos y % de carga correctos para usuarios con estado especial activo
 - 2026-07-18: feat(kpis,settings): límites del estado especial de maternidad/lactancia configurables por registro
 - 2026-07-18: feat(settings,kpis): acordeones colapsables en Ajustes y estado especial de maternidad/lactancia
 - 2026-07-17: test(api): cubrir las rutas de ajustes sin pruebas (notificaciones, motivos, feriados, fecha de inicio KPI, bienvenida)

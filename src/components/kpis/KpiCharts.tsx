@@ -269,6 +269,7 @@ function CargaTooltip({
       <p style={{ fontWeight: 600, marginBottom: 4 }}>{title}</p>
       <p>{hoursToDisplay(p.realHours)}h reales</p>
       <p style={{ opacity: 0.75 }}>{p.label}</p>
+      {p.specialStatusType && <p style={{ marginTop: 2 }}>👶 Jornada especial</p>}
     </div>
   );
 }

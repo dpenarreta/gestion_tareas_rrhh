@@ -265,7 +265,7 @@ export async function POST(request: NextRequest) {
     const userLimitHighHours = userBase?.limitHighHours ?? limitHighHours;
     const userLimitOverloadHours = userBase?.limitOverloadHours ?? limitOverloadHours;
     const cargaRange = computeWorkloadRange(cargaRealHours, userLimitBaseHours, userLimitLowHours, userLimitHighHours, userLimitOverloadHours);
-    const cargaPct = computeWorkloadPct(cargaRealHours, userBaseHours, cargaRange.max);
+    const cargaPct = computeWorkloadPct(cargaRealHours, userLimitBaseHours, cargaRange.max);
 
     const inProgress = tasks.filter((t) => t.status === "EN_PROGRESO");
     const avgProgress =
@@ -341,7 +341,7 @@ export async function POST(request: NextRequest) {
     totalLimitHighHours,
     totalLimitOverloadHours,
   );
-  const avgCargaPct = computeWorkloadPct(totalCargaRealHours, totalCargaBaseHours, teamCargaRange.max);
+  const avgCargaPct = computeWorkloadPct(totalCargaRealHours, totalLimitBaseHours, teamCargaRange.max);
   const avgCumplimiento =
     members.length > 0
       ? Math.round(members.reduce((s, m) => s + m.completedPct, 0) / members.length)
