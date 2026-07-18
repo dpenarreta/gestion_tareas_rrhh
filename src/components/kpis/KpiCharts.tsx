@@ -255,12 +255,47 @@ const KIND_LABEL: Record<CargaDayKind, string> = {
   "weekend-extra": "⚡ Extra (fin de semana)",
 };
 
-/** Alto nominal (h) para que días con 0 horas reales (feriado/permiso/vacío) se vean como una barra fina. */
+/** Alto nominal (h) para que días con 0 horas reales (feriado/permiso) o valores muy pequeños se vean como una barra fina. */
 const NOMINAL_BAR_HEIGHT = 0.15;
 
 function dayBarValue(p: DailyCargaPoint): number {
-  if (p.realHours > 0) return p.realHours;
-  return p.kind === "normal" ? 0 : NOMINAL_BAR_HEIGHT;
+  if (p.realHours > 0) return Math.max(p.realHours, NOMINAL_BAR_HEIGHT);
+  // "normal"/"empty": día sin ningún registro — altura 0 clara, sin barra fantasma.
+  return p.kind === "normal" || p.kind === "empty" ? 0 : NOMINAL_BAR_HEIGHT;
+}
+
+/** true si la fecha ISO (YYYY-MM-DD, UTC) cae en sábado o domingo. */
+function isWeekendIso(iso: string): boolean {
+  const dow = new Date(`${iso}T00:00:00Z`).getUTCDay();
+  return dow === 0 || dow === 6;
+}
+
+/** Tick del eje X: solo días laborables (lun-vie) muestran etiqueta, rotada 45° para no superponerse. */
+function DayAxisTick(props: {
+  x?: string | number;
+  y?: string | number;
+  payload?: { value?: string | number };
+  index?: number;
+  data: DailyCargaPoint[];
+  color: string;
+}) {
+  const { x, y, payload, index, data, color } = props;
+  if (x == null || y == null || index == null || !payload) return null;
+  const point = data[index];
+  if (!point || isWeekendIso(point.date)) return null;
+  return (
+    <text
+      x={x}
+      y={y}
+      dy={9}
+      textAnchor="end"
+      fill={color}
+      fontSize={11}
+      transform={`rotate(-45 ${x} ${y})`}
+    >
+      {payload.value}
+    </text>
+  );
 }
 
 function dayFill(p: DailyCargaPoint, ct: ReturnType<typeof useChartTheme>): string {
@@ -374,9 +409,18 @@ export function DailyCargaBarChart({
   return (
     <div>
       <div ref={scrollRef} className="overflow-x-auto">
-        <BarChart width={chartWidth} height={200} data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 5 }}>
+        <BarChart width={chartWidth} height={220} data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 25 }}>
           <CartesianGrid strokeDasharray="3 3" stroke={ct.grid} vertical={false} />
-          <XAxis dataKey="dayLabel" tick={{ fontSize: 11, fill: ct.axis }} axisLine={false} tickLine={false} interval={0} />
+          <XAxis
+            dataKey="dayLabel"
+            tick={(props: { x?: string | number; y?: string | number; payload?: { value?: string | number }; index?: number }) => (
+              <DayAxisTick {...props} data={chartData} color={ct.axis} />
+            )}
+            axisLine={false}
+            tickLine={false}
+            interval={0}
+            height={40}
+          />
           <YAxis
             tick={{ fontSize: 11, fill: ct.axisMuted }}
             axisLine={false}

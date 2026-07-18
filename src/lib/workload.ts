@@ -27,8 +27,6 @@ const MONTH_NAMES = [
   "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
 ];
 
-const DAY_ABBR = ["Dom", "Lun", "Mar", "Mié", "Jue", "Vie", "Sáb"];
-
 /** Lunes a viernes Y no feriado configurado. */
 function isWorkingDay(d: Date, holidays: Set<number>): boolean {
   return isBusinessDay(d) && !holidays.has(d.getTime());
@@ -702,7 +700,7 @@ export async function computeCargaHistory(
       const specialStatusType = dayCfg?.type ?? null;
       const base = {
         date: formatIsoDate(day),
-        dayLabel: `${DAY_ABBR[day.getUTCDay()]} ${formatShortDate(day)}`,
+        dayLabel: formatShortDate(day),
         specialStatusType,
       };
 
