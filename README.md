@@ -331,6 +331,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-18: feat(analytics): dashboard ejecutivo ampliado, insights de Nova con IA, alertas de riesgo
 - 2026-07-18: test(assistant): cubrir POST /api/assistant/chat
 - 2026-07-18: fix(kpis): etiquetas y alturas del gráfico de días laborables
 - 2026-07-18: feat(kpis,nav): gráfico mensual deslizable, oculta Trabajo y dashboard ejecutivo para Jefe Nacional

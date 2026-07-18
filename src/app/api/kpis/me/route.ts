@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { isTaskOverdue } from "@/lib/utils";
 import { computeCargaTiempo, computeCargaHistory } from "@/lib/workload";
+import { computeRiskAlerts } from "@/lib/riskAlerts";
 import type { KpiColor } from "@/components/kpis/types";
 
 function cumplimientoColor(pct: number): KpiColor {
@@ -62,8 +63,16 @@ export async function GET(request: NextRequest) {
   ]);
   const cargaTiempo = { ...cargaTiempoBase, dailyHistory: cargaHistory.daily, weeklyHistory: cargaHistory.weekly };
 
+  const riskAlerts = await computeRiskAlerts({
+    userId,
+    cargaLabel: cargaTiempoBase.mensual.label,
+    cargaPct: cargaTiempoBase.mensual.pct,
+  });
+
   // ── Cumplimiento ──────────────────────────────────────────────────────────
   const completed = tasks.filter((t) => t.status === "COMPLETADA");
+  const inProgressTasks = tasks.filter((t) => t.status === "EN_PROGRESO");
+  const pendingTasks = tasks.filter((t) => t.status === "PENDIENTE");
   const overdueTasks = tasks.filter((t) => isTaskOverdue(t.endDate, t.status, refDate));
   const completedPct =
     tasks.length > 0 ? Math.round((completed.length / tasks.length) * 100) : 0;
@@ -108,10 +117,9 @@ export async function GET(request: NextRequest) {
   }));
 
   // ── Calidad ───────────────────────────────────────────────────────────────
-  const inProgress = tasks.filter((t) => t.status === "EN_PROGRESO");
   const avgProgress =
-    inProgress.length > 0
-      ? Math.round(inProgress.reduce((s, t) => s + t.progress, 0) / inProgress.length)
+    inProgressTasks.length > 0
+      ? Math.round(inProgressTasks.reduce((s, t) => s + t.progress, 0) / inProgressTasks.length)
       : 0;
   const recurringFreqs = ["MENSUAL", "SEMANAL", "DIARIA", "QUINCENAL"];
   const recurringTasks = tasks.filter((t) => recurringFreqs.includes(t.frequency));
@@ -155,6 +163,8 @@ export async function GET(request: NextRequest) {
     select: { endDate: true, status: true },
   });
 
+  // Meses sin ninguna tarea se excluyen del todo (no un 0% engañoso) — ver
+  // Analytics § evolución de cumplimiento.
   const cumplimientoHistory = Array.from({ length: 6 }, (_, i) => {
     let m = month - 5 + i;
     let y = year;
@@ -168,8 +178,9 @@ export async function GET(request: NextRequest) {
       month: "short",
       year: "2-digit",
     });
-    return { month: `${y}-${String(m).padStart(2, "0")}`, label, completedPct: pct };
-  });
+    return { month: `${y}-${String(m).padStart(2, "0")}`, label, completedPct: pct, total: mt.length };
+  }).filter((entry) => entry.total > 0)
+    .map(({ total: _total, ...rest }) => rest);
 
   // ── Previous month ────────────────────────────────────────────────────────
   let pm = month - 1;
@@ -198,6 +209,8 @@ export async function GET(request: NextRequest) {
     cumplimiento: {
       total: tasks.length,
       completed: completed.length,
+      inProgress: inProgressTasks.length,
+      pending: pendingTasks.length,
       overdue: overdueTasks.length,
       completedPct,
       overduePct,
@@ -211,6 +224,7 @@ export async function GET(request: NextRequest) {
       color: cargaColor(cargaRatio),
     },
     cargaTiempo,
+    riskAlerts,
     seguimiento: { total: allActivities.length, byReason },
     calidad: {
       avgProgress,

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { getSubordinateRoles } from "@/lib/roles";
+import { getSubordinateRoles, ROLE_LEVEL } from "@/lib/roles";
 import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct, type MonthlyBusinessBase } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
 import type { ExecutiveDashboardData } from "@/components/kpis/types";
@@ -50,12 +50,13 @@ const EMPTY_RESPONSE: ExecutiveDashboardData = {
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-  // Dashboard ejecutivo exclusivo de Jefe Nacional (ver Analytics § dashboard ejecutivo).
-  if (session.role !== "JEFE_NACIONAL")
+  // Dashboard ejecutivo: Administrador, Jefe Nacional y Coordinador Nacional
+  // (nivel >= 3) — ver Analytics § dashboard ejecutivo.
+  if (ROLE_LEVEL[session.role] < 3)
     return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
 
-  // getSubordinateRoles(JEFE_NACIONAL) excluye tanto al propio Jefe Nacional como
-  // al Administrador (VISIBLE_ROLES no lo incluye) — el ranking nunca los muestra.
+  // getSubordinateRoles(session.role) acota siempre al propio alcance del viewer
+  // (p. ej. para Coordinador Nacional excluye a Jefe Nacional y Administrador).
   const subordinateRoles = getSubordinateRoles(session.role);
   const users = await prisma.user.findMany({
     where: { role: { in: subordinateRoles } },
@@ -179,7 +180,11 @@ export async function GET() {
   const sobrecargaCount = current.members.filter((m) => m.cargaLabel === "Sobrecarga").length;
   const subutilizacionCount = current.members.filter((m) => m.cargaLabel === "Subutilización").length;
 
-  const trend = monthSnapshots.map((ms) => ({ month: ms.key, label: ms.label, avgCumplimiento: ms.avgCumplimiento }));
+  // Meses sin ningún miembro activo (nadie con tareas) se excluyen del todo
+  // del gráfico — no un 0% engañoso — ver Analytics § evolución de cumplimiento.
+  const trend = monthSnapshots
+    .filter((ms) => ms.members.some((m) => m.totalTasks > 0))
+    .map((ms) => ({ month: ms.key, label: ms.label, avgCumplimiento: ms.avgCumplimiento }));
   const trendDelta = previous ? current.avgCumplimiento - previous.avgCumplimiento : 0;
 
   const lowCumplimiento = current.members

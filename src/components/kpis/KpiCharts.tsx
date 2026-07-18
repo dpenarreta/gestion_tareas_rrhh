@@ -173,7 +173,7 @@ export function CumplimientoLineChart({
         />
         <Tooltip
           contentStyle={{ borderRadius: 8, border: `1px solid ${ct.tooltipBorder}`, fontSize: 12, background: ct.tooltipBg, color: ct.tooltipText }}
-          formatter={(v) => [`${v}%`, "Cumplimiento"]}
+          formatter={(v) => (v == null ? ["Sin datos", "Cumplimiento"] : [`${v}%`, "Cumplimiento"])}
         />
         <ReferenceLine y={80} stroke={ct.success} strokeDasharray="4 4" strokeWidth={1.5} />
         <ReferenceLine y={60} stroke={ct.warning} strokeDasharray="4 4" strokeWidth={1.5} />

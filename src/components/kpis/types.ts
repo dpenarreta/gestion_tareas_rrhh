@@ -1,3 +1,5 @@
+import type { RiskAlert } from "@/lib/riskAlerts";
+
 export type KpiColor = "green" | "yellow" | "red";
 
 /**
@@ -329,6 +331,8 @@ export type KpiData = {
   cumplimiento: {
     total: number;
     completed: number;
+    inProgress: number;
+    pending: number;
     overdue: number;
     completedPct: number;
     overduePct: number;
@@ -342,6 +346,7 @@ export type KpiData = {
     color: KpiColor;
   };
   cargaTiempo: CargaTiempo;
+  riskAlerts: RiskAlert[];
   seguimiento: {
     total: number;
     byReason: KpiByReason[];

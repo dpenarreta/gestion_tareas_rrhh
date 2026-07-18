@@ -9,8 +9,9 @@ import * as XLSX from "xlsx";
 import type { Role } from "@/generated/prisma/client";
 import { ROLE_LABEL } from "@/lib/roles";
 import type { KpiData, KpiColor, WorkloadColor, WorkloadLabel } from "./types";
-import { DonutChart, WeeklyHoursChart, CumplimientoLineChart, REASON_LABEL } from "./KpiCharts";
+import { DonutChart, CumplimientoLineChart, REASON_LABEL } from "./KpiCharts";
 import WorkloadCard from "./WorkloadCard";
+import { TaskBreakdownCard, AlertsCard } from "./InsightCards";
 import { formatDate } from "@/lib/utils";
 import { hoursToDisplay } from "@/lib/timeFormat";
 import { openReportWindow } from "./reportWindow";
@@ -680,6 +681,9 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
                 Período: <span className="text-title">{formatMonthLabel(month)}</span>
               </p>
 
+              {/* ── 1. Resumen ejecutivo (Hoy/Semana/Mes) ────────────────── */}
+              <WorkloadCard cargaTiempo={kpi.cargaTiempo} />
+
               {/* Score + Donuts */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div className="bg-surface rounded-2xl border border-border p-5 flex flex-col items-center justify-center gap-2">
@@ -748,11 +752,14 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
                 </div>
               </div>
 
-              <WorkloadCard cargaTiempo={kpi.cargaTiempo} />
-
-              {/* Stats */}
+              {/* ── 2. KPIs principales ───────────────────────────────────── */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                <StatCard label="Total tareas" value={kpi.cumplimiento.total} sub={formatMonthLabel(month)} />
+                <TaskBreakdownCard
+                  total={kpi.cumplimiento.total}
+                  completed={kpi.cumplimiento.completed}
+                  inProgress={kpi.cumplimiento.inProgress}
+                  pending={kpi.cumplimiento.pending}
+                />
                 <StatCard label="Completadas" value={kpi.cumplimiento.completed} sub={`${kpi.cumplimiento.completedPct}% del total`} accent />
                 <StatCard
                   label="Vencidas"
@@ -773,19 +780,14 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
                 );
               })()}
 
-              {/* Charts */}
-              {(kpi.horasByWeek.length > 0 || kpi.cumplimientoHistory.length > 0) && (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {kpi.horasByWeek.length > 0 && (
-                    <div className="bg-surface rounded-2xl border border-border p-5">
-                      <p className="text-[11px] font-semibold text-main uppercase tracking-wider mb-4">Horas por semana</p>
-                      <WeeklyHoursChart data={kpi.horasByWeek} />
-                    </div>
-                  )}
-                  <div className="bg-surface rounded-2xl border border-border p-5">
-                    <p className="text-[11px] font-semibold text-main uppercase tracking-wider mb-4">Evolución cumplimiento (6 meses)</p>
-                    <CumplimientoLineChart data={kpi.cumplimientoHistory} />
-                  </div>
+              {/* ── 4. Alertas ────────────────────────────────────────────── */}
+              <AlertsCard alerts={kpi.riskAlerts} />
+
+              {/* ── 5. Tendencias ─────────────────────────────────────────── */}
+              {kpi.cumplimientoHistory.length > 0 && (
+                <div className="bg-surface rounded-2xl border border-border p-5">
+                  <p className="text-[11px] font-semibold text-main uppercase tracking-wider mb-4">Evolución cumplimiento (6 meses)</p>
+                  <CumplimientoLineChart data={kpi.cumplimientoHistory} />
                 </div>
               )}
 
