@@ -185,10 +185,10 @@ export async function GET(request: NextRequest) {
       months.map(async (monthStr) => {
         const [y, mo] = monthStr.split("-").map(Number);
         const { shared, perUser } = await monthlyBusinessBaseForUsers(userIds, y, mo);
-        const { start: cargaStart, end: cargaEnd, baseHours, limitLowHours, limitHighHours, limitOverloadHours } = shared;
+        const { start: cargaStart, end: cargaEnd, baseHours, limitBaseHours, limitLowHours, limitHighHours, limitOverloadHours } = shared;
         const { start: realStart } = businessDayRealRange(cargaStart);
         const { end: realEnd } = businessDayRealRange(cargaEnd);
-        return { monthStr, cargaStart, cargaEnd, realStart, realEnd, baseHours, limitLowHours, limitHighHours, limitOverloadHours, perUser };
+        return { monthStr, cargaStart, cargaEnd, realStart, realEnd, baseHours, limitBaseHours, limitLowHours, limitHighHours, limitOverloadHours, perUser };
       }),
     );
 
@@ -261,7 +261,7 @@ export async function GET(request: NextRequest) {
         const userBiz = bizInfoForUser(bizInfo, user.id);
         const cargaRange = computeWorkloadRange(
           cargaRealHours,
-          userBiz.baseHours,
+          userBiz.limitBaseHours,
           userBiz.limitLowHours,
           userBiz.limitHighHours,
           userBiz.limitOverloadHours,
@@ -322,12 +322,13 @@ export async function GET(request: NextRequest) {
           const u = bizInfoForUser(b, userId);
           return {
             baseHours: acc.baseHours + u.baseHours,
+            limitBaseHours: acc.limitBaseHours + u.limitBaseHours,
             limitLowHours: acc.limitLowHours + u.limitLowHours,
             limitHighHours: acc.limitHighHours + u.limitHighHours,
             limitOverloadHours: acc.limitOverloadHours + u.limitOverloadHours,
           };
         },
-        { baseHours: 0, limitLowHours: 0, limitHighHours: 0, limitOverloadHours: 0 },
+        { baseHours: 0, limitBaseHours: 0, limitLowHours: 0, limitHighHours: 0, limitOverloadHours: 0 },
       );
     }
 
@@ -348,7 +349,7 @@ export async function GET(request: NextRequest) {
       const cargaBaseHours = userRangeBiz.baseHours;
       const cargaRange = computeWorkloadRange(
         cargaRealHours,
-        cargaBaseHours,
+        userRangeBiz.limitBaseHours,
         userRangeBiz.limitLowHours,
         userRangeBiz.limitHighHours,
         userRangeBiz.limitOverloadHours,
@@ -396,7 +397,7 @@ export async function GET(request: NextRequest) {
         cargaBaseHours,
         cargaColor: cargaRange.color,
         cargaLabel: cargaRange.label,
-        cargaRangeMin: Math.round(cargaBaseHours * 100) / 100,
+        cargaRangeMin: Math.round(userRangeBiz.limitBaseHours * 100) / 100,
         cargaRangeMax: cargaRange.max,
         totalTasks: userTasks.length,
         completedTasks,
@@ -418,12 +419,13 @@ export async function GET(request: NextRequest) {
         : 0;
     const totalCargaRealHours = Math.round(aggregatedMembers.reduce((s, m) => s + m.cargaRealHours, 0) * 100) / 100;
     const totalCargaBaseHours = Math.round(aggregatedMembers.reduce((s, m) => s + m.cargaBaseHours, 0) * 100) / 100;
+    const totalLimitBaseHours = users.reduce((s, u) => s + rangeBizForUser(u.id).limitBaseHours, 0);
     const totalLimitLowHours = users.reduce((s, u) => s + rangeBizForUser(u.id).limitLowHours, 0);
     const totalLimitHighHours = users.reduce((s, u) => s + rangeBizForUser(u.id).limitHighHours, 0);
     const totalLimitOverloadHours = users.reduce((s, u) => s + rangeBizForUser(u.id).limitOverloadHours, 0);
     const teamCargaRange = computeWorkloadRange(
       totalCargaRealHours,
-      totalCargaBaseHours,
+      totalLimitBaseHours,
       totalLimitLowHours,
       totalLimitHighHours,
       totalLimitOverloadHours,
@@ -435,7 +437,7 @@ export async function GET(request: NextRequest) {
     const lastMonthBizInfo = monthBusinessInfo[monthBusinessInfo.length - 1];
     const cargaRangeLastMonth = computeWorkloadRange(
       0,
-      lastMonthBizInfo.baseHours,
+      lastMonthBizInfo.limitBaseHours,
       lastMonthBizInfo.limitLowHours,
       lastMonthBizInfo.limitHighHours,
       lastMonthBizInfo.limitOverloadHours,
@@ -519,7 +521,7 @@ export async function GET(request: NextRequest) {
           totalCargaRealHours,
           totalCargaBaseHours,
           totalConsultas: allActivities.length,
-          cargaRangeMin: Math.round(lastMonthBizInfo.baseHours * 100) / 100,
+          cargaRangeMin: Math.round(lastMonthBizInfo.limitBaseHours * 100) / 100,
           cargaRangeMax: cargaRangeLastMonth.max,
         },
         members: aggregatedMembers,

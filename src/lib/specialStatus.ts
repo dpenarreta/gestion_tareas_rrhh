@@ -2,26 +2,68 @@ import "server-only";
 import { prisma } from "@/lib/prisma";
 import type { SpecialStatusType } from "@/generated/prisma/client";
 
-// Base diaria y límites FIJOS (no configurables) mientras un estado especial de
-// maternidad/lactancia esté vigente para un usuario — sustituyen a las horas
-// efectivas y límites configurados globalmente, solo para los días afectados.
-export const SPECIAL_STATUS_HOURS_PER_DAY = 6;
-export const SPECIAL_STATUS_LIMIT_LOW = 5;
-export const SPECIAL_STATUS_LIMIT_HIGH = 7;
-export const SPECIAL_STATUS_LIMIT_OVERLOAD = 8;
+// Valores por defecto que se pre-cargan en el formulario — el Administrador puede
+// cambiarlos por registro (ver SpecialStatusSection.tsx); no son fijos globalmente.
+export const DEFAULT_SPECIAL_STATUS_DAILY_HOURS = 6;
+export const DEFAULT_SPECIAL_STATUS_LIMIT_LOW = 5;
+export const DEFAULT_SPECIAL_STATUS_LIMIT_BASE = 6;
+export const DEFAULT_SPECIAL_STATUS_LIMIT_HIGH = 7;
+export const DEFAULT_SPECIAL_STATUS_LIMIT_OVERLOAD = 8;
 
-/** Días (timestamp UTC-medianoche) con estado especial vigente para un usuario, con su tipo. */
-export type SpecialStatusDayMap = Map<number, SpecialStatusType>;
+/** Config vigente para un día con estado especial activo (por registro, no fija). */
+export type SpecialStatusDayConfig = {
+  type: SpecialStatusType;
+  /** Horas objetivo/base del día — usada para la agregación semanal/mensual y el % de carga. */
+  dailyHours: number;
+  limitLow: number;
+  /** Umbral real de clasificación Moderado/Óptimo del semáforo (independiente de dailyHours). */
+  limitBase: number;
+  limitHigh: number;
+  limitOverload: number;
+};
 
-type SpecialStatusRow = { userId: string; startDate: Date; endDate: Date | null; type: SpecialStatusType };
+/** Días (timestamp UTC-medianoche) con estado especial vigente para un usuario, con su config. */
+export type SpecialStatusDayMap = Map<number, SpecialStatusDayConfig>;
+
+type SpecialStatusRow = {
+  userId: string;
+  startDate: Date;
+  endDate: Date | null;
+  type: SpecialStatusType;
+  dailyHours: number;
+  limitLow: number;
+  limitBase: number;
+  limitHigh: number;
+  limitOverload: number;
+};
+
+const SELECT_FIELDS = {
+  userId: true,
+  startDate: true,
+  endDate: true,
+  type: true,
+  dailyHours: true,
+  limitLow: true,
+  limitBase: true,
+  limitHigh: true,
+  limitOverload: true,
+} as const;
 
 function buildDayMap(records: SpecialStatusRow[], rangeStart: Date, rangeEnd: Date): SpecialStatusDayMap {
   const map: SpecialStatusDayMap = new Map();
   for (const r of records) {
     const from = r.startDate.getTime() > rangeStart.getTime() ? r.startDate : rangeStart;
     const to = r.endDate && r.endDate.getTime() < rangeEnd.getTime() ? r.endDate : rangeEnd;
+    const config: SpecialStatusDayConfig = {
+      type: r.type,
+      dailyHours: r.dailyHours,
+      limitLow: r.limitLow,
+      limitBase: r.limitBase,
+      limitHigh: r.limitHigh,
+      limitOverload: r.limitOverload,
+    };
     for (let t = from.getTime(); t <= to.getTime(); t += 86400000) {
-      map.set(t, r.type);
+      map.set(t, config);
     }
   }
   return map;
@@ -39,7 +81,7 @@ export async function getSpecialStatusDayMap(
       startDate: { lte: rangeEnd },
       OR: [{ endDate: null }, { endDate: { gte: rangeStart } }],
     },
-    select: { userId: true, startDate: true, endDate: true, type: true },
+    select: SELECT_FIELDS,
   });
   return buildDayMap(records, rangeStart, rangeEnd);
 }
@@ -62,7 +104,7 @@ export async function getTeamSpecialStatusDayMap(
       startDate: { lte: rangeEnd },
       OR: [{ endDate: null }, { endDate: { gte: rangeStart } }],
     },
-    select: { userId: true, startDate: true, endDate: true, type: true },
+    select: SELECT_FIELDS,
   });
   const byUser = new Map<string, SpecialStatusRow[]>();
   for (const r of records) {

@@ -164,19 +164,29 @@ model LeaveRecord {
 }
 
 // Estado especial de personal (maternidad/lactancia) — mientras esté vigente para un
-// día, la base diaria de KPI de ese usuario ese día es 6h fijas (no las horas
-// efectivas configuradas globalmente). Ver src/lib/specialStatus.ts.
+// día, la base/límites de KPI de ese usuario ese día son los configurados aquí (no
+// las horas efectivas/límites configurados globalmente). Configurable por registro
+// (no fijo) desde 2026-07-18 — ver src/lib/specialStatus.ts.
 model SpecialStatus {
-  id        String            @id @default(cuid())
-  userId    String
-  user      User              @relation("SpecialStatusUser", fields: [userId], references: [id], onDelete: Cascade)
-  type      SpecialStatusType
-  startDate DateTime
-  endDate   DateTime?
-  isActive  Boolean           @default(true)
-  createdBy String
-  creator   User              @relation("SpecialStatusCreator", fields: [createdBy], references: [id])
-  createdAt DateTime          @default(now())
+  id            String            @id @default(cuid())
+  userId        String
+  user          User              @relation("SpecialStatusUser", fields: [userId], references: [id], onDelete: Cascade)
+  type          SpecialStatusType
+  startDate     DateTime
+  endDate       DateTime?
+  isActive      Boolean           @default(true)
+  // Base de horas diarias — usada para las horas objetivo/base (agregación
+  // semanal/mensual y denominador del %), separada del límite Moderado/Óptimo.
+  dailyHours    Float             @default(6)
+  limitLow      Float             @default(5)
+  // Límite Moderado/Óptimo — el umbral real de clasificación del semáforo,
+  // independiente de dailyHours (por defecto son iguales, pero no tienen que serlo).
+  limitBase     Float             @default(6)
+  limitHigh     Float             @default(7)
+  limitOverload Float             @default(8)
+  createdBy     String
+  creator       User              @relation("SpecialStatusCreator", fields: [createdBy], references: [id])
+  createdAt     DateTime          @default(now())
 
   @@index([userId, startDate])
 }

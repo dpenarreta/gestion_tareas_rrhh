@@ -258,10 +258,13 @@ export async function POST(request: NextRequest) {
     const cargaRealHours = Math.round((fijaHours + activityHours) * 100) / 100;
     const userBase = businessBasePerUser.get(user.id);
     const userBaseHours = userBase?.baseHours ?? monthlyBaseHours;
+    // limitBaseHours es el umbral real de clasificación Moderado/Óptimo — puede
+    // diferir de userBaseHours (dailyHours) si el registro configuró valores distintos.
+    const userLimitBaseHours = userBase?.limitBaseHours ?? monthlyBaseHours;
     const userLimitLowHours = userBase?.limitLowHours ?? limitLowHours;
     const userLimitHighHours = userBase?.limitHighHours ?? limitHighHours;
     const userLimitOverloadHours = userBase?.limitOverloadHours ?? limitOverloadHours;
-    const cargaRange = computeWorkloadRange(cargaRealHours, userBaseHours, userLimitLowHours, userLimitHighHours, userLimitOverloadHours);
+    const cargaRange = computeWorkloadRange(cargaRealHours, userLimitBaseHours, userLimitLowHours, userLimitHighHours, userLimitOverloadHours);
     const cargaPct = computeWorkloadPct(cargaRealHours, userBaseHours, cargaRange.max);
 
     const inProgress = tasks.filter((t) => t.status === "EN_PROGRESO");
@@ -304,8 +307,8 @@ export async function POST(request: NextRequest) {
       cargaBaseHours: userBaseHours,
       cargaColor: cargaRange.color,
       cargaLabel: cargaRange.label,
-      // cargaRangeMin/Max = límites de la zona Óptima (verde): [base, workload_limit_high].
-      cargaRangeMin: Math.round(userBaseHours * 100) / 100,
+      // cargaRangeMin/Max = límites de la zona Óptima (verde): [limitBase, workload_limit_high].
+      cargaRangeMin: Math.round(userLimitBaseHours * 100) / 100,
       cargaRangeMax: cargaRange.max,
       totalTasks: tasks.length,
       completedTasks: completed,
@@ -327,12 +330,13 @@ export async function POST(request: NextRequest) {
   // ya viene ajustada a 6h/día en cargaBaseHours) en vez de asumir la misma base
   // compartida para todos.
   const totalCargaBaseHours = Math.round(members.reduce((s, m) => s + m.cargaBaseHours, 0) * 100) / 100;
+  const totalLimitBaseHours = members.reduce((s, m) => s + (businessBasePerUser.get(m.id)?.limitBaseHours ?? monthlyBaseHours), 0);
   const totalLimitLowHours = members.reduce((s, m) => s + (businessBasePerUser.get(m.id)?.limitLowHours ?? limitLowHours), 0);
   const totalLimitHighHours = members.reduce((s, m) => s + (businessBasePerUser.get(m.id)?.limitHighHours ?? limitHighHours), 0);
   const totalLimitOverloadHours = members.reduce((s, m) => s + (businessBasePerUser.get(m.id)?.limitOverloadHours ?? limitOverloadHours), 0);
   const teamCargaRange = computeWorkloadRange(
     totalCargaRealHours,
-    totalCargaBaseHours,
+    totalLimitBaseHours,
     totalLimitLowHours,
     totalLimitHighHours,
     totalLimitOverloadHours,

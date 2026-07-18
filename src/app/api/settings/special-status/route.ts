@@ -44,15 +44,37 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Cuerpo de la solicitud inválido" }, { status: 400 });
   }
 
-  const { userId, type, startDate, endDate } = body as {
+  const { userId, type, startDate, endDate, dailyHours, limitLow, limitBase, limitHigh, limitOverload } = body as {
     userId?: string;
     type?: string;
     startDate?: string;
     endDate?: string | null;
+    dailyHours?: number;
+    limitLow?: number;
+    limitBase?: number;
+    limitHigh?: number;
+    limitOverload?: number;
   };
 
   if (!userId || !startDate || (type !== "MATERNIDAD" && type !== "LACTANCIA")) {
     return NextResponse.json({ error: "Faltan campos requeridos" }, { status: 400 });
+  }
+
+  const limitFields = { dailyHours, limitLow, limitBase, limitHigh, limitOverload };
+  for (const [key, value] of Object.entries(limitFields)) {
+    if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > 24) {
+      return NextResponse.json({ error: `El campo ${key} debe ser un número entre 0 y 24 horas` }, { status: 400 });
+    }
+  }
+  // Mismo orden que exige la configuración global de carga laboral: cada límite
+  // debe ser estrictamente creciente respecto al anterior (limitBase puede
+  // coincidir con limitHigh solo si dailyHours no se usa como umbral — pero para
+  // evitar semáforos degenerados exigimos el mismo orden estricto de siempre).
+  if (!(limitLow! < limitBase! && limitBase! <= limitHigh! && limitHigh! < limitOverload!)) {
+    return NextResponse.json(
+      { error: "Los límites deben cumplir: Subutilización < Moderado/Óptimo ≤ Óptimo/Elevada < Elevada/Sobrecarga" },
+      { status: 400 }
+    );
   }
 
   const parsedStart = parseDateOnly(startDate);
@@ -81,6 +103,11 @@ export async function POST(request: NextRequest) {
       type: type as SpecialStatusType,
       startDate: parsedStart,
       endDate: parsedEnd,
+      dailyHours: dailyHours!,
+      limitLow: limitLow!,
+      limitBase: limitBase!,
+      limitHigh: limitHigh!,
+      limitOverload: limitOverload!,
       createdBy: session.userId,
     },
     include: { user: { select: { id: true, name: true } } },
