@@ -58,7 +58,7 @@ function ConsentModal({ onAccept }: { onAccept: () => void }) {
           </h2>
         </div>
 
-        <div className="px-6 py-5 space-y-4 max-h-[60vh] overflow-y-auto">
+        <div className="px-6 py-5 space-y-4 max-h-[50vh] overflow-y-auto">
           <p className="text-sm text-main">
             Nexo recopila y almacena los siguientes datos personales con el fin de
             gestionar los recursos humanos de la organización:
@@ -94,7 +94,9 @@ function ConsentModal({ onAccept }: { onAccept: () => void }) {
             Puedes ejercer tus derechos de acceso, rectificación y eliminación desde tu
             perfil en la sección &ldquo;Mis derechos sobre mis datos&rdquo;.
           </p>
+        </div>
 
+        <div className="px-6 py-4 border-t border-border space-y-4">
           <label className="flex items-start gap-2 cursor-pointer select-none">
             <input
               type="checkbox"
@@ -107,7 +109,7 @@ function ConsentModal({ onAccept }: { onAccept: () => void }) {
             </span>
           </label>
 
-          <div className="flex items-center justify-end gap-3 pt-1">
+          <div className="flex items-center justify-end gap-3">
             <button
               type="button"
               onClick={handleReject}
