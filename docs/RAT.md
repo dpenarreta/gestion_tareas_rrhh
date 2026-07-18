@@ -54,6 +54,21 @@ Personas colaboradoras de la organización con cuenta de usuario en Nexo (todos 
 | Intentos de inicio de sesión por IP (para limitar fuerza bruta) | Uso del sistema | `LoginAttempt` |
 | Auditoría de depuraciones ejecutadas (qué se eliminó, cuándo y por quién) | Ejecución de la política de retención por el Administrador | `DataPurgeLog` |
 | **Permisos médicos y personales** (tipo, fecha, duración u observación) — **dato de salud cuando el tipo es `MEDICO`** | Registro manual exclusivo del Administrador, no autoservicio del titular | `LeaveRecord` |
+| **Estado especial de maternidad/lactancia** (tipo, fecha de inicio/fin, base y límites de jornada configurados) — **dato de salud/condición personal** | Registro manual exclusivo del Administrador, no autoservicio del titular | `SpecialStatus` |
+
+### 5.1 Categorías especiales de datos (Art. 26 LOPDP)
+
+Los tres tipos de dato que introduce el módulo de ausencias/estado especial (`LeaveRecord`, `SpecialStatus`) se detallan aparte porque, a diferencia del resto de la sección 5, incluyen datos de salud y de condición personal — categoría especial bajo el Art. 26 LOPDP, que exige base de legitimación reforzada.
+
+| Categoría de dato | Finalidad | Base legal | Responsable del registro | Destinatarios | Retención |
+|---|---|---|---|---|---|
+| Permisos médicos | Ajuste de la base laboral para el cálculo correcto de KPIs | Consentimiento explícito del titular + obligación legal laboral | Administrador del sistema | Solo Administrador y sistema de KPIs | Según política configurada en el sistema `[Completar: hoy sin plazo definido — ver sección 9]` |
+| Maternidad/lactancia | Ajuste de jornada laboral reducida en KPIs conforme a la legislación laboral ecuatoriana | Obligación legal (Código de Trabajo Ecuador, Art. 153 y siguientes) + consentimiento | Administrador del sistema | Solo Administrador y sistema de KPIs | Durante el período activo + tiempo de retención configurado `[Completar: ver sección 9]` |
+| Vacaciones y permisos personales | Ajuste de la base laboral para el cálculo correcto de KPIs | Relación contractual laboral + consentimiento informado | Administrador del sistema | Solo Administrador y sistema de KPIs | Según política configurada en el sistema `[Completar: ver sección 9]` |
+
+> **Nota especial:** los datos de salud (permisos médicos, maternidad y lactancia) constituyen una categoría especial de datos conforme al Art. 26 LOPDP. Su tratamiento requiere base legal reforzada y medidas de seguridad adicionales. Se recomienda validación legal específica para esta categoría antes del uso formal del sistema. Ver también `docs/PENDIENTES_LEGALES.md`, sección 5.
+>
+> Desde 2026-07-18, la visibilidad de estos datos en la aplicación está técnicamente restringida al propio titular y al Administrador: superiores en la jerarquía (Coordinador ZS, Analista, Coordinador Nacional, Jefe Nacional) ven, como máximo, que existen horas de ausencia justificada, sin el tipo específico de permiso ni el estado especial (ver `redactSensitiveWorkloadDetail` en `src/lib/workload.ts`, consumida por `GET /api/kpis/[userId]`; README §16, sección "Estado de cumplimiento").
 
 ## 6. Categorías de destinatarios / encargados de tratamiento (proveedores externos)
 

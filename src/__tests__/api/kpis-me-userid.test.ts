@@ -19,21 +19,36 @@ vi.mock("@/lib/prisma", () => ({
 vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
 
 const FAKE_CARGA_TIEMPO = {
-  diaria: { realHours: 0, baseHours: 0, pct: 0, color: "green", rangeMin: 0, rangeMax: 0, label: "Óptimo", isWeekend: false },
-  semanal: { realHours: 0, baseHours: 0, pct: 0, color: "green", rangeMin: 0, rangeMax: 0, label: "Óptimo" },
-  mensual: { realHours: 0, baseHours: 0, pct: 0, color: "green", rangeMin: 0, rangeMax: 0, label: "Óptimo" },
+  diaria: {
+    realHours: 0, baseHours: 0, pct: 0, color: "green", rangeMin: 0, rangeMax: 0, label: "Óptimo", isWeekend: false,
+    medicoLeaveMinutes: 120, medicoLeaveFullDay: false,
+    personalLeaveMinutes: 0, personalLeaveFullDay: false,
+    vacacionesFullDay: false,
+    specialStatusType: "MATERNIDAD",
+  },
+  semanal: { realHours: 0, baseHours: 0, pct: 0, color: "green", rangeMin: 0, rangeMax: 0, label: "Óptimo", specialStatusType: "MATERNIDAD" },
+  mensual: {
+    realHours: 0, baseHours: 0, pct: 0, color: "green", rangeMin: 0, rangeMax: 0, label: "Óptimo",
+    medicoLeaveMinutes: 120, personalLeaveMinutes: 0, vacacionesMinutes: 0,
+    specialStatusType: "MATERNIDAD",
+  },
   horasEfectivasPorDia: 6.5,
   workloadLimitLow: 5.5,
   workloadLimitHigh: 7.5,
   workloadLimitOverload: 8.5,
   dailyHistory: [],
   weeklyHistory: [],
+  sensitiveDetailVisible: true,
 };
 
-vi.mock("@/lib/workload", () => ({
-  computeCargaTiempo: vi.fn().mockResolvedValue(FAKE_CARGA_TIEMPO),
-  computeCargaHistory: vi.fn().mockResolvedValue({ daily: [], weekly: [] }),
-}));
+vi.mock("@/lib/workload", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/workload")>("@/lib/workload");
+  return {
+    ...actual,
+    computeCargaTiempo: vi.fn().mockResolvedValue(FAKE_CARGA_TIEMPO),
+    computeCargaHistory: vi.fn().mockResolvedValue({ daily: [], weekly: [] }),
+  };
+});
 
 const { getSession } = await import("@/lib/session");
 const { GET: meGET } = await import("@/app/api/kpis/me/route");
@@ -202,5 +217,45 @@ describe("GET /api/kpis/[userId]", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.user).toEqual({ id: "target-1", name: "Ana", role: "ASISTENTE_GH" });
+  });
+
+  // Los permisos médicos y el estado de maternidad/lactancia son datos de salud
+  // (Art. 26 LOPDP) — un superior en la jerarquía distinto del Administrador solo
+  // debe ver que hay horas de ausencia justificada, no el tipo específico.
+  it("un JEFE_NACIONAL viendo a un subordinado recibe el detalle de permisos/estado especial redactado", async () => {
+    mockSession({ userId: "boss-1", role: "JEFE_NACIONAL" });
+    userFindUnique.mockResolvedValue({ id: "target-1", name: "Ana", role: "ASISTENTE_GH" });
+    taskFindMany.mockResolvedValue([]);
+    const res = await userIdGET(getRequest(), ctx("target-1"));
+    const body = await res.json();
+    expect(body.cargaTiempo.sensitiveDetailVisible).toBe(false);
+    expect(body.cargaTiempo.diaria.medicoLeaveMinutes).toBe(0);
+    expect(body.cargaTiempo.diaria.specialStatusType).toBeNull();
+    // El total de minutos de ausencia se conserva de forma genérica (personalLeaveMinutes).
+    expect(body.cargaTiempo.diaria.personalLeaveMinutes).toBe(120);
+    expect(body.cargaTiempo.mensual.medicoLeaveMinutes).toBe(0);
+    expect(body.cargaTiempo.mensual.vacacionesMinutes).toBe(0);
+    expect(body.cargaTiempo.mensual.specialStatusType).toBeNull();
+  });
+
+  it("un ADMINISTRADOR viendo a un subordinado recibe el detalle completo de permisos/estado especial", async () => {
+    mockSession({ userId: "admin-1", role: "ADMINISTRADOR" });
+    userFindUnique.mockResolvedValue({ id: "target-1", name: "Ana", role: "ASISTENTE_GH" });
+    taskFindMany.mockResolvedValue([]);
+    const res = await userIdGET(getRequest(), ctx("target-1"));
+    const body = await res.json();
+    expect(body.cargaTiempo.sensitiveDetailVisible).toBe(true);
+    expect(body.cargaTiempo.diaria.medicoLeaveMinutes).toBe(120);
+    expect(body.cargaTiempo.diaria.specialStatusType).toBe("MATERNIDAD");
+  });
+
+  it("un usuario viendo sus propios KPIs vía /api/kpis/[userId] recibe el detalle completo", async () => {
+    mockSession({ userId: "target-1", role: "ASISTENTE_GH" });
+    userFindUnique.mockResolvedValue({ id: "target-1", name: "Ana", role: "ASISTENTE_GH" });
+    taskFindMany.mockResolvedValue([]);
+    const res = await userIdGET(getRequest(), ctx("target-1"));
+    const body = await res.json();
+    expect(body.cargaTiempo.sensitiveDetailVisible).toBe(true);
+    expect(body.cargaTiempo.diaria.medicoLeaveMinutes).toBe(120);
   });
 });

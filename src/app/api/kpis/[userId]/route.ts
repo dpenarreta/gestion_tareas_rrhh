@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { getVisibleRoles } from "@/lib/roles";
 import { isTaskOverdue } from "@/lib/utils";
-import { computeCargaTiempo, computeCargaHistory } from "@/lib/workload";
+import { computeCargaTiempo, computeCargaHistory, redactSensitiveWorkloadDetail } from "@/lib/workload";
 import type { KpiColor } from "@/components/kpis/types";
 
 function cumplimientoColor(pct: number): KpiColor {
@@ -69,7 +69,15 @@ export async function GET(request: NextRequest, ctx: Ctx) {
     computeCargaTiempo(userId),
     computeCargaHistory(userId),
   ]);
-  const cargaTiempo = { ...cargaTiempoBase, dailyHistory: cargaHistory.daily, weeklyHistory: cargaHistory.weekly };
+  const cargaTiempoFull = { ...cargaTiempoBase, dailyHistory: cargaHistory.daily, weeklyHistory: cargaHistory.weekly };
+  // Los permisos médicos y el estado de maternidad/lactancia son datos de salud
+  // (Art. 26 LOPDP) — visibles en detalle solo para el propio titular y el
+  // Administrador; un superior en la jerarquía solo ve que hay horas de ausencia
+  // justificada, no el tipo (ver docs/RAT.md, sección 5 y 10).
+  const canSeeSensitiveDetail = session.userId === userId || session.role === "ADMINISTRADOR";
+  const cargaTiempo = canSeeSensitiveDetail
+    ? cargaTiempoFull
+    : redactSensitiveWorkloadDetail(cargaTiempoFull);
 
   // ── Cumplimiento ──────────────────────────────────────────────────────────
   const completed = tasks.filter((t) => t.status === "COMPLETADA");

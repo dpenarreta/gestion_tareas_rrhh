@@ -574,6 +574,56 @@ export async function computeCargaTiempo(userId: string, now: Date = new Date())
     // ese costo. Las rutas de KPI que sí muestran gráficos la completan aparte.
     dailyHistory: [],
     weeklyHistory: [],
+    // Siempre true aquí: esta función no conoce quién es el viewer. Los endpoints
+    // que exponen datos de OTRO usuario (no el propio) aplican
+    // redactSensitiveWorkloadDetail antes de responder — ver /api/kpis/[userId].
+    sensitiveDetailVisible: true,
+  };
+}
+
+/**
+ * Reduce el detalle de tipo de permiso (médico/personal/vacaciones) y de estado
+ * especial (maternidad/lactancia) a un indicador genérico de "ausencia
+ * justificada" — para viewers que no son el propio titular ni el Administrador.
+ * Los permisos médicos y el estado de maternidad/lactancia son datos de salud,
+ * categoría especial bajo el Art. 26 LOPDP (ver docs/RAT.md, sección 5 y 10):
+ * un superior en la jerarquía puede ver que hay horas de ausencia justificada
+ * (para interpretar la carga laboral correctamente) pero no el tipo específico.
+ */
+export function redactSensitiveWorkloadDetail(cargaTiempo: CargaTiempo): CargaTiempo {
+  const diaria = cargaTiempo.diaria;
+  const diariaLeaveMinutes = (diaria.medicoLeaveMinutes ?? 0) + (diaria.personalLeaveMinutes ?? 0);
+  const diariaFullDay =
+    (diaria.medicoLeaveFullDay ?? false) ||
+    (diaria.personalLeaveFullDay ?? false) ||
+    (diaria.vacacionesFullDay ?? false);
+
+  const mensual = cargaTiempo.mensual;
+  const mensualLeaveMinutes =
+    (mensual.medicoLeaveMinutes ?? 0) + (mensual.personalLeaveMinutes ?? 0) + (mensual.vacacionesMinutes ?? 0);
+
+  return {
+    ...cargaTiempo,
+    diaria: {
+      ...diaria,
+      medicoLeaveMinutes: 0,
+      medicoLeaveFullDay: false,
+      personalLeaveMinutes: diariaLeaveMinutes,
+      personalLeaveFullDay: diariaFullDay,
+      vacacionesFullDay: false,
+      specialStatusType: null,
+    },
+    semanal: { ...cargaTiempo.semanal, specialStatusType: null },
+    mensual: {
+      ...mensual,
+      medicoLeaveMinutes: 0,
+      personalLeaveMinutes: mensualLeaveMinutes,
+      vacacionesMinutes: 0,
+      specialStatusType: null,
+    },
+    dailyHistory: cargaTiempo.dailyHistory.map((p) => ({ ...p, specialStatusType: null })),
+    weeklyHistory: cargaTiempo.weeklyHistory.map((p) => ({ ...p, specialStatusType: null })),
+    sensitiveDetailVisible: false,
   };
 }
 

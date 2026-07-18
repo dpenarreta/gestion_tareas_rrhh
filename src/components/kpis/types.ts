@@ -230,6 +230,13 @@ export type CargaTiempo = {
   kpiStartDate: string | null;
   dailyHistory: DailyCargaPoint[];
   weeklyHistory: WeeklyCargaPoint[];
+  /**
+   * false cuando el detalle de tipo de permiso (médico/personal/vacaciones) y de
+   * estado especial (maternidad/lactancia) fue redactado para este viewer — datos de
+   * salud (Art. 26 LOPDP) visibles solo para el propio titular y el Administrador.
+   * Ver `redactSensitiveWorkloadDetail` en `src/lib/workload.ts` y `docs/RAT.md`.
+   */
+  sensitiveDetailVisible: boolean;
 };
 
 export type KpiData = {

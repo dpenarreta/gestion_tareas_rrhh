@@ -58,16 +58,41 @@ function ConsentModal({ onAccept }: { onAccept: () => void }) {
           </h2>
         </div>
 
-        <div className="px-6 py-5 space-y-4">
+        <div className="px-6 py-5 space-y-4 max-h-[60vh] overflow-y-auto">
           <p className="text-sm text-main">
-            Nexo recopila y almacena datos personales (nombre, correo electrónico y
-            actividad laboral) con el fin de gestionar los recursos humanos de la
-            organización, conforme a lo establecido en la Ley Orgánica de Protección de
-            Datos Personales del Ecuador. Tus datos son procesados internamente. El
-            asistente Nova utiliza el servicio de IA de Groq Inc. para procesar consultas;
-            las preguntas que realices pueden ser enviadas a dicho servicio para generar
-            respuestas. Tus datos se conservan mientras mantengas una cuenta activa en el
-            sistema.
+            Nexo recopila y almacena los siguientes datos personales con el fin de
+            gestionar los recursos humanos de la organización:
+          </p>
+          <ul className="text-sm text-main list-disc pl-5 space-y-1">
+            <li>Datos de identificación: nombre completo y correo electrónico</li>
+            <li>
+              Datos de actividad laboral: tareas, horas trabajadas, actividades de
+              seguimiento y KPIs de desempeño
+            </li>
+            <li>
+              Datos de asistencia y permisos: registro de vacaciones, permisos
+              personales y permisos médicos
+            </li>
+            <li>
+              Datos de condición laboral especial: estados de maternidad o lactancia
+              que afectan la jornada laboral
+            </li>
+          </ul>
+          <p className="text-sm text-main">
+            Los datos de salud (permisos médicos, maternidad y lactancia) son tratados
+            exclusivamente por el Administrador del sistema con la finalidad de
+            calcular correctamente la carga laboral y KPIs, conforme al Art. 26 de la
+            Ley Orgánica de Protección de Datos Personales del Ecuador.
+          </p>
+          <p className="text-sm text-main">
+            Tus datos no son compartidos con terceros comerciales. El asistente Nova
+            utiliza el servicio de IA de Groq Inc. para procesar consultas; las
+            preguntas que realices pueden ser enviadas a dicho servicio para generar
+            respuestas.
+          </p>
+          <p className="text-sm text-main">
+            Puedes ejercer tus derechos de acceso, rectificación y eliminación desde tu
+            perfil en la sección &ldquo;Mis derechos sobre mis datos&rdquo;.
           </p>
 
           <label className="flex items-start gap-2 cursor-pointer select-none">

@@ -98,8 +98,18 @@ function formatMinutesAsHours(mins: number): string {
   return `${hoursToDisplay(mins / 60)}h`;
 }
 
-/** Líneas descriptivas del permiso del día — reemplazan la barra/semáforo cuando hay alguno registrado. */
-function dailyLeaveLines(diaria: CargaTiempo["diaria"]): string[] {
+/**
+ * Líneas descriptivas del permiso del día — reemplazan la barra/semáforo cuando hay
+ * alguno registrado. Cuando el detalle fue redactado (viewer distinto del titular y
+ * no Administrador — dato de salud, Art. 26 LOPDP), se usa una única línea genérica
+ * sin especificar el tipo de permiso.
+ */
+function dailyLeaveLines(diaria: CargaTiempo["diaria"], sensitiveDetailVisible: boolean): string[] {
+  if (!sensitiveDetailVisible) {
+    if (diaria.personalLeaveFullDay) return ["📋 Ausencia justificada"];
+    if (diaria.personalLeaveMinutes > 0) return [`📋 Ausencia justificada (${hoursToDisplay(diaria.personalLeaveMinutes / 60)}h)`];
+    return [];
+  }
   const lines: string[] = [];
   if (diaria.vacacionesFullDay) lines.push("🌴 Vacaciones");
   if (diaria.medicoLeaveFullDay) lines.push("🏥 Permiso médico");
@@ -134,6 +144,7 @@ export default function WorkloadCard({ cargaTiempo }: { cargaTiempo: CargaTiempo
     kpiStartDate,
     dailyHistory,
     weeklyHistory,
+    sensitiveDetailVisible,
   } = cargaTiempo;
 
   const dailyChartHasSpecial = diaria.specialStatusType != null || dailyHistory.some((p) => p.specialStatusType != null);
@@ -169,7 +180,7 @@ export default function WorkloadCard({ cargaTiempo }: { cargaTiempo: CargaTiempo
           label="Hoy"
           metric={diaria}
           periodLabel="hoy"
-          leaveLines={dailyLeaveLines(diaria)}
+          leaveLines={dailyLeaveLines(diaria, sensitiveDetailVisible)}
           extraNotes={diaria.specialStatusType ? ["👶 Maternidad/Lactancia"] : undefined}
         />
         <Tile
@@ -193,9 +204,15 @@ export default function WorkloadCard({ cargaTiempo }: { cargaTiempo: CargaTiempo
             ...(mensual.specialStatusType ? ["👶 Maternidad/Lactancia"] : []),
             ...(mensual.weekendHours > 0 ? [`⚡ Fines de semana: ${hoursToDisplay(mensual.weekendHours)}h`] : []),
             ...(mensual.holidayHours > 0 ? [`⚡ Feriados trabajados: ${hoursToDisplay(mensual.holidayHours)}h`] : []),
-            ...(mensual.medicoLeaveMinutes > 0 ? [`🏥 Permisos médicos: ${formatMinutesAsHours(mensual.medicoLeaveMinutes)}`] : []),
-            ...(mensual.personalLeaveMinutes > 0 ? [`📋 Permisos personales: ${formatMinutesAsHours(mensual.personalLeaveMinutes)}`] : []),
-            ...(mensual.vacacionesMinutes > 0 ? [`🌴 Vacaciones: ${formatMinutesAsHours(mensual.vacacionesMinutes)}`] : []),
+            ...(sensitiveDetailVisible
+              ? [
+                  ...(mensual.medicoLeaveMinutes > 0 ? [`🏥 Permisos médicos: ${formatMinutesAsHours(mensual.medicoLeaveMinutes)}`] : []),
+                  ...(mensual.personalLeaveMinutes > 0 ? [`📋 Permisos personales: ${formatMinutesAsHours(mensual.personalLeaveMinutes)}`] : []),
+                  ...(mensual.vacacionesMinutes > 0 ? [`🌴 Vacaciones: ${formatMinutesAsHours(mensual.vacacionesMinutes)}`] : []),
+                ]
+              : mensual.personalLeaveMinutes > 0
+                ? [`📋 Ausencias justificadas: ${formatMinutesAsHours(mensual.personalLeaveMinutes)}`]
+                : []),
           ]}
         />
       </div>

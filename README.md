@@ -251,6 +251,13 @@ Queda pendiente ampliar la cobertura a otros módulos de `src/lib/`, a component
 | Ideas propuestas y votos (asociados a un autor) | Módulo de mejora continua | `ImprovementIdea`, `IdeaVote`, `IdeaStatusHistory` |
 | Documentos internos de RRHH (pueden contener datos de personal) | Carga manual por roles autorizados | Repositorio privado externo (GitHub) + fragmentos indexados (`KnowledgeDocument`, `DocumentChunk`) |
 | **Permisos médicos y personales** (tipo, fecha, duración u observación) — **dato de salud cuando el tipo es médico** | Registro manual exclusivo del Administrador | `LeaveRecord` |
+| **Estado especial de maternidad/lactancia** (fechas, base y límites de jornada configurados) — **dato de salud/condición personal** | Registro manual exclusivo del Administrador | `SpecialStatus` |
+
+### Categoría especial de datos: salud (Art. 26 LOPDP)
+
+Los permisos médicos y el estado de maternidad/lactancia son **datos de salud**, categoría especial bajo el Art. 26 de la Ley Orgánica de Protección de Datos Personales del Ecuador, que exige una base de legitimación reforzada y medidas de seguridad adicionales frente al resto de datos de RRHH. Ver el detalle completo en [`docs/RAT.md`](docs/RAT.md), sección 5.1, y los pendientes de validación legal en [`docs/PENDIENTES_LEGALES.md`](docs/PENDIENTES_LEGALES.md), sección 5.
+
+En el producto, la visibilidad de estos datos está restringida técnicamente al propio titular y al Administrador: cualquier otro rol en la jerarquía (Coordinador ZS, Analista, Coordinador Nacional, Jefe Nacional) solo puede ver que existen horas de ausencia justificada, sin el tipo específico de permiso ni si hay un estado especial vigente (`redactSensitiveWorkloadDetail` en `src/lib/workload.ts`, aplicada en `GET /api/kpis/[userId]` cuando quien consulta no es el titular ni el Administrador).
 
 ### Forma de tratamiento
 
@@ -260,6 +267,7 @@ Queda pendiente ampliar la cobertura a otros módulos de `src/lib/`, a component
 - Los documentos cargados a la base de conocimiento se almacenan en un repositorio privado de un proveedor externo (GitHub), y su contenido se fragmenta e indexa localmente mediante embeddings generados en el propio servidor.
 - Las reuniones se coordinan a través de la API de Zoom, que recibe el título, la fecha/hora y la lista de invitados (correo/nombre) de la reunión creada.
 - El acceso a los datos de otros usuarios está siempre acotado por la jerarquía de roles descrita en la sección 11.
+- Los datos de salud (permisos médicos, maternidad/lactancia) están, además, acotados a un segundo nivel: solo el propio titular y el Administrador ven el detalle por tipo; el resto de la jerarquía ve únicamente el agregado genérico de horas de ausencia justificada (ver arriba).
 
 ### Finalidad del tratamiento
 
@@ -282,6 +290,7 @@ Gestionar internamente los recursos humanos de la organización: asignación y s
 - ✅ **Rate limiting persistido en base de datos** (`LoginAttempt`), con limpieza automática de registros expirados (ver README, sección 15, y sección 19).
 - ✅ **`safeLog`** (`src/lib/logger.ts`) como punto de paso obligatorio para los logs de integraciones externas, evitando que tokens/credenciales lleguen a los logs del servidor.
 - ✅ **Registro de Actividades de Tratamiento (RAT)**: borrador técnico documentado en [`docs/RAT.md`](docs/RAT.md), a partir de la revisión del código y el esquema de datos.
+- ✅ **Restricción de datos de salud a Administrador/titular**: el detalle de tipo de permiso (médico/personal/vacaciones) y de estado especial (maternidad/lactancia) solo es visible para el propio titular y el Administrador; el resto de la jerarquía ve un agregado genérico de "ausencia justificada" (`redactSensitiveWorkloadDetail`, `src/lib/workload.ts`).
 
 ### Pendiente — responsabilidad del área legal (no es un pendiente técnico)
 
@@ -289,6 +298,7 @@ Gestionar internamente los recursos humanos de la organización: asignación y s
 - Validación legal formal del cumplimiento LOPDP por asesoría jurídica especializada en protección de datos en Ecuador, incluyendo la evaluación de transferencias internacionales de datos (los cinco proveedores operan infraestructura fuera de Ecuador) y de que el flujo de eliminación de cuenta (gestión manual del Administrador tras la solicitud) cumple los plazos y garantías exigidos por la ley.
 - Completar los campos pendientes de `docs/RAT.md` (razón social, RUC, delegado de protección de datos, etc.) con información que solo el área legal/administrativa de la organización posee.
 - Definir la base de legitimación y el plazo de conservación de los permisos médicos y personales (`LeaveRecord`), dado que incluyen datos de salud — categoría especial sin cobertura aún en la política de retención (ver `docs/RAT.md`, secciones 3 y 9).
+- Validación legal urgente de la categoría especial de datos de salud (permisos médicos, maternidad/lactancia) conforme al Art. 26 LOPDP, incluyendo si la base de consentimiento actual es suficiente y si es necesario minimizar el dato almacenado (ver `docs/PENDIENTES_LEGALES.md`, sección 5).
 
 Este análisis es de carácter técnico y funcional, basado en la revisión del código y modelos de datos del repositorio. No constituye una conclusión legal definitiva.
 
@@ -321,6 +331,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-18: feat(compliance): cubrir maternidad, permisos médicos y vacaciones en protección de datos
 - 2026-07-18: fix(kpis): rangos, gráficos y % de carga correctos para usuarios con estado especial activo
 - 2026-07-18: feat(kpis,settings): límites del estado especial de maternidad/lactancia configurables por registro
 - 2026-07-18: feat(settings,kpis): acordeones colapsables en Ajustes y estado especial de maternidad/lactancia
