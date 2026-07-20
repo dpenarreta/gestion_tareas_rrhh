@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { getVisibleRoles } from "@/lib/roles";
 import { getEffectiveAnalyticsConfig } from "@/lib/systemConfig";
-import { cached, runAnalyticsPipeline, ANALYTICS_ENGINE_VERSION } from "@/lib/analytics";
+import { cached, runAnalyticsPipeline, ANALYTICS_ENGINE_VERSION, FORMULA_SET_VERSION } from "@/lib/analytics";
 
 type Ctx = { params: Promise<{ userId: string }> };
 
@@ -39,6 +39,7 @@ export async function GET(request: Request, ctx: Ctx) {
   return NextResponse.json({
     ...bundle,
     engineVersion: ANALYTICS_ENGINE_VERSION,
+    formulaSetVersion: FORMULA_SET_VERSION,
     lastUpdated: new Date(computedAt).toISOString(),
     cacheActive: fromCache,
     ...(session.role === "ADMINISTRADOR" && validationFailures.length > 0 ? { validationWarnings: validationFailures } : {}),

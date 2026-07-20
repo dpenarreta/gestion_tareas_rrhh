@@ -8,9 +8,12 @@ import type {
   AnomalyResult,
   Prediction,
   HealthScoreResult,
+  PerformanceScoreResult,
   DataQualityResult,
   EngineAlert,
   KpiTrends,
+  BenchmarkResult,
+  ScoreTrendHistory,
 } from "./types";
 import type { ResolvedAlert } from "@/lib/analytics";
 import { isFeatureEnabled } from "@/lib/featureFlags";
@@ -92,17 +95,25 @@ export function maturityFromWeeks(weeksOfData: number): 1 | 2 | 3 | 4 | 5 {
 
 // ── Explicabilidad genérica — "Ver cálculo" (§7) ─────────────────────────────
 
+/** Un factor con desglose raw→normalizado→peso→contribución (§Sprint 5 S5-J). */
+type ExplainFactor = { name: string; rawLabel: string; normalizedValue: number; weight: number; points: number };
+
 export function ExplainModal({
   title,
   formula,
   steps,
+  factors,
   engineVersion,
+  formulaSetVersion,
   onClose,
 }: {
   title: string;
   formula: string;
   steps: string[];
+  /** Si se pasa, se muestra un desglose visual por factor (valor original → normalización → peso → contribución) en vez de/además de los `steps` textuales — ver Sprint 5 § S5-J. */
+  factors?: ExplainFactor[];
   engineVersion?: string;
+  formulaSetVersion?: string;
   onClose: () => void;
 }) {
   return (
@@ -120,12 +131,49 @@ export function ExplainModal({
         <p className="text-xs text-secondary mb-3">
           Fórmula: <code className="text-title bg-background px-1.5 py-0.5 rounded">{formula}</code>
         </p>
-        <ol className="space-y-1.5 mb-3 list-decimal list-inside">
-          {steps.map((s, i) => (
-            <li key={i} className="text-sm text-title">{s}</li>
-          ))}
-        </ol>
-        {engineVersion && <p className="text-[11px] text-disabled pt-3 border-t border-border">Motor: Analytics Engine v{engineVersion}</p>}
+
+        {factors ? (
+          <div className="space-y-3 mb-3">
+            {factors.map((f) => (
+              <div key={f.name} className="rounded-xl border border-border bg-background p-3">
+                <p className="text-xs font-semibold text-title mb-2">{f.name}</p>
+                <div className="flex items-center justify-between text-[11px] text-secondary">
+                  <span>Valor original</span>
+                  <span className="font-mono text-main">{f.rawLabel}</span>
+                </div>
+                <div className="text-center text-disabled text-xs">↓</div>
+                <div className="flex items-center justify-between text-[11px] text-secondary">
+                  <span>Normalizado</span>
+                  <span className="font-mono text-main">{f.normalizedValue}</span>
+                </div>
+                <div className="text-center text-disabled text-xs">↓</div>
+                <div className="flex items-center justify-between text-[11px] text-secondary">
+                  <span>Peso</span>
+                  <span className="font-mono text-main">{f.weight}%</span>
+                </div>
+                <div className="text-center text-disabled text-xs">↓</div>
+                <div className="flex items-center justify-between text-xs font-semibold">
+                  <span className="text-title">Contribución</span>
+                  <span className="text-primary">{f.points} pts</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <ol className="space-y-1.5 mb-3 list-decimal list-inside">
+            {steps.map((s, i) => (
+              <li key={i} className="text-sm text-title">{s}</li>
+            ))}
+          </ol>
+        )}
+
+        {(engineVersion || formulaSetVersion) && (
+          <p className="text-[11px] text-disabled pt-3 border-t border-border">
+            {engineVersion && <>Motor: Analytics Engine v{engineVersion}</>}
+            {engineVersion && formulaSetVersion && " · "}
+            {formulaSetVersion && <>Fórmulas v{formulaSetVersion}</>}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -165,10 +213,13 @@ export function ScoreZoneBar({ score }: { score: number }) {
 export function HealthScoreCard({ result, onExplain }: { result: HealthScoreResult; onExplain: () => void }) {
   return (
     <div className="bg-surface rounded-[14px] border border-border shadow-[var(--shadow)] p-5">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-1">
         <h3 className="text-sm font-semibold text-main uppercase tracking-wider">Score de Salud Laboral</h3>
         <button onClick={onExplain} className="text-xs font-medium text-primary hover:text-primary-hover">Ver cálculo</button>
       </div>
+      <p className="text-[10px] font-semibold text-disabled bg-surface2 inline-block px-2 py-0.5 rounded-full mb-3">
+        Legacy — será retirado en una versión futura
+      </p>
       <div className="flex items-center gap-4 mb-3">
         <div className={`w-20 h-20 rounded-full ring-4 ${CLASS_RING[result.classification]} bg-background flex flex-col items-center justify-center shrink-0`}>
           <span className="text-2xl font-extrabold text-title leading-none">{Math.round(result.score)}</span>
@@ -186,6 +237,152 @@ export function HealthScoreCard({ result, onExplain }: { result: HealthScoreResu
             <span className="font-semibold text-main">{f.points} pts</span>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Performance Score (§Sprint 5 S5-B) ──────────────────────────────────────────
+// Responde una sola pregunta: "¿qué tan bien está ejecutando su trabajo?" — NO
+// mezcla carga/capacidad/riesgo (eso vive en Operational Risk, ver más abajo).
+
+export function PerformanceScoreCard({ result, onExplain }: { result: PerformanceScoreResult; onExplain: () => void }) {
+  return (
+    <div className="bg-surface rounded-[14px] border border-border shadow-[var(--shadow)] p-5">
+      <div className="flex items-center justify-between mb-1">
+        <h3 className="text-sm font-semibold text-main uppercase tracking-wider">Performance Score</h3>
+        <button onClick={onExplain} className="text-xs font-medium text-primary hover:text-primary-hover">Ver cálculo</button>
+      </div>
+      <p className="text-[10px] font-semibold text-primary bg-primary-surface inline-block px-2 py-0.5 rounded-full mb-3">
+        Nuevo — Analytics Engine v{result.engineVersion}
+      </p>
+      <div className="flex items-center gap-4 mb-3">
+        <div className={`w-20 h-20 rounded-full ring-4 ${CLASS_RING[result.classification]} bg-background flex flex-col items-center justify-center shrink-0`}>
+          <span className="text-2xl font-extrabold text-title leading-none">{Math.round(result.score)}</span>
+          <span className="text-[10px] text-disabled leading-none mt-0.5">/100</span>
+        </div>
+        <p className={`text-lg font-bold ${CLASS_TEXT[result.classification]}`}>{CLASS_EMOJI[result.classification]} {result.classification}</p>
+      </div>
+      <div className="mb-4">
+        <ScoreZoneBar score={result.score} />
+      </div>
+      <div className="space-y-1.5">
+        {result.factors.map((f) => (
+          <div key={f.name} className="flex items-center justify-between text-xs">
+            <span className="text-secondary">{f.name} <span className="text-disabled">({f.rawLabel})</span></span>
+            <span className="font-semibold text-main">{f.points} pts</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Benchmarks + Tendencias (§Sprint 5 S5-H/S5-I) ───────────────────────────────
+
+function TrendLine({ label, trend }: { label: string; trend: TrendResult }) {
+  if (!trend.available) {
+    return (
+      <div className="flex items-center justify-between text-[11px] py-0.5">
+        <span className="text-disabled">{label}</span>
+        <span className="text-disabled italic">{trend.reason}</span>
+      </div>
+    );
+  }
+  const arrow = trend.direction === "mejora" ? "▲" : trend.direction === "empeoro" ? "▼" : "=";
+  const color = trend.direction === "mejora" ? "text-success" : trend.direction === "empeoro" ? "text-danger" : "text-disabled";
+  return (
+    <div className="flex items-center justify-between text-[11px] py-0.5">
+      <span className="text-disabled">{label}</span>
+      <span className={`font-semibold ${color}`}>{arrow} {Math.abs(trend.absoluteDiff)} pts</span>
+    </div>
+  );
+}
+
+function BenchmarkColumn({
+  title,
+  metric,
+  trend,
+}: {
+  title: string;
+  metric: BenchmarkResult["performance"];
+  trend: ScoreTrendHistory;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-background p-3.5">
+      <p className="text-xs font-semibold text-title mb-2">{title}</p>
+      {!metric.available ? (
+        <p className="text-xs text-disabled italic">{metric.reason}</p>
+      ) : (
+        <>
+          <p className="text-2xl font-extrabold text-title leading-none mb-2">{metric.value}</p>
+          <div className="text-[11px] text-secondary space-y-0.5 mb-2">
+            <div className="flex items-center justify-between">
+              <span>Promedio del equipo</span>
+              <span className="font-semibold text-main">{metric.teamAverage}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Percentil</span>
+              <span className="font-semibold text-main">{metric.percentile}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Posición</span>
+              <span className="font-semibold text-primary">Top {metric.topPct}%</span>
+            </div>
+          </div>
+        </>
+      )}
+      <div className="pt-2 border-t border-border">
+        <TrendLine label="vs. semana anterior" trend={trend.semanaAnterior} />
+        <TrendLine label="vs. mes anterior" trend={trend.mesAnterior} />
+        <TrendLine label="vs. promedio 6 meses" trend={trend.promedio6Meses} />
+      </div>
+    </div>
+  );
+}
+
+export function BenchmarkCard({ userId }: { userId: string }) {
+  const [data, setData] = useState<{ benchmark: BenchmarkResult; trends: { performance: ScoreTrendHistory; operationalRisk: ScoreTrendHistory } } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(false);
+      try {
+        const res = await fetch(`/api/analytics/benchmarks/${userId}`);
+        if (!res.ok) throw new Error("failed");
+        if (!cancelled) setData(await res.json());
+      } catch {
+        if (!cancelled) setError(true);
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [userId]);
+
+  if (loading) {
+    return (
+      <div className="rounded-[14px] border border-border bg-surface shadow-[var(--shadow)] p-5 flex justify-center py-8">
+        <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+  if (error || !data) {
+    return <div className="text-sm text-disabled text-center py-6">No se pudieron cargar los benchmarks.</div>;
+  }
+
+  return (
+    <div className="rounded-[14px] border border-border bg-surface shadow-[var(--shadow)] p-5">
+      <h3 className="text-sm font-semibold text-main uppercase tracking-wider mb-3">Benchmarks y tendencias</h3>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <BenchmarkColumn title="Performance Score" metric={data.benchmark.performance} trend={data.trends.performance} />
+        <BenchmarkColumn title="Operational Risk" metric={data.benchmark.operationalRisk} trend={data.trends.operationalRisk} />
       </div>
     </div>
   );
@@ -416,7 +613,8 @@ export function AdvancedAnalyticsPanel({ userId }: { userId: string }) {
   const [data, setData] = useState<AnalyticsBundle | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const [explainOpen, setExplainOpen] = useState(false);
+  const [explainLegacyOpen, setExplainLegacyOpen] = useState(false);
+  const [explainPerfOpen, setExplainPerfOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -457,6 +655,8 @@ export function AdvancedAnalyticsPanel({ userId }: { userId: string }) {
         <span>·</span>
         <span>Motor: Analytics Engine v{data.engineVersion}</span>
         <span>·</span>
+        <span>Fórmulas v{data.formulaSetVersion}</span>
+        <span>·</span>
         <span>Calidad de datos: {data.dataQuality.pct}%</span>
         <span>·</span>
         <span>Caché: {data.cacheActive ? "Activo" : "Recalculado ahora"}</span>
@@ -477,13 +677,15 @@ export function AdvancedAnalyticsPanel({ userId }: { userId: string }) {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <div id="score" className="scroll-mt-16">
-          <HealthScoreCard result={data.healthScore} onExplain={() => setExplainOpen(true)} />
-        </div>
-        <div id="alertas" className="scroll-mt-16">
-          <EngineAlertsCard alerts={data.alerts} history={data.alertsHistory} />
-        </div>
+      <div id="score" className="scroll-mt-16 grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <PerformanceScoreCard result={data.performanceScore} onExplain={() => setExplainPerfOpen(true)} />
+        <HealthScoreCard result={data.healthScore} onExplain={() => setExplainLegacyOpen(true)} />
+      </div>
+
+      <BenchmarkCard userId={userId} />
+
+      <div id="alertas" className="scroll-mt-16">
+        <EngineAlertsCard alerts={data.alerts} history={data.alertsHistory} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
@@ -499,13 +701,24 @@ export function AdvancedAnalyticsPanel({ userId }: { userId: string }) {
         <DataQualityCard result={data.dataQuality} />
       </div>
 
-      {explainOpen && (
+      {explainLegacyOpen && (
         <ExplainModal
-          title="Score de Salud Laboral"
+          title="Score de Salud Laboral (Legacy)"
           formula={data.healthScore.explain.formula}
           steps={data.healthScore.explain.steps}
           engineVersion={data.engineVersion}
-          onClose={() => setExplainOpen(false)}
+          onClose={() => setExplainLegacyOpen(false)}
+        />
+      )}
+      {explainPerfOpen && (
+        <ExplainModal
+          title="Performance Score"
+          formula={data.performanceScore.explain.formula}
+          steps={data.performanceScore.explain.steps}
+          factors={data.performanceScore.factors}
+          engineVersion={data.engineVersion}
+          formulaSetVersion={data.formulaSetVersion}
+          onClose={() => setExplainPerfOpen(false)}
         />
       )}
     </div>

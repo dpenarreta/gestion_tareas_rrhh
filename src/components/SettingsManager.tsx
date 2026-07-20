@@ -12,6 +12,7 @@ import LeaveRecordsSection from "@/components/settings/LeaveRecordsSection";
 import SpecialStatusSection from "@/components/settings/SpecialStatusSection";
 import KpiStartDateSection from "@/components/settings/KpiStartDateSection";
 import AnalyticsConfigSection from "@/components/settings/AnalyticsConfigSection";
+import NormalizationCurvesSection from "@/components/settings/NormalizationCurvesSection";
 import WelcomeMessageSection from "@/components/settings/WelcomeMessageSection";
 import EngineDiagnosticsSection from "@/components/settings/EngineDiagnosticsSection";
 
@@ -920,6 +921,7 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
       <KpiStartDateSection />
 
       <AnalyticsConfigSection />
+      <NormalizationCurvesSection />
 
       <SectionCard title="Solicitudes de titulares">
         <p className="text-xs text-secondary">

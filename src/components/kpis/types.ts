@@ -161,17 +161,24 @@ export type {
   Prediction,
   HealthFactor,
   HealthScoreResult,
+  PerformanceFactor,
+  PerformanceScoreResult,
   RiskFactor,
   OperationalRiskResult,
   DataQualityIssue,
   DataQualityResult,
   AlertSeverity,
   EngineAlert,
+  BenchmarkMetric,
+  BenchmarkResult,
+  ScoreTrendHistory,
 } from "@/lib/analytics";
 
 /** Respuesta de GET /api/analytics/[userId] — ver Analytics § motor centralizado. */
 export type AnalyticsBundle = {
+  /** LEGACY — ver Sprint 5 § S5-A. Convive con performanceScore hasta que este último quede validado y se retire en un sprint futuro. */
   healthScore: import("@/lib/analytics").HealthScoreResult;
+  performanceScore: import("@/lib/analytics").PerformanceScoreResult;
   alerts: import("@/lib/analytics").EngineAlert[];
   alertsHistory: import("@/lib/analytics").ResolvedAlert[];
   trends: import("@/lib/analytics").KpiTrends;
@@ -180,6 +187,8 @@ export type AnalyticsBundle = {
   prediction: import("@/lib/analytics").Prediction;
   dataQuality: import("@/lib/analytics").DataQualityResult;
   engineVersion: string;
+  /** Versión del conjunto de fórmulas vigente (§Sprint 5 S5-L) — distinta de engineVersion. */
+  formulaSetVersion: string;
   lastUpdated: string;
   /** true si esta respuesta vino del caché en memoria (TTL configurable) en vez de recalcularse — ver Sprint 2 § S2-G. */
   cacheActive: boolean;
@@ -399,12 +408,15 @@ export type ExecutiveDashboardData = {
   };
   ranking: ExecutiveRankingMember[];
   workload: ExecutiveWorkloadPoint[];
-  /** Resumen ejecutivo determinístico en cabecera — ver Sprint 2 § S2-A. Groq no interviene aquí. */
+  /** Resumen ejecutivo determinístico en cabecera — ver Sprint 2 § S2-A, ampliado en Sprint 5 § S5-K. Groq no interviene aquí. */
   ceo: {
     estado: KpiColor;
     estadoLabel: string;
     cambios: Array<{ text: string; positive: boolean }>;
     atender: string[];
+    /** Promedio del equipo — NUNCA se mezcla con operationalRisk en un solo número (§S5-K). */
+    performance: { avg: number; classification: string; color: KpiColor };
+    operationalRisk: { avg: number; classification: string; color: "green" | "yellow" | "orange" | "red" };
   };
 };
 

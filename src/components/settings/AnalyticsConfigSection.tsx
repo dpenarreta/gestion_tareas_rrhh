@@ -5,6 +5,7 @@ import SectionCard from "./SectionCard";
 
 type ConfigKey =
   | "healthWeightCumplimiento" | "healthWeightCarga" | "healthWeightVencidas" | "healthWeightConsistencia" | "healthWeightCapacidad"
+  | "perfWeightCumplimiento" | "perfWeightVencidas" | "perfWeightConsistencia" | "perfWeightTrazabilidad"
   | "riskWeightSobrecarga" | "riskWeightVencidasCriticas" | "riskWeightTendenciaNegativa" | "riskWeightHorasExtra"
   | "riskWeightBajaCapacidad" | "riskWeightVariabilidad" | "riskWeightConcentracion" | "riskWeightSinPlanificacion"
   | "riskThresholdMedio" | "riskThresholdAlto" | "riskThresholdCritico"
@@ -19,6 +20,13 @@ const HEALTH_FIELDS: Array<{ key: ConfigKey; label: string }> = [
   { key: "healthWeightVencidas", label: "Tareas vencidas" },
   { key: "healthWeightConsistencia", label: "Consistencia" },
   { key: "healthWeightCapacidad", label: "Capacidad futura" },
+];
+
+const PERF_FIELDS: Array<{ key: ConfigKey; label: string }> = [
+  { key: "perfWeightCumplimiento", label: "Cumplimiento" },
+  { key: "perfWeightVencidas", label: "Tareas vencidas" },
+  { key: "perfWeightConsistencia", label: "Consistencia" },
+  { key: "perfWeightTrazabilidad", label: "Índice de Trazabilidad" },
 ];
 
 const RISK_WEIGHT_FIELDS: Array<{ key: ConfigKey; label: string }> = [
@@ -105,6 +113,7 @@ export default function AnalyticsConfigSection() {
   }
 
   const healthSum = HEALTH_FIELDS.reduce((s, f) => s + draft[f.key], 0);
+  const perfSum = PERF_FIELDS.reduce((s, f) => s + draft[f.key], 0);
   const riskSum = RISK_WEIGHT_FIELDS.reduce((s, f) => s + draft[f.key], 0);
   const dirty = JSON.stringify(config) !== JSON.stringify(draft);
 
@@ -154,7 +163,19 @@ export default function AnalyticsConfigSection() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>
           <div className="flex items-center justify-between mb-1">
-            <h4 className="text-sm font-semibold text-title">Score de Salud Laboral — ponderaciones</h4>
+            <h4 className="text-sm font-semibold text-title">Performance Score — ponderaciones (Sprint 5)</h4>
+            <span className={`text-xs font-medium ${Math.round(perfSum) === 100 ? "text-success" : "text-danger"}`}>Suma: {Math.round(perfSum * 10) / 10}%</span>
+          </div>
+          <div className="divide-y divide-border">
+            {PERF_FIELDS.map((f) => (
+              <NumberField key={f.key} label={f.label} value={draft[f.key]} onChange={(v) => set(f.key, v)} />
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <h4 className="text-sm font-semibold text-title">Score de Salud Laboral (Legacy) — ponderaciones</h4>
             <span className={`text-xs font-medium ${Math.round(healthSum) === 100 ? "text-success" : "text-danger"}`}>Suma: {Math.round(healthSum * 10) / 10}%</span>
           </div>
           <div className="divide-y divide-border">
@@ -163,7 +184,9 @@ export default function AnalyticsConfigSection() {
             ))}
           </div>
         </div>
+      </div>
 
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>
           <div className="flex items-center justify-between mb-1">
             <h4 className="text-sm font-semibold text-title">Índice de Riesgo Operativo — ponderaciones</h4>

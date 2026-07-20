@@ -218,8 +218,9 @@ const IdeaStatusLabel: Record<string, string> = {
 };
 
 const ESTADO_EMOJI: Record<KpiColor, string> = { green: "🟢", yellow: "🟡", red: "🔴" };
+const RISK_EMOJI: Record<string, string> = { green: "🟢", yellow: "🟡", orange: "🟠", red: "🔴" };
 
-/** Resumen ejecutivo determinístico en cabecera — solo Administrador/Jefe Nacional/Coordinador Nacional (ver Sprint 2 § S2-A). */
+/** Resumen ejecutivo determinístico en cabecera — solo Administrador/Jefe Nacional/Coordinador Nacional (ver Sprint 2 § S2-A, ampliado en Sprint 5 § S5-K). */
 function CeoBlock({ ceo }: { ceo: ExecutiveDashboardData["ceo"] }) {
   return (
     <div className="rounded-[14px] border border-border bg-surface shadow-[var(--shadow)] p-5">
@@ -228,6 +229,24 @@ function CeoBlock({ ceo }: { ceo: ExecutiveDashboardData["ceo"] }) {
         <span className="text-sm font-semibold text-title flex items-center gap-1.5">
           {ESTADO_EMOJI[ceo.estado]} {ceo.estadoLabel}
         </span>
+      </div>
+
+      {/* Dos índices separados — nunca mezclados en un solo número (§Sprint 5 S5-K). */}
+      <div className="grid grid-cols-2 gap-3 mb-3">
+        <div className="rounded-xl border border-border bg-background p-3">
+          <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider mb-1">Performance</p>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-extrabold text-title">{ceo.performance.avg}</span>
+            <span className="text-xs font-semibold flex items-center gap-1">{ESTADO_EMOJI[ceo.performance.color]} {ceo.performance.classification}</span>
+          </div>
+        </div>
+        <div className="rounded-xl border border-border bg-background p-3">
+          <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider mb-1">Operational Risk</p>
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-extrabold text-title">{ceo.operationalRisk.avg}</span>
+            <span className="text-xs font-semibold flex items-center gap-1">{RISK_EMOJI[ceo.operationalRisk.color]} {ceo.operationalRisk.classification}</span>
+          </div>
+        </div>
       </div>
 
       {ceo.cambios.length > 0 && (

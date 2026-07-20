@@ -63,10 +63,13 @@ export default function OperationalRiskCard({ userId, currentUserRole }: { userI
 
   return (
     <div className="bg-surface rounded-[14px] border border-border shadow-[var(--shadow)] p-5">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-1">
         <h3 className="text-sm font-semibold text-main uppercase tracking-wider">Índice de Riesgo Operativo</h3>
         <button onClick={() => setExplainOpen(true)} className="text-xs font-medium text-primary hover:text-primary-hover">Ver cálculo</button>
       </div>
+      <p className="text-[11px] text-disabled mb-3">
+        Riesgo para el equipo — complementa al Performance Score, no lo reemplaza (§Sprint 5)
+      </p>
 
       <div className="flex items-center gap-4 mb-4">
         <div className={`w-20 h-20 rounded-full ring-4 ${CLASS_RING[data.classification]} bg-background flex flex-col items-center justify-center shrink-0`}>

@@ -14,20 +14,24 @@ type Diagnostics = {
   calidadGlobalDatos: number;
   tiempoRenderizadoMs: number;
   engineVersion: string;
+  formulaSetVersion: string;
   formulaVersions: Record<string, string>;
   featureFlags: Record<string, boolean>;
+  versionChange: { previousVersion: string | null; changed: boolean };
   serverStartedAt: string;
   ultimaActualizacion: string;
 };
 
 const FORMULA_LABEL: Record<string, string> = {
   cargaLaboral: "Carga laboral",
-  scoreSalud: "Score de Salud",
+  scoreSalud: "Score de Salud (Legacy)",
+  performanceScore: "Performance Score",
   scoreSimple: "Score simple",
   capacidadDisponible: "Capacidad disponible",
   riesgoOperativo: "Riesgo Operativo",
   cumplimiento: "Cumplimiento",
   consistencia: "Consistencia",
+  trazabilidad: "Índice de Trazabilidad",
   prediccion: "Predicción",
 };
 
@@ -77,6 +81,12 @@ export default function EngineDiagnosticsSection() {
 
       {error && <p className="text-sm text-danger mt-3">{error}</p>}
 
+      {data?.versionChange.changed && (
+        <p className="text-xs text-primary bg-primary-surface rounded-lg px-3 py-2 mt-3">
+          ℹ Versión del motor actualizada{data.versionChange.previousVersion ? ` de v${data.versionChange.previousVersion}` : ""} a v{data.engineVersion} — registrado en auditoría.
+        </p>
+      )}
+
       {data && (
         <div className="mt-4 pt-4 border-t border-border grid grid-cols-2 sm:grid-cols-3 gap-4">
           <Stat label="KPIs calculados en este ciclo" value={data.kpisCalculados} />
@@ -91,6 +101,7 @@ export default function EngineDiagnosticsSection() {
           <Stat label="Calidad global de datos" value={`${data.calidadGlobalDatos}%`} />
           <Stat label="Tiempo de esta petición" value={`${data.tiempoRenderizadoMs}ms`} />
           <Stat label="Versión del motor" value={`Analytics Engine v${data.engineVersion}`} />
+          <Stat label="Versión de fórmulas" value={`v${data.formulaSetVersion}`} />
           <Stat label="Proceso activo desde" value={formatDate(data.serverStartedAt)} />
           <Stat label="Última actualización" value={new Date(data.ultimaActualizacion).toLocaleString("es-CL")} />
         </div>

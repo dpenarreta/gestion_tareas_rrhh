@@ -5,6 +5,7 @@ const userFindMany = vi.fn();
 const taskFindMany = vi.fn();
 const taskActivityFindMany = vi.fn();
 const improvementIdeaFindMany = vi.fn();
+const systemConfigHistoryFindFirst = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -12,6 +13,9 @@ vi.mock("@/lib/prisma", () => ({
     task: { findMany: taskFindMany },
     taskActivity: { findMany: taskActivityFindMany },
     improvementIdea: { findMany: improvementIdeaFindMany },
+    // getEffectiveAnalyticsConfig (usada por el bloque CEO, §Sprint 5 S5-K) —
+    // sin registro → usa los defaults del motor, comportamiento determinista.
+    systemConfigHistory: { findFirst: systemConfigHistoryFindFirst },
   },
 }));
 
@@ -26,6 +30,19 @@ vi.mock("@/lib/workload", async (importOriginal) => {
       shared: await monthlyBusinessBase(year, month),
       perUser: new Map(),
     }),
+  };
+});
+
+// El bloque CEO (§Sprint 5 S5-K) calcula Performance Score/Operational Risk
+// promedio del equipo — se mockean directamente (no sus dependencias de BD,
+// ya cubiertas por tests dedicados de analytics.ts) para mantener este test
+// enfocado en la agregación del propio endpoint.
+vi.mock("@/lib/analytics", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/lib/analytics")>();
+  return {
+    ...actual,
+    computePerformanceScore: vi.fn().mockResolvedValue({ score: 70, classification: "Bueno", factors: [] }),
+    computeOperationalRisk: vi.fn().mockResolvedValue({ score: 30, classification: "Bajo", factors: [] }),
   };
 });
 
@@ -52,6 +69,7 @@ function resetAll() {
   taskFindMany.mockReset().mockResolvedValue([]);
   taskActivityFindMany.mockReset().mockResolvedValue([]);
   improvementIdeaFindMany.mockReset().mockResolvedValue([]);
+  systemConfigHistoryFindFirst.mockReset().mockResolvedValue(null);
   vi.mocked(getSession).mockReset();
   monthlyBusinessBase.mockReset().mockImplementation(async (year: number, month: number) => ({
     start: new Date(Date.UTC(year, month - 1, 1)),

@@ -18,6 +18,10 @@ const VALIDATION: Partial<Record<AnalyticsConfigKey, { min: number; max: number 
   healthWeightVencidas: { min: 0, max: 100 },
   healthWeightConsistencia: { min: 0, max: 100 },
   healthWeightCapacidad: { min: 0, max: 100 },
+  perfWeightCumplimiento: { min: 0, max: 100 },
+  perfWeightVencidas: { min: 0, max: 100 },
+  perfWeightConsistencia: { min: 0, max: 100 },
+  perfWeightTrazabilidad: { min: 0, max: 100 },
   riskWeightSobrecarga: { min: 0, max: 100 },
   riskWeightVencidasCriticas: { min: 0, max: 100 },
   riskWeightTendenciaNegativa: { min: 0, max: 100 },
@@ -43,6 +47,12 @@ const HEALTH_WEIGHT_KEYS: AnalyticsConfigKey[] = [
   "healthWeightVencidas",
   "healthWeightConsistencia",
   "healthWeightCapacidad",
+];
+const PERF_WEIGHT_KEYS: AnalyticsConfigKey[] = [
+  "perfWeightCumplimiento",
+  "perfWeightVencidas",
+  "perfWeightConsistencia",
+  "perfWeightTrazabilidad",
 ];
 const RISK_WEIGHT_KEYS: AnalyticsConfigKey[] = [
   "riskWeightSobrecarga",
@@ -91,6 +101,10 @@ export async function PATCH(request: NextRequest) {
   const healthSum = HEALTH_WEIGHT_KEYS.reduce((s, k) => s + merged[k], 0);
   if (HEALTH_WEIGHT_KEYS.some((k) => k in body) && Math.round(healthSum) !== 100) {
     return NextResponse.json({ error: `Las ponderaciones del Score de Salud deben sumar 100 (suman ${healthSum})` }, { status: 400 });
+  }
+  const perfSum = PERF_WEIGHT_KEYS.reduce((s, k) => s + merged[k], 0);
+  if (PERF_WEIGHT_KEYS.some((k) => k in body) && Math.round(perfSum) !== 100) {
+    return NextResponse.json({ error: `Las ponderaciones del Performance Score deben sumar 100 (suman ${perfSum})` }, { status: 400 });
   }
   const riskSum = RISK_WEIGHT_KEYS.reduce((s, k) => s + merged[k], 0);
   if (RISK_WEIGHT_KEYS.some((k) => k in body) && Math.round(riskSum) !== 100) {

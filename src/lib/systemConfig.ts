@@ -1,5 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
+import { DEFAULT_CURVES, isValidCurve, type CurveName, type CurvePoint } from "@/lib/normalizationEngine";
 
 export const CONFIG_KEY_HORAS_EFECTIVAS = "HORAS_EFECTIVAS_DIA";
 export const DEFAULT_HORAS_EFECTIVAS = 6.5;
@@ -113,12 +114,18 @@ export async function getEffectiveWelcomeMessageActive(asOf: Date = new Date()):
 // incluido gratis por `setConfigValue` — no hace falta una tabla de auditoría
 // aparte para los cambios de configuración.
 export const ANALYTICS_CONFIG_DEFAULTS = {
-  // Score de Salud Laboral — ponderaciones (deben sumar 100).
+  // Score de Salud Laboral (LEGACY, ver Sprint 5 § S5-A) — ponderaciones (deben sumar 100).
   healthWeightCumplimiento: 25,
   healthWeightCarga: 25,
   healthWeightVencidas: 20,
   healthWeightConsistencia: 15,
   healthWeightCapacidad: 15,
+  // Performance Score (§Sprint 5 S5-B) — ponderaciones (deben sumar 100).
+  // NO incluye carga/capacidad/riesgo — esas viven en Operational Risk.
+  perfWeightCumplimiento: 35,
+  perfWeightVencidas: 25,
+  perfWeightConsistencia: 25,
+  perfWeightTrazabilidad: 15,
   // Índice de Riesgo Operativo — ponderaciones (deben sumar 100).
   riskWeightSobrecarga: 22,
   riskWeightVencidasCriticas: 18,
@@ -150,6 +157,10 @@ const ANALYTICS_CONFIG_KEYS: Record<AnalyticsConfigKey, string> = {
   healthWeightVencidas: "analytics_health_weight_vencidas",
   healthWeightConsistencia: "analytics_health_weight_consistencia",
   healthWeightCapacidad: "analytics_health_weight_capacidad",
+  perfWeightCumplimiento: "analytics_perf_weight_cumplimiento",
+  perfWeightVencidas: "analytics_perf_weight_vencidas",
+  perfWeightConsistencia: "analytics_perf_weight_consistencia",
+  perfWeightTrazabilidad: "analytics_perf_weight_trazabilidad",
   riskWeightSobrecarga: "analytics_risk_weight_sobrecarga",
   riskWeightVencidasCriticas: "analytics_risk_weight_vencidas_criticas",
   riskWeightTendenciaNegativa: "analytics_risk_weight_tendencia_negativa",
@@ -197,4 +208,55 @@ export async function setConfigValue(key: string, value: string, userId: string)
       data: { key, value, validFrom: now, validUntil: null, updatedBy: userId },
     }),
   ]);
+}
+
+// ── Curvas de normalización (§Sprint 5 S5-E) ─────────────────────────────────
+//
+// Cada curva se guarda como JSON (array de {x,y}) en SystemConfigHistory, vía
+// el mismo mecanismo de arriba — sin cambios de esquema. Reutilizar
+// setConfigValue da el historial (usuario/fecha/valor anterior) gratis.
+
+const CURVE_CONFIG_KEY: Record<CurveName, string> = {
+  cumplimiento: "analytics_curve_cumplimiento",
+  vencidas: "analytics_curve_vencidas",
+  carga: "analytics_curve_carga",
+  capacidad: "analytics_curve_capacidad",
+  consistencia: "analytics_curve_consistencia",
+  trazabilidad: "analytics_curve_trazabilidad",
+};
+
+export async function getEffectiveCurve(name: CurveName, asOf: Date = new Date()): Promise<CurvePoint[]> {
+  const raw = await getEffectiveConfigString(CURVE_CONFIG_KEY[name], asOf, "");
+  if (!raw) return DEFAULT_CURVES[name];
+  try {
+    const parsed = JSON.parse(raw);
+    return isValidCurve(parsed) ? parsed : DEFAULT_CURVES[name];
+  } catch {
+    return DEFAULT_CURVES[name];
+  }
+}
+
+export async function getAllEffectiveCurves(asOf: Date = new Date()): Promise<Record<CurveName, CurvePoint[]>> {
+  const names = Object.keys(CURVE_CONFIG_KEY) as CurveName[];
+  const values = await Promise.all(names.map((n) => getEffectiveCurve(n, asOf)));
+  return Object.fromEntries(names.map((n, i) => [n, values[i]])) as Record<CurveName, CurvePoint[]>;
+}
+
+export async function setCurveConfig(name: CurveName, points: CurvePoint[], userId: string): Promise<void> {
+  if (!isValidCurve(points)) throw new Error("Curva inválida: se requieren al menos 2 puntos con x/y finitos e y en [0,100]");
+  await setConfigValue(CURVE_CONFIG_KEY[name], JSON.stringify(points), userId);
+}
+
+// ── Versión del motor (§Sprint 5 S5-L) ───────────────────────────────────────
+// Reutiliza el mismo historial de SystemConfigHistory — fecha/usuario/valor
+// anterior quedan registrados gratis por setConfigValue. Se compara de forma
+// perezosa (la próxima vez que alguien abra Diagnóstico del Motor) contra la
+// versión actual del código; si difieren, se registra el cambio una sola vez.
+const CONFIG_KEY_ENGINE_VERSION = "analytics_engine_version_seen";
+
+export async function recordEngineVersionIfChanged(currentVersion: string, userId: string): Promise<{ previousVersion: string | null; changed: boolean }> {
+  const previous = await getEffectiveConfigString(CONFIG_KEY_ENGINE_VERSION, new Date(), "");
+  if (previous === currentVersion) return { previousVersion: previous || null, changed: false };
+  await setConfigValue(CONFIG_KEY_ENGINE_VERSION, currentVersion, userId);
+  return { previousVersion: previous || null, changed: true };
 }

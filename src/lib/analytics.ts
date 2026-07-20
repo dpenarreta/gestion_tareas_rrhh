@@ -14,11 +14,14 @@ import { isTaskOverdue } from "@/lib/utils";
 import {
   getEffectiveAnalyticsConfig,
   getEffectiveHorasEfectivas,
+  getEffectiveCurve,
   CONFIG_KEY_HORAS_EFECTIVAS,
   type AnalyticsConfigKey,
   PREDICTION_MAX_DAYS,
 } from "@/lib/systemConfig";
+import { normalize, type CurveName, type CurvePoint } from "@/lib/normalizationEngine";
 import type { DailyCargaPoint } from "@/components/kpis/types";
+import type { Role } from "@/generated/prisma/client";
 
 /**
  * Motor centralizado de Analytics — TODA métrica, tendencia, alerta y
@@ -33,11 +36,21 @@ import type { DailyCargaPoint } from "@/components/kpis/types";
  * los indicadores nuevos (§3 Score de Salud, §13 Riesgo Operativo, tendencias,
  * consistencia, anomalías, predicción, calidad de datos, alertas) encima.
  */
-export const ANALYTICS_ENGINE_VERSION = "1.0.0";
+export const ANALYTICS_ENGINE_VERSION = "1.3.0";
+
+/**
+ * Versión "de fórmulas" del Sprint 5 (§S5-L) — un tag global mostrado junto a
+ * ANALYTICS_ENGINE_VERSION en "Ver cálculo"/Diagnóstico del Motor. Es
+ * DISTINTO de FORMULA_VERSIONS (que versiona cada fórmula por separado,
+ * §Sprint 4 S4-D) — este es el número de "conjunto de fórmulas" que el
+ * Administrador reconoce como paquete (ANALYTICS_ENGINE_VERSION=motor,
+ * FORMULA_SET_VERSION=paquete de fórmulas vigente dentro de ese motor).
+ */
+export const FORMULA_SET_VERSION = "4.0";
 
 export { PREDICTION_MAX_DAYS };
 
-// ── Versionado de fórmulas (§Sprint 4 S4-D) ──────────────────────────────────
+// ── Versionado de fórmulas (§Sprint 4 S4-D, extendido en Sprint 5 S5-L) ──────
 // Cada fórmula del negocio tiene su propia versión, independiente de
 // ANALYTICS_ENGINE_VERSION (que versiona el motor como un todo). Se sube solo
 // cuando la FÓRMULA cambia de resultado, no en cada refactor. Se registra en
@@ -45,14 +58,19 @@ export { PREDICTION_MAX_DAYS };
 // exclusivamente al Administrador en el panel de Diagnóstico del Motor.
 export const FORMULA_VERSIONS = {
   cargaLaboral: "1.0",
+  // Score de Salud Laboral (LEGACY, ver Sprint 5 § S5-A) — fórmula sin tocar.
   scoreSalud: "1.0",
   scoreSimple: "1.0",
   capacidadDisponible: "1.0",
+  // Riesgo Operativo — Sprint 5 § S5-C prohíbe modificar reglas/pesos/alertas.
   riesgoOperativo: "1.0",
   // Sprint 1 cambió el resultado de estas tres — versión real, no cosmética.
   cumplimiento: "2.0",
   consistencia: "2.0",
   prediccion: "2.0",
+  // Nuevas en Sprint 5 (§S5-B, S5-G) — motor de normalización continuo.
+  performanceScore: "4.0",
+  trazabilidad: "4.0",
 } as const;
 export type FormulaName = keyof typeof FORMULA_VERSIONS;
 
@@ -66,7 +84,9 @@ export const KPI_PRIORITY = {
   capacidadDisponible: "alta",
   riesgoOperativo: "alta",
   scoreSalud: "media",
+  performanceScore: "media",
   consistencia: "media",
+  trazabilidad: "media",
   tendencias: "media",
   prediccion: "media",
   insightsNova: "baja",
@@ -193,6 +213,7 @@ function formatIsoDate(d: Date): string {
 /** kind de AnalyticsAuditLog → fórmula(s) de negocio involucradas (§Sprint 4 S4-D). */
 const AUDIT_KIND_FORMULAS: Record<string, FormulaName[]> = {
   health_score: ["scoreSalud", "cargaLaboral", "cumplimiento", "consistencia", "capacidadDisponible"],
+  performance_score: ["performanceScore", "cumplimiento", "consistencia", "trazabilidad"],
   operational_risk: ["riesgoOperativo"],
   alerts: [],
   validation_failure: [],
@@ -688,7 +709,14 @@ export function capacityToScore(estado: string, disponiblePct: number): number {
   return 40;
 }
 
-export async function computeHealthScore(userId: string, now: Date = new Date()): Promise<HealthScoreResult> {
+/**
+ * `precomputedConsistency` es opcional — cuando el caller ya la calculó (p.
+ * ej. `runAnalyticsPipeline`, que necesita el mismo valor para Performance
+ * Score, Predicción y el bundle general) se reutiliza en vez de repetir la
+ * consulta. Si se omite, se calcula aquí como antes (compatibilidad con
+ * callers existentes como el simulador).
+ */
+export async function computeHealthScore(userId: string, now: Date = new Date(), precomputedConsistency?: ConsistencyResult): Promise<HealthScoreResult> {
   const config = await getEffectiveAnalyticsConfig(now);
   const today = businessCalendarDay(now);
   const year = today.getUTCFullYear();
@@ -699,7 +727,7 @@ export async function computeHealthScore(userId: string, now: Date = new Date())
     prisma.task.findMany({ where: { assignedToId: userId, endDate: { gte: start, lte: end } }, select: { status: true, priority: true, endDate: true } }),
     computeCargaTiempo(userId, now),
     computeCapacityForecast(userId, now),
-    computeConsistency(userId, now),
+    precomputedConsistency ? Promise.resolve(precomputedConsistency) : computeConsistency(userId, now),
     monthlyBusinessBase(year, month),
   ]);
 
@@ -754,6 +782,122 @@ export async function computeHealthScore(userId: string, now: Date = new Date())
   return result;
 }
 
+// ── Performance Score (§Sprint 5 S5-B) ──────────────────────────────────────────
+//
+// Responde UNA sola pregunta: "¿qué tan bien está ejecutando su trabajo?".
+// Solo 4 factores — Cumplimiento, Tareas vencidas, Consistencia, Índice de
+// Trazabilidad — y deliberadamente NUNCA incluye carga laboral, capacidad
+// futura, riesgo operativo ni disponibilidad (esos viven en Operational
+// Risk, ver computeOperationalRisk más abajo, sin tocar). Cada factor pasa
+// por NormalizationEngine (src/lib/normalizationEngine.ts) — cero cálculos
+// de negocio inline aquí, todo raw→normalizado ocurre en `normalize()`.
+
+export type PerformanceFactor = {
+  name: string;
+  curve: CurveName;
+  rawValue: number;
+  rawLabel: string;
+  normalizedValue: number;
+  weight: number;
+  points: number;
+  detail: string;
+};
+export type PerformanceScoreResult = {
+  score: number;
+  classification: "Excelente" | "Bueno" | "Riesgo" | "Crítico";
+  classificationColor: "green" | "yellow" | "red";
+  factors: PerformanceFactor[];
+  engineVersion: string;
+  formulaSetVersion: string;
+  explain: { formula: string; steps: string[] };
+};
+
+/** Índice de Trazabilidad (§S5-G, reemplaza el nombre "Calidad" — NO mide calidad del trabajo, mide evidencia/documentación del trabajo realizado). Raw 0-100, compuesto de: % de días con registro (50%), comentarios del período (25%), actividades documentadas (25%). */
+async function computeTrazabilidadRaw(userId: string, start: Date, end: Date, now: Date): Promise<{ raw: number; detail: string }> {
+  const [weekly, comments, activities] = await Promise.all([
+    computeWeeklyHistory(userId, 4, now),
+    prisma.comment.count({ where: { authorId: userId, createdAt: { gte: start, lte: end } } }),
+    prisma.taskActivity.count({ where: { authorId: userId, createdAt: { gte: start, lte: end } } }),
+  ]);
+  const withData = weekly.filter((w) => w.businessDays > 0);
+  const registroPct =
+    withData.length > 0
+      ? (withData.reduce((s, w) => s + w.daysWithRegistration / w.businessDays, 0) / withData.length) * 100
+      : 0;
+  const commentsScore = Math.min(100, comments * 10);
+  const activitiesScore = Math.min(100, activities * 10);
+  const raw = registroPct * 0.5 + commentsScore * 0.25 + activitiesScore * 0.25;
+  return { raw, detail: `${Math.round(registroPct)}% días con registro, ${comments} comentarios, ${activities} actividades documentadas` };
+}
+
+/** `precomputedConsistency` — ver nota en computeHealthScore; evita recalcular la misma consulta dentro del pipeline. */
+export async function computePerformanceScore(userId: string, now: Date = new Date(), precomputedConsistency?: ConsistencyResult): Promise<PerformanceScoreResult> {
+  const config = await getEffectiveAnalyticsConfig(now);
+  const today = businessCalendarDay(now);
+  const year = today.getUTCFullYear();
+  const month = today.getUTCMonth() + 1;
+  const { start, end } = monthBounds(year, month);
+
+  const [tasks, consistency, trazabilidad, curves] = await Promise.all([
+    prisma.task.findMany({ where: { assignedToId: userId, endDate: { gte: start, lte: end } }, select: { status: true, priority: true, endDate: true } }),
+    precomputedConsistency ? Promise.resolve(precomputedConsistency) : computeConsistency(userId, now),
+    computeTrazabilidadRaw(userId, start, end, now),
+    Promise.all((["cumplimiento", "vencidas", "consistencia", "trazabilidad"] as CurveName[]).map((n) => getEffectiveCurve(n, now))),
+  ]);
+  const [cumplimientoCurve, vencidasCurve, consistenciaCurve, trazabilidadCurve] = curves;
+
+  const completed = tasks.filter((t) => t.status === "COMPLETADA").length;
+  const completedPct = tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 100;
+  const overdue = tasks.filter((t) => isTaskOverdue(t.endDate, t.status, now));
+  const overdueAlta = overdue.filter((t) => t.priority === "ALTA").length;
+  const overdueNormal = overdue.length - overdueAlta;
+  const weightedOverdue = overdueNormal + overdueAlta * 2;
+
+  // Sin historial suficiente → valor neutro (mismo criterio que el Score
+  // Legacy: consistencyToScore también usa 70 como neutro cuando no hay dato).
+  const consistencyRaw = consistency.available ? consistency.consistencyPct : 70;
+
+  const mk = (name: string, curve: CurveName, rawValue: number, rawLabel: string, weight: number, curvePoints: CurvePoint[]): PerformanceFactor => {
+    const normalizedValue = normalize(curve, rawValue, curvePoints);
+    const points = Math.round(((normalizedValue * weight) / 100) * 100) / 100;
+    return { name, curve, rawValue: Math.round(rawValue * 10) / 10, rawLabel, normalizedValue, weight, points, detail: `${rawLabel} → normalizado ${normalizedValue} × ${weight}% = ${points} pts` };
+  };
+
+  const factors: PerformanceFactor[] = [
+    mk("Cumplimiento", "cumplimiento", completedPct, `${completedPct}%`, config.perfWeightCumplimiento, cumplimientoCurve),
+    mk("Tareas vencidas", "vencidas", weightedOverdue, `${overdue.length} (${overdueAlta} de prioridad Alta)`, config.perfWeightVencidas, vencidasCurve),
+    mk(
+      "Consistencia",
+      "consistencia",
+      consistencyRaw,
+      consistency.available ? `${consistency.consistencyPct}%` : "Sin historial suficiente",
+      config.perfWeightConsistencia,
+      consistenciaCurve
+    ),
+    mk("Índice de Trazabilidad", "trazabilidad", trazabilidad.raw, trazabilidad.detail, config.perfWeightTrazabilidad, trazabilidadCurve),
+  ];
+
+  const score = Math.round(factors.reduce((s, f) => s + f.points, 0) * 100) / 100;
+  const classification = score >= 90 ? "Excelente" : score >= 75 ? "Bueno" : score >= 60 ? "Riesgo" : "Crítico";
+  const classificationColor = score >= 75 ? "green" : score >= 60 ? "yellow" : "red";
+
+  const steps = factors.map((f) => `${f.name}: ${f.rawLabel} → normalizado ${f.normalizedValue} × ${f.weight}% = ${f.points} pts`);
+  steps.push(`Total: ${score} → ${classification}`);
+
+  const result: PerformanceScoreResult = {
+    score,
+    classification,
+    classificationColor,
+    factors,
+    engineVersion: ANALYTICS_ENGINE_VERSION,
+    formulaSetVersion: FORMULA_SET_VERSION,
+    explain: { formula: "Σ (NormalizationEngine(valor_original) × peso_factor%)", steps },
+  };
+
+  await auditCalculation(userId, "performance_score", monthKey(year, month), { completedPct, weightedOverdue, consistencyRaw, trazabilidadRaw: trazabilidad.raw, weights: config }, result);
+  return result;
+}
+
 // ── Índice de Riesgo Operativo (§13) ────────────────────────────────────────────
 
 export type RiskFactor = { name: string; weight: number; points: number; detail: string };
@@ -782,6 +926,63 @@ async function computeSeguimientoConcentration(userId: string, year: number, mon
   const topPct = Math.round((top[1] / total) * 100);
   const pct = topPct > 70 ? Math.min(100, (topPct - 70) * 3) : 0;
   return { pct, detail: topPct > 70 ? `${topPct}% del tiempo de seguimiento concentrado en un solo motivo` : `Concentración máxima entre motivos: ${topPct}%` };
+}
+
+// ── Tendencias de score (§Sprint 5 S5-I) ─────────────────────────────────────
+// vs. semana anterior / mes anterior / promedio 6 meses — reutiliza
+// AnalyticsAuditLog (mismo mecanismo que el resto del motor, sin tabla
+// nueva) y el mismo TrendResult/computeTrendGeneric del §2 de arriba.
+
+export type ScoreTrendHistory = { semanaAnterior: TrendResult; mesAnterior: TrendResult; promedio6Meses: TrendResult };
+
+export async function getScoreTrendHistory(
+  userId: string,
+  kind: "performance_score" | "operational_risk",
+  currentScore: number,
+  higherIsBetter: boolean,
+  now: Date = new Date()
+): Promise<ScoreTrendHistory> {
+  const sixMonthsAgo = new Date(now.getTime() - 183 * 86400000);
+  let entries: Array<{ createdAt: Date; result: unknown }> = [];
+  try {
+    entries = await prisma.analyticsAuditLog.findMany({
+      where: { userId, kind, createdAt: { gte: sixMonthsAgo, lt: now } },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true, result: true },
+    });
+  } catch {
+    return { semanaAnterior: NO_HISTORY, mesAnterior: NO_HISTORY, promedio6Meses: NO_HISTORY };
+  }
+
+  const scored = entries
+    .map((e) => ({
+      createdAt: e.createdAt,
+      score: e.result && typeof e.result === "object" ? (e.result as { score?: unknown }).score : undefined,
+    }))
+    .filter((e): e is { createdAt: Date; score: number } => typeof e.score === "number");
+
+  // El punto histórico más cercano a `daysAgo`, con una tolerancia de ±3 días
+  // (los cálculos no ocurren en un cron exacto, sino cuando alguien recalcula).
+  function closestTo(daysAgo: number): number | null {
+    const target = now.getTime() - daysAgo * 86400000;
+    let best: { score: number; diff: number } | null = null;
+    for (const e of scored) {
+      const diff = Math.abs(e.createdAt.getTime() - target);
+      if (diff <= 3 * 86400000 && (!best || diff < best.diff)) best = { score: e.score, diff };
+    }
+    return best?.score ?? null;
+  }
+
+  const weekAgoScore = closestTo(7);
+  const monthAgoScore = closestTo(30);
+  const olderThanAWeek = scored.filter((e) => e.createdAt.getTime() < now.getTime() - 7 * 86400000);
+  const avg6mo = olderThanAWeek.length > 0 ? olderThanAWeek.reduce((s, e) => s + e.score, 0) / olderThanAWeek.length : null;
+
+  return {
+    semanaAnterior: computeTrendGeneric(currentScore, weekAgoScore, higherIsBetter),
+    mesAnterior: computeTrendGeneric(currentScore, monthAgoScore, higherIsBetter),
+    promedio6Meses: computeTrendGeneric(currentScore, avg6mo, higherIsBetter),
+  };
 }
 
 async function getRiskTrendVsPrevMonth(userId: string, year: number, month: number, currentScore: number): Promise<{ available: boolean; diff?: number; reason?: string }> {
@@ -1255,6 +1456,7 @@ export async function validateAnalyticsConsistency(
   userId: string,
   inputs: {
     healthScore: HealthScoreResult;
+    performanceScore: PerformanceScoreResult;
     prediction: Prediction;
     capacity: { disponible: number; baseFuturaTotal: number; comprometidoFuturo: number };
   },
@@ -1270,10 +1472,18 @@ export async function validateAnalyticsConsistency(
   if (inputs.capacity.comprometidoFuturo < 0) {
     failures.push({ rule: "comprometido_negativo", detail: `Comprometido futuro negativo (${inputs.capacity.comprometidoFuturo}h)` });
   }
-  // Score = suma ponderada exacta de sus factores.
-  const sumFactors = Math.round(inputs.healthScore.factors.reduce((s, f) => s + f.points, 0) * 100) / 100;
-  if (Math.abs(sumFactors - inputs.healthScore.score) > 0.5) {
-    failures.push({ rule: "score_no_coincide", detail: `Suma de factores (${sumFactors}) ≠ score (${inputs.healthScore.score})` });
+  // Score (Legacy y Performance) = suma ponderada exacta de sus factores.
+  const sumHealthFactors = Math.round(inputs.healthScore.factors.reduce((s, f) => s + f.points, 0) * 100) / 100;
+  if (Math.abs(sumHealthFactors - inputs.healthScore.score) > 0.5) {
+    failures.push({ rule: "score_no_coincide", detail: `Suma de factores del Score Legacy (${sumHealthFactors}) ≠ score (${inputs.healthScore.score})` });
+  }
+  const sumPerfFactors = Math.round(inputs.performanceScore.factors.reduce((s, f) => s + f.points, 0) * 100) / 100;
+  if (Math.abs(sumPerfFactors - inputs.performanceScore.score) > 0.5) {
+    failures.push({ rule: "performance_score_no_coincide", detail: `Suma de factores del Performance Score (${sumPerfFactors}) ≠ score (${inputs.performanceScore.score})` });
+  }
+  // Performance Score nunca excede 100 ni es negativo (NormalizationEngine ya acota, esto es un doble check).
+  if (inputs.performanceScore.score > 100 || inputs.performanceScore.score < 0) {
+    failures.push({ rule: "performance_score_fuera_de_rango", detail: `Performance Score ${inputs.performanceScore.score} fuera de [0,100]` });
   }
   // Predicción siempre con nivel de confianza y cantidad de datos cuando está disponible.
   if (inputs.prediction.available && (!inputs.prediction.confidence || inputs.prediction.weeksOfData <= 0)) {
@@ -1285,6 +1495,7 @@ export async function validateAnalyticsConsistency(
     inputs.capacity.baseFuturaTotal,
     inputs.capacity.comprometidoFuturo,
     inputs.healthScore.score,
+    inputs.performanceScore.score,
     ...(inputs.prediction.available ? [inputs.prediction.confidencePct, inputs.prediction.cumplimientoEstimadoCierreMes] : []),
   ];
   if (numericValues.some((n) => !Number.isFinite(n))) {
@@ -1364,6 +1575,7 @@ export async function validateCumplimientoConsistency(
 export type AnalyticsPipelineResult = {
   dataQuality: DataQualityResult;
   healthScore: HealthScoreResult;
+  performanceScore: PerformanceScoreResult;
   consistency: ConsistencyResult;
   trends: KpiTrends;
   prediction: Prediction;
@@ -1377,18 +1589,23 @@ export async function runAnalyticsPipeline(userId: string, now: Date = new Date(
   // 1+2. Leer datos y validar su calidad ANTES de calcular ningún KPI.
   const dataQuality = await computeDataQuality([userId]);
 
-  // 3. Calcular KPIs — prioridad alta (Salud, que compone Carga/Cumplimiento/
-  // Capacidad) primero; prioridad media en paralelo a continuación.
-  const healthScore = await computeHealthScore(userId, now);
-  const [consistency, trends, prediction] = await Promise.all([
-    computeConsistency(userId, now),
+  // 3. Calcular KPIs — Consistencia se calcula UNA vez y se reutiliza en Salud
+  // (Legacy) y Performance Score (antes se recalculaba de forma independiente
+  // en cada uno — ver nota de rendimiento en computeHealthScore/
+  // computePerformanceScore). Prioridad alta (Salud, que compone Carga/
+  // Cumplimiento/Capacidad) primero; prioridad media en paralelo a continuación
+  // (Performance Score incluida, §Sprint 5 S5-B/S5-G).
+  const consistency = await computeConsistency(userId, now);
+  const healthScore = await computeHealthScore(userId, now, consistency);
+  const [performanceScore, trends, prediction] = await Promise.all([
+    computePerformanceScore(userId, now, consistency),
     computeTrends(userId, now),
     computePrediction(userId, now),
   ]);
 
   // 4. Validar consistencia matemática entre los KPIs recién calculados.
   const capacity = await computeCapacityForecast(userId, now);
-  const validationFailures = await validateAnalyticsConsistency(userId, { healthScore, prediction, capacity }, now);
+  const validationFailures = await validateAnalyticsConsistency(userId, { healthScore, performanceScore, prediction, capacity }, now);
 
   // 5. Detectar anomalías respecto al historial personal.
   const anomalies = await detectAnomalies(userId, now);
@@ -1397,5 +1614,64 @@ export async function runAnalyticsPipeline(userId: string, now: Date = new Date(
   const alerts = await computeAlerts(userId, now);
   const alertsHistory = alerts.length === 0 ? await getResolvedAlertsHistory(userId, alerts, now) : [];
 
-  return { dataQuality, healthScore, consistency, trends, prediction, anomalies, alerts, alertsHistory, validationFailures };
+  return { dataQuality, healthScore, performanceScore, consistency, trends, prediction, anomalies, alerts, alertsHistory, validationFailures };
+}
+
+// ── Benchmarks (§Sprint 5 S5-H) ──────────────────────────────────────────────
+// Compara el Performance Score y el Operational Risk de una persona contra
+// sus pares del MISMO rol (peers) — promedio y percentil. El permiso de
+// visibilidad lo aplica el caller (endpoint), este cálculo asume que ya se
+// verificó que el viewer puede ver al target (§Sprint 5 "toda comparación
+// debe respetar permisos por rol").
+
+export type BenchmarkMetric =
+  | { available: false; reason: string }
+  | { available: true; value: number; teamAverage: number; percentile: number; topPct: number; peerCount: number };
+
+export type BenchmarkResult = { performance: BenchmarkMetric; operationalRisk: BenchmarkMetric };
+
+/** % de pares con score IGUAL o PEOR que `value` (según `higherIsBetter`) — percentil de "qué tan bien vas" respecto al grupo. */
+function computePercentile(value: number, peerValues: number[], higherIsBetter: boolean): number {
+  if (peerValues.length === 0) return 50;
+  const notBetter = peerValues.filter((v) => (higherIsBetter ? v <= value : v >= value)).length;
+  return Math.round((notBetter / peerValues.length) * 100);
+}
+
+export async function computeBenchmark(userId: string, role: Role, now: Date = new Date()): Promise<BenchmarkResult> {
+  const config = await getEffectiveAnalyticsConfig(now);
+  const peers = await prisma.user.findMany({ where: { role, id: { not: userId } }, select: { id: true } });
+
+  const unavailable: BenchmarkMetric = { available: false, reason: "Sin compañeros del mismo rol para comparar" };
+  if (peers.length === 0) return { performance: unavailable, operationalRisk: unavailable };
+
+  const [myPerf, myRisk, peerPerf, peerRisk] = await Promise.all([
+    cached(`perf-bench:${userId}`, config.cacheTtlMinutes, () => computePerformanceScore(userId, now)).then((r) => r.value.score),
+    cached(`risk-bench:${userId}`, config.cacheTtlMinutes, () => computeOperationalRisk(userId, now)).then((r) => r.value.score),
+    Promise.all(peers.map((p) => cached(`perf-bench:${p.id}`, config.cacheTtlMinutes, () => computePerformanceScore(p.id, now)).then((r) => r.value.score))),
+    Promise.all(peers.map((p) => cached(`risk-bench:${p.id}`, config.cacheTtlMinutes, () => computeOperationalRisk(p.id, now)).then((r) => r.value.score))),
+  ]);
+
+  const avg = (nums: number[]) => Math.round((nums.reduce((s, n) => s + n, 0) / nums.length) * 10) / 10;
+
+  const perfPercentile = computePercentile(myPerf, peerPerf, true);
+  const riskPercentile = computePercentile(myRisk, peerRisk, false);
+
+  return {
+    performance: {
+      available: true,
+      value: myPerf,
+      teamAverage: avg(peerPerf),
+      percentile: perfPercentile,
+      topPct: 100 - perfPercentile,
+      peerCount: peers.length,
+    },
+    operationalRisk: {
+      available: true,
+      value: myRisk,
+      teamAverage: avg(peerRisk),
+      percentile: riskPercentile,
+      topPct: 100 - riskPercentile,
+      peerCount: peers.length,
+    },
+  };
 }

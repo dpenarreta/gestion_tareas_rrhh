@@ -4,7 +4,8 @@ import { getSession } from "@/lib/session";
 import { getSubordinateRoles, ROLE_LEVEL } from "@/lib/roles";
 import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct, type MonthlyBusinessBase } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
-import { computeSimpleScore } from "@/lib/analytics";
+import { computeSimpleScore, cached, computePerformanceScore, computeOperationalRisk, classifyOperationalRisk } from "@/lib/analytics";
+import { getEffectiveAnalyticsConfig } from "@/lib/systemConfig";
 import type { ExecutiveDashboardData } from "@/components/kpis/types";
 import type { KpiColor, WorkloadColor, WorkloadLabel } from "@/components/kpis/types";
 
@@ -47,7 +48,14 @@ const EMPTY_RESPONSE: ExecutiveDashboardData = {
   alerts: { lowCumplimiento: [], sobrecarga: [], pendingIdeas: [] },
   ranking: [],
   workload: [],
-  ceo: { estado: "green", estadoLabel: "Sin datos", cambios: [], atender: [] },
+  ceo: {
+    estado: "green",
+    estadoLabel: "Sin datos",
+    cambios: [],
+    atender: [],
+    performance: { avg: 0, classification: "Crítico", color: "red" },
+    operationalRisk: { avg: 0, classification: "Bajo", color: "green" },
+  },
 };
 
 export async function GET() {
@@ -206,7 +214,24 @@ export async function GET() {
 
   const workload = current.members.map((m) => ({ id: m.id, name: m.name, realHours: m.cargaRealHours, baseHours: m.cargaBaseHours, color: m.cargaColor }));
 
-  // ── Bloque CEO (§S2-A) ────────────────────────────────────────────────────
+  // ── Bloque CEO (§S2-A, ampliado en Sprint 5 § S5-K) ──────────────────────
+  // Performance Score y Operational Risk del equipo — NUNCA se mezclan en un
+  // solo número, se muestran como dos índices separados (ver Sprint 5 § S5-K).
+  // Reutiliza las mismas claves de caché (`perf-bench:`/`risk-bench:`) que
+  // computeBenchmark, así que si alguien ya vio su propio benchmark hoy este
+  // fetch es prácticamente gratis.
+  const analyticsConfig = await getEffectiveAnalyticsConfig();
+  const [perfScores, riskScoresRaw] = await Promise.all([
+    Promise.all(userIds.map((id) => cached(`perf-bench:${id}`, analyticsConfig.cacheTtlMinutes, () => computePerformanceScore(id)).then((r) => r.value.score))),
+    Promise.all(userIds.map((id) => cached(`risk-bench:${id}`, analyticsConfig.cacheTtlMinutes, () => computeOperationalRisk(id)).then((r) => r.value.score))),
+  ]);
+  const avgPerf = perfScores.length > 0 ? Math.round((perfScores.reduce((s, v) => s + v, 0) / perfScores.length) * 10) / 10 : 0;
+  const avgRisk = riskScoresRaw.length > 0 ? Math.round((riskScoresRaw.reduce((s, v) => s + v, 0) / riskScoresRaw.length) * 10) / 10 : 0;
+  const perfClassification = avgPerf >= 90 ? "Excelente" : avgPerf >= 75 ? "Bueno" : avgPerf >= 60 ? "Riesgo" : "Crítico";
+  const perfColor: KpiColor = avgPerf >= 75 ? "green" : avgPerf >= 60 ? "yellow" : "red";
+  const riskClassified = classifyOperationalRisk(avgRisk, analyticsConfig.riskThresholdMedio, analyticsConfig.riskThresholdAlto, analyticsConfig.riskThresholdCritico);
+
+  // ── Bloque CEO — resto (§S2-A) ────────────────────────────────────────────
   // Todo derivado de los snapshots mensuales ya calculados arriba — sin
   // consultas adicionales, sin depender de cookies/sesión (ver Sprint 2 S2-A).
   const estado: "green" | "yellow" | "red" =
@@ -249,6 +274,14 @@ export async function GET() {
       severity: 100 - a.value,
     });
   }
+  // Recomendaciones a nivel de índice — siempre indican explícitamente cuál de
+  // los dos requiere atención (§Sprint 5 S5-K, nunca se mezclan).
+  if (perfClassification === "Riesgo" || perfClassification === "Crítico") {
+    atenderCandidates.push({ text: `Performance Score del equipo en ${perfClassification} (${avgPerf})`, severity: 100 - avgPerf });
+  }
+  if (riskClassified.classification === "Alto" || riskClassified.classification === "Crítico") {
+    atenderCandidates.push({ text: `Operational Risk del equipo en ${riskClassified.classification} (${avgRisk})`, severity: avgRisk });
+  }
   const atender = atenderCandidates
     .sort((a, b) => b.severity - a.severity)
     .slice(0, 3)
@@ -269,7 +302,14 @@ export async function GET() {
     alerts: { lowCumplimiento, sobrecarga: sobrecargaAlerts, pendingIdeas },
     ranking,
     workload,
-    ceo: { estado, estadoLabel, cambios: cambios.slice(0, 4), atender },
+    ceo: {
+      estado,
+      estadoLabel,
+      cambios: cambios.slice(0, 4),
+      atender,
+      performance: { avg: avgPerf, classification: perfClassification, color: perfColor },
+      operationalRisk: { avg: avgRisk, classification: riskClassified.classification, color: riskClassified.classificationColor },
+    },
   };
 
   return NextResponse.json(response);
