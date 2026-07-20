@@ -11,6 +11,7 @@ import {
   getEffectiveWorkloadLimitOverload,
   setConfigValue,
 } from "@/lib/systemConfig";
+import { invalidateAnalyticsCache } from "@/lib/analytics";
 
 const MIN_HOURS = 4;
 const MAX_HOURS = 8;
@@ -114,6 +115,8 @@ export async function PUT(request: NextRequest) {
       ? setConfigValue(CONFIG_KEY_WORKLOAD_LIMIT_OVERLOAD, String(workloadLimitOverload), session.userId)
       : Promise.resolve(),
   ]);
+
+  invalidateAnalyticsCache();
 
   const [effectiveHours, effectiveLow, effectiveHigh, effectiveOverload] = await Promise.all([
     getEffectiveHorasEfectivas(),

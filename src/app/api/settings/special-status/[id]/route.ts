@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { businessCalendarDay } from "@/lib/businessTime";
+import { invalidateAnalyticsCache } from "@/lib/analytics";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -30,6 +31,7 @@ export async function PATCH(_req: Request, ctx: Ctx) {
     data: { isActive: false, endDate },
     include: { user: { select: { id: true, name: true } } },
   });
+  invalidateAnalyticsCache();
   return NextResponse.json(updated);
 }
 
@@ -47,5 +49,6 @@ export async function DELETE(_req: Request, ctx: Ctx) {
   }
 
   await prisma.specialStatus.delete({ where: { id } });
+  invalidateAnalyticsCache();
   return NextResponse.json({ ok: true });
 }

@@ -103,6 +103,88 @@ export async function getEffectiveWelcomeMessageActive(asOf: Date = new Date()):
   return (await getEffectiveConfigString(CONFIG_KEY_WELCOME_MESSAGE_ACTIVE, asOf, "false")) === "true";
 }
 
+// ── Configuración del motor de Analytics (src/lib/analytics.ts) ─────────────
+//
+// Todos los umbrales/ponderaciones del motor son configurables desde Ajustes
+// (Administrador, Jefe Nacional, Coordinador Nacional) sin tocar código — ver
+// Analytics § Configuración centralizada. Cada valor se guarda en
+// SystemConfigHistory (misma tabla/mecanismo que horas efectivas arriba), así
+// que el historial de cambios (usuario, fecha, valor anterior/nuevo) ya viene
+// incluido gratis por `setConfigValue` — no hace falta una tabla de auditoría
+// aparte para los cambios de configuración.
+export const ANALYTICS_CONFIG_DEFAULTS = {
+  // Score de Salud Laboral — ponderaciones (deben sumar 100).
+  healthWeightCumplimiento: 25,
+  healthWeightCarga: 25,
+  healthWeightVencidas: 20,
+  healthWeightConsistencia: 15,
+  healthWeightCapacidad: 15,
+  // Índice de Riesgo Operativo — ponderaciones (deben sumar 100).
+  riskWeightSobrecarga: 22,
+  riskWeightVencidasCriticas: 18,
+  riskWeightTendenciaNegativa: 15,
+  riskWeightHorasExtra: 12,
+  riskWeightBajaCapacidad: 11,
+  riskWeightVariabilidad: 10,
+  riskWeightConcentracion: 7,
+  riskWeightSinPlanificacion: 5,
+  // Índice de Riesgo Operativo — límites inferiores de cada banda (0 a este valor = banda anterior).
+  riskThresholdMedio: 31,
+  riskThresholdAlto: 61,
+  riskThresholdCritico: 81,
+  // Motor de alertas.
+  alertOverdueTaskThreshold: 3,
+  alertConsecutiveOverloadDays: 3,
+  anomalyVariationThresholdPct: 30,
+  // Caché y predicción.
+  cacheTtlMinutes: 15,
+  predictionMinWeeksMedia: 2,
+  predictionMinWeeksAlta: 4,
+} as const;
+
+export type AnalyticsConfigKey = keyof typeof ANALYTICS_CONFIG_DEFAULTS;
+
+const ANALYTICS_CONFIG_KEYS: Record<AnalyticsConfigKey, string> = {
+  healthWeightCumplimiento: "analytics_health_weight_cumplimiento",
+  healthWeightCarga: "analytics_health_weight_carga",
+  healthWeightVencidas: "analytics_health_weight_vencidas",
+  healthWeightConsistencia: "analytics_health_weight_consistencia",
+  healthWeightCapacidad: "analytics_health_weight_capacidad",
+  riskWeightSobrecarga: "analytics_risk_weight_sobrecarga",
+  riskWeightVencidasCriticas: "analytics_risk_weight_vencidas_criticas",
+  riskWeightTendenciaNegativa: "analytics_risk_weight_tendencia_negativa",
+  riskWeightHorasExtra: "analytics_risk_weight_horas_extra",
+  riskWeightBajaCapacidad: "analytics_risk_weight_baja_capacidad",
+  riskWeightVariabilidad: "analytics_risk_weight_variabilidad",
+  riskWeightConcentracion: "analytics_risk_weight_concentracion",
+  riskWeightSinPlanificacion: "analytics_risk_weight_sin_planificacion",
+  riskThresholdMedio: "analytics_risk_threshold_medio",
+  riskThresholdAlto: "analytics_risk_threshold_alto",
+  riskThresholdCritico: "analytics_risk_threshold_critico",
+  alertOverdueTaskThreshold: "analytics_alert_overdue_task_threshold",
+  alertConsecutiveOverloadDays: "analytics_alert_consecutive_overload_days",
+  anomalyVariationThresholdPct: "analytics_anomaly_variation_threshold_pct",
+  cacheTtlMinutes: "analytics_cache_ttl_minutes",
+  predictionMinWeeksMedia: "analytics_prediction_min_weeks_media",
+  predictionMinWeeksAlta: "analytics_prediction_min_weeks_alta",
+};
+
+/** Límite máximo de proyección del motor de predicción — fijo por diseño (la precisión cae demasiado más allá), NO configurable desde Ajustes. */
+export const PREDICTION_MAX_DAYS = 30;
+
+/** Config completa del motor de Analytics vigente en `asOf`, en una sola tanda de queries paralelas. */
+export async function getEffectiveAnalyticsConfig(asOf: Date = new Date()): Promise<Record<AnalyticsConfigKey, number>> {
+  const entries = Object.entries(ANALYTICS_CONFIG_KEYS) as [AnalyticsConfigKey, string][];
+  const values = await Promise.all(
+    entries.map(([name, key]) => getEffectiveConfigValue(key, asOf, ANALYTICS_CONFIG_DEFAULTS[name]))
+  );
+  return Object.fromEntries(entries.map(([name], i) => [name, values[i]])) as Record<AnalyticsConfigKey, number>;
+}
+
+export async function setAnalyticsConfigValue(name: AnalyticsConfigKey, value: number, userId: string): Promise<void> {
+  await setConfigValue(ANALYTICS_CONFIG_KEYS[name], String(value), userId);
+}
+
 /** Closes the currently-open history record (if any) and opens a new one, effective now. */
 export async function setConfigValue(key: string, value: string, userId: string): Promise<void> {
   const now = new Date();

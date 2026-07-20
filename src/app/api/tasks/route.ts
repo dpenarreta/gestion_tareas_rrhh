@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { attachUnreadComments } from "@/lib/commentViews";
+import { invalidateAnalyticsCache } from "@/lib/analytics";
 import type { TaskStatus, TaskPriority, TaskFrequency, TaskType } from "@/generated/prisma/client";
 
 const taskSelect = {
@@ -74,6 +75,8 @@ export async function POST(request: NextRequest) {
     },
     select: taskSelect,
   });
+
+  invalidateAnalyticsCache();
 
   if (assignedToId !== session.userId) {
     await prisma.notification.create({

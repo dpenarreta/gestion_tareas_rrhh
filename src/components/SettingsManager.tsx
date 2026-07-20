@@ -11,6 +11,7 @@ import HolidaysSection from "@/components/settings/HolidaysSection";
 import LeaveRecordsSection from "@/components/settings/LeaveRecordsSection";
 import SpecialStatusSection from "@/components/settings/SpecialStatusSection";
 import KpiStartDateSection from "@/components/settings/KpiStartDateSection";
+import AnalyticsConfigSection from "@/components/settings/AnalyticsConfigSection";
 import WelcomeMessageSection from "@/components/settings/WelcomeMessageSection";
 
 type User = {
@@ -914,6 +915,8 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
       <SpecialStatusSection users={users} />
 
       <KpiStartDateSection />
+
+      <AnalyticsConfigSection />
 
       <SectionCard title="Solicitudes de titulares">
         <p className="text-xs text-secondary">

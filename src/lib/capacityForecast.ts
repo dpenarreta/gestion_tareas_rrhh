@@ -36,14 +36,36 @@ export type CapacityForecast = {
   confiabilidad: {
     pct: number;
     holidaysConfigured: boolean;
-    unregisteredAbsenceSuspected: boolean;
     tasksWithoutEstimate: number;
   };
 };
 
-function utcDayStart(d: Date) {
-  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+/**
+ * Semáforo de capacidad disponible a partir de horas disponibles/base futura —
+ * extraído como función pura (sin acceso a datos) para que tanto el motor real
+ * como el simulador (§9, `/api/analytics/simulate`) usen la MISMA
+ * clasificación en vez de reimplementar el árbol de decisión por separado.
+ */
+export function classifyCapacity(
+  disponible: number,
+  baseFuturaTotal: number,
+  disponiblePct: number
+): { estado: CapacityEstado; estadoColor: CapacityForecast["estadoColor"]; estadoLabel: string } {
+  if (baseFuturaTotal <= 0) {
+    return { estado: "sin-planificacion", estadoColor: "gray", estadoLabel: "Sin planificación disponible este mes" };
+  }
+  if (disponible < 0) {
+    return { estado: "sobrecarga", estadoColor: "red", estadoLabel: `Sobrecarga proyectada: ${disponible}h` };
+  }
+  if (disponiblePct > 20) {
+    return { estado: "alta", estadoColor: "green", estadoLabel: "Puede asumir proyectos" };
+  }
+  if (disponiblePct >= 10) {
+    return { estado: "limitada", estadoColor: "yellow", estadoLabel: "Capacidad limitada" };
+  }
+  return { estado: "no-asignar", estadoColor: "red", estadoLabel: "No asignar nuevas tareas" };
 }
+
 function utcMonthStart(d: Date) {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
 }
@@ -193,49 +215,15 @@ export async function computeTeamCapacityForecast(
     const disponible = Math.round((baseFuturaTotal - comprometidoFuturo) * 100) / 100;
     const disponiblePct = baseFuturaTotal > 0 ? Math.round((disponible / baseFuturaTotal) * 100) : 0;
 
-    let estado: CapacityEstado;
-    let estadoColor: CapacityForecast["estadoColor"];
-    let estadoLabel: string;
-    if (baseFuturaTotal <= 0) {
-      estado = "sin-planificacion";
-      estadoColor = "gray";
-      estadoLabel = "Sin planificación disponible este mes";
-    } else if (disponible < 0) {
-      estado = "sobrecarga";
-      estadoColor = "red";
-      estadoLabel = `Sobrecarga proyectada: ${disponible}h`;
-    } else if (disponiblePct > 20) {
-      estado = "alta";
-      estadoColor = "green";
-      estadoLabel = "Puede asumir proyectos";
-    } else if (disponiblePct >= 10) {
-      estado = "limitada";
-      estadoColor = "yellow";
-      estadoLabel = "Capacidad limitada";
-    } else {
-      estado = "no-asignar";
-      estadoColor = "red";
-      estadoLabel = "No asignar nuevas tareas";
-    }
+    const { estado, estadoColor, estadoLabel } = classifyCapacity(disponible, baseFuturaTotal, disponiblePct);
 
-    // ── Confiabilidad: ausencias no registradas en días laborables ya transcurridos ──
-    let unregisteredAbsenceSuspected = false;
-    for (let t = monthStart.getTime(); t < today.getTime(); t += 86400000) {
-      const day = utcDayStart(new Date(t));
-      if (!isWorkingDay(day, holidays)) continue;
-      const hours = dayHoursMap.get(day.getTime()) ?? 0;
-      if (hours > 0) continue;
-      const leaveInfo = leaveMap.get(day.getTime());
-      if (leaveInfo && (leaveInfo.medicoFullDay || leaveInfo.personalFullDay || leaveInfo.vacacionesFullDay || leaveInfo.medicoMinutes > 0 || leaveInfo.personalMinutes > 0))
-        continue;
-      unregisteredAbsenceSuspected = true;
-      break;
-    }
-
-    const confiabilidadPct = Math.max(
-      0,
-      Math.min(100, 100 - tasksSinEstimar * 5 - (holidaysConfigured ? 0 : 3) - (unregisteredAbsenceSuspected ? 3 : 0))
-    );
+    // Confiabilidad: NO se infieren permisos/ausencias por falta de actividad
+    // registrada — un colaborador puede estar en entrevistas, capacitaciones,
+    // visitas o reuniones sin registrar TaskActivity ese día, así que esa
+    // inferencia generaría falsos positivos (ver Analytics § Calidad de los
+    // datos). Solo se penaliza por señales verificables: tareas sin estimar
+    // y ausencia de feriados configurados para el año.
+    const confiabilidadPct = Math.max(0, Math.min(100, 100 - tasksSinEstimar * 5 - (holidaysConfigured ? 0 : 3)));
 
     result.set(userId, {
       userId,
@@ -254,7 +242,6 @@ export async function computeTeamCapacityForecast(
       confiabilidad: {
         pct: confiabilidadPct,
         holidaysConfigured,
-        unregisteredAbsenceSuspected,
         tasksWithoutEstimate: tasksSinEstimar,
       },
     });
@@ -280,7 +267,7 @@ export async function computeCapacityForecast(userId: string, now: Date = new Da
       estadoColor: "gray",
       estadoLabel: "Sin planificación disponible este mes",
       tasksSinEstimar: 0,
-      confiabilidad: { pct: 100, holidaysConfigured: true, unregisteredAbsenceSuspected: false, tasksWithoutEstimate: 0 },
+      confiabilidad: { pct: 100, holidaysConfigured: true, tasksWithoutEstimate: 0 },
     }
   );
 }

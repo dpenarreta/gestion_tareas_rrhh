@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { isBusinessDay } from "@/lib/businessTime";
 import { getHolidaySet } from "@/lib/holidays";
+import { invalidateAnalyticsCache } from "@/lib/analytics";
 import type { LeaveType } from "@/generated/prisma/client";
 
 function parseDateOnly(value: string): Date | null {
@@ -122,5 +123,6 @@ export async function POST(request: NextRequest) {
       })
     )
   );
+  invalidateAnalyticsCache();
   return NextResponse.json({ records, businessDaysCount: businessDays.length }, { status: 201 });
 }

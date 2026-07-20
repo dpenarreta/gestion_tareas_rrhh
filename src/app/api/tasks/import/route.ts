@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import * as XLSX from "xlsx";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { invalidateAnalyticsCache } from "@/lib/analytics";
 import type { TaskPriority, TaskFrequency, TaskType } from "@/generated/prisma/client";
 
 const VALID_PRIORITIES = ["ALTA", "MEDIA", "BAJA"];
@@ -154,6 +155,10 @@ export async function POST(request: NextRequest) {
     } catch {
       errors.push({ row: rowNum, error: "Error al crear la tarea" });
     }
+  }
+
+  if (imported > 0) {
+    invalidateAnalyticsCache();
   }
 
   return NextResponse.json({ imported, errors });

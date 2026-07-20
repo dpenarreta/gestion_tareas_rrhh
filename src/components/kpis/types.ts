@@ -146,6 +146,42 @@ export type TeamMemberKpi = {
 
 export type { CapacityForecast, CapacityEstado } from "@/lib/capacityForecast";
 
+// ── Motor de Analytics (src/lib/analytics.ts) — re-exportadas para que los
+// componentes cliente puedan tipar las respuestas de /api/analytics/* sin
+// importar el módulo "server-only" en sí (un `import type` se borra en
+// compilación, así que no dispara la guardia de runtime). ──
+export type {
+  TrendResult,
+  KpiTrends,
+  ConsistencyLevel,
+  ConsistencyResult,
+  Anomaly,
+  AnomalyResult,
+  PredictionConfidence,
+  Prediction,
+  HealthFactor,
+  HealthScoreResult,
+  RiskFactor,
+  OperationalRiskResult,
+  DataQualityIssue,
+  DataQualityResult,
+  AlertSeverity,
+  EngineAlert,
+} from "@/lib/analytics";
+
+/** Respuesta de GET /api/analytics/[userId] — ver Analytics § motor centralizado. */
+export type AnalyticsBundle = {
+  healthScore: import("@/lib/analytics").HealthScoreResult;
+  alerts: import("@/lib/analytics").EngineAlert[];
+  trends: import("@/lib/analytics").KpiTrends;
+  consistency: import("@/lib/analytics").ConsistencyResult;
+  anomalies: import("@/lib/analytics").AnomalyResult;
+  prediction: import("@/lib/analytics").Prediction;
+  dataQuality: import("@/lib/analytics").DataQualityResult;
+  engineVersion: string;
+  lastUpdated: string;
+};
+
 /** Fila de /api/kpis/team-capacity — ver Analytics § Capacidad para asumir nuevas tareas. */
 export type CapacityMember = import("@/lib/capacityForecast").CapacityForecast & {
   id: string;

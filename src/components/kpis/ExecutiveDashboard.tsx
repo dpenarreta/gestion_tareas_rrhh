@@ -3,9 +3,146 @@
 import { useEffect, useState } from "react";
 import type { Role } from "@/generated/prisma/client";
 import { ROLE_LABEL } from "@/lib/roles";
-import type { ExecutiveDashboardData, KpiColor } from "./types";
+import type { ExecutiveDashboardData, KpiColor, CapacityMember, CapacitySummary } from "./types";
 import { CumplimientoLineChart, TeamWorkloadBarChart } from "./KpiCharts";
 import { hoursToDisplay } from "@/lib/timeFormat";
+
+type TeamRiskMember = { id: string; name: string; role: string; score: number; classification: "Bajo" | "Medio" | "Alto" | "Crítico"; suggestedActions: string[] };
+type TeamRiskResponse = { members: TeamRiskMember[]; summary: { bajo: number; medio: number; alto: number; critico: number } };
+
+/**
+ * Modo Ejecutivo (§16) — vista condensada: score general, riesgo del equipo,
+ * alertas críticas, tendencias, sobrecargados/con capacidad, recomendaciones
+ * prioritarias. Máximo 2 minutos de lectura — sin tablas de detalle ni drill down.
+ */
+function ExecutiveModeView({ data }: { data: ExecutiveDashboardData }) {
+  const [teamRisk, setTeamRisk] = useState<TeamRiskResponse | null>(null);
+  const [capacity, setCapacity] = useState<{ members: CapacityMember[]; summary: CapacitySummary } | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const [riskRes, capRes] = await Promise.all([
+        fetch("/api/analytics/operational-risk/team"),
+        fetch("/api/kpis/team-capacity"),
+      ]);
+      if (!cancelled) {
+        if (riskRes.ok) setTeamRisk(await riskRes.json());
+        if (capRes.ok) setCapacity(await capRes.json());
+        setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const avgScore = data.ranking.length > 0 ? Math.round(data.ranking.reduce((s, m) => s + m.score, 0) / data.ranking.length) : 0;
+  const avgRiskScore = teamRisk && teamRisk.members.length > 0 ? Math.round(teamRisk.members.reduce((s, m) => s + m.score, 0) / teamRisk.members.length) : null;
+  const overloaded = data.ranking.filter((m) => m.cargaColor === "red" || m.cargaColor === "orange");
+  const available = capacity?.members.filter((m) => m.estado === "alta") ?? [];
+  const priorityActions = teamRisk
+    ? [...teamRisk.members]
+        .filter((m) => m.classification === "Alto" || m.classification === "Crítico")
+        .sort((a, b) => b.score - a.score)
+        .flatMap((m) => m.suggestedActions.filter((a) => !a.startsWith("Sin acciones")).map((a) => `${m.name}: ${a}`))
+        .slice(0, 3)
+    : [];
+
+  if (loading) {
+    return (
+      <div className="flex justify-center py-24">
+        <div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-5">
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="rounded-[14px] border border-border bg-surface p-5">
+          <p className="text-xs font-medium text-secondary mb-1">Score general del área</p>
+          <p className="text-4xl font-bold text-title">{avgScore}<span className="text-lg text-disabled">/100</span></p>
+        </div>
+        <div className="rounded-[14px] border border-border bg-surface p-5">
+          <p className="text-xs font-medium text-secondary mb-1">Índice de Riesgo Operativo del equipo</p>
+          {avgRiskScore !== null ? (
+            <p className="text-4xl font-bold text-title">{avgRiskScore}<span className="text-lg text-disabled">/100</span></p>
+          ) : (
+            <p className="text-sm text-disabled italic">Sin datos</p>
+          )}
+          {teamRisk && (
+            <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] mt-1.5">
+              <span className="text-success">🟢 {teamRisk.summary.bajo}</span>
+              <span className="text-warning">🟡 {teamRisk.summary.medio}</span>
+              <span className="text-orange-500">🟠 {teamRisk.summary.alto}</span>
+              <span className="text-danger">🔴 {teamRisk.summary.critico}</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-[14px] border border-danger/30 bg-danger/[.05] p-5">
+        <h3 className="text-sm font-semibold text-danger uppercase tracking-wider mb-3">Alertas críticas activas</h3>
+        {data.alerts.lowCumplimiento.length === 0 && data.alerts.sobrecarga.length === 0 ? (
+          <p className="text-sm text-disabled">Sin alertas críticas este mes</p>
+        ) : (
+          <div className="flex flex-wrap gap-4 text-sm">
+            {data.alerts.lowCumplimiento.length > 0 && <span className="text-danger font-medium">{data.alerts.lowCumplimiento.length} con cumplimiento &lt; 60%</span>}
+            {data.alerts.sobrecarga.length > 0 && <span className="text-danger font-medium">{data.alerts.sobrecarga.length} en sobrecarga</span>}
+          </div>
+        )}
+      </div>
+
+      <div className="rounded-[14px] border border-border bg-surface p-5">
+        <h3 className="text-sm font-semibold text-main uppercase tracking-wider mb-2">Tendencia clave</h3>
+        <p className={`text-lg font-bold flex items-center gap-2 ${data.trendDelta > 0 ? "text-success" : data.trendDelta < 0 ? "text-danger" : "text-disabled"}`}>
+          {data.trendDelta > 0 ? "▲" : data.trendDelta < 0 ? "▼" : "="} Cumplimiento {Math.abs(data.trendDelta)}pp vs. mes anterior
+        </p>
+      </div>
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+        <div className="rounded-[14px] border border-border bg-surface p-5">
+          <h3 className="text-sm font-semibold text-main uppercase tracking-wider mb-2">Personas sobrecargadas</h3>
+          {overloaded.length === 0 ? (
+            <p className="text-sm text-success">Nadie en sobrecarga</p>
+          ) : (
+            <ul className="space-y-1">
+              {overloaded.map((m) => <li key={m.id} className="text-sm text-title">{m.name}</li>)}
+            </ul>
+          )}
+        </div>
+        <div className="rounded-[14px] border border-border bg-surface p-5">
+          <h3 className="text-sm font-semibold text-main uppercase tracking-wider mb-2">Con capacidad disponible</h3>
+          {available.length === 0 ? (
+            <p className="text-sm text-disabled">Nadie con capacidad alta este mes</p>
+          ) : (
+            <ul className="space-y-1">
+              {available.map((m) => <li key={m.id} className="text-sm text-title">{m.name}</li>)}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      <div className="rounded-[14px] p-5 bg-nova-soft">
+        <h3 className="text-[13px] font-semibold text-nova mb-2">Recomendaciones prioritarias</h3>
+        {priorityActions.length === 0 ? (
+          <p className="text-sm text-title">Sin riesgos altos/críticos detectados este mes.</p>
+        ) : (
+          <ul className="space-y-1.5">
+            {priorityActions.map((a, i) => (
+              <li key={i} className="text-sm text-title flex gap-2">
+                <span className="text-nova shrink-0">⚡</span>
+                <span>{a}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
 
 const DOT_CLASS: Record<KpiColor, string> = {
   green: "bg-success",
@@ -83,6 +220,7 @@ export default function ExecutiveDashboard() {
   const [data, setData] = useState<ExecutiveDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [modoEjecutivo, setModoEjecutivo] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -134,8 +272,35 @@ export default function ExecutiveDashboard() {
 
   const totalAlerts = data.alerts.lowCumplimiento.length + data.alerts.sobrecarga.length + data.alerts.pendingIdeas.length;
 
+  const modeToggle = (
+    <div className="flex items-center justify-end">
+      <button
+        onClick={() => setModoEjecutivo((v) => !v)}
+        className={`flex items-center gap-2 px-3.5 py-1.5 rounded-[8px] text-[13px] font-medium transition-all ${
+          modoEjecutivo ? "bg-primary text-white" : "bg-surface2 text-secondary hover:text-title"
+        }`}
+      >
+        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+        </svg>
+        Modo Ejecutivo
+      </button>
+    </div>
+  );
+
+  if (modoEjecutivo) {
+    return (
+      <div className="flex flex-col gap-5">
+        {modeToggle}
+        <ExecutiveModeView data={data} />
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col gap-5">
+      {modeToggle}
+
       {/* ── Overview cards ─────────────────────────────────────────────── */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <OverviewCard

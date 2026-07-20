@@ -118,6 +118,7 @@ model User {
   leaveRecordsCreated         LeaveRecord[]         @relation("LeaveRecordCreator")
   specialStatuses             SpecialStatus[]       @relation("SpecialStatusUser")
   specialStatusesCreated      SpecialStatus[]       @relation("SpecialStatusCreator")
+  analyticsAuditLogs          AnalyticsAuditLog[]   @relation("AnalyticsAuditUser")
 }
 
 model ActivityReason {
@@ -523,6 +524,27 @@ model Meeting {
   createdAt          DateTime         @default(now())
   updatedAt          DateTime         @updatedAt
   invitees           MeetingInvitee[]
+}
+
+// Auditoría del motor de Analytics (src/lib/analytics.ts) — un registro por
+// cálculo de un indicador versionado (Score de Salud, Índice de Riesgo
+// Operativo) para poder explicar por qué un informe antiguo mostraba un
+// valor distinto al de hoy (cambios de fórmula entre versiones del motor, o
+// de configuración/datos de entrada). `kind` identifica el indicador
+// ("health_score" | "operational_risk"); `period` es el mes evaluado
+// ("2026-07"). No se audita cada lectura cacheada, solo cada cálculo real.
+model AnalyticsAuditLog {
+  id            String   @id @default(cuid())
+  userId        String
+  user          User     @relation("AnalyticsAuditUser", fields: [userId], references: [id], onDelete: Cascade)
+  kind          String
+  period        String
+  inputs        Json
+  result        Json
+  engineVersion String
+  createdAt     DateTime @default(now())
+
+  @@index([userId, kind, period])
 }
 
 model MeetingInvitee {

@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { RiskAlert } from "@/lib/riskAlerts";
 import type { PriorityCompliance } from "./types";
 
 // ── Task breakdown (reemplaza el número simple de "Total tareas") ───────────
@@ -97,55 +96,6 @@ export function PriorityComplianceCard({ data }: { data: PriorityCompliance[] })
         <p className="text-xs text-danger font-medium mt-3 pt-3 border-t border-border">
           ⚠️ Cumplimiento de tareas de prioridad Alta por debajo del mínimo aceptable ({alta!.pct}%) — requiere atención inmediata.
         </p>
-      )}
-    </div>
-  );
-}
-
-// ── Alertas / indicadores de riesgo ─────────────────────────────────────────
-
-const SEVERITY_DOT: Record<RiskAlert["severity"], string> = {
-  red: "bg-danger",
-  yellow: "bg-warning",
-};
-
-const SEVERITY_TEXT: Record<RiskAlert["severity"], string> = {
-  red: "text-danger",
-  yellow: "text-warning",
-};
-
-export function AlertsCard({ alerts }: { alerts: RiskAlert[] }) {
-  const hasCritical = alerts.some((a) => a.severity === "red");
-  const cardBg = alerts.length === 0
-    ? "bg-success/[.08] border-success/25"
-    : hasCritical
-      ? "bg-danger/[.06] border-danger/25"
-      : "bg-warning/[.08] border-warning/25";
-  const titleColor = alerts.length === 0 ? "text-success" : hasCritical ? "text-danger" : "text-warning";
-
-  return (
-    <div className={`rounded-[14px] border shadow-[var(--shadow)] p-5 ${cardBg}`}>
-      <div className="flex items-center justify-between mb-3">
-        <h3 className={`text-sm font-semibold uppercase tracking-wider ${titleColor}`}>Alertas</h3>
-        {alerts.length > 0 && (
-          <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${hasCritical ? "bg-danger/[.15] text-danger" : "bg-warning/[.18] text-warning"}`}>
-            {alerts.length}
-          </span>
-        )}
-      </div>
-      {alerts.length === 0 ? (
-        <p className="text-sm text-success flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-success shrink-0" /> Sin alertas activas
-        </p>
-      ) : (
-        <ul className="space-y-2">
-          {alerts.map((a, i) => (
-            <li key={i} className="flex items-start gap-2 text-sm">
-              <span className={`w-2 h-2 rounded-full shrink-0 mt-1.5 ${SEVERITY_DOT[a.severity]}`} />
-              <span className={`leading-snug ${SEVERITY_TEXT[a.severity]}`}>{a.message}</span>
-            </li>
-          ))}
-        </ul>
       )}
     </div>
   );

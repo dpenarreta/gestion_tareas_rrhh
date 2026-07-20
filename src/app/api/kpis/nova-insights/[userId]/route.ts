@@ -2,32 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import Groq from "groq-sdk";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { getVisibleRoles, ROLE_LEVEL, ROLE_LABEL } from "@/lib/roles";
-import { isTaskOverdue } from "@/lib/utils";
+import { getVisibleRoles, ROLE_LEVEL, ROLE_LABEL, canViewOperationalRisk } from "@/lib/roles";
 import { computeCargaTiempo } from "@/lib/workload";
-import { computeRiskAlerts } from "@/lib/riskAlerts";
-import { computePriorityCompliance } from "@/lib/priorityCompliance";
-import { computeCapacityForecast } from "@/lib/capacityForecast";
+import {
+  computeHealthScore,
+  computeOperationalRisk,
+  computeAlerts,
+  computeTrends,
+  computeConsistency,
+  detectAnomalies,
+  computePrediction,
+  computeDataQuality,
+} from "@/lib/analytics";
 import type { Role } from "@/generated/prisma/client";
 
-// Etiquetas de motivo de SEGUIMIENTO — copia server-side minimal de
-// REASON_LABEL (src/components/kpis/KpiCharts.tsx, "use client") para no
-// importar un módulo cliente desde un route handler.
-const REASON_LABEL: Record<string, string> = {
-  NOVEDADES_PAGO: "Novedades de pago",
-  RETENCION_PAGO: "Retención de pago",
-  FACTURAS: "Facturas",
-  CONSULTA_OPERACIONES: "Consulta operaciones",
-  SOLICITUD_VACACIONES: "Solicitud vacaciones",
-  SOLICITUD_PERMISO: "Solicitud permiso",
-  VISITA_DOMICILIARIA: "Visita domiciliaria",
-  SEGUIMIENTO_AUSENTISMOS: "Seg. ausentismos",
-  RECLUTAMIENTO_SELECCION: "Reclutamiento/Selección",
-  SEGUIMIENTO_DOCUMENTACION: "Seguimiento de documentación",
-  SOLICITUDES_INTERNAS: "Solicitudes internas",
-};
-
-const CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 horas
+const CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 horas — caché de la GENERACIÓN de Groq (más larga que la caché de cálculo de analytics.ts: es una llamada a IA, no una consulta a BD).
 
 type Mode = "full" | "insights-only" | "motivational";
 type Sensitivity = "full" | "restricted";
@@ -47,129 +36,59 @@ type MotivationalCacheEntry = {
   expiresAt: number;
 };
 
-// Cache en memoria por colaborador + mes + variante de contenido generada —
-// "full"/"restricted" (¿incluye detalle de salud del estado especial?) y
-// "motivational" son generaciones de Groq DISTINTAS, nunca deben compartir
-// entrada (ver `sensitivity` más abajo: evita que un dato de salud generado
-// para el propio titular/Administrador se filtre a un viewer sin privilegio,
-// dado que esta caché no está aislada por viewer).
+// Cache en memoria por colaborador + variante generada — "full"/"restricted"
+// (¿incluye detalle de salud del estado especial?) y "motivational" son
+// generaciones de Groq DISTINTAS, nunca deben compartir entrada (ver
+// `sensitivity` más abajo: evita que un dato de salud generado para el propio
+// titular/Administrador se filtre a un viewer sin privilegio, dado que esta
+// caché no está aislada por viewer).
 const analyticalCache = new Map<string, AnalyticalCacheEntry>();
 const motivationalCache = new Map<string, MotivationalCacheEntry>();
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-// System prompt del motor de recomendaciones Nova — ver Analytics § Componente 4.
-// Estructura exigida: 1. Hallazgo principal, 2. Riesgos detectados, 3. Aspectos
-// positivos, 4. Recomendaciones priorizadas — pedida como JSON (no texto libre)
-// para poder renderizar cada sección por separado en NovaInsightsCard.
+// Groq NUNCA calcula nada — todo el JSON que recibe ya viene calculado
+// deterministicamente por src/lib/analytics.ts (ver Analytics § Nova — solo
+// lenguaje natural). Su única función es explicar, priorizar y recomendar en
+// español a partir de datos ya resueltos; nunca debe inventar cifras que no
+// estén en el JSON recibido.
 const ANALYTICAL_SYSTEM_PROMPT =
-  "Eres un analista de People Analytics para un equipo de Recursos Humanos en Ecuador. Analiza los datos " +
-  "del colaborador (recibidos en JSON) y responde EXCLUSIVAMENTE con un objeto JSON válido, sin texto " +
-  'adicional ni markdown, con esta forma exacta: {"hallazgoPrincipal": string, "riesgos": string[], ' +
-  '"aspectosPositivos": string[], "recomendaciones": string[]}. ' +
-  "hallazgoPrincipal: el dato más importante del período, en una sola oración con al menos un número. " +
-  "riesgos: entre 1 y 3 riesgos concretos respaldados por datos; si no hay riesgos, un único ítem indicándolo " +
-  "explícitamente (el array nunca debe quedar vacío). " +
-  "aspectosPositivos: entre 1 y 2 aspectos positivos respaldados por números; si no los hay, un único ítem " +
-  "indicándolo explícitamente (el array nunca debe quedar vacío). " +
-  "recomendaciones: entre 1 y 2 acciones concretas y accionables — qué hacer, cuándo y cómo, nunca genéricas. " +
-  "Reglas: sé directo y objetivo, sin eufemismos ni lenguaje complaciente. Cada punto debe tener al menos un " +
-  "número o dato específico, basándote ÚNICAMENTE en los datos recibidos (nunca inventes cifras ni menciones " +
-  "datos que no se te dieron). Si el cumplimiento es menor a 60%, inclúyelo como riesgo crítico obligatorio. " +
-  "Si la carga laboral supera el límite superior configurado, recomienda redistribución citando cifras " +
-  "específicas. Si hay tareas vencidas de prioridad Alta, destácalo como urgente. Si hubo horas trabajadas " +
-  "en fin de semana, menciónalo como indicador de sobrecarga. Si la tendencia empeoró respecto al mes " +
-  "anterior, indícalo con las cifras exactas. Si la capacidad disponible proyectada es menor a 10%, advierte " +
-  "que no se debe asignar más trabajo. Si la sobrecarga proyectada es negativa, alértalo con urgencia.";
+  "Eres un analista de People Analytics. Recibirás un JSON con datos YA CALCULADOS por un motor determinístico " +
+  "(nunca los calcules tú, ni los cuestiones ni los recalcules). Tu única función es explicar esos datos en " +
+  "lenguaje natural e identificar los puntos más importantes. NUNCA inventes datos que no estén en el JSON. " +
+  "NUNCA suavices resultados negativos — sé directo y objetivo. Si un dato no está en el JSON recibido, no lo " +
+  'menciones. Responde EXCLUSIVAMENTE con un objeto JSON válido, sin texto adicional ni markdown, con esta ' +
+  'forma exacta: {"hallazgoPrincipal": string, "riesgos": string[], "aspectosPositivos": string[], ' +
+  '"recomendaciones": string[]}, usando exactamente este criterio por campo: ' +
+  "hallazgoPrincipal = el dato más importante del período, con al menos un número. " +
+  "riesgos = entre 1 y 3 riesgos detectados con datos específicos; si no hay riesgos, un único ítem indicándolo " +
+  "explícitamente (nunca un array vacío). " +
+  "aspectosPositivos = entre 1 y 2 aspectos positivos con números; si no los hay, un único ítem indicándolo " +
+  "explícitamente (nunca un array vacío). " +
+  "recomendaciones = entre 1 y 2 acciones concretas y priorizadas, con plazo (qué hacer, cuándo) — nunca genéricas.";
 
 const MOTIVATIONAL_SYSTEM_PROMPT =
-  "Eres Nova, la asistente de People Analytics de Nexo. Genera un mensaje breve, cercano y motivador para " +
-  "un colaborador sobre su propio desempeño del mes, basado ÚNICAMENTE en los datos recibidos (en JSON, " +
-  "nunca inventes cifras). Usa un tono cálido y de apoyo, en español simple, sin tecnicismos de RRHH. Si " +
-  "hay algo que mejorar, menciónalo con delicadeza y de forma constructiva — nunca alarmante. Responde " +
+  "Eres Nova, la asistente de People Analytics de Nexo. Recibirás un JSON con datos YA CALCULADOS (nunca los " +
+  "calcules ni los inventes) sobre el desempeño de un colaborador. Genera un mensaje breve, cercano y " +
+  "motivador sobre su propio desempeño, en tono cálido y de apoyo, en español simple, sin tecnicismos de RRHH. " +
+  "Si hay algo que mejorar, menciónalo con delicadeza y de forma constructiva — nunca alarmante. Responde " +
   'EXCLUSIVAMENTE con un objeto JSON válido, sin texto adicional ni markdown, con esta forma exacta: ' +
   '{"messages": string[]}, con entre 2 y 3 mensajes cortos (una frase natural cada uno, sin viñetas).';
 
-function pluralize(n: number, singular: string, plural: string): string {
-  return n === 1 ? singular : plural;
-}
-
-function monthBounds(year: number, month: number) {
-  const start = new Date(year, month - 1, 1);
-  const end = new Date(year, month, 0, 23, 59, 59, 999);
-  return { start, end };
-}
-
-function currentMonthParam(): string {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-}
-
-// ── Fallbacks deterministas (sin Groq / si la llamada falla) ─────────────────
+// ── Fallbacks deterministas (sin Groq / si la llamada falla) — SIEMPRE a partir de datos ya calculados, nunca inventados ──
 
 function fallbackAnalytical(ctx: {
-  completedPct: number;
-  cargaLabel: string;
-  cargaPct: number;
-  overdueCount: number;
-  overdueAltaCount: number;
-  cumplimientoDeltaPts: number;
-  weekendHours: number;
-  capacidadDisponiblePct: number;
-  capacidadDisponibleHoras: number;
+  hallazgoPrincipal: string;
+  riesgosRaw: string[];
+  positivosRaw: string[];
+  recomendacionesRaw: string[];
 }): { hallazgoPrincipal: string; riesgos: string[]; aspectosPositivos: string[]; recomendaciones: string[] } {
-  const hallazgoPrincipal = `Cumplimiento del período: ${ctx.completedPct}%${
-    ctx.cumplimientoDeltaPts !== 0
-      ? ` (${ctx.cumplimientoDeltaPts > 0 ? "+" : ""}${ctx.cumplimientoDeltaPts} pp vs. mes anterior)`
-      : ""
-  }, carga laboral en ${ctx.cargaLabel} (${ctx.cargaPct}%).`;
-
-  const riesgos: string[] = [];
-  if (ctx.completedPct < 60) {
-    riesgos.push(`Cumplimiento crítico: ${ctx.completedPct}%, por debajo del mínimo aceptable (60%).`);
-  }
-  if (ctx.overdueAltaCount > 0) {
-    riesgos.push(`${ctx.overdueAltaCount} ${pluralize(ctx.overdueAltaCount, "tarea vencida", "tareas vencidas")} de prioridad Alta.`);
-  } else if (ctx.overdueCount > 0) {
-    riesgos.push(`${ctx.overdueCount} ${pluralize(ctx.overdueCount, "tarea vencida", "tareas vencidas")} en el período.`);
-  }
-  if (ctx.cargaLabel === "Sobrecarga" || ctx.cargaLabel === "Carga elevada") {
-    riesgos.push(`Carga laboral en ${ctx.cargaLabel} (${ctx.cargaPct}%) — por encima del rango óptimo.`);
-  }
-  if (ctx.weekendHours > 0) {
-    riesgos.push(`${ctx.weekendHours}h trabajadas en fin de semana este mes — indicador de sobrecarga.`);
-  }
-  if (ctx.capacidadDisponiblePct < 10) {
-    riesgos.push(
-      ctx.capacidadDisponibleHoras < 0
-        ? `Sobrecarga proyectada: ${ctx.capacidadDisponibleHoras}h para lo que resta del mes.`
-        : `Capacidad disponible proyectada del ${ctx.capacidadDisponiblePct}% — no asignar nuevas tareas.`,
-    );
-  }
-  if (riesgos.length === 0) riesgos.push("Sin riesgos detectados en este período.");
-
-  const aspectosPositivos: string[] = [];
-  if (ctx.completedPct >= 80) aspectosPositivos.push(`Cumplimiento del ${ctx.completedPct}%, dentro del rango esperado.`);
-  if (ctx.cargaLabel === "Óptimo") aspectosPositivos.push(`Carga laboral en rango Óptimo (${ctx.cargaPct}%).`);
-  if (ctx.cumplimientoDeltaPts > 0) aspectosPositivos.push(`Cumplimiento mejoró ${ctx.cumplimientoDeltaPts} pp vs. el mes anterior.`);
-  if (aspectosPositivos.length === 0) aspectosPositivos.push("Sin aspectos destacables este período.");
-
-  const recomendaciones: string[] = [];
-  if (ctx.overdueAltaCount > 0) {
-    recomendaciones.push(
-      `Priorizar de inmediato ${ctx.overdueAltaCount === 1 ? "la tarea vencida de prioridad Alta" : `las ${ctx.overdueAltaCount} tareas vencidas de prioridad Alta`} antes de asumir trabajo nuevo.`,
-    );
-  } else if (ctx.completedPct < 60) {
-    recomendaciones.push("El cumplimiento está por debajo del mínimo aceptable (60%) — revisar carga y prioridades con el colaborador esta semana.");
-  } else if (ctx.cargaLabel === "Sobrecarga" || ctx.cargaLabel === "Carga elevada") {
-    recomendaciones.push("La carga laboral supera el rango óptimo — evaluar redistribuir tareas para evitar desgaste.");
-  } else if (ctx.capacidadDisponiblePct < 10) {
-    recomendaciones.push("Capacidad disponible por debajo del 10% para lo que resta del mes — no asignar nuevas tareas hasta liberar carga.");
-  } else {
-    recomendaciones.push("Sin riesgos evidentes este período — mantener el seguimiento habitual.");
-  }
-
-  return { hallazgoPrincipal, riesgos, aspectosPositivos, recomendaciones };
+  return {
+    hallazgoPrincipal: ctx.hallazgoPrincipal,
+    riesgos: ctx.riesgosRaw.length > 0 ? ctx.riesgosRaw : ["Sin riesgos detectados en este período."],
+    aspectosPositivos: ctx.positivosRaw.length > 0 ? ctx.positivosRaw : ["Sin aspectos destacables este período."],
+    recomendaciones: ctx.recomendacionesRaw.length > 0 ? ctx.recomendacionesRaw : ["Sin acciones urgentes — mantener el seguimiento habitual."],
+  };
 }
 
 function fallbackMotivational(ctx: { completedPct: number; totalTasks: number }): string[] {
@@ -210,93 +129,19 @@ function asString(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
-async function generateAnalytical(
-  userId: string,
-  monthParam: string,
-  sensitivity: Sensitivity,
-): Promise<AnalyticalCacheEntry> {
-  const [yearStr, monthStr] = monthParam.split("-");
-  const year = parseInt(yearStr);
-  const month = parseInt(monthStr);
-  const { start, end } = monthBounds(year, month);
-  let pm = month - 1;
-  let py = year;
-  if (pm <= 0) { pm = 12; py--; }
-  const { start: ps, end: pe } = monthBounds(py, pm);
-
-  const now = new Date();
-
-  const [targetUser, tasks, prevTasks, openTasks, reminders, cargaTiempo, capacityForecast] = await Promise.all([
+async function generateAnalytical(userId: string, sensitivity: Sensitivity, canSeeRisk: boolean): Promise<AnalyticalCacheEntry> {
+  const [targetUser, healthScore, alerts, trends, consistency, anomalies, prediction, dataQuality, cargaTiempo, operationalRisk] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId }, select: { name: true, role: true } }),
-    prisma.task.findMany({
-      where: { assignedToId: userId, endDate: { gte: start, lte: end } },
-      include: { activities: { where: { createdAt: { gte: start, lte: end } } } },
-    }),
-    prisma.task.findMany({
-      where: { assignedToId: userId, endDate: { gte: ps, lte: pe } },
-      select: { status: true, estimatedHours: true, realHours: true },
-    }),
-    prisma.task.findMany({
-      where: { assignedToId: userId, archivedMonth: null, status: { not: "COMPLETADA" } },
-      select: { endDate: true, status: true, priority: true },
-    }),
-    prisma.followUpReminder.findMany({
-      where: { userId, completedAt: null },
-      select: { reminderAt: true, snoozedUntil: true },
-    }),
-    // Siempre en tiempo real (no atado al mes seleccionado) — igual que
-    // WorkloadCard/riskAlerts en el resto de Analytics.
+    computeHealthScore(userId),
+    computeAlerts(userId),
+    computeTrends(userId),
+    computeConsistency(userId),
+    detectAnomalies(userId),
+    computePrediction(userId),
+    computeDataQuality([userId]),
     computeCargaTiempo(userId),
-    // Capacidad disponible FUTURA (desde ahora hasta fin de mes) — mismo motor
-    // que Analytics § Componente 2, no la capacidad "restante de la base
-    // mensual" que usaba cargaTiempo.mensual.rangeMax anteriormente.
-    computeCapacityForecast(userId),
+    canSeeRisk ? computeOperationalRisk(userId) : Promise.resolve(null),
   ]);
-
-  const completed = tasks.filter((t) => t.status === "COMPLETADA");
-  const completedPct = tasks.length > 0 ? Math.round((completed.length / tasks.length) * 100) : 0;
-  const totalEstimated = tasks.reduce((s, t) => s + t.estimatedHours, 0);
-  const totalReal = tasks.reduce((s, t) => s + t.realHours, 0);
-  const cargaRatio = totalEstimated > 0 ? Math.round((totalReal / totalEstimated) * 100) : totalReal > 0 ? 200 : 0;
-
-  const prevCompleted = prevTasks.filter((t) => t.status === "COMPLETADA").length;
-  const prevCompletedPct = prevTasks.length > 0 ? Math.round((prevCompleted / prevTasks.length) * 100) : 0;
-  const prevEst = prevTasks.reduce((s, t) => s + t.estimatedHours, 0);
-  const prevReal = prevTasks.reduce((s, t) => s + t.realHours, 0);
-  const prevCargaRatio = prevEst > 0 ? Math.round((prevReal / prevEst) * 100) : 0;
-
-  const seguimientoTasks = tasks.filter((t) => t.type === "SEGUIMIENTO");
-  const allActivities = seguimientoTasks.flatMap((t) => t.activities);
-  const byReasonMinutes = new Map<string, number>();
-  for (const act of allActivities) {
-    byReasonMinutes.set(act.reason, (byReasonMinutes.get(act.reason) ?? 0) + act.duration);
-  }
-  let topReason: string | null = null;
-  let topMinutes = 0;
-  let totalMinutes = 0;
-  for (const [reason, mins] of byReasonMinutes) {
-    totalMinutes += mins;
-    if (mins > topMinutes) {
-      topMinutes = mins;
-      topReason = reason;
-    }
-  }
-  const topReasonPct = totalMinutes > 0 ? Math.round((topMinutes / totalMinutes) * 100) : 0;
-
-  const overdue = openTasks.filter((t) => isTaskOverdue(t.endDate, t.status, now));
-  const overdueAlta = overdue.filter((t) => t.priority === "ALTA");
-  const overdueReminders = reminders.filter((r) => (r.snoozedUntil ?? r.reminderAt).getTime() < now.getTime());
-
-  const priorityCompliance = computePriorityCompliance(tasks);
-
-  const riskAlerts = await computeRiskAlerts({
-    userId,
-    cargaLabel: cargaTiempo.mensual.label,
-    cargaPct: cargaTiempo.mensual.pct,
-  });
-
-  const cargaDeltaPts = cargaRatio - prevCargaRatio;
-  const cumplimientoDeltaPts = completedPct - prevCompletedPct;
 
   const especial =
     sensitivity === "full" && cargaTiempo.mensual.specialStatusType
@@ -305,29 +150,47 @@ async function generateAnalytical(
         : "Período de lactancia vigente este mes"
       : null;
 
+  // Todo lo que recibe Groq ya viene calculado por src/lib/analytics.ts — ver
+  // Analytics § Nova solo lenguaje natural. Ningún campo aquí es un cálculo
+  // hecho en esta ruta; son lecturas directas del motor.
   const ctx = {
     nombre: targetUser?.name ?? "Colaborador",
     rol: targetUser ? (ROLE_LABEL[targetUser.role as Role] ?? targetUser.role) : "",
-    cargaLaboralPctEstimadoVsReal: cargaRatio,
-    cargaLaboralTendenciaPuntos: prevTasks.length > 0 ? cargaDeltaPts : null,
-    cargaLaboralRangoLabel: cargaTiempo.mensual.label,
-    cargaLaboralRangoPct: cargaTiempo.mensual.pct,
-    horasFinDeSemanaEsteMes: cargaTiempo.mensual.weekendHours,
-    cumplimientoPct: completedPct,
-    cumplimientoTendenciaPuntos: prevTasks.length > 0 ? cumplimientoDeltaPts : null,
-    tareasVencidas: overdue.length,
-    tareasVencidasPrioridadAlta: overdueAlta.length,
-    recordatoriosVencidos: overdueReminders.length,
-    cumplimientoPorPrioridad: priorityCompliance.filter((p) => p.total > 0),
-    motivoSeguimientoMasFrecuente: topReason ? REASON_LABEL[topReason] ?? topReason : null,
-    motivoSeguimientoPctDeTiempo: topReasonPct,
-    alertasActivas: riskAlerts.map((a) => a.message),
-    capacidadDisponibleFuturaHoras: capacityForecast.disponible,
-    capacidadDisponibleFuturaPct: capacityForecast.disponiblePct,
-    capacidadEstado: capacityForecast.estadoLabel,
-    confiabilidadCalculoPct: capacityForecast.confiabilidad.pct,
+    scoreSalud: {
+      valor: healthScore.score,
+      clasificacion: healthScore.classification,
+      factores: healthScore.factors.map((f) => ({ nombre: f.name, detalle: f.detail })),
+    },
+    riesgoOperativo: operationalRisk
+      ? {
+          valor: operationalRisk.score,
+          clasificacion: operationalRisk.classification,
+          tendenciaVsMesAnterior: operationalRisk.trendVsPrevMonth,
+          factoresConImpacto: operationalRisk.factors.filter((f) => f.points > 0).map((f) => f.detail),
+        }
+      : undefined,
+    alertasActivas: alerts.map((a) => ({ severidad: a.severity, mensaje: a.message })),
+    tendencias: {
+      cumplimientoVsMesAnterior: trends.cumplimiento.mesAnterior,
+      cumplimientoVsPromedio6Meses: trends.cumplimiento.promedio6Meses,
+      cargaVsMesAnterior: trends.carga.mesAnterior,
+    },
+    consistencia: consistency,
+    anomaliasDetectadas: anomalies,
+    prediccion: prediction,
+    calidadDeLosDatos: dataQuality,
     estadoEspecial: especial,
   };
+
+  const riesgosRaw = alerts.filter((a) => a.severity === "red" || a.severity === "orange").map((a) => a.message);
+  const positivosRaw: string[] = [];
+  if (healthScore.classification === "Excelente" || healthScore.classification === "Bueno") {
+    positivosRaw.push(`Score de Salud Laboral: ${healthScore.score}/100 (${healthScore.classification}).`);
+  }
+  if (trends.cumplimiento.mesAnterior.available && trends.cumplimiento.mesAnterior.direction === "mejora") {
+    positivosRaw.push(`Cumplimiento mejoró ${trends.cumplimiento.mesAnterior.absoluteDiff}pp vs. el mes anterior.`);
+  }
+  const recomendacionesRaw = operationalRisk?.suggestedActions ?? [];
 
   let hallazgoPrincipal = "";
   let riesgos: string[] = [];
@@ -361,15 +224,10 @@ async function generateAnalytical(
   }
   if (!hallazgoPrincipal || riesgos.length === 0 || aspectosPositivos.length === 0) {
     const fb = fallbackAnalytical({
-      completedPct,
-      cargaLabel: cargaTiempo.mensual.label,
-      cargaPct: cargaTiempo.mensual.pct,
-      overdueCount: overdue.length,
-      overdueAltaCount: overdueAlta.length,
-      cumplimientoDeltaPts,
-      weekendHours: cargaTiempo.mensual.weekendHours,
-      capacidadDisponiblePct: capacityForecast.disponiblePct,
-      capacidadDisponibleHoras: capacityForecast.disponible,
+      hallazgoPrincipal: `Score de Salud Laboral: ${healthScore.score}/100 (${healthScore.classification}), cumplimiento del ${healthScore.factors.find((f) => f.name === "Cumplimiento")?.rawLabel ?? "—"}.`,
+      riesgosRaw,
+      positivosRaw,
+      recomendacionesRaw,
     });
     if (!hallazgoPrincipal) hallazgoPrincipal = fb.hallazgoPrincipal;
     if (riesgos.length === 0) riesgos = fb.riesgos;
@@ -380,27 +238,18 @@ async function generateAnalytical(
   return { hallazgoPrincipal, riesgos, aspectosPositivos, recomendaciones, generatedAt: Date.now(), expiresAt: Date.now() + CACHE_TTL_MS };
 }
 
-async function generateMotivational(userId: string, monthParam: string): Promise<MotivationalCacheEntry> {
-  const [yearStr, monthStr] = monthParam.split("-");
-  const year = parseInt(yearStr);
-  const month = parseInt(monthStr);
-  const { start, end } = monthBounds(year, month);
-
-  const [targetUser, tasks] = await Promise.all([
+async function generateMotivational(userId: string): Promise<MotivationalCacheEntry> {
+  const [targetUser, healthScore] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId }, select: { name: true } }),
-    prisma.task.findMany({
-      where: { assignedToId: userId, endDate: { gte: start, lte: end } },
-      select: { status: true },
-    }),
+    computeHealthScore(userId),
   ]);
-  const completed = tasks.filter((t) => t.status === "COMPLETADA").length;
-  const completedPct = tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0;
+  const completedFactor = healthScore.factors.find((f) => f.name === "Cumplimiento");
+  const completedPct = completedFactor ? parseInt(completedFactor.rawLabel, 10) || 0 : 0;
 
   const ctx = {
     nombre: targetUser?.name ?? "Colaborador",
+    scoreSalud: { valor: healthScore.score, clasificacion: healthScore.classification },
     cumplimientoPct: completedPct,
-    totalTareas: tasks.length,
-    tareasCompletadas: completed,
   };
 
   let messages: string[] = [];
@@ -423,7 +272,7 @@ async function generateMotivational(userId: string, monthParam: string): Promise
     }
   }
   if (messages.length === 0) {
-    messages = fallbackMotivational({ completedPct, totalTasks: tasks.length });
+    messages = fallbackMotivational({ completedPct, totalTasks: 1 });
   }
 
   return { messages, generatedAt: Date.now(), expiresAt: Date.now() + CACHE_TTL_MS };
@@ -464,20 +313,19 @@ export async function GET(request: NextRequest, ctx: Ctx) {
   // redactSensitiveWorkloadDetail en workload.ts para el mismo criterio
   // aplicado a los datos crudos de carga laboral).
   const sensitivity: Sensitivity = isSelf || session.role === "ADMINISTRADOR" ? "full" : "restricted";
-
-  const monthParam = request.nextUrl.searchParams.get("month") ?? currentMonthParam();
+  const canSeeRisk = canViewOperationalRisk(session.role);
 
   if (mode === "motivational") {
-    const cacheKey = `${userId}:${monthParam}:motivational`;
+    const cacheKey = `${userId}:motivational`;
     const cached = motivationalCache.get(cacheKey);
-    const entry = cached && cached.expiresAt > Date.now() ? cached : await generateMotivational(userId, monthParam);
+    const entry = cached && cached.expiresAt > Date.now() ? cached : await generateMotivational(userId);
     if (!cached || cached.expiresAt <= Date.now()) motivationalCache.set(cacheKey, entry);
     return NextResponse.json({ mode, messages: entry.messages, generatedAt: entry.generatedAt });
   }
 
-  const cacheKey = `${userId}:${monthParam}:${sensitivity}`;
+  const cacheKey = `${userId}:${sensitivity}:${canSeeRisk ? "risk" : "norisk"}`;
   const cached = analyticalCache.get(cacheKey);
-  const entry = cached && cached.expiresAt > Date.now() ? cached : await generateAnalytical(userId, monthParam, sensitivity);
+  const entry = cached && cached.expiresAt > Date.now() ? cached : await generateAnalytical(userId, sensitivity, canSeeRisk);
   if (!cached || cached.expiresAt <= Date.now()) analyticalCache.set(cacheKey, entry);
 
   if (mode === "insights-only") {

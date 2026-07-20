@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { getVisibleRoles } from "@/lib/roles";
 import { attachUnreadComments } from "@/lib/commentViews";
+import { invalidateAnalyticsCache } from "@/lib/analytics";
 import type { TaskStatus, TaskPriority, TaskFrequency, TaskType } from "@/generated/prisma/client";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -103,6 +104,7 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   if ("color" in body) data.color = body.color;
 
   const updated = await prisma.task.update({ where: { id }, data, select: taskSelect });
+  invalidateAnalyticsCache();
   const [updatedWithUnread] = await attachUnreadComments([updated], session.userId);
   return NextResponse.json(updatedWithUnread);
 }
@@ -129,5 +131,6 @@ export async function DELETE(_req: NextRequest, ctx: Ctx) {
   }
 
   await prisma.task.delete({ where: { id } });
+  invalidateAnalyticsCache();
   return NextResponse.json({ ok: true });
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { invalidateAnalyticsCache } from "@/lib/analytics";
 import type { TaskStatus } from "@/generated/prisma/client";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -140,6 +141,8 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   } else {
     console.error(`[PATCH /api/tasks/${id}/correct] No se encontró MonthClosure para ${task.archivedMonth}`);
   }
+
+  invalidateAnalyticsCache();
 
   return NextResponse.json(updated);
 }

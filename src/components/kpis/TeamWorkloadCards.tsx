@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import type { TeamMemberKpi, WorkloadColor, CapacityMember, CapacitySummary } from "./types";
+import { useState, useEffect } from "react";
+import type { TeamMemberKpi, WorkloadColor, WorkloadLabel, CapacityMember, CapacitySummary } from "./types";
 import { hoursToDisplay, displayToHours, validateDisplayHours } from "@/lib/timeFormat";
 
 const AVATAR_COLORS = [
@@ -89,16 +89,6 @@ function fmtSignedHours(h: number): string {
   return `${sign}${hoursToDisplay(Math.abs(h))}h`;
 }
 
-/** Recalcula el estado/color/etiqueta del semáforo a partir de disponible/base — misma regla que computeTeamCapacityForecast, usada por el simulador (client-only, no toca datos reales). */
-function estadoFor(disponible: number, baseFuturaTotal: number): { color: keyof typeof ESTADO_EMOJI; label: string } {
-  if (baseFuturaTotal <= 0) return { color: "gray", label: "Sin planificación disponible este mes" };
-  if (disponible < 0) return { color: "red", label: `Sobrecarga proyectada: ${fmtSignedHours(disponible)}` };
-  const pct = Math.round((disponible / baseFuturaTotal) * 100);
-  if (pct > 20) return { color: "green", label: "Puede asumir proyectos" };
-  if (pct >= 10) return { color: "yellow", label: "Capacidad limitada" };
-  return { color: "red", label: "No asignar nuevas tareas" };
-}
-
 function ExecutiveSummaryBox({ summary }: { summary: CapacitySummary }) {
   return (
     <div className="rounded-xl border border-border bg-background p-4 mb-4">
@@ -124,9 +114,6 @@ function ConfiabilidadLine({ member }: { member: CapacityMember }) {
       <p className="font-semibold text-main">Confiabilidad del cálculo: {c.pct}%</p>
       <p className={c.tasksWithoutEstimate === 0 ? "text-success" : "text-warning"}>
         {c.tasksWithoutEstimate === 0 ? "✓" : "⚠"} {c.tasksWithoutEstimate === 0 ? "Todas las tareas estimadas" : `${c.tasksWithoutEstimate} ${c.tasksWithoutEstimate === 1 ? "tarea sin estimación" : "tareas sin estimación"}`}
-      </p>
-      <p className={!c.unregisteredAbsenceSuspected ? "text-success" : "text-warning"}>
-        {!c.unregisteredAbsenceSuspected ? "✓ Sin ausencias sin registrar detectadas" : "⚠ Posible ausencia sin registrar en días laborables"}
       </p>
       <p className={c.holidaysConfigured ? "text-success" : "text-warning"}>
         {c.holidaysConfigured ? "✓ Feriados configurados" : "⚠ Sin feriados configurados para este año"}
@@ -207,21 +194,91 @@ function CapacityRow({
   );
 }
 
+const CARGA_COLOR_TEXT: Record<WorkloadColor, string> = { green: "text-success", yellow: "text-warning", orange: "text-orange-500", red: "text-danger" };
+
+type ScenarioType = "assign_task" | "daily_hours" | "vacation" | "permiso";
+
+const SCENARIO_TABS: Array<{ type: ScenarioType; label: string }> = [
+  { type: "assign_task", label: "Nueva tarea" },
+  { type: "daily_hours", label: "Horas efectivas" },
+  { type: "vacation", label: "Vacaciones" },
+  { type: "permiso", label: "Permiso" },
+];
+
+const SCENARIO_FIELD: Record<ScenarioType, { label: string; placeholder: string; suffix: string }> = {
+  assign_task: { label: "Horas estimadas de la nueva tarea (HH.MM)", placeholder: "ej: 16.00", suffix: "h" },
+  daily_hours: { label: "Nuevas horas efectivas por día", placeholder: "ej: 7.00", suffix: "h/día" },
+  vacation: { label: "Días de vacaciones", placeholder: "ej: 5", suffix: "días" },
+  permiso: { label: "Horas de permiso", placeholder: "ej: 4.00", suffix: "h" },
+};
+
+type SimSnapshot = {
+  cargaPct: number;
+  cargaLabel: WorkloadLabel;
+  cargaColor: WorkloadColor;
+  capacidadDisponiblePct: number;
+  capacidadDisponibleHoras: number;
+  cumplimientoPct: number;
+  healthScore: number;
+  healthClassification: string;
+};
+
+const HEALTH_CLASS_TEXT: Record<string, string> = { Excelente: "text-success", Bueno: "text-success", Riesgo: "text-warning", Crítico: "text-danger" };
+
 function SimulatorPanel({ member, onClose }: { member: CapacityMember; onClose: () => void }) {
+  const [scenario, setScenario] = useState<ScenarioType>("assign_task");
   const [input, setInput] = useState("");
-  const valid = input.trim() === "" || validateDisplayHours(input);
-  const newHours = valid && input.trim() !== "" ? displayToHours(input) : 0;
-  const before = estadoFor(member.disponible, member.baseFuturaTotal);
-  const disponibleAfter = Math.round((member.disponible - newHours) * 100) / 100;
-  const after = estadoFor(disponibleAfter, member.baseFuturaTotal);
-  const afterPct = member.baseFuturaTotal > 0 ? Math.round((disponibleAfter / member.baseFuturaTotal) * 100) : 0;
+  const [result, setResult] = useState<{ before: SimSnapshot; after: SimSnapshot } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const isHoursField = scenario === "assign_task" || scenario === "permiso";
+  const valid = input.trim() === "" || (isHoursField ? validateDisplayHours(input) : /^\d+(\.\d+)?$/.test(input.trim()));
+  const field = SCENARIO_FIELD[scenario];
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      setResult(null);
+      setError(null);
+    });
+    if (input.trim() === "" || !valid) return;
+    const raw = isHoursField ? displayToHours(input) : Number(input);
+    if (!(raw > 0)) return;
+
+    const body =
+      scenario === "assign_task" ? { type: "assign_task", hours: raw }
+      : scenario === "daily_hours" ? { type: "daily_hours", newHoursPerDay: raw }
+      : scenario === "vacation" ? { type: "vacation", days: raw }
+      : { type: "permiso", hours: raw };
+
+    const timeout = setTimeout(() => {
+      setLoading(true);
+      fetch(`/api/analytics/simulate/${member.id}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      })
+        .then(async (res) => {
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.error ?? "Error al simular");
+          }
+          return res.json();
+        })
+        .then((data) => setResult(data))
+        .catch((e) => setError(e instanceof Error ? e.message : "Error al simular"))
+        .finally(() => setLoading(false));
+    }, 350);
+    return () => clearTimeout(timeout);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scenario, input, valid, member.id]);
 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="relative w-full max-w-sm h-full bg-surface border-l border-border shadow-2xl p-5 overflow-y-auto">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold text-title uppercase tracking-wider">Simulador de asignación</h3>
+          <h3 className="text-sm font-semibold text-title uppercase tracking-wider">Simulador</h3>
           <button onClick={onClose} className="text-disabled hover:text-main transition-colors" aria-label="Cerrar">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -229,48 +286,74 @@ function SimulatorPanel({ member, onClose }: { member: CapacityMember; onClose: 
           </button>
         </div>
 
-        <div className="flex items-center gap-3 mb-5">
+        <div className="flex items-center gap-3 mb-4">
           <Avatar name={member.name} />
           <p className="text-sm font-semibold text-title">{member.name}</p>
         </div>
 
-        <label className="block text-xs font-medium text-secondary mb-1.5">Horas estimadas de nueva tarea (HH.MM)</label>
+        <div className="flex gap-1 bg-background rounded-lg p-1 mb-4 flex-wrap">
+          {SCENARIO_TABS.map((t) => (
+            <button
+              key={t.type}
+              onClick={() => { setScenario(t.type); setInput(""); }}
+              className={`px-2.5 py-1.5 rounded-md text-[11px] font-medium transition-colors ${
+                scenario === t.type ? "bg-surface text-title shadow-sm" : "text-secondary hover:text-title"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+
+        <label className="block text-xs font-medium text-secondary mb-1.5">{field.label}</label>
         <input
           type="text"
           inputMode="decimal"
-          placeholder="ej: 16.00"
+          placeholder={field.placeholder}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           className={`w-full text-sm border rounded-lg px-3 py-2 bg-background text-main focus:outline-none focus:ring-2 focus:ring-primary ${
             valid ? "border-border" : "border-danger"
           }`}
         />
-        {!valid && <p className="text-xs text-danger mt-1">Formato inválido. Usa HH.MM (ej: 6.30 = 6h 30min)</p>}
+        {!valid && <p className="text-xs text-danger mt-1">Formato inválido{isHoursField ? " — usa HH.MM (ej: 6.30 = 6h 30min)" : ""}.</p>}
+        {error && <p className="text-xs text-danger mt-1">{error}</p>}
 
-        <div className="mt-5 space-y-3">
-          <div className="rounded-xl border border-border bg-background p-3">
-            <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider mb-1">Antes</p>
-            <p className={`text-sm font-bold ${ESTADO_TEXT[before.color]}`}>
-              {ESTADO_EMOJI[before.color]} {fmtSignedHours(member.disponible)} disponibles ({member.disponiblePct}%)
-            </p>
+        {loading && (
+          <div className="flex justify-center py-6">
+            <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
           </div>
-          <div className="flex justify-center text-disabled">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
-            </svg>
-          </div>
-          <div className={`rounded-xl border p-3 ${after.color === "red" ? "border-danger/30 bg-danger/[.06]" : after.color === "yellow" ? "border-warning/30 bg-warning/[.08]" : "border-success/30 bg-success/[.08]"}`}>
-            <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider mb-1">
-              Después de asignar {input.trim() !== "" && valid ? `${input}h` : "—"}
-            </p>
-            <p className={`text-sm font-bold ${ESTADO_TEXT[after.color]}`}>
-              {ESTADO_EMOJI[after.color]} {fmtSignedHours(disponibleAfter)} disponibles ({afterPct}%)
-            </p>
-            <p className={`text-xs mt-1 ${ESTADO_TEXT[after.color]}`}>{after.label}</p>
-          </div>
-        </div>
+        )}
 
-        <p className="text-[11px] text-disabled mt-4">Esto es solo una simulación visual — no guarda ni asigna ninguna tarea.</p>
+        {!loading && result && (
+          <div className="mt-5 space-y-3">
+            <div className="rounded-xl border border-border bg-background p-3 space-y-1.5">
+              <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider mb-1">Antes</p>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <span className="text-secondary">Carga: <strong className="text-main">{result.before.cargaLabel} ({result.before.cargaPct}%)</strong></span>
+                <span className="text-secondary">Capacidad: <strong className="text-main">{result.before.capacidadDisponiblePct}%</strong></span>
+                <span className="text-secondary">Cumplimiento: <strong className="text-main">{result.before.cumplimientoPct}%</strong></span>
+                <span className="text-secondary">Score Salud: <strong className={HEALTH_CLASS_TEXT[result.before.healthClassification]}>{result.before.healthScore}</strong></span>
+              </div>
+            </div>
+            <div className="flex justify-center text-disabled">
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+              </svg>
+            </div>
+            <div className="rounded-xl border border-primary/30 bg-primary-surface p-3 space-y-1.5">
+              <p className="text-[11px] font-semibold text-primary uppercase tracking-wider mb-1">Después</p>
+              <div className="grid grid-cols-2 gap-2 text-xs">
+                <span className="text-secondary">Carga: <strong className={CARGA_COLOR_TEXT[result.after.cargaColor]}>{result.after.cargaLabel} ({result.after.cargaPct}%)</strong></span>
+                <span className="text-secondary">Capacidad: <strong className="text-main">{result.after.capacidadDisponiblePct}%</strong></span>
+                <span className="text-secondary">Cumplimiento: <strong className="text-main">{result.after.cumplimientoPct}%</strong></span>
+                <span className="text-secondary">Score Salud: <strong className={HEALTH_CLASS_TEXT[result.after.healthClassification]}>{result.after.healthScore} ({result.after.healthClassification})</strong></span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        <p className="text-[11px] text-disabled mt-4">Esto es solo una simulación visual — no guarda ni modifica ningún dato real.</p>
 
         <button
           onClick={onClose}

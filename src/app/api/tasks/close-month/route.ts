@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canManageUsers } from "@/lib/roles";
+import { invalidateAnalyticsCache } from "@/lib/analytics";
 import type { TaskFrequency } from "@/generated/prisma/client";
 
 const RECURRING_FREQUENCIES: TaskFrequency[] = ["MENSUAL", "SEMANAL", "DIARIA", "QUINCENAL"];
@@ -210,6 +211,8 @@ export async function POST(request: NextRequest) {
     ],
     { timeout: 30000 }
   );
+
+  invalidateAnalyticsCache();
 
   return NextResponse.json({
     archivedCount: total,

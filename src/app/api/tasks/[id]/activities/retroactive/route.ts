@@ -6,6 +6,7 @@ import { businessCalendarDay, businessDayRealRange, previousBusinessDays } from 
 import { getNotificationRules } from "@/lib/notificationRules";
 import { findOverlappingActivity, overlapMessage } from "@/lib/activityOverlap";
 import { timeToMinutes } from "@/lib/timeOverlap";
+import { invalidateAnalyticsCache } from "@/lib/analytics";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -163,6 +164,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     });
 
     await recalcRealHours(taskId);
+    invalidateAnalyticsCache();
 
     const rules = await getNotificationRules();
     if (rules.retroactiveNotifyRoles.length > 0) {

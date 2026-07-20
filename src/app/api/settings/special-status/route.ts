@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { invalidateAnalyticsCache } from "@/lib/analytics";
 import type { SpecialStatusType } from "@/generated/prisma/client";
 
 function parseDateOnly(value: string): Date | null {
@@ -112,5 +113,6 @@ export async function POST(request: NextRequest) {
     },
     include: { user: { select: { id: true, name: true } } },
   });
+  invalidateAnalyticsCache();
   return NextResponse.json(record, { status: 201 });
 }

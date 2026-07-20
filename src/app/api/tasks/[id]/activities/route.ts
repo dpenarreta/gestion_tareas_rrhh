@@ -4,6 +4,7 @@ import { getSession } from "@/lib/session";
 import { businessCalendarDay } from "@/lib/businessTime";
 import { findOverlappingActivity, overlapMessage } from "@/lib/activityOverlap";
 import { timeToMinutes } from "@/lib/timeOverlap";
+import { invalidateAnalyticsCache } from "@/lib/analytics";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -143,6 +144,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     });
 
     await recalcRealHours(taskId);
+    invalidateAnalyticsCache();
 
     return NextResponse.json(activity, { status: 201 });
   } catch (err) {

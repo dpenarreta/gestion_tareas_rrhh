@@ -4,6 +4,31 @@
 // (en vez de vía CDN) porque la CSP del sitio (script-src 'self') se hereda
 // en la pestaña about:blank abierta con window.open + document.write.
 
+/**
+ * Metadatos del motor de Analytics para el encabezado de exportaciones
+ * (§19 — Exportaciones mejoradas): versión del motor, fecha/hora de
+ * generación, calidad de datos y confianza de predicción. Best-effort — un
+ * informe sigue siendo válido sin esta línea si la llamada falla.
+ */
+export async function fetchAnalyticsExportMeta(userId: string): Promise<string> {
+  try {
+    const res = await fetch(`/api/analytics/${userId}`);
+    if (!res.ok) return "";
+    const data = await res.json();
+    const generatedAt = new Date(data.lastUpdated).toLocaleString("es-CL", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    const confidence = data.prediction?.available ? ` &bull; Confianza de predicción: ${data.prediction.confidence}` : "";
+    return ` &bull; Analytics Engine v${data.engineVersion} &bull; Generado: ${generatedAt} &bull; Calidad de datos: ${data.dataQuality.pct}%${confidence}`;
+  } catch {
+    return "";
+  }
+}
+
 export function openReportWindow(opts: { title: string; styles: string; bodyHtml: string; pdfFileName: string }) {
   const { title, styles, bodyHtml, pdfFileName } = opts;
 

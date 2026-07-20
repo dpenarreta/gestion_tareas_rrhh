@@ -12,9 +12,11 @@ import {
 } from "./KpiCharts";
 import MonthlyReports from "./MonthlyReports";
 import WorkloadCard from "./WorkloadCard";
-import { TaskBreakdownCard, AlertsCard, NovaInsightsCard, PriorityComplianceCard } from "./InsightCards";
+import { TaskBreakdownCard, NovaInsightsCard, PriorityComplianceCard } from "./InsightCards";
 import { WorkloadBalanceCard, TeamCapacityCard } from "./TeamWorkloadCards";
-import { openReportWindow } from "./reportWindow";
+import { AdvancedAnalyticsPanel } from "./AdvancedAnalytics";
+import OperationalRiskCard, { TeamOperationalRiskCard } from "./OperationalRiskCard";
+import { openReportWindow, fetchAnalyticsExportMeta } from "./reportWindow";
 import * as XLSX from "xlsx";
 import { formatDate } from "@/lib/utils";
 import { hoursToDisplay } from "@/lib/timeFormat";
@@ -283,7 +285,8 @@ function downloadExcel(kpi: KpiData) {
 
 // ── PDF export ────────────────────────────────────────────────────────────────
 
-function downloadPDF(kpi: KpiData) {
+async function downloadPDF(kpi: KpiData) {
+  const analyticsMeta = await fetchAnalyticsExportMeta(kpi.user.id);
   const colorEmoji = (c: KpiColor) => (c === "green" ? "🟢" : c === "yellow" ? "🟡" : "🔴");
 
   const styles = `
@@ -306,7 +309,7 @@ function downloadPDF(kpi: KpiData) {
   const bodyHtml = `
   <h1>Reporte KPI</h1>
   <div class="meta">
-    <strong>${kpi.user.name}</strong> &bull; ${ROLE_LABEL[kpi.user.role as Role]} &bull; ${formatMonthLabel(kpi.period.month)}
+    <strong>${kpi.user.name}</strong> &bull; ${ROLE_LABEL[kpi.user.role as Role]} &bull; ${formatMonthLabel(kpi.period.month)}${analyticsMeta}
   </div>
 
   <div style="text-align:center;margin:16px 0">
@@ -428,6 +431,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
   const [teamLoading, setTeamLoading] = useState(true);
   const [capacityMembers, setCapacityMembers] = useState<CapacityMember[]>([]);
   const [capacitySummary, setCapacitySummary] = useState<CapacitySummary>({ total: 0, alta: 0, limitada: 0, sobrecargados: 0, sinPlanificacion: 0 });
+  const [teamDataQuality, setTeamDataQuality] = useState<{ pct: number; issues: { key: string; label: string; count: number }[] } | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [kpi, setKpi] = useState<KpiData | null>(null);
   const [kpiLoading, setKpiLoading] = useState(false);
@@ -463,6 +467,15 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
         setCapacityMembers(data.members);
         setCapacitySummary(data.summary);
       }
+    });
+  }, []);
+
+  // ── Calidad de los datos del equipo (§15) ────────────────────────────────────
+
+  useEffect(() => {
+    queueMicrotask(async () => {
+      const res = await fetch("/api/analytics/data-quality?scope=team");
+      if (res.ok) setTeamDataQuality(await res.json());
     });
   }, []);
 
@@ -569,6 +582,14 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
           <h1 className="text-2xl font-bold text-title">KPIs del Equipo</h1>
           <p className="text-sm text-secondary mt-0.5">
             {team.length} {team.length === 1 ? "colaborador" : "colaboradores"} en seguimiento
+            {teamDataQuality && (
+              <span
+                className={`ml-2 font-medium ${teamDataQuality.pct >= 90 ? "text-success" : teamDataQuality.pct >= 70 ? "text-warning" : "text-danger"}`}
+                title={teamDataQuality.issues.map((i) => `${i.label}: ${i.count}`).join(" · ") || "Sin problemas de calidad detectados"}
+              >
+                · Calidad de datos: {teamDataQuality.pct}%
+              </span>
+            )}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -587,6 +608,8 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
         <WorkloadBalanceCard members={team} />
         <TeamCapacityCard members={capacityMembers} summary={capacitySummary} />
       </div>
+
+      <TeamOperationalRiskCard currentUserRole={currentUserRole} />
 
       {/* ── Two-panel layout ─────────────────────────────────────────────── */}
       <div className="flex flex-col lg:flex-row gap-5 items-stretch lg:items-start">
@@ -748,11 +771,14 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
                 <PriorityComplianceCard data={kpi.cumplimientoPorPrioridad} />
               </div>
 
-              {/* ── 3. Insights de Nova + 4. Alertas ──────────────────────── */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                <NovaInsightsCard userId={kpi.user.id} month={month} />
-                <AlertsCard alerts={kpi.riskAlerts} />
-              </div>
+              {/* ── 3. Insights de Nova ─────────────────────────────────────── */}
+              <NovaInsightsCard userId={kpi.user.id} month={month} />
+
+              {/* ── 4. Analytics avanzado: Score de Salud, alertas, tendencias, consistencia, anomalías, predicción ── */}
+              <AdvancedAnalyticsPanel userId={kpi.user.id} />
+
+              {/* ── Índice de Riesgo Operativo (gerencia) ───────────────────── */}
+              <OperationalRiskCard userId={kpi.user.id} currentUserRole={currentUserRole} />
 
               {/* ── 5. Tendencias ──────────────────────────────────────────── */}
               <Section title="Evolución del cumplimiento – últimos 6 meses">

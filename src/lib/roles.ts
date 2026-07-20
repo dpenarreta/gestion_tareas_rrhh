@@ -158,4 +158,16 @@ export function canViewKnowledgeBase(role: Role): boolean {
   return CAN_VIEW_KNOWLEDGE_BASE.includes(role);
 }
 
+// Índice de Riesgo Operativo (Analytics § 13) — componente estratégico para
+// gerencia, no visible para niveles 1. Deliberadamente distinto de
+// canViewTeam (nivel >= 2): excluye ANALISTA_CC/ANALISTA_SELECCION (nivel 2
+// pero sin este componente según el pedido) e incluye explícitamente a
+// COORDINADOR_ZS (solo su propio equipo, acotado igual que el resto por
+// getSubordinateRoles).
+export const CAN_VIEW_OPERATIONAL_RISK: Role[] = ["ADMINISTRADOR", "JEFE_NACIONAL", "COORDINADOR_NACIONAL", "COORDINADOR_ZS"];
+
+export function canViewOperationalRisk(role: Role): boolean {
+  return CAN_VIEW_OPERATIONAL_RISK.includes(role);
+}
+
 export const ALL_ROLES = Object.keys(ROLE_LABEL) as Role[];

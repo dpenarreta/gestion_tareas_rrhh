@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { invalidateAnalyticsCache } from "@/lib/analytics";
 
 type Ctx = { params: Promise<{ id: string; activityId: string }> };
 
@@ -104,6 +105,7 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     });
 
     await recalcRealHours(taskId);
+    invalidateAnalyticsCache();
 
     await prisma.activityAuditLog.create({
       data: {
@@ -155,6 +157,7 @@ export async function DELETE(_req: NextRequest, ctx: Ctx) {
 
     await prisma.taskActivity.delete({ where: { id: activityId } });
     await recalcRealHours(taskId);
+    invalidateAnalyticsCache();
 
     return NextResponse.json({ ok: true });
   } catch (err) {

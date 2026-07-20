@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { invalidateAnalyticsCache } from "@/lib/analytics";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -18,5 +19,6 @@ export async function DELETE(_req: Request, ctx: Ctx) {
   }
 
   await prisma.leaveRecord.delete({ where: { id } });
+  invalidateAnalyticsCache();
   return NextResponse.json({ ok: true });
 }

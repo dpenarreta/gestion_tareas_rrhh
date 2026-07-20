@@ -11,10 +11,11 @@ import { ROLE_LABEL } from "@/lib/roles";
 import type { KpiData, KpiColor, WorkloadColor, WorkloadLabel } from "./types";
 import { DonutChart, CumplimientoLineChart, REASON_LABEL } from "./KpiCharts";
 import WorkloadCard from "./WorkloadCard";
-import { TaskBreakdownCard, AlertsCard, PriorityComplianceCard, NovaInsightsCard } from "./InsightCards";
+import { TaskBreakdownCard, PriorityComplianceCard, NovaInsightsCard } from "./InsightCards";
+import { AdvancedAnalyticsPanel } from "./AdvancedAnalytics";
 import { formatDate } from "@/lib/utils";
 import { hoursToDisplay } from "@/lib/timeFormat";
-import { openReportWindow } from "./reportWindow";
+import { openReportWindow, fetchAnalyticsExportMeta } from "./reportWindow";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -236,7 +237,8 @@ function downloadKpisExcel(kpi: KpiData, month: string, name: string, role: stri
   XLSX.writeFile(wb, `MisKPIs_${period.replace(/\s/g, "_")}.xlsx`);
 }
 
-function downloadKpisPDF(kpi: KpiData, month: string, name: string, role: string) {
+async function downloadKpisPDF(kpi: KpiData, month: string, name: string, role: string, userId: string) {
+  const analyticsMeta = await fetchAnalyticsExportMeta(userId);
   const period = formatMonthLabel(month);
   const msg = motivationalMessage(kpi.cumplimiento.completedPct, kpi.cumplimiento.total);
 
@@ -285,7 +287,7 @@ function downloadKpisPDF(kpi: KpiData, month: string, name: string, role: string
 
   const bodyHtml = `
   <h1>Mis KPIs personales</h1>
-  <div class="meta">${name} — ${ROLE_LABEL[role as Role] ?? role} &bull; Período: <strong>${period}</strong></div>
+  <div class="meta">${name} — ${ROLE_LABEL[role as Role] ?? role} &bull; Período: <strong>${period}</strong>${analyticsMeta}</div>
 
   <h2>Indicadores clave</h2>
   <div class="stats">
@@ -653,7 +655,7 @@ export default function MyKpisModule({ currentUserId, currentUserName, currentUs
                   Excel
                 </button>
                 <button
-                  onClick={() => downloadKpisPDF(kpi, month, currentUserName, currentUserRole)}
+                  onClick={() => downloadKpisPDF(kpi, month, currentUserName, currentUserRole, currentUserId)}
                   className="flex items-center gap-1.5 px-3 py-2 text-sm bg-primary rounded-xl text-white hover:bg-primary-hover transition-colors"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -786,8 +788,8 @@ export default function MyKpisModule({ currentUserId, currentUserName, currentUs
                 <NovaInsightsCard userId={currentUserId} month={month} />
               </div>
 
-              {/* ── 4. Alertas ────────────────────────────────────────────── */}
-              <AlertsCard alerts={kpi.riskAlerts} />
+              {/* ── 4. Analytics avanzado: Score de Salud, alertas, tendencias, consistencia, anomalías, predicción ── */}
+              <AdvancedAnalyticsPanel userId={currentUserId} />
 
               {/* ── 5. Tendencias ─────────────────────────────────────────── */}
               {kpi.cumplimientoHistory.length > 0 && (
