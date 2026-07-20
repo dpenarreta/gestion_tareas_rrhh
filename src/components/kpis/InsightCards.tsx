@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { RiskAlert } from "@/lib/riskAlerts";
+import type { PriorityCompliance } from "./types";
 
 // ── Task breakdown (reemplaza el número simple de "Total tareas") ───────────
 
@@ -40,6 +41,60 @@ export function TaskBreakdownCard({
           <span className="font-semibold text-title">{pending}</span>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Cumplimiento por prioridad ───────────────────────────────────────────────
+
+const PRIORITY_ICON: Record<PriorityCompliance["priority"], string> = {
+  ALTA: "🔴",
+  MEDIA: "🟡",
+  BAJA: "🟢",
+};
+
+const PRIORITY_LABEL: Record<PriorityCompliance["priority"], string> = {
+  ALTA: "Urgentes/Alta",
+  MEDIA: "Media",
+  BAJA: "Baja",
+};
+
+function resultBarClass(pct: number): string {
+  if (pct >= 80) return "bg-success";
+  if (pct >= 60) return "bg-warning";
+  return "bg-danger";
+}
+
+export function PriorityComplianceCard({ data }: { data: PriorityCompliance[] }) {
+  const alta = data.find((d) => d.priority === "ALTA");
+  const showAltaAlert = !!alta && alta.total > 0 && alta.pct < 60;
+
+  return (
+    <div className="rounded-[14px] border border-border bg-surface p-5 shadow-[var(--shadow)]">
+      <h3 className="text-sm font-semibold text-main uppercase tracking-wider mb-3">Cumplimiento por prioridad</h3>
+      <div className="space-y-2.5">
+        {data.map((d) => (
+          <div key={d.priority} className="flex items-center gap-3">
+            <span className="text-sm shrink-0" aria-hidden>{PRIORITY_ICON[d.priority]}</span>
+            <span className="text-sm text-main w-24 shrink-0">{PRIORITY_LABEL[d.priority]}</span>
+            {d.total === 0 ? (
+              <span className="text-xs text-disabled">Sin tareas de esta prioridad</span>
+            ) : (
+              <>
+                <div className="flex-1 h-2 rounded-full bg-surface2 overflow-hidden">
+                  <div className={`h-full rounded-full ${resultBarClass(d.pct)}`} style={{ width: `${d.pct}%` }} />
+                </div>
+                <span className="text-xs font-semibold text-main w-10 text-right shrink-0">{d.pct}%</span>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
+      {showAltaAlert && (
+        <p className="text-xs text-danger font-medium mt-3 pt-3 border-t border-border">
+          ⚠️ Cumplimiento de tareas de prioridad Alta por debajo del mínimo aceptable ({alta!.pct}%) — requiere atención inmediata.
+        </p>
+      )}
     </div>
   );
 }
@@ -95,7 +150,14 @@ export function AlertsCard({ alerts }: { alerts: RiskAlert[] }) {
 
 // ── Insights de Nova (IA, cache 4h) ──────────────────────────────────────────
 
-type NovaInsightData = { bullets: string[]; recommendation: string | null };
+type NovaMode = "full" | "insights-only" | "motivational";
+type NovaInsightData = { bullets: string[]; recommendations: string[]; mode: NovaMode };
+
+const NOVA_TITLE: Record<NovaMode, string> = {
+  full: "Insights del período",
+  "insights-only": "Insights del período",
+  motivational: "Tu resumen del mes",
+};
 
 export function NovaInsightsCard({ userId, month }: { userId: string; month: string }) {
   const [data, setData] = useState<NovaInsightData | null>(null);
@@ -124,6 +186,8 @@ export function NovaInsightsCard({ userId, month }: { userId: string; month: str
     };
   }, [userId, month]);
 
+  const isMotivational = data?.mode === "motivational";
+
   return (
     <div className="rounded-[14px] p-5 bg-nova-soft">
       <div className="flex items-start gap-3">
@@ -136,7 +200,7 @@ export function NovaInsightsCard({ userId, month }: { userId: string; month: str
           </svg>
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-semibold text-nova mb-2">Insights del período</p>
+          <p className="text-[13px] font-semibold text-nova mb-2">{data ? NOVA_TITLE[data.mode] : "Insights del período"}</p>
           {loading && (
             <div className="space-y-2">
               {[0, 1, 2, 3].map((i) => (
@@ -152,15 +216,23 @@ export function NovaInsightsCard({ userId, month }: { userId: string; month: str
               <ul className="space-y-1.5">
                 {data.bullets.map((b, i) => (
                   <li key={i} className="text-sm text-title leading-relaxed flex gap-2">
-                    <span className="text-nova shrink-0">–</span>
+                    <span className="text-nova shrink-0">{isMotivational ? "✨" : "–"}</span>
                     <span>{b}</span>
                   </li>
                 ))}
               </ul>
-              {data.recommendation && (
-                <p className="text-sm text-title leading-relaxed mt-3 pt-3 border-t border-nova/20 font-medium">
-                  {data.recommendation}
-                </p>
+              {data.recommendations.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-nova/20">
+                  <p className="text-[11px] font-semibold text-nova uppercase tracking-wider mb-1.5">Recomendaciones</p>
+                  <ul className="space-y-1.5">
+                    {data.recommendations.map((r, i) => (
+                      <li key={i} className="text-sm text-title leading-relaxed flex gap-2 font-medium">
+                        <span className="text-nova shrink-0">⚡</span>
+                        <span>{r}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
             </>
           )}

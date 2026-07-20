@@ -56,7 +56,9 @@ export default function AnalyticsModule({ currentUserId, currentUserRole, curren
 
       {tab === "ejecutivo" && hasExecutiveDashboard && <ExecutiveDashboard />}
       {tab === "team" && <KpisModule currentUserId={currentUserId} currentUserRole={currentUserRole} />}
-      {tab === "personal" && <MyKpisModule currentUserName={currentUserName} currentUserRole={currentUserRole} />}
+      {tab === "personal" && (
+        <MyKpisModule currentUserId={currentUserId} currentUserName={currentUserName} currentUserRole={currentUserRole} />
+      )}
     </div>
   );
 }

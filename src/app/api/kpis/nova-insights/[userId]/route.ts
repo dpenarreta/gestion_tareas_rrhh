@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import Groq from "groq-sdk";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { getVisibleRoles, ROLE_LEVEL } from "@/lib/roles";
+import { getVisibleRoles, ROLE_LEVEL, ROLE_LABEL } from "@/lib/roles";
 import { isTaskOverdue } from "@/lib/utils";
-import { businessCalendarDay } from "@/lib/businessTime";
+import { computeCargaTiempo } from "@/lib/workload";
+import { computeRiskAlerts } from "@/lib/riskAlerts";
+import { computePriorityCompliance } from "@/lib/priorityCompliance";
+import type { Role } from "@/generated/prisma/client";
 
 // Etiquetas de motivo de SEGUIMIENTO — copia server-side minimal de
 // REASON_LABEL (src/components/kpis/KpiCharts.tsx, "use client") para no
@@ -25,25 +28,49 @@ const REASON_LABEL: Record<string, string> = {
 
 const CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 horas
 
+type Mode = "full" | "insights-only" | "motivational";
+type Sensitivity = "full" | "restricted";
+
 type CacheEntry = {
   bullets: string[];
-  recommendation: string | null;
+  recommendations: string[];
   generatedAt: number;
   expiresAt: number;
 };
 
+// Cache en memoria por colaborador + mes + variante de contenido generada —
+// "full"/"restricted" (¿incluye detalle de salud del estado especial?) y
+// "motivational" son generaciones de Groq DISTINTAS, nunca deben compartir
+// entrada (ver `sensitivity` más abajo: evita que un dato de salud generado
+// para el propio titular/Administrador se filtre a un viewer sin privilegio,
+// dado que esta caché no está aislada por viewer).
 const cache = new Map<string, CacheEntry>();
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
-const SYSTEM_PROMPT =
-  "Eres un analista de RRHH objetivo. Analiza los datos y entrega conclusiones directas sin " +
-  "suavizar resultados negativos. Si el desempeño es bajo, indícalo claramente. Si hay riesgos, " +
-  "nómbralos. El objetivo es información útil para la toma de decisiones, no un reporte que se " +
-  "sienta bien leer. Basándote ÚNICAMENTE en los datos que te doy (nunca inventes cifras), redacta " +
-  "UNA sola recomendación concreta y accionable (máximo 30 palabras), en español, sin saludos ni " +
-  "introducciones y sin eufemismos. Si los datos son buenos, no fuerces una recomendación negativa — " +
-  "indica qué mantener o vigilar.";
+const ANALYTICAL_SYSTEM_PROMPT =
+  "Eres un analista de People Analytics para un equipo de Recursos Humanos en Ecuador. Analiza los " +
+  "siguientes datos del colaborador (recibidos en JSON) y genera un análisis objetivo, sin suavizar " +
+  "resultados negativos — si hay problemas, nómbralos sin eufemismos; si el desempeño es bueno, confírmalo " +
+  "con datos concretos. Reglas: si el cumplimiento es menor a 60%, menciónalo explícitamente como riesgo; " +
+  "si la carga laboral supera el rango óptimo, recomienda redistribución citando cifras específicas; si hay " +
+  "tareas vencidas de prioridad Alta, destácalo como urgente; si hubo horas trabajadas en fin de semana, " +
+  "menciónalo como indicador de sobrecarga; si la tendencia empeoró respecto al mes anterior, indícalo con " +
+  "las cifras exactas; si todo está bien, confírmalo con los números que lo respaldan. Basándote " +
+  "ÚNICAMENTE en los datos recibidos (nunca inventes cifras ni menciones datos que no se te dieron), " +
+  'responde EXCLUSIVAMENTE con un objeto JSON válido, sin texto adicional ni markdown, con esta forma ' +
+  'exacta: {"insights": string[], "recommendations": string[]}. "insights" debe tener entre 3 y 5 bullets ' +
+  "en español, cada uno con al menos un dato específico, sin viñetas ni saludos ni introducciones. " +
+  '"recommendations" debe tener entre 1 y 2 recomendaciones concretas y accionables (qué hacer, cuándo y ' +
+  "cómo) — nunca genéricas.";
+
+const MOTIVATIONAL_SYSTEM_PROMPT =
+  "Eres Nova, la asistente de People Analytics de Nexo. Genera un mensaje breve, cercano y motivador para " +
+  "un colaborador sobre su propio desempeño del mes, basado ÚNICAMENTE en los datos recibidos (en JSON, " +
+  "nunca inventes cifras). Usa un tono cálido y de apoyo, en español simple, sin tecnicismos de RRHH. Si " +
+  "hay algo que mejorar, menciónalo con delicadeza y de forma constructiva — nunca alarmante. Responde " +
+  'EXCLUSIVAMENTE con un objeto JSON válido, sin texto adicional ni markdown, con esta forma exacta: ' +
+  '{"messages": string[]}, con entre 2 y 3 mensajes cortos (una frase natural cada uno, sin viñetas).';
 
 function pluralize(n: number, singular: string, plural: string): string {
   return n === 1 ? singular : plural;
@@ -60,23 +87,83 @@ function currentMonthParam(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 }
 
-function fallbackRecommendation(ctx: { completedPct: number; cargaRatio: number; overdueCount: number }): string {
-  if (ctx.overdueCount > 0) {
-    return `Priorizar de inmediato ${ctx.overdueCount === 1 ? "la tarea vencida" : `las ${ctx.overdueCount} tareas vencidas`} antes de asumir trabajo nuevo.`;
+// ── Fallbacks deterministas (sin Groq / si la llamada falla) ─────────────────
+
+function fallbackAnalytical(ctx: {
+  completedPct: number;
+  cargaLabel: string;
+  cargaPct: number;
+  overdueCount: number;
+  overdueAltaCount: number;
+  cumplimientoDeltaPts: number;
+}): { bullets: string[]; recommendations: string[] } {
+  const bullets = [
+    `Cumplimiento del período: ${ctx.completedPct}%${
+      ctx.cumplimientoDeltaPts !== 0
+        ? ` (${ctx.cumplimientoDeltaPts > 0 ? "+" : ""}${ctx.cumplimientoDeltaPts} pp vs. mes anterior)`
+        : ""
+    }`,
+    `Carga laboral del mes en ${ctx.cargaLabel} (${ctx.cargaPct}%)`,
+    ctx.overdueCount > 0
+      ? `${ctx.overdueCount} ${pluralize(ctx.overdueCount, "tarea vencida", "tareas vencidas")}${
+          ctx.overdueAltaCount > 0 ? ` (${ctx.overdueAltaCount} de prioridad Alta)` : ""
+        }`
+      : "Sin tareas vencidas en este período",
+  ];
+  const recommendations: string[] = [];
+  if (ctx.overdueAltaCount > 0) {
+    recommendations.push(
+      `Priorizar de inmediato ${ctx.overdueAltaCount === 1 ? "la tarea vencida de prioridad Alta" : `las ${ctx.overdueAltaCount} tareas vencidas de prioridad Alta`} antes de asumir trabajo nuevo.`,
+    );
+  } else if (ctx.completedPct < 60) {
+    recommendations.push("El cumplimiento está por debajo del mínimo aceptable (60%) — revisar carga y prioridades con el colaborador esta semana.");
+  } else if (ctx.cargaLabel === "Sobrecarga" || ctx.cargaLabel === "Carga elevada") {
+    recommendations.push("La carga laboral supera el rango óptimo — evaluar redistribuir tareas para evitar desgaste.");
+  } else {
+    recommendations.push("Sin riesgos evidentes este período — mantener el seguimiento habitual.");
   }
-  if (ctx.completedPct < 60) {
-    return "El cumplimiento está por debajo del mínimo aceptable (60%) — revisar carga de trabajo y prioridades con el colaborador.";
-  }
-  if (ctx.cargaRatio > 120) {
-    return "La carga laboral supera el 120% del estimado — evaluar redistribuir tareas para evitar desgaste.";
-  }
-  if (ctx.completedPct >= 80 && ctx.cargaRatio <= 100) {
-    return "Desempeño estable dentro de rangos óptimos — mantener el ritmo actual.";
-  }
-  return "Sin riesgos evidentes este período — continuar el seguimiento habitual.";
+  return { bullets, recommendations };
 }
 
-async function generateInsight(userId: string, monthParam: string): Promise<CacheEntry> {
+function fallbackMotivational(ctx: { completedPct: number; totalTasks: number }): string[] {
+  if (ctx.totalTasks === 0) {
+    return ["No hay tareas registradas en este período todavía.", "Consulta con tu coordinador si hay actividades pendientes de asignar."];
+  }
+  if (ctx.completedPct >= 80) {
+    return [`¡Excelente mes! Cumpliste el ${ctx.completedPct}% de tus tareas.`, "Sigue así, tu ritmo de trabajo está muy bien encaminado."];
+  }
+  if (ctx.completedPct >= 60) {
+    return [`Vas bien: ${ctx.completedPct}% de cumplimiento este período.`, "Con un poco más de foco en las tareas pendientes puedes subir aún más."];
+  }
+  return [`Este período tu cumplimiento fue ${ctx.completedPct}%.`, "No te desanimes — revisa tus tareas pendientes y prioriza con tu supervisor si necesitas apoyo."];
+}
+
+/** Extrae el primer objeto JSON `{...}` de un texto (Groq a veces envuelve la respuesta en markdown pese a la instrucción). */
+function extractJson(text: string): unknown {
+  const trimmed = text.trim();
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    const match = trimmed.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    try {
+      return JSON.parse(match[0]);
+    } catch {
+      return null;
+    }
+  }
+}
+
+function asStringArray(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  return v.filter((x): x is string => typeof x === "string" && x.trim().length > 0);
+}
+
+async function generateAnalytical(
+  userId: string,
+  monthParam: string,
+  sensitivity: Sensitivity,
+): Promise<CacheEntry> {
   const [yearStr, monthStr] = monthParam.split("-");
   const year = parseInt(yearStr);
   const month = parseInt(monthStr);
@@ -88,7 +175,8 @@ async function generateInsight(userId: string, monthParam: string): Promise<Cach
 
   const now = new Date();
 
-  const [tasks, prevTasks, openTasks] = await Promise.all([
+  const [targetUser, tasks, prevTasks, openTasks, reminders, cargaTiempo] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId }, select: { name: true, role: true } }),
     prisma.task.findMany({
       where: { assignedToId: userId, endDate: { gte: start, lte: end } },
       include: { activities: { where: { createdAt: { gte: start, lte: end } } } },
@@ -99,8 +187,15 @@ async function generateInsight(userId: string, monthParam: string): Promise<Cach
     }),
     prisma.task.findMany({
       where: { assignedToId: userId, archivedMonth: null, status: { not: "COMPLETADA" } },
-      select: { endDate: true, status: true },
+      select: { endDate: true, status: true, priority: true },
     }),
+    prisma.followUpReminder.findMany({
+      where: { userId, completedAt: null },
+      select: { reminderAt: true, snoozedUntil: true },
+    }),
+    // Siempre en tiempo real (no atado al mes seleccionado) — igual que
+    // WorkloadCard/riskAlerts en el resto de Analytics.
+    computeCargaTiempo(userId),
   ]);
 
   const completed = tasks.filter((t) => t.status === "COMPLETADA");
@@ -133,55 +228,141 @@ async function generateInsight(userId: string, monthParam: string): Promise<Cach
   }
   const topReasonPct = totalMinutes > 0 ? Math.round((topMinutes / totalMinutes) * 100) : 0;
 
-  const today = businessCalendarDay(now);
-  const in3Days = new Date(today.getTime() + 3 * 86400000);
-  const overdueCount = openTasks.filter((t) => isTaskOverdue(t.endDate, t.status, now)).length;
-  const dueSoon = openTasks.filter((t) => {
-    if (isTaskOverdue(t.endDate, t.status, now)) return false;
-    const endDay = new Date(Date.UTC(t.endDate.getUTCFullYear(), t.endDate.getUTCMonth(), t.endDate.getUTCDate()));
-    return endDay.getTime() >= today.getTime() && endDay.getTime() <= in3Days.getTime();
+  const overdue = openTasks.filter((t) => isTaskOverdue(t.endDate, t.status, now));
+  const overdueAlta = overdue.filter((t) => t.priority === "ALTA");
+  const overdueReminders = reminders.filter((r) => (r.snoozedUntil ?? r.reminderAt).getTime() < now.getTime());
+
+  const priorityCompliance = computePriorityCompliance(tasks);
+
+  const riskAlerts = await computeRiskAlerts({
+    userId,
+    cargaLabel: cargaTiempo.mensual.label,
+    cargaPct: cargaTiempo.mensual.pct,
   });
+
+  const horasDisponibles = Math.max(0, Math.round((cargaTiempo.mensual.rangeMax - cargaTiempo.mensual.realHours) * 100) / 100);
+  const capacidadDisponiblePct =
+    cargaTiempo.mensual.baseHours > 0 ? Math.max(0, Math.round((horasDisponibles / cargaTiempo.mensual.baseHours) * 100)) : 0;
 
   const cargaDeltaPts = cargaRatio - prevCargaRatio;
   const cumplimientoDeltaPts = completedPct - prevCompletedPct;
 
-  const bullets: string[] = [
-    prevTasks.length > 0
-      ? `La carga laboral ${cargaDeltaPts > 0 ? "aumentó" : cargaDeltaPts < 0 ? "disminuyó" : "se mantuvo"} ${Math.abs(cargaDeltaPts)} puntos porcentuales respecto al período anterior (${prevCargaRatio}% → ${cargaRatio}%)`
-      : `Carga laboral del período: ${cargaRatio}% (sin datos del período anterior para comparar)`,
-    topReason
-      ? `El ${topReasonPct}% del tiempo de seguimiento se destinó a ${REASON_LABEL[topReason] ?? topReason}`
-      : "Sin consultas de tipo SEGUIMIENTO registradas en el período",
-    `${dueSoon.length} ${pluralize(dueSoon.length, "tarea próxima", "tareas próximas")} a vencer en los próximos 3 días`,
-    prevTasks.length > 0
-      ? `El cumplimiento ${cumplimientoDeltaPts > 0 ? "mejoró" : cumplimientoDeltaPts < 0 ? "empeoró" : "se mantuvo"} ${Math.abs(cumplimientoDeltaPts)}% respecto al período anterior (${prevCompletedPct}% → ${completedPct}%)`
-      : `Cumplimiento del período: ${completedPct}% (sin datos del período anterior para comparar)`,
-  ];
+  const especial =
+    sensitivity === "full" && cargaTiempo.mensual.specialStatusType
+      ? cargaTiempo.mensual.specialStatusType === "MATERNIDAD"
+        ? "Licencia de maternidad vigente este mes"
+        : "Período de lactancia vigente este mes"
+      : null;
 
-  const ctx = { completedPct, prevCompletedPct, cargaRatio, prevCargaRatio, overdueCount, dueSoonCount: dueSoon.length, topReason: topReason ? REASON_LABEL[topReason] ?? topReason : null, topReasonPct };
+  const ctx = {
+    nombre: targetUser?.name ?? "Colaborador",
+    rol: targetUser ? (ROLE_LABEL[targetUser.role as Role] ?? targetUser.role) : "",
+    cargaLaboralPctEstimadoVsReal: cargaRatio,
+    cargaLaboralTendenciaPuntos: prevTasks.length > 0 ? cargaDeltaPts : null,
+    cargaLaboralRangoLabel: cargaTiempo.mensual.label,
+    cargaLaboralRangoPct: cargaTiempo.mensual.pct,
+    horasFinDeSemanaEsteMes: cargaTiempo.mensual.weekendHours,
+    cumplimientoPct: completedPct,
+    cumplimientoTendenciaPuntos: prevTasks.length > 0 ? cumplimientoDeltaPts : null,
+    tareasVencidas: overdue.length,
+    tareasVencidasPrioridadAlta: overdueAlta.length,
+    recordatoriosVencidos: overdueReminders.length,
+    cumplimientoPorPrioridad: priorityCompliance.filter((p) => p.total > 0),
+    motivoSeguimientoMasFrecuente: topReason ? REASON_LABEL[topReason] ?? topReason : null,
+    motivoSeguimientoPctDeTiempo: topReasonPct,
+    alertasActivas: riskAlerts.map((a) => a.message),
+    capacidadDisponiblePct,
+    horasDisponiblesEstimadas: horasDisponibles,
+    estadoEspecial: especial,
+  };
 
-  let recommendation: string | null = null;
+  let bullets: string[] = [];
+  let recommendations: string[] = [];
   if (process.env.GROQ_API_KEY) {
     try {
       const completion = await groq.chat.completions.create({
         model: "llama-3.3-70b-versatile",
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
+          { role: "system", content: ANALYTICAL_SYSTEM_PROMPT },
           { role: "user", content: JSON.stringify(ctx) },
         ],
-        max_tokens: 120,
+        max_tokens: 500,
         temperature: 0.4,
+        response_format: { type: "json_object" },
       });
-      recommendation = completion.choices[0]?.message?.content?.trim() || null;
+      const parsed = extractJson(completion.choices[0]?.message?.content ?? "") as
+        | { insights?: unknown; recommendations?: unknown }
+        | null;
+      bullets = asStringArray(parsed?.insights);
+      recommendations = asStringArray(parsed?.recommendations);
     } catch {
-      recommendation = null;
+      bullets = [];
+      recommendations = [];
     }
   }
-  if (!recommendation) {
-    recommendation = fallbackRecommendation({ completedPct, cargaRatio, overdueCount });
+  if (bullets.length === 0) {
+    const fb = fallbackAnalytical({
+      completedPct,
+      cargaLabel: cargaTiempo.mensual.label,
+      cargaPct: cargaTiempo.mensual.pct,
+      overdueCount: overdue.length,
+      overdueAltaCount: overdueAlta.length,
+      cumplimientoDeltaPts,
+    });
+    bullets = fb.bullets;
+    if (recommendations.length === 0) recommendations = fb.recommendations;
   }
 
-  return { bullets, recommendation, generatedAt: Date.now(), expiresAt: Date.now() + CACHE_TTL_MS };
+  return { bullets, recommendations, generatedAt: Date.now(), expiresAt: Date.now() + CACHE_TTL_MS };
+}
+
+async function generateMotivational(userId: string, monthParam: string): Promise<CacheEntry> {
+  const [yearStr, monthStr] = monthParam.split("-");
+  const year = parseInt(yearStr);
+  const month = parseInt(monthStr);
+  const { start, end } = monthBounds(year, month);
+
+  const [targetUser, tasks] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId }, select: { name: true } }),
+    prisma.task.findMany({
+      where: { assignedToId: userId, endDate: { gte: start, lte: end } },
+      select: { status: true },
+    }),
+  ]);
+  const completed = tasks.filter((t) => t.status === "COMPLETADA").length;
+  const completedPct = tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0;
+
+  const ctx = {
+    nombre: targetUser?.name ?? "Colaborador",
+    cumplimientoPct: completedPct,
+    totalTareas: tasks.length,
+    tareasCompletadas: completed,
+  };
+
+  let bullets: string[] = [];
+  if (process.env.GROQ_API_KEY) {
+    try {
+      const completion = await groq.chat.completions.create({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: MOTIVATIONAL_SYSTEM_PROMPT },
+          { role: "user", content: JSON.stringify(ctx) },
+        ],
+        max_tokens: 220,
+        temperature: 0.6,
+        response_format: { type: "json_object" },
+      });
+      const parsed = extractJson(completion.choices[0]?.message?.content ?? "") as { messages?: unknown } | null;
+      bullets = asStringArray(parsed?.messages);
+    } catch {
+      bullets = [];
+    }
+  }
+  if (bullets.length === 0) {
+    bullets = fallbackMotivational({ completedPct, totalTasks: tasks.length });
+  }
+
+  return { bullets, recommendations: [], generatedAt: Date.now(), expiresAt: Date.now() + CACHE_TTL_MS };
 }
 
 type Ctx = { params: Promise<{ userId: string }> };
@@ -190,30 +371,53 @@ export async function GET(request: NextRequest, ctx: Ctx) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const viewerLevel = ROLE_LEVEL[session.role];
-  // Insights de Nova solo para roles con subordinados (nivel >= 2, ver
-  // Analytics § insights de Nova); niveles 1 no tienen acceso al tab Equipo.
-  if (viewerLevel < 2) return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
-
   const { userId } = await ctx.params;
   const targetUser = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true } });
   if (!targetUser) return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
-  if (!getVisibleRoles(session.role).includes(targetUser.role)) {
-    return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
+
+  const isSelf = session.userId === userId;
+  const viewerLevel = ROLE_LEVEL[session.role];
+
+  if (!isSelf) {
+    // Insights de Nova sobre OTRA persona: solo roles con subordinados (nivel
+    // >= 2, niveles 1 no tienen acceso al tab Equipo), y dentro del alcance
+    // de visibilidad del viewer.
+    if (viewerLevel < 2) return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
+    if (!getVisibleRoles(session.role).includes(targetUser.role)) {
+      return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
+    }
   }
 
+  // VISIBILIDAD (ver Analytics § motor de recomendaciones Nova):
+  // - Administrador / Jefe Nacional / Coordinador Nacional (nivel >= 3): análisis completo + recomendaciones.
+  // - Analistas nivel 2: solo insights, sin recomendaciones estratégicas.
+  // - Nivel 1 viendo su propia actividad: versión simplificada y motivacional.
+  const mode: Mode = isSelf && viewerLevel === 1 ? "motivational" : viewerLevel >= 3 ? "full" : "insights-only";
+
+  // Los permisos médicos y el estado de maternidad/lactancia son datos de
+  // salud (Art. 26 LOPDP) — solo el propio titular y el Administrador pueden
+  // recibir contenido generado a partir de ese detalle (ver
+  // redactSensitiveWorkloadDetail en workload.ts para el mismo criterio
+  // aplicado a los datos crudos de carga laboral).
+  const sensitivity: Sensitivity = isSelf || session.role === "ADMINISTRADOR" ? "full" : "restricted";
+
   const monthParam = request.nextUrl.searchParams.get("month") ?? currentMonthParam();
-  const cacheKey = `${userId}:${monthParam}`;
+  const variant = mode === "motivational" ? "motivational" : sensitivity;
+  const cacheKey = `${userId}:${monthParam}:${variant}`;
   const cached = cache.get(cacheKey);
 
-  const entry = cached && cached.expiresAt > Date.now() ? cached : await generateInsight(userId, monthParam);
+  const entry =
+    cached && cached.expiresAt > Date.now()
+      ? cached
+      : mode === "motivational"
+        ? await generateMotivational(userId, monthParam)
+        : await generateAnalytical(userId, monthParam, sensitivity);
   if (!cached || cached.expiresAt <= Date.now()) cache.set(cacheKey, entry);
 
   return NextResponse.json({
     bullets: entry.bullets,
-    // Nivel 2 (Coordinador ZS / Analistas): insights básicos sin recomendaciones
-    // estratégicas — solo nivel >= 3 recibe la recomendación generada por Groq.
-    recommendation: viewerLevel >= 3 ? entry.recommendation : null,
+    recommendations: mode === "full" ? entry.recommendations : [],
+    mode,
     generatedAt: entry.generatedAt,
   });
 }

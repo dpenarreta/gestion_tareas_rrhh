@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canViewTeam, getSubordinateRoles } from "@/lib/roles";
 import { isTaskOverdue } from "@/lib/utils";
+import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct, type MonthlyBusinessBase } from "@/lib/workload";
+import { businessDayRealRange } from "@/lib/businessTime";
 import type { KpiColor } from "@/components/kpis/types";
 
 function monthBounds(year: number, month: number) {
@@ -40,7 +42,13 @@ export async function GET(request: NextRequest) {
 
   const subIds = subordinates.map((s) => s.id);
 
-  const [allTasks, commentGroups] = await Promise.all([
+  // Base laboral (y sus 4 límites) del mes, por usuario — misma fuente que el
+  // dashboard ejecutivo (respeta estado especial vigente por persona).
+  const { shared: sharedBiz, perUser: perUserBiz } = await monthlyBusinessBaseForUsers(subIds, year, month);
+  const { start: realStart } = businessDayRealRange(sharedBiz.start);
+  const { end: realEndOfMonth } = businessDayRealRange(sharedBiz.end);
+
+  const [allTasks, commentGroups, fijaTasksForCarga, activitiesForCarga] = await Promise.all([
     prisma.task.findMany({
       where: {
         assignedToId: { in: subIds },
@@ -63,11 +71,23 @@ export async function GET(request: NextRequest) {
       },
       _count: { id: true },
     }),
+    prisma.task.findMany({
+      where: { assignedToId: { in: subIds }, type: "FIJA", archivedMonth: null, completedAt: { gte: realStart, lte: realEndOfMonth } },
+      select: { assignedToId: true, realHours: true, completedAt: true },
+    }),
+    prisma.taskActivity.findMany({
+      where: { authorId: { in: subIds }, createdAt: { gte: realStart, lte: realEndOfMonth } },
+      select: { authorId: true, duration: true, createdAt: true },
+    }),
   ]);
 
   const commentMap = Object.fromEntries(
     commentGroups.map((c) => [c.authorId, c._count.id]),
   );
+
+  function bizForUser(userId: string): MonthlyBusinessBase {
+    return perUserBiz.get(userId) ?? sharedBiz;
+  }
 
   const users = subordinates.map((sub) => {
     const tasks = allTasks.filter((t) => t.assignedToId === sub.id);
@@ -101,6 +121,29 @@ export async function GET(request: NextRequest) {
     const color: KpiColor =
       completedPct >= 80 ? "green" : completedPct >= 60 ? "yellow" : "red";
 
+    // ── Carga laboral por rango (5 zonas) — balance de carga y capacidad disponible ──
+    const fijaHours = fijaTasksForCarga
+      .filter((t) => t.assignedToId === sub.id)
+      .reduce((s, t) => s + t.realHours, 0);
+    const activityHours =
+      activitiesForCarga.filter((a) => a.authorId === sub.id).reduce((s, a) => s + a.duration, 0) / 60;
+    const cargaRealHours = Math.round((fijaHours + activityHours) * 100) / 100;
+
+    const userBiz = bizForUser(sub.id);
+    const cargaRange = computeWorkloadRange(
+      cargaRealHours,
+      userBiz.limitBaseHours,
+      userBiz.limitLowHours,
+      userBiz.limitHighHours,
+      userBiz.limitOverloadHours,
+    );
+    const cargaPct = computeWorkloadPct(cargaRealHours, userBiz.limitBaseHours, cargaRange.max);
+
+    // Capacidad disponible = MAX(0, límite óptimo superior - horas reales) / base mensual × 100.
+    const horasDisponibles = Math.max(0, Math.round((userBiz.limitHighHours - cargaRealHours) * 100) / 100);
+    const capacidadDisponiblePct =
+      userBiz.baseHours > 0 ? Math.max(0, Math.round((horasDisponibles / userBiz.baseHours) * 100)) : 0;
+
     return {
       id: sub.id,
       name: sub.name,
@@ -111,6 +154,13 @@ export async function GET(request: NextRequest) {
       totalTasks: tasks.length,
       overdueCount,
       color,
+      cargaPct,
+      cargaColor: cargaRange.color,
+      cargaLabel: cargaRange.label,
+      cargaRealHours,
+      cargaBaseHours: userBiz.baseHours,
+      capacidadDisponiblePct,
+      horasDisponibles,
     };
   });
 

@@ -6,5 +6,5 @@ export default async function MyKpisPage() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  return <MyKpisModule currentUserName={session.name} currentUserRole={session.role} />;
+  return <MyKpisModule currentUserId={session.userId} currentUserName={session.name} currentUserRole={session.role} />;
 }

@@ -132,6 +132,24 @@ export type TeamMemberKpi = {
   totalTasks: number;
   overdueCount: number;
   color: KpiColor;
+  /** Carga laboral del mes en curso por rango (5 zonas) — usada por el balance de carga del equipo. */
+  cargaPct: number;
+  cargaColor: WorkloadColor;
+  cargaLabel: WorkloadLabel;
+  cargaRealHours: number;
+  cargaBaseHours: number;
+  /** % de capacidad disponible respecto a la base mensual — 0 si ya está en/sobre el límite óptimo superior. */
+  capacidadDisponiblePct: number;
+  /** Horas disponibles estimadas hasta el límite óptimo superior — 0 si ya está en/sobre ese límite. */
+  horasDisponibles: number;
+};
+
+/** Cumplimiento por nivel de prioridad de tarea — ver Analytics § cumplimiento por prioridad. */
+export type PriorityCompliance = {
+  priority: "ALTA" | "MEDIA" | "BAJA";
+  total: number;
+  completedOnTime: number;
+  pct: number;
 };
 
 export type KpiByReason = {
@@ -347,6 +365,7 @@ export type KpiData = {
   };
   cargaTiempo: CargaTiempo;
   riskAlerts: RiskAlert[];
+  cumplimientoPorPrioridad: PriorityCompliance[];
   seguimiento: {
     total: number;
     byReason: KpiByReason[];

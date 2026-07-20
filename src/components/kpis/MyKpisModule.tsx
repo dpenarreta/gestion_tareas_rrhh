@@ -11,7 +11,7 @@ import { ROLE_LABEL } from "@/lib/roles";
 import type { KpiData, KpiColor, WorkloadColor, WorkloadLabel } from "./types";
 import { DonutChart, CumplimientoLineChart, REASON_LABEL } from "./KpiCharts";
 import WorkloadCard from "./WorkloadCard";
-import { TaskBreakdownCard, AlertsCard } from "./InsightCards";
+import { TaskBreakdownCard, AlertsCard, PriorityComplianceCard, NovaInsightsCard } from "./InsightCards";
 import { formatDate } from "@/lib/utils";
 import { hoursToDisplay } from "@/lib/timeFormat";
 import { openReportWindow } from "./reportWindow";
@@ -543,9 +543,9 @@ function DeltaBadge({ current, prev, suffix = "%" }: { current: number; prev: nu
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-type Props = { currentUserName: string; currentUserRole: string };
+type Props = { currentUserId: string; currentUserName: string; currentUserRole: string };
 
-export default function MyKpisModule({ currentUserName, currentUserRole }: Props) {
+export default function MyKpisModule({ currentUserId, currentUserName, currentUserRole }: Props) {
   // ── Individual state ──────────────────────────────────────────────────────
   const [viewMode, setViewMode] = useState<"individual" | "range">("individual");
   const [month, setMonth] = useState(currentMonthParam);
@@ -779,6 +779,12 @@ export default function MyKpisModule({ currentUserName, currentUserRole }: Props
                   </div>
                 );
               })()}
+
+              {/* ── Cumplimiento por prioridad + Insights de Nova ─────────── */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                <PriorityComplianceCard data={kpi.cumplimientoPorPrioridad} />
+                <NovaInsightsCard userId={currentUserId} month={month} />
+              </div>
 
               {/* ── 4. Alertas ────────────────────────────────────────────── */}
               <AlertsCard alerts={kpi.riskAlerts} />

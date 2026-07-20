@@ -12,7 +12,8 @@ import {
 } from "./KpiCharts";
 import MonthlyReports from "./MonthlyReports";
 import WorkloadCard from "./WorkloadCard";
-import { TaskBreakdownCard, AlertsCard, NovaInsightsCard } from "./InsightCards";
+import { TaskBreakdownCard, AlertsCard, NovaInsightsCard, PriorityComplianceCard } from "./InsightCards";
+import { WorkloadBalanceCard, CapacityAvailableCard } from "./TeamWorkloadCards";
 import { openReportWindow } from "./reportWindow";
 import * as XLSX from "xlsx";
 import { formatDate } from "@/lib/utils";
@@ -566,6 +567,12 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
         </div>
       </div>
 
+      {/* ── Balance de carga y capacidad disponible del equipo ────────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+        <WorkloadBalanceCard members={team} />
+        <CapacityAvailableCard members={team} />
+      </div>
+
       {/* ── Two-panel layout ─────────────────────────────────────────────── */}
       <div className="flex flex-col lg:flex-row gap-5 items-stretch lg:items-start">
         {/* Left panel */}
@@ -696,32 +703,35 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
                 />
               </div>
 
-              {/* Donuts */}
-              <Section title="Indicadores">
-                <div className="flex items-center justify-around py-3">
-                  <DonutChart
-                    pct={kpi.cumplimiento.completedPct}
-                    color={kpi.cumplimiento.color}
-                    label="Cumplimiento"
-                    sublabel={`${kpi.cumplimiento.completed}/${kpi.cumplimiento.total} tareas`}
-                  />
-                  <div className="w-px h-24 bg-border" />
-                  <DonutChart
-                    pct={Math.min(kpi.cargaLaboral.ratio, 100)}
-                    color={kpi.cargaLaboral.color}
-                    label="Carga laboral"
-                    sublabel={`${hoursToDisplay(kpi.cargaLaboral.realHours)}h / ${hoursToDisplay(kpi.cargaLaboral.estimatedHours)}h`}
-                  />
-                </div>
-                <div className="mt-3 space-y-1">
-                  <MetricRow label="Tareas vencidas" value={`${kpi.cumplimiento.overdue}`} />
-                  <MetricRow label="Días promedio retraso" value={`${kpi.cumplimiento.avgDelayDays}d`} />
-                  <MetricRow
-                    label="Recurrentes completadas"
-                    value={`${kpi.calidad.recurringCompleted}/${kpi.calidad.recurringTotal}`}
-                  />
-                </div>
-              </Section>
+              {/* Donuts + Cumplimiento por prioridad */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+                <Section title="Indicadores">
+                  <div className="flex items-center justify-around py-3">
+                    <DonutChart
+                      pct={kpi.cumplimiento.completedPct}
+                      color={kpi.cumplimiento.color}
+                      label="Cumplimiento"
+                      sublabel={`${kpi.cumplimiento.completed}/${kpi.cumplimiento.total} tareas`}
+                    />
+                    <div className="w-px h-24 bg-border" />
+                    <DonutChart
+                      pct={Math.min(kpi.cargaLaboral.ratio, 100)}
+                      color={kpi.cargaLaboral.color}
+                      label="Carga laboral"
+                      sublabel={`${hoursToDisplay(kpi.cargaLaboral.realHours)}h / ${hoursToDisplay(kpi.cargaLaboral.estimatedHours)}h`}
+                    />
+                  </div>
+                  <div className="mt-3 space-y-1">
+                    <MetricRow label="Tareas vencidas" value={`${kpi.cumplimiento.overdue}`} />
+                    <MetricRow label="Días promedio retraso" value={`${kpi.cumplimiento.avgDelayDays}d`} />
+                    <MetricRow
+                      label="Recurrentes completadas"
+                      value={`${kpi.calidad.recurringCompleted}/${kpi.calidad.recurringTotal}`}
+                    />
+                  </div>
+                </Section>
+                <PriorityComplianceCard data={kpi.cumplimientoPorPrioridad} />
+              </div>
 
               {/* ── 3. Insights de Nova + 4. Alertas ──────────────────────── */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">

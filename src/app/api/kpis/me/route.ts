@@ -4,6 +4,7 @@ import { getSession } from "@/lib/session";
 import { isTaskOverdue } from "@/lib/utils";
 import { computeCargaTiempo, computeCargaHistory } from "@/lib/workload";
 import { computeRiskAlerts } from "@/lib/riskAlerts";
+import { computePriorityCompliance } from "@/lib/priorityCompliance";
 import type { KpiColor } from "@/components/kpis/types";
 
 function cumplimientoColor(pct: number): KpiColor {
@@ -99,6 +100,8 @@ export async function GET(request: NextRequest) {
       : totalReal > 0
         ? 200
         : 0;
+
+  const cumplimientoPorPrioridad = computePriorityCompliance(tasks);
 
   // ── Seguimiento ───────────────────────────────────────────────────────────
   const seguimientoTasks = tasks.filter((t) => t.type === "SEGUIMIENTO");
@@ -225,6 +228,7 @@ export async function GET(request: NextRequest) {
     },
     cargaTiempo,
     riskAlerts,
+    cumplimientoPorPrioridad,
     seguimiento: { total: allActivities.length, byReason },
     calidad: {
       avgProgress,
