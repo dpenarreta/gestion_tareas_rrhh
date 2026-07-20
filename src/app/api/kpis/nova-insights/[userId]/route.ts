@@ -7,6 +7,7 @@ import { isTaskOverdue } from "@/lib/utils";
 import { computeCargaTiempo } from "@/lib/workload";
 import { computeRiskAlerts } from "@/lib/riskAlerts";
 import { computePriorityCompliance } from "@/lib/priorityCompliance";
+import { computeCapacityForecast } from "@/lib/capacityForecast";
 import type { Role } from "@/generated/prisma/client";
 
 // Etiquetas de motivo de SEGUIMIENTO — copia server-side minimal de
@@ -31,9 +32,17 @@ const CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 horas
 type Mode = "full" | "insights-only" | "motivational";
 type Sensitivity = "full" | "restricted";
 
-type CacheEntry = {
-  bullets: string[];
-  recommendations: string[];
+type AnalyticalCacheEntry = {
+  hallazgoPrincipal: string;
+  riesgos: string[];
+  aspectosPositivos: string[];
+  recomendaciones: string[];
+  generatedAt: number;
+  expiresAt: number;
+};
+
+type MotivationalCacheEntry = {
+  messages: string[];
   generatedAt: number;
   expiresAt: number;
 };
@@ -44,25 +53,34 @@ type CacheEntry = {
 // entrada (ver `sensitivity` más abajo: evita que un dato de salud generado
 // para el propio titular/Administrador se filtre a un viewer sin privilegio,
 // dado que esta caché no está aislada por viewer).
-const cache = new Map<string, CacheEntry>();
+const analyticalCache = new Map<string, AnalyticalCacheEntry>();
+const motivationalCache = new Map<string, MotivationalCacheEntry>();
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
+// System prompt del motor de recomendaciones Nova — ver Analytics § Componente 4.
+// Estructura exigida: 1. Hallazgo principal, 2. Riesgos detectados, 3. Aspectos
+// positivos, 4. Recomendaciones priorizadas — pedida como JSON (no texto libre)
+// para poder renderizar cada sección por separado en NovaInsightsCard.
 const ANALYTICAL_SYSTEM_PROMPT =
-  "Eres un analista de People Analytics para un equipo de Recursos Humanos en Ecuador. Analiza los " +
-  "siguientes datos del colaborador (recibidos en JSON) y genera un análisis objetivo, sin suavizar " +
-  "resultados negativos — si hay problemas, nómbralos sin eufemismos; si el desempeño es bueno, confírmalo " +
-  "con datos concretos. Reglas: si el cumplimiento es menor a 60%, menciónalo explícitamente como riesgo; " +
-  "si la carga laboral supera el rango óptimo, recomienda redistribución citando cifras específicas; si hay " +
-  "tareas vencidas de prioridad Alta, destácalo como urgente; si hubo horas trabajadas en fin de semana, " +
-  "menciónalo como indicador de sobrecarga; si la tendencia empeoró respecto al mes anterior, indícalo con " +
-  "las cifras exactas; si todo está bien, confírmalo con los números que lo respaldan. Basándote " +
-  "ÚNICAMENTE en los datos recibidos (nunca inventes cifras ni menciones datos que no se te dieron), " +
-  'responde EXCLUSIVAMENTE con un objeto JSON válido, sin texto adicional ni markdown, con esta forma ' +
-  'exacta: {"insights": string[], "recommendations": string[]}. "insights" debe tener entre 3 y 5 bullets ' +
-  "en español, cada uno con al menos un dato específico, sin viñetas ni saludos ni introducciones. " +
-  '"recommendations" debe tener entre 1 y 2 recomendaciones concretas y accionables (qué hacer, cuándo y ' +
-  "cómo) — nunca genéricas.";
+  "Eres un analista de People Analytics para un equipo de Recursos Humanos en Ecuador. Analiza los datos " +
+  "del colaborador (recibidos en JSON) y responde EXCLUSIVAMENTE con un objeto JSON válido, sin texto " +
+  'adicional ni markdown, con esta forma exacta: {"hallazgoPrincipal": string, "riesgos": string[], ' +
+  '"aspectosPositivos": string[], "recomendaciones": string[]}. ' +
+  "hallazgoPrincipal: el dato más importante del período, en una sola oración con al menos un número. " +
+  "riesgos: entre 1 y 3 riesgos concretos respaldados por datos; si no hay riesgos, un único ítem indicándolo " +
+  "explícitamente (el array nunca debe quedar vacío). " +
+  "aspectosPositivos: entre 1 y 2 aspectos positivos respaldados por números; si no los hay, un único ítem " +
+  "indicándolo explícitamente (el array nunca debe quedar vacío). " +
+  "recomendaciones: entre 1 y 2 acciones concretas y accionables — qué hacer, cuándo y cómo, nunca genéricas. " +
+  "Reglas: sé directo y objetivo, sin eufemismos ni lenguaje complaciente. Cada punto debe tener al menos un " +
+  "número o dato específico, basándote ÚNICAMENTE en los datos recibidos (nunca inventes cifras ni menciones " +
+  "datos que no se te dieron). Si el cumplimiento es menor a 60%, inclúyelo como riesgo crítico obligatorio. " +
+  "Si la carga laboral supera el límite superior configurado, recomienda redistribución citando cifras " +
+  "específicas. Si hay tareas vencidas de prioridad Alta, destácalo como urgente. Si hubo horas trabajadas " +
+  "en fin de semana, menciónalo como indicador de sobrecarga. Si la tendencia empeoró respecto al mes " +
+  "anterior, indícalo con las cifras exactas. Si la capacidad disponible proyectada es menor a 10%, advierte " +
+  "que no se debe asignar más trabajo. Si la sobrecarga proyectada es negativa, alértalo con urgencia.";
 
 const MOTIVATIONAL_SYSTEM_PROMPT =
   "Eres Nova, la asistente de People Analytics de Nexo. Genera un mensaje breve, cercano y motivador para " +
@@ -96,33 +114,62 @@ function fallbackAnalytical(ctx: {
   overdueCount: number;
   overdueAltaCount: number;
   cumplimientoDeltaPts: number;
-}): { bullets: string[]; recommendations: string[] } {
-  const bullets = [
-    `Cumplimiento del período: ${ctx.completedPct}%${
-      ctx.cumplimientoDeltaPts !== 0
-        ? ` (${ctx.cumplimientoDeltaPts > 0 ? "+" : ""}${ctx.cumplimientoDeltaPts} pp vs. mes anterior)`
-        : ""
-    }`,
-    `Carga laboral del mes en ${ctx.cargaLabel} (${ctx.cargaPct}%)`,
-    ctx.overdueCount > 0
-      ? `${ctx.overdueCount} ${pluralize(ctx.overdueCount, "tarea vencida", "tareas vencidas")}${
-          ctx.overdueAltaCount > 0 ? ` (${ctx.overdueAltaCount} de prioridad Alta)` : ""
-        }`
-      : "Sin tareas vencidas en este período",
-  ];
-  const recommendations: string[] = [];
+  weekendHours: number;
+  capacidadDisponiblePct: number;
+  capacidadDisponibleHoras: number;
+}): { hallazgoPrincipal: string; riesgos: string[]; aspectosPositivos: string[]; recomendaciones: string[] } {
+  const hallazgoPrincipal = `Cumplimiento del período: ${ctx.completedPct}%${
+    ctx.cumplimientoDeltaPts !== 0
+      ? ` (${ctx.cumplimientoDeltaPts > 0 ? "+" : ""}${ctx.cumplimientoDeltaPts} pp vs. mes anterior)`
+      : ""
+  }, carga laboral en ${ctx.cargaLabel} (${ctx.cargaPct}%).`;
+
+  const riesgos: string[] = [];
+  if (ctx.completedPct < 60) {
+    riesgos.push(`Cumplimiento crítico: ${ctx.completedPct}%, por debajo del mínimo aceptable (60%).`);
+  }
   if (ctx.overdueAltaCount > 0) {
-    recommendations.push(
+    riesgos.push(`${ctx.overdueAltaCount} ${pluralize(ctx.overdueAltaCount, "tarea vencida", "tareas vencidas")} de prioridad Alta.`);
+  } else if (ctx.overdueCount > 0) {
+    riesgos.push(`${ctx.overdueCount} ${pluralize(ctx.overdueCount, "tarea vencida", "tareas vencidas")} en el período.`);
+  }
+  if (ctx.cargaLabel === "Sobrecarga" || ctx.cargaLabel === "Carga elevada") {
+    riesgos.push(`Carga laboral en ${ctx.cargaLabel} (${ctx.cargaPct}%) — por encima del rango óptimo.`);
+  }
+  if (ctx.weekendHours > 0) {
+    riesgos.push(`${ctx.weekendHours}h trabajadas en fin de semana este mes — indicador de sobrecarga.`);
+  }
+  if (ctx.capacidadDisponiblePct < 10) {
+    riesgos.push(
+      ctx.capacidadDisponibleHoras < 0
+        ? `Sobrecarga proyectada: ${ctx.capacidadDisponibleHoras}h para lo que resta del mes.`
+        : `Capacidad disponible proyectada del ${ctx.capacidadDisponiblePct}% — no asignar nuevas tareas.`,
+    );
+  }
+  if (riesgos.length === 0) riesgos.push("Sin riesgos detectados en este período.");
+
+  const aspectosPositivos: string[] = [];
+  if (ctx.completedPct >= 80) aspectosPositivos.push(`Cumplimiento del ${ctx.completedPct}%, dentro del rango esperado.`);
+  if (ctx.cargaLabel === "Óptimo") aspectosPositivos.push(`Carga laboral en rango Óptimo (${ctx.cargaPct}%).`);
+  if (ctx.cumplimientoDeltaPts > 0) aspectosPositivos.push(`Cumplimiento mejoró ${ctx.cumplimientoDeltaPts} pp vs. el mes anterior.`);
+  if (aspectosPositivos.length === 0) aspectosPositivos.push("Sin aspectos destacables este período.");
+
+  const recomendaciones: string[] = [];
+  if (ctx.overdueAltaCount > 0) {
+    recomendaciones.push(
       `Priorizar de inmediato ${ctx.overdueAltaCount === 1 ? "la tarea vencida de prioridad Alta" : `las ${ctx.overdueAltaCount} tareas vencidas de prioridad Alta`} antes de asumir trabajo nuevo.`,
     );
   } else if (ctx.completedPct < 60) {
-    recommendations.push("El cumplimiento está por debajo del mínimo aceptable (60%) — revisar carga y prioridades con el colaborador esta semana.");
+    recomendaciones.push("El cumplimiento está por debajo del mínimo aceptable (60%) — revisar carga y prioridades con el colaborador esta semana.");
   } else if (ctx.cargaLabel === "Sobrecarga" || ctx.cargaLabel === "Carga elevada") {
-    recommendations.push("La carga laboral supera el rango óptimo — evaluar redistribuir tareas para evitar desgaste.");
+    recomendaciones.push("La carga laboral supera el rango óptimo — evaluar redistribuir tareas para evitar desgaste.");
+  } else if (ctx.capacidadDisponiblePct < 10) {
+    recomendaciones.push("Capacidad disponible por debajo del 10% para lo que resta del mes — no asignar nuevas tareas hasta liberar carga.");
   } else {
-    recommendations.push("Sin riesgos evidentes este período — mantener el seguimiento habitual.");
+    recomendaciones.push("Sin riesgos evidentes este período — mantener el seguimiento habitual.");
   }
-  return { bullets, recommendations };
+
+  return { hallazgoPrincipal, riesgos, aspectosPositivos, recomendaciones };
 }
 
 function fallbackMotivational(ctx: { completedPct: number; totalTasks: number }): string[] {
@@ -159,11 +206,15 @@ function asStringArray(v: unknown): string[] {
   return v.filter((x): x is string => typeof x === "string" && x.trim().length > 0);
 }
 
+function asString(v: unknown): string {
+  return typeof v === "string" ? v.trim() : "";
+}
+
 async function generateAnalytical(
   userId: string,
   monthParam: string,
   sensitivity: Sensitivity,
-): Promise<CacheEntry> {
+): Promise<AnalyticalCacheEntry> {
   const [yearStr, monthStr] = monthParam.split("-");
   const year = parseInt(yearStr);
   const month = parseInt(monthStr);
@@ -175,7 +226,7 @@ async function generateAnalytical(
 
   const now = new Date();
 
-  const [targetUser, tasks, prevTasks, openTasks, reminders, cargaTiempo] = await Promise.all([
+  const [targetUser, tasks, prevTasks, openTasks, reminders, cargaTiempo, capacityForecast] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId }, select: { name: true, role: true } }),
     prisma.task.findMany({
       where: { assignedToId: userId, endDate: { gte: start, lte: end } },
@@ -196,6 +247,10 @@ async function generateAnalytical(
     // Siempre en tiempo real (no atado al mes seleccionado) — igual que
     // WorkloadCard/riskAlerts en el resto de Analytics.
     computeCargaTiempo(userId),
+    // Capacidad disponible FUTURA (desde ahora hasta fin de mes) — mismo motor
+    // que Analytics § Componente 2, no la capacidad "restante de la base
+    // mensual" que usaba cargaTiempo.mensual.rangeMax anteriormente.
+    computeCapacityForecast(userId),
   ]);
 
   const completed = tasks.filter((t) => t.status === "COMPLETADA");
@@ -240,10 +295,6 @@ async function generateAnalytical(
     cargaPct: cargaTiempo.mensual.pct,
   });
 
-  const horasDisponibles = Math.max(0, Math.round((cargaTiempo.mensual.rangeMax - cargaTiempo.mensual.realHours) * 100) / 100);
-  const capacidadDisponiblePct =
-    cargaTiempo.mensual.baseHours > 0 ? Math.max(0, Math.round((horasDisponibles / cargaTiempo.mensual.baseHours) * 100)) : 0;
-
   const cargaDeltaPts = cargaRatio - prevCargaRatio;
   const cumplimientoDeltaPts = completedPct - prevCompletedPct;
 
@@ -271,13 +322,17 @@ async function generateAnalytical(
     motivoSeguimientoMasFrecuente: topReason ? REASON_LABEL[topReason] ?? topReason : null,
     motivoSeguimientoPctDeTiempo: topReasonPct,
     alertasActivas: riskAlerts.map((a) => a.message),
-    capacidadDisponiblePct,
-    horasDisponiblesEstimadas: horasDisponibles,
+    capacidadDisponibleFuturaHoras: capacityForecast.disponible,
+    capacidadDisponibleFuturaPct: capacityForecast.disponiblePct,
+    capacidadEstado: capacityForecast.estadoLabel,
+    confiabilidadCalculoPct: capacityForecast.confiabilidad.pct,
     estadoEspecial: especial,
   };
 
-  let bullets: string[] = [];
-  let recommendations: string[] = [];
+  let hallazgoPrincipal = "";
+  let riesgos: string[] = [];
+  let aspectosPositivos: string[] = [];
+  let recomendaciones: string[] = [];
   if (process.env.GROQ_API_KEY) {
     try {
       const completion = await groq.chat.completions.create({
@@ -286,21 +341,25 @@ async function generateAnalytical(
           { role: "system", content: ANALYTICAL_SYSTEM_PROMPT },
           { role: "user", content: JSON.stringify(ctx) },
         ],
-        max_tokens: 500,
+        max_tokens: 600,
         temperature: 0.4,
         response_format: { type: "json_object" },
       });
       const parsed = extractJson(completion.choices[0]?.message?.content ?? "") as
-        | { insights?: unknown; recommendations?: unknown }
+        | { hallazgoPrincipal?: unknown; riesgos?: unknown; aspectosPositivos?: unknown; recomendaciones?: unknown }
         | null;
-      bullets = asStringArray(parsed?.insights);
-      recommendations = asStringArray(parsed?.recommendations);
+      hallazgoPrincipal = asString(parsed?.hallazgoPrincipal);
+      riesgos = asStringArray(parsed?.riesgos);
+      aspectosPositivos = asStringArray(parsed?.aspectosPositivos);
+      recomendaciones = asStringArray(parsed?.recomendaciones);
     } catch {
-      bullets = [];
-      recommendations = [];
+      hallazgoPrincipal = "";
+      riesgos = [];
+      aspectosPositivos = [];
+      recomendaciones = [];
     }
   }
-  if (bullets.length === 0) {
+  if (!hallazgoPrincipal || riesgos.length === 0 || aspectosPositivos.length === 0) {
     const fb = fallbackAnalytical({
       completedPct,
       cargaLabel: cargaTiempo.mensual.label,
@@ -308,15 +367,20 @@ async function generateAnalytical(
       overdueCount: overdue.length,
       overdueAltaCount: overdueAlta.length,
       cumplimientoDeltaPts,
+      weekendHours: cargaTiempo.mensual.weekendHours,
+      capacidadDisponiblePct: capacityForecast.disponiblePct,
+      capacidadDisponibleHoras: capacityForecast.disponible,
     });
-    bullets = fb.bullets;
-    if (recommendations.length === 0) recommendations = fb.recommendations;
+    if (!hallazgoPrincipal) hallazgoPrincipal = fb.hallazgoPrincipal;
+    if (riesgos.length === 0) riesgos = fb.riesgos;
+    if (aspectosPositivos.length === 0) aspectosPositivos = fb.aspectosPositivos;
+    if (recomendaciones.length === 0) recomendaciones = fb.recomendaciones;
   }
 
-  return { bullets, recommendations, generatedAt: Date.now(), expiresAt: Date.now() + CACHE_TTL_MS };
+  return { hallazgoPrincipal, riesgos, aspectosPositivos, recomendaciones, generatedAt: Date.now(), expiresAt: Date.now() + CACHE_TTL_MS };
 }
 
-async function generateMotivational(userId: string, monthParam: string): Promise<CacheEntry> {
+async function generateMotivational(userId: string, monthParam: string): Promise<MotivationalCacheEntry> {
   const [yearStr, monthStr] = monthParam.split("-");
   const year = parseInt(yearStr);
   const month = parseInt(monthStr);
@@ -339,7 +403,7 @@ async function generateMotivational(userId: string, monthParam: string): Promise
     tareasCompletadas: completed,
   };
 
-  let bullets: string[] = [];
+  let messages: string[] = [];
   if (process.env.GROQ_API_KEY) {
     try {
       const completion = await groq.chat.completions.create({
@@ -353,16 +417,16 @@ async function generateMotivational(userId: string, monthParam: string): Promise
         response_format: { type: "json_object" },
       });
       const parsed = extractJson(completion.choices[0]?.message?.content ?? "") as { messages?: unknown } | null;
-      bullets = asStringArray(parsed?.messages);
+      messages = asStringArray(parsed?.messages);
     } catch {
-      bullets = [];
+      messages = [];
     }
   }
-  if (bullets.length === 0) {
-    bullets = fallbackMotivational({ completedPct, totalTasks: tasks.length });
+  if (messages.length === 0) {
+    messages = fallbackMotivational({ completedPct, totalTasks: tasks.length });
   }
 
-  return { bullets, recommendations: [], generatedAt: Date.now(), expiresAt: Date.now() + CACHE_TTL_MS };
+  return { messages, generatedAt: Date.now(), expiresAt: Date.now() + CACHE_TTL_MS };
 }
 
 type Ctx = { params: Promise<{ userId: string }> };
@@ -388,9 +452,9 @@ export async function GET(request: NextRequest, ctx: Ctx) {
     }
   }
 
-  // VISIBILIDAD (ver Analytics § motor de recomendaciones Nova):
-  // - Administrador / Jefe Nacional / Coordinador Nacional (nivel >= 3): análisis completo + recomendaciones.
-  // - Analistas nivel 2: solo insights, sin recomendaciones estratégicas.
+  // VISIBILIDAD (ver Analytics § Componente 4 — motor de recomendaciones Nova):
+  // - Administrador / Jefe Nacional / Coordinador Nacional (nivel >= 3): análisis completo (las 4 secciones).
+  // - Analistas nivel 2: solo hallazgo principal y aspectos positivos (sin riesgos ni recomendaciones).
   // - Nivel 1 viendo su propia actividad: versión simplificada y motivacional.
   const mode: Mode = isSelf && viewerLevel === 1 ? "motivational" : viewerLevel >= 3 ? "full" : "insights-only";
 
@@ -402,22 +466,35 @@ export async function GET(request: NextRequest, ctx: Ctx) {
   const sensitivity: Sensitivity = isSelf || session.role === "ADMINISTRADOR" ? "full" : "restricted";
 
   const monthParam = request.nextUrl.searchParams.get("month") ?? currentMonthParam();
-  const variant = mode === "motivational" ? "motivational" : sensitivity;
-  const cacheKey = `${userId}:${monthParam}:${variant}`;
-  const cached = cache.get(cacheKey);
 
-  const entry =
-    cached && cached.expiresAt > Date.now()
-      ? cached
-      : mode === "motivational"
-        ? await generateMotivational(userId, monthParam)
-        : await generateAnalytical(userId, monthParam, sensitivity);
-  if (!cached || cached.expiresAt <= Date.now()) cache.set(cacheKey, entry);
+  if (mode === "motivational") {
+    const cacheKey = `${userId}:${monthParam}:motivational`;
+    const cached = motivationalCache.get(cacheKey);
+    const entry = cached && cached.expiresAt > Date.now() ? cached : await generateMotivational(userId, monthParam);
+    if (!cached || cached.expiresAt <= Date.now()) motivationalCache.set(cacheKey, entry);
+    return NextResponse.json({ mode, messages: entry.messages, generatedAt: entry.generatedAt });
+  }
+
+  const cacheKey = `${userId}:${monthParam}:${sensitivity}`;
+  const cached = analyticalCache.get(cacheKey);
+  const entry = cached && cached.expiresAt > Date.now() ? cached : await generateAnalytical(userId, monthParam, sensitivity);
+  if (!cached || cached.expiresAt <= Date.now()) analyticalCache.set(cacheKey, entry);
+
+  if (mode === "insights-only") {
+    return NextResponse.json({
+      mode,
+      hallazgoPrincipal: entry.hallazgoPrincipal,
+      aspectosPositivos: entry.aspectosPositivos,
+      generatedAt: entry.generatedAt,
+    });
+  }
 
   return NextResponse.json({
-    bullets: entry.bullets,
-    recommendations: mode === "full" ? entry.recommendations : [],
     mode,
+    hallazgoPrincipal: entry.hallazgoPrincipal,
+    riesgos: entry.riesgos,
+    aspectosPositivos: entry.aspectosPositivos,
+    recomendaciones: entry.recomendaciones,
     generatedAt: entry.generatedAt,
   });
 }

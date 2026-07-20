@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { Role } from "@/generated/prisma/client";
 import { ROLE_LABEL } from "@/lib/roles";
-import type { KpiData, KpiColor, TeamMemberKpi } from "./types";
+import type { KpiData, KpiColor, TeamMemberKpi, CapacityMember, CapacitySummary } from "./types";
 import {
   DonutChart,
   CumplimientoLineChart,
@@ -13,7 +13,7 @@ import {
 import MonthlyReports from "./MonthlyReports";
 import WorkloadCard from "./WorkloadCard";
 import { TaskBreakdownCard, AlertsCard, NovaInsightsCard, PriorityComplianceCard } from "./InsightCards";
-import { WorkloadBalanceCard, CapacityAvailableCard } from "./TeamWorkloadCards";
+import { WorkloadBalanceCard, TeamCapacityCard } from "./TeamWorkloadCards";
 import { openReportWindow } from "./reportWindow";
 import * as XLSX from "xlsx";
 import { formatDate } from "@/lib/utils";
@@ -426,6 +426,8 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
   const [month, setMonth] = useState(currentMonthParam);
   const [team, setTeam] = useState<TeamMemberKpi[]>([]);
   const [teamLoading, setTeamLoading] = useState(true);
+  const [capacityMembers, setCapacityMembers] = useState<CapacityMember[]>([]);
+  const [capacitySummary, setCapacitySummary] = useState<CapacitySummary>({ total: 0, alta: 0, limitada: 0, sobrecargados: 0, sinPlanificacion: 0 });
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [kpi, setKpi] = useState<KpiData | null>(null);
   const [kpiLoading, setKpiLoading] = useState(false);
@@ -450,6 +452,19 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
   useEffect(() => {
     queueMicrotask(() => fetchTeam(month));
   }, [fetchTeam, month]);
+
+  // ── Fetch team capacity forecast (siempre en tiempo real, no depende del mes seleccionado) ──
+
+  useEffect(() => {
+    queueMicrotask(async () => {
+      const res = await fetch("/api/kpis/team-capacity");
+      if (res.ok) {
+        const data: { members: CapacityMember[]; summary: CapacitySummary } = await res.json();
+        setCapacityMembers(data.members);
+        setCapacitySummary(data.summary);
+      }
+    });
+  }, []);
 
   // ── Fetch individual KPI ───────────────────────────────────────────────────
 
@@ -568,9 +583,9 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
       </div>
 
       {/* ── Balance de carga y capacidad disponible del equipo ────────────── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5 items-start">
         <WorkloadBalanceCard members={team} />
-        <CapacityAvailableCard members={team} />
+        <TeamCapacityCard members={capacityMembers} summary={capacitySummary} />
       </div>
 
       {/* ── Two-panel layout ─────────────────────────────────────────────── */}

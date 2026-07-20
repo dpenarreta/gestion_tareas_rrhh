@@ -28,11 +28,11 @@ const MONTH_NAMES = [
 ];
 
 /** Lunes a viernes Y no feriado configurado. */
-function isWorkingDay(d: Date, holidays: Set<number>): boolean {
+export function isWorkingDay(d: Date, holidays: Set<number>): boolean {
   return isBusinessDay(d) && !holidays.has(d.getTime());
 }
 
-function countBusinessDays(start: Date, end: Date, holidays: Set<number>): number {
+export function countBusinessDays(start: Date, end: Date, holidays: Set<number>): number {
   let count = 0;
   for (let t = start.getTime(); t <= end.getTime(); t += 86400000) {
     if (isWorkingDay(new Date(t), holidays)) count++;
@@ -68,7 +68,7 @@ type SpecialStatusBaseField = "dailyHours" | "limitBase";
  * variable, `hoursPerDay`) — a diferencia de limitLow/High/Overload (sumWeightedLimit),
  * que nunca se ajustan por permisos.
  */
-function sumWeightedBaseHours(
+export function sumWeightedBaseHours(
   start: Date,
   end: Date,
   hoursPerDay: number,

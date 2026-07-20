@@ -144,6 +144,23 @@ export type TeamMemberKpi = {
   horasDisponibles: number;
 };
 
+export type { CapacityForecast, CapacityEstado } from "@/lib/capacityForecast";
+
+/** Fila de /api/kpis/team-capacity — ver Analytics § Capacidad para asumir nuevas tareas. */
+export type CapacityMember = import("@/lib/capacityForecast").CapacityForecast & {
+  id: string;
+  name: string;
+  role: string;
+};
+
+export type CapacitySummary = {
+  total: number;
+  alta: number;
+  limitada: number;
+  sobrecargados: number;
+  sinPlanificacion: number;
+};
+
 /** Cumplimiento por nivel de prioridad de tarea — ver Analytics § cumplimiento por prioridad. */
 export type PriorityCompliance = {
   priority: "ALTA" | "MEDIA" | "BAJA";
