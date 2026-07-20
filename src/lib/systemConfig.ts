@@ -1,6 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { DEFAULT_CURVES, isValidCurve, type CurveName, type CurvePoint } from "@/lib/normalizationEngine";
+import type { Role } from "@/generated/prisma/client";
 
 export const CONFIG_KEY_HORAS_EFECTIVAS = "HORAS_EFECTIVAS_DIA";
 export const DEFAULT_HORAS_EFECTIVAS = 6.5;
@@ -259,4 +260,59 @@ export async function recordEngineVersionIfChanged(currentVersion: string, userI
   if (previous === currentVersion) return { previousVersion: previous || null, changed: false };
   await setConfigValue(CONFIG_KEY_ENGINE_VERSION, currentVersion, userId);
   return { previousVersion: previous || null, changed: true };
+}
+
+// ── Objetivo esperado del cargo (§Sprint 7) ──────────────────────────────────
+//
+// Configuración OPCIONAL por cargo (Role), usada únicamente como referencia
+// en el Benchmark Personal (Nivel 3, cargo único) — NUNCA modifica el cálculo
+// de ningún KPI. Si un cargo no tiene objetivo configurado, el motor debe
+// ocultar esa comparación (nunca mostrar un valor ficticio) — por eso
+// `getEffectiveRoleTarget` devuelve `null` en vez de un objeto con ceros.
+// Mismo mecanismo que las curvas de normalización: JSON en SystemConfigHistory,
+// el historial de cambios (usuario/fecha/valor anterior) viene gratis.
+
+export type RoleTarget = {
+  /** Performance Score esperado (0-100), o null si no se configuró. */
+  performance: number | null;
+  /** Índice de Riesgo Operativo MÁXIMO esperado (0-100) — más alto que esto se considera fuera de objetivo. */
+  riesgoMax: number | null;
+  /** % de cumplimiento esperado (0-100), o null si no se configuró. */
+  cumplimiento: number | null;
+};
+
+function roleTargetConfigKey(role: Role): string {
+  return `analytics_role_target_${role.toLowerCase()}`;
+}
+
+/** `null` si el cargo nunca fue configurado — el caller debe ocultar la comparación, nunca inventar un objetivo. */
+export async function getEffectiveRoleTarget(role: Role, asOf: Date = new Date()): Promise<RoleTarget | null> {
+  const raw = await getEffectiveConfigString(roleTargetConfigKey(role), asOf, "");
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    const p = parsed as Record<string, unknown>;
+    return {
+      performance: typeof p.performance === "number" && Number.isFinite(p.performance) ? p.performance : null,
+      riesgoMax: typeof p.riesgoMax === "number" && Number.isFinite(p.riesgoMax) ? p.riesgoMax : null,
+      cumplimiento: typeof p.cumplimiento === "number" && Number.isFinite(p.cumplimiento) ? p.cumplimiento : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** Objetivos configurados para varios cargos a la vez — el caller pasa la lista de roles (evita acoplar este módulo a roles.ts). */
+export async function getAllEffectiveRoleTargets(roles: Role[], asOf: Date = new Date()): Promise<Partial<Record<Role, RoleTarget>>> {
+  const entries = await Promise.all(roles.map(async (role) => [role, await getEffectiveRoleTarget(role, asOf)] as const));
+  const result: Partial<Record<Role, RoleTarget>> = {};
+  for (const [role, target] of entries) {
+    if (target) result[role] = target;
+  }
+  return result;
+}
+
+export async function setRoleTarget(role: Role, target: RoleTarget, userId: string): Promise<void> {
+  await setConfigValue(roleTargetConfigKey(role), JSON.stringify(target), userId);
 }

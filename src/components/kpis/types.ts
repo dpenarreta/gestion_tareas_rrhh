@@ -155,6 +155,8 @@ export type {
   KpiTrends,
   ConsistencyLevel,
   ConsistencyResult,
+  ConsistencyReliability,
+  ExcludedPeriod,
   Anomaly,
   AnomalyResult,
   PredictionConfidence,
@@ -169,10 +171,17 @@ export type {
   DataQualityResult,
   AlertSeverity,
   EngineAlert,
-  BenchmarkMetric,
-  BenchmarkResult,
   ScoreTrendHistory,
+  BenchmarkMode,
+  CargoMetricBenchmark,
+  CargoLimitadoMetricBenchmark,
+  PersonalMetricBenchmark,
+  MetricBenchmark,
+  SmartBenchmarkExplain,
+  SmartBenchmarkResult,
+  PersonalEvolution,
 } from "@/lib/analytics";
+export type { RoleTarget } from "@/lib/systemConfig";
 
 /** Respuesta de GET /api/analytics/[userId] — ver Analytics § motor centralizado. */
 export type AnalyticsBundle = {

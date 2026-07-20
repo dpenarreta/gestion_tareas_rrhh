@@ -242,6 +242,10 @@ describe("computePredictionConfidencePct (Predicción — Sprint 1 S1-C)", () =>
     coefficientOfVariation: 15,
     consistencyPct: 87,
     weeksAnalyzed: 6,
+    daysAnalyzed: 30,
+    interpretation: "Variabilidad baja entre semanas.",
+    reliability: { level: "media", stars: 3, label: "Confiabilidad media" },
+    explain: { formula: "CV = promedio(CV horas, CV tareas completadas, CV cumplimiento)", periodsUsed: [], periodsExcluded: [], steps: [] },
   };
   const NOT_AVAILABLE: ConsistencyResult = { available: false, reason: "Sin historial suficiente" };
 

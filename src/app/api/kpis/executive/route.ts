@@ -218,8 +218,8 @@ export async function GET() {
   // Performance Score y Operational Risk del equipo — NUNCA se mezclan en un
   // solo número, se muestran como dos índices separados (ver Sprint 5 § S5-K).
   // Reutiliza las mismas claves de caché (`perf-bench:`/`risk-bench:`) que
-  // computeBenchmark, así que si alguien ya vio su propio benchmark hoy este
-  // fetch es prácticamente gratis.
+  // computeSmartBenchmark (§Sprint 7), así que si alguien ya vio su propio
+  // benchmark hoy este fetch es prácticamente gratis.
   const analyticsConfig = await getEffectiveAnalyticsConfig();
   const [perfScores, riskScoresRaw] = await Promise.all([
     Promise.all(userIds.map((id) => cached(`perf-bench:${id}`, analyticsConfig.cacheTtlMinutes, () => computePerformanceScore(id)).then((r) => r.value.score))),

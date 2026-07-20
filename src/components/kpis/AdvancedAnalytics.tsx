@@ -12,11 +12,10 @@ import type {
   DataQualityResult,
   EngineAlert,
   KpiTrends,
-  BenchmarkResult,
-  ScoreTrendHistory,
 } from "./types";
 import type { ResolvedAlert } from "@/lib/analytics";
 import { isFeatureEnabled } from "@/lib/featureFlags";
+import { SmartBenchmarkPanel } from "./SmartBenchmark";
 
 function formatDateTime(iso: string): string {
   const d = new Date(iso);
@@ -278,115 +277,10 @@ export function PerformanceScoreCard({ result, onExplain }: { result: Performanc
   );
 }
 
-// ── Benchmarks + Tendencias (§Sprint 5 S5-H/S5-I) ───────────────────────────────
-
-function TrendLine({ label, trend }: { label: string; trend: TrendResult }) {
-  if (!trend.available) {
-    return (
-      <div className="flex items-center justify-between text-[11px] py-0.5">
-        <span className="text-disabled">{label}</span>
-        <span className="text-disabled italic">{trend.reason}</span>
-      </div>
-    );
-  }
-  const arrow = trend.direction === "mejora" ? "▲" : trend.direction === "empeoro" ? "▼" : "=";
-  const color = trend.direction === "mejora" ? "text-success" : trend.direction === "empeoro" ? "text-danger" : "text-disabled";
-  return (
-    <div className="flex items-center justify-between text-[11px] py-0.5">
-      <span className="text-disabled">{label}</span>
-      <span className={`font-semibold ${color}`}>{arrow} {Math.abs(trend.absoluteDiff)} pts</span>
-    </div>
-  );
-}
-
-function BenchmarkColumn({
-  title,
-  metric,
-  trend,
-}: {
-  title: string;
-  metric: BenchmarkResult["performance"];
-  trend: ScoreTrendHistory;
-}) {
-  return (
-    <div className="rounded-xl border border-border bg-background p-3.5">
-      <p className="text-xs font-semibold text-title mb-2">{title}</p>
-      {!metric.available ? (
-        <p className="text-xs text-disabled italic">{metric.reason}</p>
-      ) : (
-        <>
-          <p className="text-2xl font-extrabold text-title leading-none mb-2">{metric.value}</p>
-          <div className="text-[11px] text-secondary space-y-0.5 mb-2">
-            <div className="flex items-center justify-between">
-              <span>Promedio del equipo</span>
-              <span className="font-semibold text-main">{metric.teamAverage}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span>Percentil</span>
-              <span className="font-semibold text-main">{metric.percentile}</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span>Posición</span>
-              <span className="font-semibold text-primary">Top {metric.topPct}%</span>
-            </div>
-          </div>
-        </>
-      )}
-      <div className="pt-2 border-t border-border">
-        <TrendLine label="vs. semana anterior" trend={trend.semanaAnterior} />
-        <TrendLine label="vs. mes anterior" trend={trend.mesAnterior} />
-        <TrendLine label="vs. promedio 6 meses" trend={trend.promedio6Meses} />
-      </div>
-    </div>
-  );
-}
-
-export function BenchmarkCard({ userId }: { userId: string }) {
-  const [data, setData] = useState<{ benchmark: BenchmarkResult; trends: { performance: ScoreTrendHistory; operationalRisk: ScoreTrendHistory } } | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      setError(false);
-      try {
-        const res = await fetch(`/api/analytics/benchmarks/${userId}`);
-        if (!res.ok) throw new Error("failed");
-        if (!cancelled) setData(await res.json());
-      } catch {
-        if (!cancelled) setError(true);
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, [userId]);
-
-  if (loading) {
-    return (
-      <div className="rounded-[14px] border border-border bg-surface shadow-[var(--shadow)] p-5 flex justify-center py-8">
-        <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-      </div>
-    );
-  }
-  if (error || !data) {
-    return <div className="text-sm text-disabled text-center py-6">No se pudieron cargar los benchmarks.</div>;
-  }
-
-  return (
-    <div className="rounded-[14px] border border-border bg-surface shadow-[var(--shadow)] p-5">
-      <h3 className="text-sm font-semibold text-main uppercase tracking-wider mb-3">Benchmarks y tendencias</h3>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <BenchmarkColumn title="Performance Score" metric={data.benchmark.performance} trend={data.trends.performance} />
-        <BenchmarkColumn title="Operational Risk" metric={data.benchmark.operationalRisk} trend={data.trends.operationalRisk} />
-      </div>
-    </div>
-  );
-}
+// ── Benchmarks (§Sprint 7 — Motor de Benchmarks Inteligente) ────────────────
+// Ver src/components/kpis/SmartBenchmark.tsx — reemplaza por completo el
+// benchmark de pares de Sprint 5 (BenchmarkCard/BenchmarkColumn/TrendLine),
+// que aquí vivían antes.
 
 // ── Motor de alertas (§1) ──────────────────────────────────────────────────────
 
@@ -488,9 +382,17 @@ const CONSISTENCY_COLOR: Record<string, string> = { "muy-consistente": "text-suc
 
 export function ConsistencyCard({ result }: { result: ConsistencyResult }) {
   const v2 = isFeatureEnabled("enableConsistencyV2");
+  const [explainOpen, setExplainOpen] = useState(false);
   return (
     <div className="rounded-[14px] border border-border bg-surface shadow-[var(--shadow)] p-5">
-      <h3 className="text-sm font-semibold text-main uppercase tracking-wider mb-2">Consistencia</h3>
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-sm font-semibold text-main uppercase tracking-wider">Consistencia</h3>
+        {result.available && (
+          <button onClick={() => setExplainOpen(true)} className="text-xs font-medium text-primary hover:text-primary-hover">
+            Ver cálculo
+          </button>
+        )}
+      </div>
       {!result.available ? (
         <p className="text-sm text-disabled italic">{result.reason}</p>
       ) : (
@@ -499,8 +401,63 @@ export function ConsistencyCard({ result }: { result: ConsistencyResult }) {
             {v2 && <span className={`text-2xl font-extrabold ${CONSISTENCY_COLOR[result.level]}`}>{result.consistencyPct}%</span>}
             <span className={`${v2 ? "text-sm" : "text-xl"} font-semibold ${CONSISTENCY_COLOR[result.level]}`}>{result.label}</span>
           </div>
-          <p className="text-xs text-secondary mt-1">Variación (CV): {result.coefficientOfVariation}% · {result.weeksAnalyzed} semanas analizadas</p>
+          <p className="text-xs text-secondary mt-1">
+            Variación (CV): {result.coefficientOfVariation}% — {result.interpretation}
+          </p>
+          <div className="flex items-center gap-2 mt-2">
+            <MaturityStars level={result.reliability.stars} title={result.reliability.label} />
+            <span className="text-[11px] text-disabled">
+              {result.reliability.label} · {result.weeksAnalyzed >= 1 ? `${result.weeksAnalyzed} ${result.weeksAnalyzed === 1 ? "semana" : "semanas"} con datos válidos` : `${result.daysAnalyzed} ${result.daysAnalyzed === 1 ? "día analizado" : "días analizados"}`}
+            </span>
+          </div>
         </>
+      )}
+      {explainOpen && result.available && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setExplainOpen(false)} />
+          <div className="relative w-full max-w-md bg-surface border border-border rounded-[14px] shadow-2xl p-5 max-h-[80vh] overflow-y-auto">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-title uppercase tracking-wider">Ver cálculo — Consistencia</h3>
+              <button onClick={() => setExplainOpen(false)} className="text-disabled hover:text-main transition-colors" aria-label="Cerrar">
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <p className="text-xs text-secondary mb-3">
+              El CV (Coeficiente de Variación) mide cuánto varía su carga/cumplimiento semana a semana — mientras más bajo, más estable. Se calcula únicamente sobre semanas con datos reales, nunca sobre semanas anteriores al inicio de su historial.
+            </p>
+            <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider mb-1">Semanas utilizadas</p>
+            {result.explain.periodsUsed.length === 0 ? (
+              <p className="text-xs text-disabled italic mb-3">Ninguna.</p>
+            ) : (
+              <ul className="text-xs text-title mb-3 list-disc list-inside space-y-0.5">
+                {result.explain.periodsUsed.map((p) => (
+                  <li key={p}>{p}</li>
+                ))}
+              </ul>
+            )}
+            {result.explain.periodsExcluded.length > 0 && (
+              <>
+                <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider mb-1">Semanas excluidas</p>
+                <ul className="text-xs text-disabled mb-3 list-disc list-inside space-y-0.5">
+                  {result.explain.periodsExcluded.map((p, i) => (
+                    <li key={i}>
+                      {p.period} — {p.reason}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+            <div className="pt-3 border-t border-border space-y-1">
+              {result.explain.steps.map((s, i) => (
+                <p key={i} className="text-xs text-main">
+                  {s}
+                </p>
+              ))}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -682,7 +639,7 @@ export function AdvancedAnalyticsPanel({ userId }: { userId: string }) {
         <HealthScoreCard result={data.healthScore} onExplain={() => setExplainLegacyOpen(true)} />
       </div>
 
-      <BenchmarkCard userId={userId} />
+      <SmartBenchmarkPanel userId={userId} />
 
       <div id="alertas" className="scroll-mt-16">
         <EngineAlertsCard alerts={data.alerts} history={data.alertsHistory} />

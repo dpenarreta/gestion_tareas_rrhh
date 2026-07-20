@@ -10,13 +10,16 @@ import {
 } from "@/lib/workload";
 import { computeCapacityForecast, computeTeamCapacityForecast, classifyCapacity } from "@/lib/capacityForecast";
 import { getHolidaySet } from "@/lib/holidays";
+import { getLeaveMinutesByDay } from "@/lib/leaves";
 import { isTaskOverdue } from "@/lib/utils";
 import {
   getEffectiveAnalyticsConfig,
   getEffectiveHorasEfectivas,
   getEffectiveCurve,
+  getEffectiveRoleTarget,
   CONFIG_KEY_HORAS_EFECTIVAS,
   type AnalyticsConfigKey,
+  type RoleTarget,
   PREDICTION_MAX_DAYS,
 } from "@/lib/systemConfig";
 import { normalize, type CurveName, type CurvePoint } from "@/lib/normalizationEngine";
@@ -36,7 +39,7 @@ import type { Role } from "@/generated/prisma/client";
  * los indicadores nuevos (§3 Score de Salud, §13 Riesgo Operativo, tendencias,
  * consistencia, anomalías, predicción, calidad de datos, alertas) encima.
  */
-export const ANALYTICS_ENGINE_VERSION = "1.3.0";
+export const ANALYTICS_ENGINE_VERSION = "1.5.0";
 
 /**
  * Versión "de fórmulas" del Sprint 5 (§S5-L) — un tag global mostrado junto a
@@ -46,7 +49,7 @@ export const ANALYTICS_ENGINE_VERSION = "1.3.0";
  * Administrador reconoce como paquete (ANALYTICS_ENGINE_VERSION=motor,
  * FORMULA_SET_VERSION=paquete de fórmulas vigente dentro de ese motor).
  */
-export const FORMULA_SET_VERSION = "4.0";
+export const FORMULA_SET_VERSION = "4.2";
 
 export { PREDICTION_MAX_DAYS };
 
@@ -66,11 +69,16 @@ export const FORMULA_VERSIONS = {
   riesgoOperativo: "1.0",
   // Sprint 1 cambió el resultado de estas tres — versión real, no cosmética.
   cumplimiento: "2.0",
-  consistencia: "2.0",
+  // v2.1 (Analytics Engine v1.3.1): excluye semanas anteriores al inicio
+  // efectivo del historial, sin registro o anuladas por permiso/vacaciones
+  // completas — antes se contaban como semanas con realHours=0, inflando el CV.
+  consistencia: "2.1",
   prediccion: "2.0",
   // Nuevas en Sprint 5 (§S5-B, S5-G) — motor de normalización continuo.
   performanceScore: "4.0",
   trazabilidad: "4.0",
+  // Sprint 7 — motor de decisión de 3 niveles (cargo/cargo-limitado/personal).
+  benchmarkInteligente: "1.0",
 } as const;
 export type FormulaName = keyof typeof FORMULA_VERSIONS;
 
@@ -218,6 +226,7 @@ const AUDIT_KIND_FORMULAS: Record<string, FormulaName[]> = {
   operational_risk: ["riesgoOperativo"],
   alerts: [],
   validation_failure: [],
+  smart_benchmark: ["benchmarkInteligente"],
 };
 
 async function auditCalculation(userId: string, kind: string, period: string, inputs: object, result: object): Promise<void> {
@@ -467,9 +476,43 @@ export async function computeTrends(userId: string, now: Date = new Date()): Pro
   };
 }
 
-// ── Consistencia (§4) ──────────────────────────────────────────────────────────
+// ── Historial válido (§Analytics Engine v1.3.1 — corrección de Consistencia) ──
+// El motor NO debe asumir que existen semanas anteriores al inicio real de
+// los registros de un colaborador — antes, computeConsistency contaba esas
+// semanas como "con base laboral pero cero horas", inflando artificialmente
+// el CV. La fecha efectiva de inicio cruza todas las señales disponibles y
+// usa la MÁS RECIENTE (mismo criterio que kpiStartDate ya usa en
+// workload.ts: un ajuste/dato posterior siempre gana sobre uno más antiguo).
+// No existe un campo real de "fecha de activación del módulo Analytics" —
+// se usa User.createdAt como proxy: antes de que exista la cuenta no puede
+// haber datos reales que analizar.
+
+/** Fecha efectiva desde la que existe historial real para este usuario — ver nota arriba. Nunca null: si no hay ninguna señal, devuelve `now` (sin historial). */
+export async function computeEffectiveHistoryStart(userId: string, now: Date = new Date()): Promise<Date> {
+  const [user, firstActivity, firstCompletedTask, firstHourImputation] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId }, select: { kpiStartDate: true, createdAt: true } }),
+    prisma.taskActivity.findFirst({ where: { authorId: userId }, orderBy: { createdAt: "asc" }, select: { createdAt: true } }),
+    prisma.task.findFirst({ where: { assignedToId: userId, status: "COMPLETADA", completedAt: { not: null } }, orderBy: { completedAt: "asc" }, select: { completedAt: true } }),
+    prisma.task.findFirst({ where: { assignedToId: userId, realHours: { gt: 0 }, completedAt: { not: null } }, orderBy: { completedAt: "asc" }, select: { completedAt: true } }),
+  ]);
+
+  const candidates: Date[] = [];
+  if (firstActivity?.createdAt) candidates.push(firstActivity.createdAt);
+  if (firstCompletedTask?.completedAt) candidates.push(firstCompletedTask.completedAt);
+  if (firstHourImputation?.completedAt) candidates.push(firstHourImputation.completedAt);
+  if (user?.kpiStartDate) candidates.push(user.kpiStartDate);
+  if (user?.createdAt) candidates.push(user.createdAt);
+
+  if (candidates.length === 0) return now;
+  return new Date(Math.max(...candidates.map((d) => d.getTime())));
+}
+
+// ── Consistencia (§4, corregida en Analytics Engine v1.3.1) ──────────────────
 
 export type ConsistencyLevel = "muy-consistente" | "consistente" | "variable" | "muy-variable";
+export type ConsistencyReliabilityLevel = "baja" | "media" | "alta" | "muy-alta";
+export type ConsistencyReliability = { level: ConsistencyReliabilityLevel; stars: 2 | 3 | 4 | 5; label: string };
+export type ExcludedPeriod = { period: string; reason: string };
 
 export type ConsistencyResult =
   | { available: false; reason: string }
@@ -480,7 +523,20 @@ export type ConsistencyResult =
       coefficientOfVariation: number;
       /** Score 0-100 = 100/(1+CV) — ver Analytics § Sprint 1 (S1-B, reemplaza fórmulas previas que podían superar 100%). */
       consistencyPct: number;
+      /** Semanas con datos REALES usadas en el cálculo — nunca incluye semanas anteriores al inicio efectivo del historial, sin registro, o anuladas por permiso/vacaciones de día completo (§Analytics Engine v1.3.1). */
       weeksAnalyzed: number;
+      /** Días laborables con registro dentro de esas semanas válidas. */
+      daysAnalyzed: number;
+      /** Frase de contexto para el CV técnico — el usuario debe leer esto, no el CV crudo. */
+      interpretation: string;
+      /** Confiabilidad de la muestra — depende únicamente de la cantidad de semanas válidas usadas. */
+      reliability: ConsistencyReliability;
+      explain: {
+        formula: string;
+        periodsUsed: string[];
+        periodsExcluded: ExcludedPeriod[];
+        steps: string[];
+      };
     };
 
 /** Clasificación categórica a partir del CV promedio (%) — función pura, testeable sin BD. */
@@ -496,18 +552,102 @@ export function consistencyPctFromCv(avgCv: number): number {
   return Math.round((100 / (1 + avgCv / 100)) * 10) / 10;
 }
 
-export async function computeConsistency(userId: string, now: Date = new Date()): Promise<ConsistencyResult> {
-  const weekly = await computeWeeklyHistory(userId, 6, now);
-  const withData = weekly.filter((w) => w.businessDays > 0);
-  if (withData.length < 2) return { available: false, reason: "Sin historial suficiente" };
+const CV_INTERPRETATION: Record<ConsistencyLevel, string> = {
+  "muy-consistente": "Variabilidad muy baja entre semanas.",
+  "consistente": "Variabilidad baja entre semanas.",
+  "variable": "Variabilidad moderada entre semanas.",
+  "muy-variable": "Variabilidad alta entre semanas.",
+};
 
-  const hoursCv = stddev(withData.map((w) => w.realHours)).cv;
-  const tasksCv = stddev(withData.map((w) => w.completedTasks)).cv;
-  const complianceCv = stddev(withData.map((w) => w.completedPct)).cv;
+/** Confiabilidad de la muestra — depende SOLO del tamaño (§Analytics Engine v1.3.1 §3): 2-4 semanas baja, 5-8 media, 9-12 alta, >12 muy alta. Función pura, testeable sin BD. */
+export function consistencyReliabilityFromWeeks(weeks: number): ConsistencyReliability {
+  if (weeks <= 4) return { level: "baja", stars: 2, label: "Confiabilidad baja" };
+  if (weeks <= 8) return { level: "media", stars: 3, label: "Confiabilidad media" };
+  if (weeks <= 12) return { level: "alta", stars: 4, label: "Confiabilidad alta" };
+  return { level: "muy-alta", stars: 5, label: "Confiabilidad muy alta" };
+}
+
+/** Semanas hacia atrás consultadas para Consistencia — mayor que el resto del motor (6) para poder alcanzar el tramo ">12 semanas" de confiabilidad muy alta; el filtrado por historial válido decide cuántas de esas se usan realmente. */
+const CONSISTENCY_LOOKBACK_WEEKS = 16;
+const CONSISTENCY_MIN_WEEKS = 2;
+
+export async function computeConsistency(userId: string, now: Date = new Date()): Promise<ConsistencyResult> {
+  const rangeEnd = businessCalendarDay(now);
+  const rangeStart = new Date(rangeEnd.getTime() - CONSISTENCY_LOOKBACK_WEEKS * 7 * 86400000);
+
+  const [weekly, effectiveStart, leaveMap, holidays] = await Promise.all([
+    computeWeeklyHistory(userId, CONSISTENCY_LOOKBACK_WEEKS, now),
+    computeEffectiveHistoryStart(userId, now),
+    getLeaveMinutesByDay(userId, rangeStart, rangeEnd),
+    getHolidaySet(),
+  ]);
+
+  const periodsExcluded: ExcludedPeriod[] = [];
+  const validWeeks: WeeklyHistoryPoint[] = [];
+
+  for (const w of weekly) {
+    const weekStartDate = new Date(`${w.weekStart}T00:00:00.000Z`);
+    const weekEndDate = new Date(weekStartDate.getTime() + 4 * 86400000);
+    const period = `Semana del ${w.weekStart}`;
+
+    if (weekEndDate.getTime() < effectiveStart.getTime()) {
+      periodsExcluded.push({ period, reason: "Anterior al inicio efectivo del historial" });
+      continue;
+    }
+    if (w.businessDays === 0) {
+      periodsExcluded.push({ period, reason: "Sin base laboral esa semana (feriados/fin de semana)" });
+      continue;
+    }
+    if (w.daysWithRegistration === 0) {
+      periodsExcluded.push({ period, reason: "Sin registros esa semana" });
+      continue;
+    }
+
+    let fullyOnLeave = true;
+    for (let t = weekStartDate.getTime(); t <= weekEndDate.getTime(); t += 86400000) {
+      const d = new Date(t);
+      if (!isWorkingDay(d, holidays)) continue;
+      const info = leaveMap.get(d.getTime());
+      if (!info || !(info.medicoFullDay || info.personalFullDay || info.vacacionesFullDay)) {
+        fullyOnLeave = false;
+        break;
+      }
+    }
+    if (fullyOnLeave) {
+      periodsExcluded.push({ period, reason: "Semana anulada por vacaciones o permiso de día completo" });
+      continue;
+    }
+
+    validWeeks.push(w);
+  }
+
+  if (validWeeks.length < CONSISTENCY_MIN_WEEKS) {
+    const daysAnalyzed = validWeeks.reduce((s, w) => s + w.daysWithRegistration, 0);
+    return { available: false, reason: daysAnalyzed > 0 ? `Historial insuficiente (${daysAnalyzed} ${pluralize(daysAnalyzed, "día", "días")} con datos)` : "Historial insuficiente" };
+  }
+
+  const hoursMean = stddev(validWeeks.map((w) => w.realHours)).mean;
+  if (hoursMean <= 0) {
+    return { available: false, reason: "Historial insuficiente para evaluar consistencia." };
+  }
+
+  const hoursCv = stddev(validWeeks.map((w) => w.realHours)).cv;
+  const tasksCv = stddev(validWeeks.map((w) => w.completedTasks)).cv;
+  const complianceCv = stddev(validWeeks.map((w) => w.completedPct)).cv;
   const avgCv = (hoursCv + tasksCv + complianceCv) / 3;
 
   const { level, label } = consistencyLevelFromCv(avgCv);
   const consistencyPct = consistencyPctFromCv(avgCv);
+  const reliability = consistencyReliabilityFromWeeks(validWeeks.length);
+  const daysAnalyzed = validWeeks.reduce((s, w) => s + w.daysWithRegistration, 0);
+  const periodsUsed = validWeeks.map((w) => `Semana del ${w.weekStart}`);
+
+  const steps = [
+    `Semanas válidas utilizadas: ${periodsUsed.join(", ")}`,
+    ...(periodsExcluded.length > 0 ? [`Semanas excluidas: ${periodsExcluded.map((p) => `${p.period} (${p.reason})`).join("; ")}`] : []),
+    `CV = promedio(CV horas, CV tareas completadas, CV cumplimiento) = ${Math.round(avgCv * 10) / 10}%`,
+    `Consistencia = 100 / (1 + CV) = ${consistencyPct}%`,
+  ];
 
   return {
     available: true,
@@ -515,7 +655,16 @@ export async function computeConsistency(userId: string, now: Date = new Date())
     label,
     coefficientOfVariation: Math.round(avgCv * 10) / 10,
     consistencyPct,
-    weeksAnalyzed: withData.length,
+    weeksAnalyzed: validWeeks.length,
+    daysAnalyzed,
+    interpretation: CV_INTERPRETATION[level],
+    reliability,
+    explain: {
+      formula: "CV = promedio(CV horas, CV tareas completadas, CV cumplimiento) — calculado solo sobre semanas con datos válidos",
+      periodsUsed,
+      periodsExcluded,
+      steps,
+    },
   };
 }
 
@@ -936,6 +1085,50 @@ async function computeSeguimientoConcentration(userId: string, year: number, mon
 
 export type ScoreTrendHistory = { semanaAnterior: TrendResult; mesAnterior: TrendResult; promedio6Meses: TrendResult };
 
+export type ScoredAuditPoint = { createdAt: Date; score: number };
+
+/**
+ * Historial de `score` de un `AnalyticsAuditLog.kind` para un usuario, en los
+ * últimos `windowDays` días — extraído de `getScoreTrendHistory` para que el
+ * motor de Benchmark Personal (§Sprint 7) reutilice EXACTAMENTE la misma
+ * consulta/parseo en vez de duplicarla. Nunca lanza — devuelve `[]` si la
+ * tabla no está disponible (best-effort, igual que `auditCalculation`).
+ */
+export async function getScoredAuditHistory(
+  userId: string,
+  kind: "performance_score" | "operational_risk",
+  now: Date,
+  windowDays: number
+): Promise<ScoredAuditPoint[]> {
+  const windowStart = new Date(now.getTime() - windowDays * 86400000);
+  try {
+    const entries = await prisma.analyticsAuditLog.findMany({
+      where: { userId, kind, createdAt: { gte: windowStart, lt: now } },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true, result: true },
+    });
+    return entries
+      .map((e) => ({
+        createdAt: e.createdAt,
+        score: e.result && typeof e.result === "object" ? (e.result as { score?: unknown }).score : undefined,
+      }))
+      .filter((e): e is ScoredAuditPoint => typeof e.score === "number");
+  } catch {
+    return [];
+  }
+}
+
+/** El punto histórico más cercano a `daysAgo` dentro de `history`, con tolerancia `toleranceDays` (los cálculos no ocurren en un cron exacto). Reutilizada por `getScoreTrendHistory` y el Benchmark Personal (§Sprint 7). */
+export function closestScoredPoint(history: ScoredAuditPoint[], now: Date, daysAgo: number, toleranceDays = 3): number | null {
+  const target = now.getTime() - daysAgo * 86400000;
+  let best: { score: number; diff: number } | null = null;
+  for (const e of history) {
+    const diff = Math.abs(e.createdAt.getTime() - target);
+    if (diff <= toleranceDays * 86400000 && (!best || diff < best.diff)) best = { score: e.score, diff };
+  }
+  return best?.score ?? null;
+}
+
 export async function getScoreTrendHistory(
   userId: string,
   kind: "performance_score" | "operational_risk",
@@ -943,39 +1136,11 @@ export async function getScoreTrendHistory(
   higherIsBetter: boolean,
   now: Date = new Date()
 ): Promise<ScoreTrendHistory> {
-  const sixMonthsAgo = new Date(now.getTime() - 183 * 86400000);
-  let entries: Array<{ createdAt: Date; result: unknown }> = [];
-  try {
-    entries = await prisma.analyticsAuditLog.findMany({
-      where: { userId, kind, createdAt: { gte: sixMonthsAgo, lt: now } },
-      orderBy: { createdAt: "desc" },
-      select: { createdAt: true, result: true },
-    });
-  } catch {
-    return { semanaAnterior: NO_HISTORY, mesAnterior: NO_HISTORY, promedio6Meses: NO_HISTORY };
-  }
+  const scored = await getScoredAuditHistory(userId, kind, now, 183);
+  if (scored.length === 0) return { semanaAnterior: NO_HISTORY, mesAnterior: NO_HISTORY, promedio6Meses: NO_HISTORY };
 
-  const scored = entries
-    .map((e) => ({
-      createdAt: e.createdAt,
-      score: e.result && typeof e.result === "object" ? (e.result as { score?: unknown }).score : undefined,
-    }))
-    .filter((e): e is { createdAt: Date; score: number } => typeof e.score === "number");
-
-  // El punto histórico más cercano a `daysAgo`, con una tolerancia de ±3 días
-  // (los cálculos no ocurren en un cron exacto, sino cuando alguien recalcula).
-  function closestTo(daysAgo: number): number | null {
-    const target = now.getTime() - daysAgo * 86400000;
-    let best: { score: number; diff: number } | null = null;
-    for (const e of scored) {
-      const diff = Math.abs(e.createdAt.getTime() - target);
-      if (diff <= 3 * 86400000 && (!best || diff < best.diff)) best = { score: e.score, diff };
-    }
-    return best?.score ?? null;
-  }
-
-  const weekAgoScore = closestTo(7);
-  const monthAgoScore = closestTo(30);
+  const weekAgoScore = closestScoredPoint(scored, now, 7);
+  const monthAgoScore = closestScoredPoint(scored, now, 30);
   const olderThanAWeek = scored.filter((e) => e.createdAt.getTime() < now.getTime() - 7 * 86400000);
   const avg6mo = olderThanAWeek.length > 0 ? olderThanAWeek.reduce((s, e) => s + e.score, 0) / olderThanAWeek.length : null;
 
@@ -1624,61 +1789,359 @@ export async function runAnalyticsPipeline(userId: string, now: Date = new Date(
   return { dataQuality, healthScore, performanceScore, consistency, trends, prediction, anomalies, alerts, alertsHistory, validationFailures };
 }
 
-// ── Benchmarks (§Sprint 5 S5-H) ──────────────────────────────────────────────
-// Compara el Performance Score y el Operational Risk de una persona contra
-// sus pares del MISMO rol (peers) — promedio y percentil. El permiso de
-// visibilidad lo aplica el caller (endpoint), este cálculo asume que ya se
-// verificó que el viewer puede ver al target (§Sprint 5 "toda comparación
-// debe respetar permisos por rol").
+// ── Motor de Benchmarks Inteligente (§Sprint 7) ──────────────────────────────
+//
+// Reemplaza por completo el benchmark de pares de Sprint 5 (§S5-H), que
+// devolvía "Sin compañeros del mismo rol para comparar" cuando un cargo era
+// único — mala experiencia para cargos como Coordinador Nacional o Asistente
+// de Nómina, que en esta organización suelen ser puestos de UNA sola persona.
+// "Cargo" = `Role` (el enum), exactamente igual que antes — nunca se compara
+// entre roles distintos aunque compartan `ROLE_LEVEL` (p. ej. Coordinador ZS
+// vs. Analista CC, ambos nivel 2, NUNCA se cruzan aquí).
+//
+// Motor de decisión (aplica a los 5 indicadores por igual):
+//   >=3 colaboradores del mismo cargo → Nivel 1 "cargo" (promedio, percentil,
+//     mejor del cargo, diferencia vs. promedio — muestra estadísticamente
+//     representativa).
+//   ==2 colaboradores del mismo cargo → Nivel 2 "cargo-limitado" (SOLO
+//     promedio y diferencia — nunca percentil/mejor/top, no son
+//     representativos con n=2).
+//   <=1 colaborador del mismo cargo → Nivel 3 "personal" (comparación contra
+//     el propio historial + objetivo del cargo si está configurado — NUNCA
+//     contra otra persona).
 
-export type BenchmarkMetric =
-  | { available: false; reason: string }
-  | { available: true; value: number; teamAverage: number; percentile: number; topPct: number; peerCount: number };
+export type BenchmarkMode = "cargo" | "cargo-limitado" | "personal";
 
-export type BenchmarkResult = { performance: BenchmarkMetric; operationalRisk: BenchmarkMetric };
+export type CargoMetricBenchmark = {
+  mode: "cargo";
+  value: number;
+  peerAverage: number;
+  percentile: number;
+  best: number;
+  diffFromAverage: number;
+  peerCount: number;
+};
+export type CargoLimitadoMetricBenchmark = {
+  mode: "cargo-limitado";
+  value: number;
+  peerAverage: number;
+  diffFromAverage: number;
+  peerCount: number;
+};
+export type PersonalMetricBenchmark = {
+  mode: "personal";
+  value: number;
+  bestEver: number | null;
+  bestEverDiff: number | null;
+  avgLast90Days: number | null;
+  avgLast90DaysDiff: number | null;
+  semanaAnterior: number | null;
+  semanaAnteriorDiff: number | null;
+  mesAnterior: number | null;
+  mesAnteriorDiff: number | null;
+  /** Objetivo esperado del cargo (Ajustes) — null si nunca se configuró, NUNCA un valor inventado. */
+  target: number | null;
+  targetGap: number | null;
+  /** Explica por qué algún campo quedó en null (p. ej. "Sin historial personal suficiente todavía"). */
+  note: string | null;
+};
+export type MetricBenchmark = CargoMetricBenchmark | CargoLimitadoMetricBenchmark | PersonalMetricBenchmark;
 
-/** % de pares con score IGUAL o PEOR que `value` (según `higherIsBetter`) — percentil de "qué tan bien vas" respecto al grupo. */
-function computePercentile(value: number, peerValues: number[], higherIsBetter: boolean): number {
-  if (peerValues.length === 0) return 50;
-  const notBetter = peerValues.filter((v) => (higherIsBetter ? v <= value : v >= value)).length;
-  return Math.round((notBetter / peerValues.length) * 100);
+export type SmartBenchmarkExplain = {
+  mode: BenchmarkMode;
+  reason: string;
+  peerCount: number;
+  periodAnalyzed: string;
+  dataAvailable: string;
+};
+
+export type SmartBenchmarkResult = {
+  mode: BenchmarkMode;
+  performance: MetricBenchmark;
+  operationalRisk: MetricBenchmark;
+  cumplimiento: MetricBenchmark;
+  cargaLaboral: MetricBenchmark;
+  capacidadFutura: MetricBenchmark;
+  roleTarget: RoleTarget | null;
+  explain: SmartBenchmarkExplain;
+  engineVersion: string;
+};
+
+type BenchmarkMetricValues = {
+  performance: number;
+  operationalRisk: number;
+  cumplimiento: number;
+  cargaLaboral: number;
+  capacidadFutura: number;
+};
+
+/** Reutiliza las MISMAS claves de caché `perf-bench:`/`risk-bench:` que ya usaba el benchmark de Sprint 5 (y que `/api/kpis/executive` también comparte) — no se pierde ese ahorro. */
+async function computeBenchmarkMetricValues(userId: string, now: Date, cacheTtlMinutes: number): Promise<BenchmarkMetricValues> {
+  const [performance, operationalRisk, monthly, capacity] = await Promise.all([
+    cached(`perf-bench:${userId}`, cacheTtlMinutes, () => computePerformanceScore(userId, now)).then((r) => r.value.score),
+    cached(`risk-bench:${userId}`, cacheTtlMinutes, () => computeOperationalRisk(userId, now)).then((r) => r.value.score),
+    cached(`monthly-bench:${userId}`, cacheTtlMinutes, () => computeMonthlyHistory(userId, 1, now)).then((r) => r.value),
+    cached(`capacity-bench:${userId}`, cacheTtlMinutes, () => computeCapacityForecast(userId, now)).then((r) => r.value),
+  ]);
+  const current = monthly[monthly.length - 1];
+  return {
+    performance,
+    operationalRisk,
+    cumplimiento: current?.completedPct ?? 0,
+    cargaLaboral: current?.cargaPct ?? 0,
+    capacidadFutura: capacity.disponiblePct,
+  };
 }
 
-export async function computeBenchmark(userId: string, role: Role, now: Date = new Date()): Promise<BenchmarkResult> {
-  const config = await getEffectiveAnalyticsConfig(now);
-  const peers = await prisma.user.findMany({ where: { role, id: { not: userId } }, select: { id: true } });
+// ── Nivel 1/2 — comparación entre pares del mismo cargo ──────────────────────
 
-  const unavailable: BenchmarkMetric = { available: false, reason: "Sin compañeros del mismo rol para comparar" };
-  if (peers.length === 0) return { performance: unavailable, operationalRisk: unavailable };
+function buildCargoBenchmark(value: number, peerValues: number[], higherIsBetter: boolean): CargoMetricBenchmark {
+  const peerAverage = Math.round((peerValues.reduce((s, v) => s + v, 0) / peerValues.length) * 10) / 10;
+  const notBetter = peerValues.filter((v) => (higherIsBetter ? v <= value : v >= value)).length;
+  const percentile = Math.round((notBetter / peerValues.length) * 100);
+  const best = higherIsBetter ? Math.max(value, ...peerValues) : Math.min(value, ...peerValues);
+  return { mode: "cargo", value, peerAverage, percentile, best, diffFromAverage: Math.round((value - peerAverage) * 10) / 10, peerCount: peerValues.length };
+}
 
-  const [myPerf, myRisk, peerPerf, peerRisk] = await Promise.all([
-    cached(`perf-bench:${userId}`, config.cacheTtlMinutes, () => computePerformanceScore(userId, now)).then((r) => r.value.score),
-    cached(`risk-bench:${userId}`, config.cacheTtlMinutes, () => computeOperationalRisk(userId, now)).then((r) => r.value.score),
-    Promise.all(peers.map((p) => cached(`perf-bench:${p.id}`, config.cacheTtlMinutes, () => computePerformanceScore(p.id, now)).then((r) => r.value.score))),
-    Promise.all(peers.map((p) => cached(`risk-bench:${p.id}`, config.cacheTtlMinutes, () => computeOperationalRisk(p.id, now)).then((r) => r.value.score))),
-  ]);
+/** Carga laboral no tiene "más alto es mejor" — el óptimo es 100%. "Mejor"/percentil se miden por cercanía a 100, no por magnitud. */
+function buildCargoBenchmarkCarga(value: number, peerValues: number[]): CargoMetricBenchmark {
+  const peerAverage = Math.round((peerValues.reduce((s, v) => s + v, 0) / peerValues.length) * 10) / 10;
+  const distance = (v: number) => Math.abs(v - 100);
+  const notBetter = peerValues.filter((v) => distance(v) >= distance(value)).length;
+  const percentile = Math.round((notBetter / peerValues.length) * 100);
+  const best = [value, ...peerValues].reduce((b, v) => (distance(v) < distance(b) ? v : b), value);
+  return { mode: "cargo", value, peerAverage, percentile, best, diffFromAverage: Math.round((value - peerAverage) * 10) / 10, peerCount: peerValues.length };
+}
 
-  const avg = (nums: number[]) => Math.round((nums.reduce((s, n) => s + n, 0) / nums.length) * 10) / 10;
+function buildCargoLimitadoBenchmark(value: number, peerValues: number[]): CargoLimitadoMetricBenchmark {
+  const peerAverage = Math.round((peerValues.reduce((s, v) => s + v, 0) / peerValues.length) * 10) / 10;
+  return { mode: "cargo-limitado", value, peerAverage, diffFromAverage: Math.round((value - peerAverage) * 10) / 10, peerCount: peerValues.length };
+}
 
-  const perfPercentile = computePercentile(myPerf, peerPerf, true);
-  const riskPercentile = computePercentile(myRisk, peerRisk, false);
+// ── Nivel 3 — Benchmark Personal (cargo único) ────────────────────────────────
+
+const PERSONAL_HISTORY_WINDOW_DAYS = 366;
+
+function emptyPersonalMetric(value: number, target: number | null, note: string): PersonalMetricBenchmark {
+  return {
+    mode: "personal",
+    value,
+    bestEver: null,
+    bestEverDiff: null,
+    avgLast90Days: null,
+    avgLast90DaysDiff: null,
+    semanaAnterior: null,
+    semanaAnteriorDiff: null,
+    mesAnterior: null,
+    mesAnteriorDiff: null,
+    target,
+    targetGap: target !== null ? Math.round((value - target) * 10) / 10 : null,
+    note,
+  };
+}
+
+/** Performance Score y Riesgo Operativo: historial vía AnalyticsAuditLog (mismo mecanismo que getScoreTrendHistory). */
+async function buildPersonalFromAuditHistory(userId: string, kind: "performance_score" | "operational_risk", value: number, target: number | null, now: Date, higherIsBetter: boolean): Promise<PersonalMetricBenchmark> {
+  const history = await getScoredAuditHistory(userId, kind, now, PERSONAL_HISTORY_WINDOW_DAYS);
+  if (history.length === 0) return emptyPersonalMetric(value, target, "Sin historial personal suficiente todavía.");
+
+  const scores = history.map((h) => h.score);
+  const bestEver = higherIsBetter ? Math.max(...scores) : Math.min(...scores);
+  const last90 = history.filter((h) => h.createdAt.getTime() >= now.getTime() - 90 * 86400000);
+  const avgLast90Days = last90.length > 0 ? Math.round((last90.reduce((s, h) => s + h.score, 0) / last90.length) * 10) / 10 : null;
+  const semanaAnterior = closestScoredPoint(history, now, 7);
+  const mesAnterior = closestScoredPoint(history, now, 30);
 
   return {
-    performance: {
-      available: true,
-      value: myPerf,
-      teamAverage: avg(peerPerf),
-      percentile: perfPercentile,
-      topPct: 100 - perfPercentile,
-      peerCount: peers.length,
-    },
-    operationalRisk: {
-      available: true,
-      value: myRisk,
-      teamAverage: avg(peerRisk),
-      percentile: riskPercentile,
-      topPct: 100 - riskPercentile,
-      peerCount: peers.length,
-    },
+    mode: "personal",
+    value,
+    bestEver,
+    bestEverDiff: Math.round((value - bestEver) * 10) / 10,
+    avgLast90Days,
+    avgLast90DaysDiff: avgLast90Days !== null ? Math.round((value - avgLast90Days) * 10) / 10 : null,
+    semanaAnterior,
+    semanaAnteriorDiff: semanaAnterior !== null ? Math.round((value - semanaAnterior) * 10) / 10 : null,
+    mesAnterior,
+    mesAnteriorDiff: mesAnterior !== null ? Math.round((value - mesAnterior) * 10) / 10 : null,
+    target,
+    targetGap: target !== null ? Math.round((value - target) * 10) / 10 : null,
+    note: null,
   };
+}
+
+/** Cumplimiento/Carga laboral: no viven en AnalyticsAuditLog — se recalculan siempre desde las tablas fuente (computeMonthlyHistory/computeWeeklyHistory), más preciso que muestrear auditoría. `pickBest` decide qué significa "mejor" (max para cumplimiento, más cercano a 100 para carga). */
+async function buildPersonalFromWorkHistory(
+  userId: string,
+  metric: "cumplimiento" | "carga",
+  value: number,
+  target: number | null,
+  now: Date,
+  pickBest: (scores: number[]) => number
+): Promise<PersonalMetricBenchmark> {
+  const [monthly, weekly] = await Promise.all([computeMonthlyHistory(userId, 12, now), computeWeeklyHistory(userId, 6, now)]);
+
+  const monthsWithData = metric === "cumplimiento" ? monthly.filter((m) => m.totalTasks > 0) : monthly.filter((m) => m.cargaBaseHours > 0);
+  if (monthsWithData.length === 0) return emptyPersonalMetric(value, target, "Sin historial personal suficiente todavía.");
+
+  const monthlyPoints = monthsWithData.map((m) => (metric === "cumplimiento" ? m.completedPct : m.cargaPct));
+  const bestEver = pickBest(monthlyPoints);
+  const last3Months = monthlyPoints.slice(-3);
+  const avgLast90Days = Math.round((last3Months.reduce((s, v) => s + v, 0) / last3Months.length) * 10) / 10;
+
+  const prevMonth = monthly.length >= 2 ? monthly[monthly.length - 2] : null;
+  const prevMonthHasData = prevMonth && (metric === "cumplimiento" ? prevMonth.totalTasks > 0 : prevMonth.cargaBaseHours > 0);
+  const mesAnterior = prevMonthHasData ? (metric === "cumplimiento" ? prevMonth!.completedPct : prevMonth!.cargaPct) : null;
+
+  const weeksWithData = weekly.filter((w) => w.businessDays > 0 && w.daysWithRegistration > 0);
+  const prevWeek = weeksWithData.length >= 2 ? weeksWithData[weeksWithData.length - 2] : null;
+  const semanaAnterior = prevWeek
+    ? metric === "cumplimiento"
+      ? prevWeek.completedPct
+      : prevWeek.baseHours > 0
+        ? Math.round((prevWeek.realHours / prevWeek.baseHours) * 100)
+        : null
+    : null;
+
+  return {
+    mode: "personal",
+    value,
+    bestEver,
+    bestEverDiff: Math.round((value - bestEver) * 10) / 10,
+    avgLast90Days,
+    avgLast90DaysDiff: Math.round((value - avgLast90Days) * 10) / 10,
+    semanaAnterior,
+    semanaAnteriorDiff: semanaAnterior !== null ? Math.round((value - semanaAnterior) * 10) / 10 : null,
+    mesAnterior,
+    mesAnteriorDiff: mesAnterior !== null ? Math.round((value - mesAnterior) * 10) / 10 : null,
+    target,
+    targetGap: target !== null ? Math.round((value - target) * 10) / 10 : null,
+    note: null,
+  };
+}
+
+/** Capacidad futura es una PROYECCIÓN hacia adelante (cambia estructuralmente cada día) — no existe un historial acumulado honesto contra el cual compararla, así que se documenta explícitamente en vez de inventar una serie. Tampoco tiene objetivo de cargo configurable (§Sprint 7 solo define Performance/Riesgo/Cumplimiento). */
+function buildPersonalCapacidadFutura(value: number): PersonalMetricBenchmark {
+  return emptyPersonalMetric(value, null, "La capacidad futura es una proyección hacia adelante — no existe un historial acumulado comparable.");
+}
+
+// ── Motor de decisión (§Sprint 7) ────────────────────────────────────────────
+
+function buildBenchmarkExplain(mode: BenchmarkMode, peerCount: number, periodAnalyzed: string, dataAvailable: string): SmartBenchmarkExplain {
+  const reason =
+    mode === "cargo"
+      ? `Existen ${peerCount} colaboradores con el mismo cargo — muestra suficiente para comparar de forma estadísticamente válida.`
+      : mode === "cargo-limitado"
+        ? `Solo existen ${peerCount} colaboradores con el mismo cargo — se muestra el promedio, sin percentiles ni "mejor del cargo" (muestra insuficiente para eso).`
+        : peerCount === 1
+          ? "Existe un único colaborador con este cargo — no hay una muestra válida para comparar entre pares."
+          : "No existen otros colaboradores con el mismo cargo — no hay una muestra válida para comparar entre pares.";
+  return { mode, reason, peerCount, periodAnalyzed, dataAvailable };
+}
+
+/**
+ * Motor de Benchmarks Inteligente (§Sprint 7) — decide automáticamente entre
+ * comparación por cargo (n>=3), promedio limitado (n==2) o Benchmark Personal
+ * (n<=1) para los 5 indicadores. NUNCA compara cargos distintos, NUNCA
+ * modifica el cálculo de ningún KPI (el objetivo del cargo es solo
+ * referencia), y NUNCA devuelve "sin compañeros" — siempre hay un benchmark
+ * útil que mostrar.
+ */
+export async function computeSmartBenchmark(userId: string, role: Role, now: Date = new Date()): Promise<SmartBenchmarkResult> {
+  const config = await getEffectiveAnalyticsConfig(now);
+  const [peers, roleTarget, selfMetrics] = await Promise.all([
+    prisma.user.findMany({ where: { role, id: { not: userId } }, select: { id: true } }),
+    getEffectiveRoleTarget(role, now),
+    computeBenchmarkMetricValues(userId, now, config.cacheTtlMinutes),
+  ]);
+
+  const mode: BenchmarkMode = peers.length >= 3 ? "cargo" : peers.length === 2 ? "cargo-limitado" : "personal";
+
+  let performance: MetricBenchmark;
+  let operationalRisk: MetricBenchmark;
+  let cumplimiento: MetricBenchmark;
+  let cargaLaboral: MetricBenchmark;
+  let capacidadFutura: MetricBenchmark;
+  let dataAvailable: string;
+
+  if (mode === "cargo" || mode === "cargo-limitado") {
+    const peerMetrics = await Promise.all(peers.map((p) => computeBenchmarkMetricValues(p.id, now, config.cacheTtlMinutes)));
+    const buildDefault = mode === "cargo" ? buildCargoBenchmark : buildCargoLimitadoBenchmark;
+    const buildCarga = mode === "cargo" ? buildCargoBenchmarkCarga : buildCargoLimitadoBenchmark;
+    performance = buildDefault(selfMetrics.performance, peerMetrics.map((m) => m.performance), true);
+    operationalRisk = buildDefault(selfMetrics.operationalRisk, peerMetrics.map((m) => m.operationalRisk), false);
+    cumplimiento = buildDefault(selfMetrics.cumplimiento, peerMetrics.map((m) => m.cumplimiento), true);
+    cargaLaboral = buildCarga(selfMetrics.cargaLaboral, peerMetrics.map((m) => m.cargaLaboral));
+    capacidadFutura = buildDefault(selfMetrics.capacidadFutura, peerMetrics.map((m) => m.capacidadFutura), true);
+    dataAvailable = `${peers.length + 1} colaboradores del cargo con datos del mes en curso`;
+  } else {
+    const [personalPerformance, personalRisk, personalCumplimiento, personalCarga] = await Promise.all([
+      buildPersonalFromAuditHistory(userId, "performance_score", selfMetrics.performance, roleTarget?.performance ?? null, now, true),
+      buildPersonalFromAuditHistory(userId, "operational_risk", selfMetrics.operationalRisk, roleTarget?.riesgoMax ?? null, now, false),
+      buildPersonalFromWorkHistory(userId, "cumplimiento", selfMetrics.cumplimiento, roleTarget?.cumplimiento ?? null, now, (scores) => Math.max(...scores)),
+      buildPersonalFromWorkHistory(userId, "carga", selfMetrics.cargaLaboral, null, now, (scores) => scores.reduce((b, v) => (Math.abs(v - 100) < Math.abs(b - 100) ? v : b), scores[0])),
+    ]);
+    performance = personalPerformance;
+    operationalRisk = personalRisk;
+    cumplimiento = personalCumplimiento;
+    cargaLaboral = personalCarga;
+    capacidadFutura = buildPersonalCapacidadFutura(selfMetrics.capacidadFutura);
+    const perfObservations = personalPerformance.bestEver !== null ? "con historial" : "sin historial";
+    dataAvailable = `Historial personal de Performance Score ${perfObservations} · ventana de hasta ${PERSONAL_HISTORY_WINDOW_DAYS} días`;
+  }
+
+  const periodAnalyzed = mode === "personal" ? `Hasta ${PERSONAL_HISTORY_WINDOW_DAYS} días de historial personal` : "Mes en curso";
+  const explain = buildBenchmarkExplain(mode, peers.length, periodAnalyzed, dataAvailable);
+
+  const result: SmartBenchmarkResult = { mode, performance, operationalRisk, cumplimiento, cargaLaboral, capacidadFutura, roleTarget, explain, engineVersion: ANALYTICS_ENGINE_VERSION };
+
+  const today = businessCalendarDay(now);
+  await auditCalculation(userId, "smart_benchmark", monthKey(today.getUTCFullYear(), today.getUTCMonth() + 1), { role, peerCount: peers.length }, { mode, values: selfMetrics });
+
+  return result;
+}
+
+// ── Evolución Personal (§Sprint 7) ───────────────────────────────────────────
+// Tarjeta SIEMPRE visible (independiente del modo de benchmark) — Performance
+// actual vs. mejor/peor/promedio histórico propio, con tendencia acotada al
+// historial realmente disponible (nunca asume 6 meses si no hay esos datos).
+
+export type PersonalEvolutionTrend =
+  | { available: false }
+  | { available: true; direction: "mejora" | "empeoro" | "estable"; diff: number; basis: "semana anterior" | "promedio histórico" };
+
+export type PersonalEvolution =
+  | { available: false; reason: string; current: number }
+  | {
+      available: true;
+      current: number;
+      bestEver: number;
+      worstEver: number;
+      average: number;
+      trend: PersonalEvolutionTrend;
+      observations: number;
+      spanWeeks: number;
+    };
+
+export async function computePersonalEvolution(userId: string, currentScore: number, now: Date = new Date()): Promise<PersonalEvolution> {
+  const history = await getScoredAuditHistory(userId, "performance_score", now, PERSONAL_HISTORY_WINDOW_DAYS);
+  if (history.length === 0) return { available: false, reason: "Sin historial personal todavía — vuelva a revisar en unos días.", current: currentScore };
+
+  const scores = history.map((h) => h.score);
+  const bestEver = Math.max(...scores);
+  const worstEver = Math.min(...scores);
+  const average = Math.round((scores.reduce((s, v) => s + v, 0) / scores.length) * 10) / 10;
+  const oldestEntry = history[history.length - 1];
+  const spanWeeks = Math.floor((now.getTime() - oldestEntry.createdAt.getTime()) / (7 * 86400000));
+
+  let trend: PersonalEvolutionTrend;
+  if (spanWeeks < 4) {
+    trend = { available: false };
+  } else {
+    const weekAgo = closestScoredPoint(history, now, 7);
+    const basisValue = weekAgo ?? average;
+    const diff = Math.round((currentScore - basisValue) * 10) / 10;
+    trend = { available: true, direction: diff > 0.5 ? "mejora" : diff < -0.5 ? "empeoro" : "estable", diff, basis: weekAgo !== null ? "semana anterior" : "promedio histórico" };
+  }
+
+  return { available: true, current: currentScore, bestEver, worstEver, average, trend, observations: history.length, spanWeeks };
 }

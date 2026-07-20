@@ -13,6 +13,7 @@ import SpecialStatusSection from "@/components/settings/SpecialStatusSection";
 import KpiStartDateSection from "@/components/settings/KpiStartDateSection";
 import AnalyticsConfigSection from "@/components/settings/AnalyticsConfigSection";
 import NormalizationCurvesSection from "@/components/settings/NormalizationCurvesSection";
+import RoleTargetsSection from "@/components/settings/RoleTargetsSection";
 import WelcomeMessageSection from "@/components/settings/WelcomeMessageSection";
 import EngineDiagnosticsSection from "@/components/settings/EngineDiagnosticsSection";
 
@@ -922,6 +923,7 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
 
       <AnalyticsConfigSection />
       <NormalizationCurvesSection />
+      <RoleTargetsSection />
 
       <SectionCard title="Solicitudes de titulares">
         <p className="text-xs text-secondary">
