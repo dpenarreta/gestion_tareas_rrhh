@@ -3,6 +3,9 @@
 import { useState, useEffect } from "react";
 import type { TeamMemberKpi, WorkloadColor, WorkloadLabel, CapacityMember, CapacitySummary } from "./types";
 import { hoursToDisplay, displayToHours, validateDisplayHours } from "@/lib/timeFormat";
+import { canViewOperationalRisk } from "@/lib/roles";
+import { isFeatureEnabled } from "@/lib/featureFlags";
+import type { Role } from "@/generated/prisma/client";
 
 const AVATAR_COLORS = [
   "from-indigo-500 to-violet-500",
@@ -362,6 +365,80 @@ function SimulatorPanel({ member, onClose }: { member: CapacityMember; onClose: 
           Cerrar simulación
         </button>
       </div>
+    </div>
+  );
+}
+
+// ── Componente 3: Recomendaciones deterministas con impacto (§S3-A) ─────────
+
+type TeamRecommendation = {
+  priority: "alta" | "media";
+  priorityColor: "red" | "yellow";
+  text: string;
+  impactScorePts: number;
+  impactRiskPts: number;
+};
+
+export function TeamRecommendationsCard({ currentUserRole }: { currentUserRole: Role }) {
+  const [recommendations, setRecommendations] = useState<TeamRecommendation[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  const canView = canViewOperationalRisk(currentUserRole) && isFeatureEnabled("enableRecommendationEngine");
+
+  useEffect(() => {
+    if (!canView) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/analytics/recommendations/team");
+        if (res.ok && !cancelled) {
+          const data = await res.json();
+          setRecommendations(data.recommendations);
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [canView]);
+
+  if (!canView) return null;
+
+  return (
+    <div className="bg-surface rounded-[14px] border border-border shadow-[var(--shadow)] p-5">
+      <h3 className="text-sm font-semibold text-main uppercase tracking-wider mb-3">Recomendaciones — motor determinista</h3>
+      {loading ? (
+        <div className="flex justify-center py-6">
+          <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : !recommendations || recommendations.length === 0 ? (
+        <p className="text-sm text-disabled py-4 text-center">Sin redistribuciones sugeridas — equipo balanceado.</p>
+      ) : (
+        <div className="space-y-3">
+          {recommendations.map((r, i) => (
+            <div
+              key={i}
+              className={`rounded-xl p-3.5 border ${r.priorityColor === "red" ? "border-danger/30 bg-danger/[.05]" : "border-warning/30 bg-warning/[.06]"}`}
+            >
+              <p className={`text-xs font-bold uppercase tracking-wider mb-1.5 ${r.priorityColor === "red" ? "text-danger" : "text-warning"}`}>
+                {r.priorityColor === "red" ? "🔴" : "🟡"} Prioridad {r.priority === "alta" ? "Alta" : "Media"}
+              </p>
+              <p className="text-sm text-title mb-2">{r.text}</p>
+              <p className="text-[11px] text-secondary">
+                Impacto esperado:{" "}
+                <strong className={r.impactScorePts >= 0 ? "text-success" : "text-danger"}>
+                  {r.impactScorePts >= 0 ? "+" : ""}{r.impactScorePts} pts Score
+                </strong>{" "}
+                |{" "}
+                <strong className={r.impactRiskPts <= 0 ? "text-success" : "text-danger"}>
+                  {r.impactRiskPts > 0 ? "+" : ""}{r.impactRiskPts} pts Riesgo Operativo
+                </strong>
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

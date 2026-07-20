@@ -6,6 +6,7 @@ import { ROLE_LABEL } from "@/lib/roles";
 import type { ExecutiveDashboardData, KpiColor, CapacityMember, CapacitySummary } from "./types";
 import { CumplimientoLineChart, TeamWorkloadBarChart } from "./KpiCharts";
 import { hoursToDisplay } from "@/lib/timeFormat";
+import { isFeatureEnabled } from "@/lib/featureFlags";
 
 type TeamRiskMember = { id: string; name: string; role: string; score: number; classification: "Bajo" | "Medio" | "Alto" | "Crítico"; suggestedActions: string[] };
 type TeamRiskResponse = { members: TeamRiskMember[]; summary: { bajo: number; medio: number; alto: number; critico: number } };
@@ -216,6 +217,56 @@ const IdeaStatusLabel: Record<string, string> = {
   EN_REVISION: "En revisión",
 };
 
+const ESTADO_EMOJI: Record<KpiColor, string> = { green: "🟢", yellow: "🟡", red: "🔴" };
+
+/** Resumen ejecutivo determinístico en cabecera — solo Administrador/Jefe Nacional/Coordinador Nacional (ver Sprint 2 § S2-A). */
+function CeoBlock({ ceo }: { ceo: ExecutiveDashboardData["ceo"] }) {
+  return (
+    <div className="rounded-[14px] border border-border bg-surface shadow-[var(--shadow)] p-5">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-semibold text-main uppercase tracking-wider">Resumen ejecutivo</h3>
+        <span className="text-sm font-semibold text-title flex items-center gap-1.5">
+          {ESTADO_EMOJI[ceo.estado]} {ceo.estadoLabel}
+        </span>
+      </div>
+
+      {ceo.cambios.length > 0 && (
+        <div className="mb-3">
+          <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider mb-1">Cambios desde el último cálculo</p>
+          <ul className="space-y-1">
+            {ceo.cambios.map((c, i) => (
+              <li key={i} className={`text-sm flex items-start gap-2 ${c.positive ? "text-success" : "text-warning"}`}>
+                <span className="shrink-0">{c.positive ? "✔" : "⚠"}</span>
+                <span className="text-title">{c.text}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {ceo.atender.length > 0 ? (
+        <div className="mb-3">
+          <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider mb-1">Hoy debes atender</p>
+          <ol className="space-y-1">
+            {ceo.atender.map((text, i) => (
+              <li key={i} className="text-sm text-title flex items-start gap-2">
+                <span className="text-primary font-bold shrink-0">{["①", "②", "③"][i] ?? `${i + 1}.`}</span>
+                <span>{text}</span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      ) : (
+        <p className="text-sm text-success mb-3">Sin puntos críticos que atender hoy 🎉</p>
+      )}
+
+      <a href="#detalle-completo" className="text-xs font-medium text-primary hover:text-primary-hover">
+        Ver detalle completo ↓
+      </a>
+    </div>
+  );
+}
+
 export default function ExecutiveDashboard() {
   const [data, setData] = useState<ExecutiveDashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -271,8 +322,9 @@ export default function ExecutiveDashboard() {
   }
 
   const totalAlerts = data.alerts.lowCumplimiento.length + data.alerts.sobrecarga.length + data.alerts.pendingIdeas.length;
+  const executiveModeEnabled = isFeatureEnabled("enableExecutiveMode");
 
-  const modeToggle = (
+  const modeToggle = executiveModeEnabled && (
     <div className="flex items-center justify-end">
       <button
         onClick={() => setModoEjecutivo((v) => !v)}
@@ -288,21 +340,25 @@ export default function ExecutiveDashboard() {
     </div>
   );
 
-  if (modoEjecutivo) {
+  if (executiveModeEnabled && modoEjecutivo) {
     return (
       <div className="flex flex-col gap-5">
+        {isFeatureEnabled("enableExecutiveSummary") && <CeoBlock ceo={data.ceo} />}
         {modeToggle}
-        <ExecutiveModeView data={data} />
+        <div id="detalle-completo">
+          <ExecutiveModeView data={data} />
+        </div>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col gap-5">
+      {isFeatureEnabled("enableExecutiveSummary") && <CeoBlock ceo={data.ceo} />}
       {modeToggle}
 
       {/* ── Overview cards ─────────────────────────────────────────────── */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div id="detalle-completo" className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         <OverviewCard
           title="Cumplimiento del equipo"
           value={data.overview.avgCumplimiento}

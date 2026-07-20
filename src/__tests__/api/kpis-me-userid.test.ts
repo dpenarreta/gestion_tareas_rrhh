@@ -6,13 +6,14 @@ const userFindUnique = vi.fn();
 const taskFindMany = vi.fn();
 const commentCount = vi.fn();
 const taskActivityCount = vi.fn();
+const taskActivityFindFirst = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: { findUnique: userFindUnique },
     task: { findMany: taskFindMany },
     comment: { count: commentCount },
-    taskActivity: { count: taskActivityCount },
+    taskActivity: { count: taskActivityCount, findFirst: taskActivityFindFirst },
   },
 }));
 
@@ -82,6 +83,7 @@ function resetAll() {
   taskFindMany.mockReset().mockResolvedValue([]);
   commentCount.mockReset().mockResolvedValue(0);
   taskActivityCount.mockReset().mockResolvedValue(0);
+  taskActivityFindFirst.mockReset().mockResolvedValue(null);
   vi.mocked(getSession).mockReset();
 }
 
@@ -143,11 +145,11 @@ describe("GET /api/kpis/me", () => {
     commentCount.mockResolvedValue(2);
     taskFindMany.mockResolvedValueOnce([
       { id: "t1", status: "COMPLETADA", type: "FIJA", frequency: "PUNTUAL", endDate: new Date("2026-06-10"),
-        estimatedHours: 4, realHours: 5, progress: 100, createdById: "u1", activities: [] },
+        completedAt: new Date("2026-06-09"), estimatedHours: 4, realHours: 5, progress: 100, createdById: "u1", activities: [] },
       { id: "t2", status: "PENDIENTE", type: "FIJA", frequency: "PUNTUAL", endDate: new Date("2026-06-05"),
-        estimatedHours: 3, realHours: 0, progress: 0, createdById: "otro", activities: [] },
+        completedAt: null, estimatedHours: 3, realHours: 0, progress: 0, createdById: "otro", activities: [] },
       { id: "t3", status: "EN_PROGRESO", type: "SEGUIMIENTO", frequency: "MENSUAL", endDate: new Date("2026-06-20"),
-        estimatedHours: 2, realHours: 1, progress: 50, createdById: "u1",
+        completedAt: null, estimatedHours: 2, realHours: 1, progress: 50, createdById: "u1",
         activities: [{ reason: "CONSULTA", duration: 30 }] },
     ]);
 
@@ -157,6 +159,9 @@ describe("GET /api/kpis/me", () => {
 
     expect(body.cumplimiento.total).toBe(3);
     expect(body.cumplimiento.completed).toBe(1);
+    // t1 se completó A TIEMPO (completedAt <= endDate) — cumplimiento general
+    // debe usar la misma definición que cumplimientoPorPrioridad (ver Sprint 1 S1-A).
+    expect(body.cumplimiento.completedOnTime).toBe(1);
     expect(body.cumplimiento.completedPct).toBe(Math.round((1 / 3) * 100));
     // t2 (PENDIENTE, vencida hace semanas) cuenta como atrasada; t1 completada nunca.
     expect(body.cumplimiento.overdue).toBeGreaterThanOrEqual(1);

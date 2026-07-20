@@ -12,6 +12,8 @@ import type {
   EngineAlert,
   KpiTrends,
 } from "./types";
+import type { ResolvedAlert } from "@/lib/analytics";
+import { isFeatureEnabled } from "@/lib/featureFlags";
 
 function formatDateTime(iso: string): string {
   const d = new Date(iso);
@@ -21,6 +23,71 @@ function formatDateTime(iso: string): string {
   const hh = String(d.getHours()).padStart(2, "0");
   const min = String(d.getMinutes()).padStart(2, "0");
   return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
+}
+
+// ── Navegación interna (§S2-C) ────────────────────────────────────────────────
+// Barra pegajosa de índice — cada sección ancla vía id; se usa `<a href="#id">`
+// en vez de scroll manual en JS para mantenerlo simple y accesible (funciona
+// sin JS, soporta abrir en pestaña nueva, etc.).
+
+export const KPI_SECTION_LINKS_DEFAULT = [
+  { id: "score", label: "Score" },
+  { id: "carga", label: "Carga" },
+  { id: "cumplimiento", label: "Cumplimiento" },
+  { id: "alertas", label: "Alertas" },
+  { id: "prediccion", label: "Predicción" },
+  { id: "tareas", label: "Tareas" },
+];
+
+export function KpiSectionNav({ links = KPI_SECTION_LINKS_DEFAULT }: { links?: Array<{ id: string; label: string }> }) {
+  return (
+    <nav className="sticky top-0 z-10 -mx-1 px-1 py-2 bg-surface/95 backdrop-blur border-b border-border overflow-x-auto">
+      <div className="flex items-center gap-1.5 w-max">
+        {links.map((l) => (
+          <a
+            key={l.id}
+            href={`#${l.id}`}
+            className="px-2.5 py-1 rounded-full text-xs font-medium text-secondary hover:text-title hover:bg-surface2 transition-colors whitespace-nowrap"
+          >
+            {l.label}
+          </a>
+        ))}
+      </div>
+    </nav>
+  );
+}
+
+// ── Nivel de madurez del dato (§S2-H) ────────────────────────────────────────
+// Estrellas 1-5 según cuántos datos reales respaldan el KPI (más historial/
+// registro = más estrellas) — puramente informativo, no altera el cálculo.
+
+export function MaturityStars({ level, title }: { level: 1 | 2 | 3 | 4 | 5; title: string }) {
+  return (
+    <span className="inline-flex items-center gap-0.5 text-[11px]" title={title} aria-label={title}>
+      {[1, 2, 3, 4, 5].map((i) => (
+        <span key={i} className={i <= level ? "text-warning" : "text-disabled/40"}>★</span>
+      ))}
+    </span>
+  );
+}
+
+/** Cumplimiento/carga: más tareas o días con registro en el período → más estrellas. */
+export function maturityFromCount(count: number, thresholds: [number, number, number, number] = [1, 3, 6, 10]): 1 | 2 | 3 | 4 | 5 {
+  const [t1, t2, t3, t4] = thresholds;
+  if (count >= t4) return 5;
+  if (count >= t3) return 4;
+  if (count >= t2) return 3;
+  if (count >= t1) return 2;
+  return 1;
+}
+
+/** Predicción: más semanas de historial disponibles → más estrellas. */
+export function maturityFromWeeks(weeksOfData: number): 1 | 2 | 3 | 4 | 5 {
+  if (weeksOfData >= 6) return 5;
+  if (weeksOfData >= 4) return 4;
+  if (weeksOfData >= 2) return 3;
+  if (weeksOfData >= 1) return 2;
+  return 1;
 }
 
 // ── Explicabilidad genérica — "Ver cálculo" (§7) ─────────────────────────────
@@ -35,7 +102,7 @@ export function ExplainModal({
   title: string;
   formula: string;
   steps: string[];
-  engineVersion: string;
+  engineVersion?: string;
   onClose: () => void;
 }) {
   return (
@@ -58,7 +125,7 @@ export function ExplainModal({
             <li key={i} className="text-sm text-title">{s}</li>
           ))}
         </ol>
-        <p className="text-[11px] text-disabled pt-3 border-t border-border">Motor: Analytics Engine v{engineVersion}</p>
+        {engineVersion && <p className="text-[11px] text-disabled pt-3 border-t border-border">Motor: Analytics Engine v{engineVersion}</p>}
       </div>
     </div>
   );
@@ -70,6 +137,31 @@ const CLASS_TEXT: Record<string, string> = { Excelente: "text-success", Bueno: "
 const CLASS_RING: Record<string, string> = { Excelente: "ring-success/25", Bueno: "ring-success/25", Riesgo: "ring-warning/25", Crítico: "ring-danger/25" };
 const CLASS_EMOJI: Record<string, string> = { Excelente: "🟢", Bueno: "🟢", Riesgo: "🟡", Crítico: "🔴" };
 
+/** Barra de score con zonas de color (§S2-B): 0-40 rojo, 40-70 amarillo, 70-90 verde, 90-100 verde intenso. */
+export function ScoreZoneBar({ score }: { score: number }) {
+  const clamped = Math.max(0, Math.min(100, score));
+  return (
+    <div className="w-full">
+      <div className="relative h-2 rounded-full overflow-hidden flex">
+        <div className="h-full bg-danger" style={{ width: "40%" }} />
+        <div className="h-full bg-warning" style={{ width: "30%" }} />
+        <div className="h-full bg-success/70" style={{ width: "20%" }} />
+        <div className="h-full bg-success" style={{ width: "10%" }} />
+        <div
+          className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 w-3.5 h-3.5 rounded-full bg-title ring-2 ring-surface shadow"
+          style={{ left: `${clamped}%` }}
+        />
+      </div>
+      <div className="flex justify-between text-[10px] text-disabled mt-1">
+        <span>0</span>
+        <span style={{ marginLeft: "26%" }}>40</span>
+        <span style={{ marginLeft: "18%" }}>70</span>
+        <span>100</span>
+      </div>
+    </div>
+  );
+}
+
 export function HealthScoreCard({ result, onExplain }: { result: HealthScoreResult; onExplain: () => void }) {
   return (
     <div className="bg-surface rounded-[14px] border border-border shadow-[var(--shadow)] p-5">
@@ -77,12 +169,15 @@ export function HealthScoreCard({ result, onExplain }: { result: HealthScoreResu
         <h3 className="text-sm font-semibold text-main uppercase tracking-wider">Score de Salud Laboral</h3>
         <button onClick={onExplain} className="text-xs font-medium text-primary hover:text-primary-hover">Ver cálculo</button>
       </div>
-      <div className="flex items-center gap-4 mb-4">
+      <div className="flex items-center gap-4 mb-3">
         <div className={`w-20 h-20 rounded-full ring-4 ${CLASS_RING[result.classification]} bg-background flex flex-col items-center justify-center shrink-0`}>
           <span className="text-2xl font-extrabold text-title leading-none">{Math.round(result.score)}</span>
           <span className="text-[10px] text-disabled leading-none mt-0.5">/100</span>
         </div>
         <p className={`text-lg font-bold ${CLASS_TEXT[result.classification]}`}>{CLASS_EMOJI[result.classification]} {result.classification}</p>
+      </div>
+      <div className="mb-4">
+        <ScoreZoneBar score={result.score} />
       </div>
       <div className="space-y-1.5">
         {result.factors.map((f) => (
@@ -103,7 +198,7 @@ const SEVERITY_EMOJI: Record<string, string> = { red: "🔴", orange: "🟠", ye
 const SEVERITY_TEXT: Record<string, string> = { red: "text-danger", orange: "text-orange-500", yellow: "text-warning", green: "text-success" };
 const SEVERITY_BG: Record<string, string> = { red: "bg-danger/[.08]", orange: "bg-orange-500/[.08]", yellow: "bg-warning/[.1]", green: "bg-success/[.08]" };
 
-export function EngineAlertsCard({ alerts }: { alerts: EngineAlert[] }) {
+export function EngineAlertsCard({ alerts, history = [] }: { alerts: EngineAlert[]; history?: ResolvedAlert[] }) {
   return (
     <div className="rounded-[14px] border border-border bg-surface shadow-[var(--shadow)] p-5">
       <div className="flex items-center justify-between mb-3">
@@ -111,9 +206,21 @@ export function EngineAlertsCard({ alerts }: { alerts: EngineAlert[] }) {
         {alerts.length > 0 && <span className="text-xs font-bold text-danger bg-danger/[.15] px-2 py-0.5 rounded-full">{alerts.length}</span>}
       </div>
       {alerts.length === 0 ? (
-        <p className="text-sm text-success flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-success shrink-0" /> Sin alertas activas
-        </p>
+        <div className="space-y-2">
+          <p className="text-sm text-success flex items-center gap-2">
+            ✅ Sin alertas críticas activas
+          </p>
+          {history.length > 0 && (
+            <div className="pt-2 border-t border-border space-y-1">
+              {history.map((h) => (
+                <p key={h.rule} className="text-xs text-secondary">
+                  Última alerta resuelta: hace {h.daysAgo} {h.daysAgo === 1 ? "día" : "días"} — &quot;{h.message}&quot;{" "}
+                  <span className="text-success font-semibold">Resuelta ✓</span>
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
       ) : (
         <div className="space-y-2">
           {alerts.map((a, i) => (
@@ -183,6 +290,7 @@ export function TrendsCard({ trends }: { trends: KpiTrends }) {
 const CONSISTENCY_COLOR: Record<string, string> = { "muy-consistente": "text-success", "consistente": "text-success", "variable": "text-warning", "muy-variable": "text-danger" };
 
 export function ConsistencyCard({ result }: { result: ConsistencyResult }) {
+  const v2 = isFeatureEnabled("enableConsistencyV2");
   return (
     <div className="rounded-[14px] border border-border bg-surface shadow-[var(--shadow)] p-5">
       <h3 className="text-sm font-semibold text-main uppercase tracking-wider mb-2">Consistencia</h3>
@@ -190,7 +298,10 @@ export function ConsistencyCard({ result }: { result: ConsistencyResult }) {
         <p className="text-sm text-disabled italic">{result.reason}</p>
       ) : (
         <>
-          <p className={`text-xl font-bold ${CONSISTENCY_COLOR[result.level]}`}>{result.label}</p>
+          <div className="flex items-baseline gap-2">
+            {v2 && <span className={`text-2xl font-extrabold ${CONSISTENCY_COLOR[result.level]}`}>{result.consistencyPct}%</span>}
+            <span className={`${v2 ? "text-sm" : "text-xl"} font-semibold ${CONSISTENCY_COLOR[result.level]}`}>{result.label}</span>
+          </div>
           <p className="text-xs text-secondary mt-1">Variación (CV): {result.coefficientOfVariation}% · {result.weeksAnalyzed} semanas analizadas</p>
         </>
       )}
@@ -227,12 +338,23 @@ const CONFIDENCE_LABEL: Record<string, string> = { alta: "Alta confianza", media
 const CONFIDENCE_COLOR: Record<string, string> = { alta: "text-success", media: "text-warning", baja: "text-disabled" };
 
 export function PredictionCard({ result }: { result: Prediction }) {
+  const v2 = isFeatureEnabled("enablePredictionV2");
   return (
     <div className="rounded-[14px] border border-border bg-surface shadow-[var(--shadow)] p-5">
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-sm font-semibold text-main uppercase tracking-wider">Predicción</h3>
         {result.available && (
-          <span className={`text-[11px] font-semibold ${CONFIDENCE_COLOR[result.confidence]}`}>{CONFIDENCE_LABEL[result.confidence]}</span>
+          <span className="flex items-center gap-2">
+            {v2 && (
+              <MaturityStars
+                level={maturityFromWeeks(result.weeksOfData)}
+                title={`Madurez del dato: basado en ${result.weeksOfData} ${result.weeksOfData === 1 ? "semana" : "semanas"} de historial`}
+              />
+            )}
+            <span className={`text-[11px] font-semibold ${CONFIDENCE_COLOR[result.confidence]}`}>
+              {v2 ? `Confianza: ${result.confidencePct}%` : CONFIDENCE_LABEL[result.confidence]}
+            </span>
+          </span>
         )}
       </div>
       {!result.available ? (
@@ -244,8 +366,13 @@ export function PredictionCard({ result }: { result: Prediction }) {
             <span className="font-semibold text-main">{result.cargaProximaSemanaHoras}h</span>
           </div>
           <div className="flex items-center justify-between">
-            <span className="text-secondary">Cumplimiento estimado al cierre</span>
-            <span className="font-semibold text-main">{result.cumplimientoEstimadoCierreMes}%</span>
+            <span className="text-secondary">Cumplimiento proyectado</span>
+            <span className="font-semibold text-main">
+              {result.cumplimientoEstimadoCierreMes}%
+              {v2 && (
+                <span className="text-disabled font-normal"> [{result.cumplimientoEstimadoRango.min}%-{result.cumplimientoEstimadoRango.max}%]</span>
+              )}
+            </span>
           </div>
           {result.horasParaRangoOptimo > 0 && (
             <div className="flex items-center justify-between">
@@ -254,7 +381,7 @@ export function PredictionCard({ result }: { result: Prediction }) {
             </div>
           )}
           <p className="text-[10px] text-disabled pt-1.5 border-t border-border mt-1.5">
-            Basado en {result.weeksOfData} {result.weeksOfData === 1 ? "semana" : "semanas"} de datos · proyección máxima {result.maxProjectionDays} días
+            {CONFIDENCE_LABEL[result.confidence]}{v2 ? ` (${result.confidencePct}%)` : ""} · basado en {result.weeksOfData} {result.weeksOfData === 1 ? "semana" : "semanas"} de datos · proyección máxima {result.maxProjectionDays} días
           </p>
         </div>
       )}
@@ -325,19 +452,46 @@ export function AdvancedAnalyticsPanel({ userId }: { userId: string }) {
 
   return (
     <div className="space-y-5">
-      <p className="text-[11px] text-disabled">
-        Analytics Engine v{data.engineVersion} · Última actualización: {formatDateTime(data.lastUpdated)}
+      <p className="text-[11px] text-disabled flex flex-wrap gap-x-1.5">
+        <span>Datos calculados: {formatDateTime(data.lastUpdated)}</span>
+        <span>·</span>
+        <span>Motor: Analytics Engine v{data.engineVersion}</span>
+        <span>·</span>
+        <span>Calidad de datos: {data.dataQuality.pct}%</span>
+        <span>·</span>
+        <span>Caché: {data.cacheActive ? "Activo" : "Recalculado ahora"}</span>
       </p>
 
+      {data.validationWarnings && data.validationWarnings.length > 0 && (
+        <div className="rounded-xl border border-warning/30 bg-warning/[.08] px-3.5 py-2.5">
+          <p className="text-xs font-semibold text-warning mb-1">
+            ⚠ Solo visible para Administrador — validación de consistencia detectó {data.validationWarnings.length} {data.validationWarnings.length === 1 ? "problema" : "problemas"}
+          </p>
+          <ul className="text-[11px] text-secondary space-y-0.5">
+            {data.validationWarnings.map((f, i) => (
+              <li key={i}>
+                <span className="font-mono text-disabled">{f.rule}</span> — {f.detail}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <HealthScoreCard result={data.healthScore} onExplain={() => setExplainOpen(true)} />
-        <EngineAlertsCard alerts={data.alerts} />
+        <div id="score" className="scroll-mt-16">
+          <HealthScoreCard result={data.healthScore} onExplain={() => setExplainOpen(true)} />
+        </div>
+        <div id="alertas" className="scroll-mt-16">
+          <EngineAlertsCard alerts={data.alerts} history={data.alertsHistory} />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
         <ConsistencyCard result={data.consistency} />
         <AnomaliesCard result={data.anomalies} />
-        <PredictionCard result={data.prediction} />
+        <div id="prediccion" className="scroll-mt-16">
+          <PredictionCard result={data.prediction} />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">

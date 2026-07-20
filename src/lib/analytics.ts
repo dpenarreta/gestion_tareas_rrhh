@@ -8,7 +8,7 @@ import {
   isWorkingDay,
   countBusinessDays,
 } from "@/lib/workload";
-import { computeCapacityForecast } from "@/lib/capacityForecast";
+import { computeCapacityForecast, computeTeamCapacityForecast, classifyCapacity } from "@/lib/capacityForecast";
 import { getHolidaySet } from "@/lib/holidays";
 import { isTaskOverdue } from "@/lib/utils";
 import {
@@ -37,6 +37,68 @@ export const ANALYTICS_ENGINE_VERSION = "1.0.0";
 
 export { PREDICTION_MAX_DAYS };
 
+// ── Versionado de fórmulas (§Sprint 4 S4-D) ──────────────────────────────────
+// Cada fórmula del negocio tiene su propia versión, independiente de
+// ANALYTICS_ENGINE_VERSION (que versiona el motor como un todo). Se sube solo
+// cuando la FÓRMULA cambia de resultado, no en cada refactor. Se registra en
+// AnalyticsAuditLog (campo `formulaVersions` de `result`) y se expone
+// exclusivamente al Administrador en el panel de Diagnóstico del Motor.
+export const FORMULA_VERSIONS = {
+  cargaLaboral: "1.0",
+  scoreSalud: "1.0",
+  scoreSimple: "1.0",
+  capacidadDisponible: "1.0",
+  riesgoOperativo: "1.0",
+  // Sprint 1 cambió el resultado de estas tres — versión real, no cosmética.
+  cumplimiento: "2.0",
+  consistencia: "2.0",
+  prediccion: "2.0",
+} as const;
+export type FormulaName = keyof typeof FORMULA_VERSIONS;
+
+// ── Priorización de cálculos (§Sprint 4 S4-G) ────────────────────────────────
+// Documenta qué KPIs son críticos vs. informativos. El pipeline (ver más
+// abajo) ya calcula primero los de prioridad alta — este mapa es la fuente
+// de verdad de esa clasificación (también se expone en Diagnóstico del Motor).
+export const KPI_PRIORITY = {
+  cargaLaboral: "alta",
+  cumplimiento: "alta",
+  capacidadDisponible: "alta",
+  riesgoOperativo: "alta",
+  scoreSalud: "media",
+  consistencia: "media",
+  tendencias: "media",
+  prediccion: "media",
+  insightsNova: "baja",
+  sparklines: "baja",
+  historial: "baja",
+  recomendacionesNarrativas: "baja",
+} as const;
+export type KpiPriority = (typeof KPI_PRIORITY)[keyof typeof KPI_PRIORITY];
+
+// ── Fórmulas compartidas heredadas (§Sprint 4 S4-B) ──────────────────────────
+// "Score simple" (0-100, ponderado 40/20/20/20) y el ratio estimado-vs-real de
+// carga por tareas — existían duplicados byte-por-byte en 7 y 5 API routes
+// respectivamente (kpis/[userId], kpis/me, kpis/me/range, kpis/team,
+// kpis/executive, reports/generate, reports/range, dashboard). Es un cálculo
+// DISTINTO del "Score de Salud Laboral" del motor (computeHealthScore) — se
+// muestra en rankings/reportes, no en el panel de Analytics avanzado; no se
+// fusionan porque cambiaría números ya validados en esas pantallas. Única
+// fuente ahora: esta función.
+export function computeSimpleScore(completedPct: number, cargaRatio: number, avgProgress: number, totalComments = 0): number {
+  const scoreC = (completedPct / 100) * 40;
+  const scoreL = Math.max(0, 20 - Math.max(0, cargaRatio - 100) * 0.5);
+  const scoreA = (avgProgress / 100) * 20;
+  const scoreAct = Math.min(1, totalComments / 10) * 20;
+  return Math.round(scoreC + scoreL + scoreA + scoreAct);
+}
+
+/** % de horas reales sobre estimadas para un conjunto de tareas; 200% centinela cuando hay horas reales pero cero estimadas (evita 0/0). */
+export function computeEstimatedVsRealRatio(totalReal: number, totalEstimated: number): number {
+  if (totalEstimated > 0) return Math.round((totalReal / totalEstimated) * 100);
+  return totalReal > 0 ? 200 : 0;
+}
+
 // ── Caché en memoria (TTL configurable) ──────────────────────────────────────
 //
 // Recalcular únicamente cuando cambian tareas/permisos/config/cierre de mes —
@@ -48,13 +110,36 @@ export { PREDICTION_MAX_DAYS };
 type CacheEntry<T> = { value: T; expiresAt: number; computedAt: number };
 const cache = new Map<string, CacheEntry<unknown>>();
 
-export async function cached<T>(key: string, ttlMinutes: number, compute: () => Promise<T>): Promise<{ value: T; computedAt: number }> {
+// ── Diagnóstico del motor (§S3-D) ────────────────────────────────────────────
+// Contadores en memoria (se reinician con cada reinicio del servidor, igual
+// que el caché) — sin tabla nueva. Reflejan la actividad real del proceso
+// desde que arrancó, no un "ciclo" artificial.
+const diagnostics = {
+  serverStartedAt: Date.now(),
+  cacheHits: 0,
+  cacheMisses: 0,
+  totalComputeMs: 0,
+  validationsRun: 0,
+  validationsFailed: 0,
+};
+
+export function getDiagnosticsSnapshot() {
+  return { ...diagnostics };
+}
+
+export async function cached<T>(key: string, ttlMinutes: number, compute: () => Promise<T>): Promise<{ value: T; computedAt: number; fromCache: boolean }> {
   const hit = cache.get(key);
-  if (hit && hit.expiresAt > Date.now()) return { value: hit.value as T, computedAt: hit.computedAt };
+  if (hit && hit.expiresAt > Date.now()) {
+    diagnostics.cacheHits++;
+    return { value: hit.value as T, computedAt: hit.computedAt, fromCache: true };
+  }
+  const startedAt = Date.now();
   const value = await compute();
   const computedAt = Date.now();
+  diagnostics.cacheMisses++;
+  diagnostics.totalComputeMs += computedAt - startedAt;
   cache.set(key, { value, expiresAt: computedAt + ttlMinutes * 60000, computedAt });
-  return { value, computedAt };
+  return { value, computedAt, fromCache: false };
 }
 
 export function invalidateAnalyticsCache(): void {
@@ -105,10 +190,19 @@ function formatIsoDate(d: Date): string {
 
 // ── Auditoría (§11) ───────────────────────────────────────────────────────────
 
+/** kind de AnalyticsAuditLog → fórmula(s) de negocio involucradas (§Sprint 4 S4-D). */
+const AUDIT_KIND_FORMULAS: Record<string, FormulaName[]> = {
+  health_score: ["scoreSalud", "cargaLaboral", "cumplimiento", "consistencia", "capacidadDisponible"],
+  operational_risk: ["riesgoOperativo"],
+  alerts: [],
+  validation_failure: [],
+};
+
 async function auditCalculation(userId: string, kind: string, period: string, inputs: object, result: object): Promise<void> {
   try {
+    const formulaVersions = Object.fromEntries((AUDIT_KIND_FORMULAS[kind] ?? []).map((f) => [f, FORMULA_VERSIONS[f]]));
     await prisma.analyticsAuditLog.create({
-      data: { userId, kind, period, inputs, result, engineVersion: ANALYTICS_ENGINE_VERSION },
+      data: { userId, kind, period, inputs, result: { ...result, formulaVersions }, engineVersion: ANALYTICS_ENGINE_VERSION },
     });
   } catch {
     // La auditoría es best-effort — nunca debe romper la respuesta del cálculo.
@@ -357,7 +451,28 @@ export type ConsistencyLevel = "muy-consistente" | "consistente" | "variable" | 
 
 export type ConsistencyResult =
   | { available: false; reason: string }
-  | { available: true; level: ConsistencyLevel; label: string; coefficientOfVariation: number; weeksAnalyzed: number };
+  | {
+      available: true;
+      level: ConsistencyLevel;
+      label: string;
+      coefficientOfVariation: number;
+      /** Score 0-100 = 100/(1+CV) — ver Analytics § Sprint 1 (S1-B, reemplaza fórmulas previas que podían superar 100%). */
+      consistencyPct: number;
+      weeksAnalyzed: number;
+    };
+
+/** Clasificación categórica a partir del CV promedio (%) — función pura, testeable sin BD. */
+export function consistencyLevelFromCv(avgCv: number): { level: ConsistencyLevel; label: string } {
+  if (avgCv < 10) return { level: "muy-consistente", label: "Muy consistente" };
+  if (avgCv < 20) return { level: "consistente", label: "Consistente" };
+  if (avgCv < 35) return { level: "variable", label: "Variable" };
+  return { level: "muy-variable", label: "Muy variable" };
+}
+
+/** consistencia = 100 / (1 + CV_fraction) — siempre en (0, 100], nunca requiere un MIN(100, …) que oculte un error de fórmula (ver Sprint 1 S1-B). Función pura, testeable sin BD. */
+export function consistencyPctFromCv(avgCv: number): number {
+  return Math.round((100 / (1 + avgCv / 100)) * 10) / 10;
+}
 
 export async function computeConsistency(userId: string, now: Date = new Date()): Promise<ConsistencyResult> {
   const weekly = await computeWeeklyHistory(userId, 6, now);
@@ -369,14 +484,17 @@ export async function computeConsistency(userId: string, now: Date = new Date())
   const complianceCv = stddev(withData.map((w) => w.completedPct)).cv;
   const avgCv = (hoursCv + tasksCv + complianceCv) / 3;
 
-  let level: ConsistencyLevel;
-  let label: string;
-  if (avgCv < 10) { level = "muy-consistente"; label = "Muy consistente"; }
-  else if (avgCv < 20) { level = "consistente"; label = "Consistente"; }
-  else if (avgCv < 35) { level = "variable"; label = "Variable"; }
-  else { level = "muy-variable"; label = "Muy variable"; }
+  const { level, label } = consistencyLevelFromCv(avgCv);
+  const consistencyPct = consistencyPctFromCv(avgCv);
 
-  return { available: true, level, label, coefficientOfVariation: Math.round(avgCv * 10) / 10, weeksAnalyzed: withData.length };
+  return {
+    available: true,
+    level,
+    label,
+    coefficientOfVariation: Math.round(avgCv * 10) / 10,
+    consistencyPct,
+    weeksAnalyzed: withData.length,
+  };
 }
 
 // ── Detección de anomalías (§5) ────────────────────────────────────────────────
@@ -426,12 +544,35 @@ export type Prediction =
   | {
       available: true;
       confidence: PredictionConfidence;
+      /** Confianza numérica 0-92% — nunca 100%, siempre hay incertidumbre (ver Sprint 1 S1-C). f(cantidad de datos, consistencia histórica, días restantes de proyección). */
+      confidencePct: number;
       weeksOfData: number;
       cargaProximaSemanaHoras: number;
       cumplimientoEstimadoCierreMes: number;
+      /** Intervalo alrededor de cumplimientoEstimadoCierreMes — más ancho cuanto menor la confianza. */
+      cumplimientoEstimadoRango: { min: number; max: number };
       horasParaRangoOptimo: number;
       maxProjectionDays: number;
     };
+
+/** Confianza numérica de la predicción, siempre < 100% — ver Sprint 1 S1-C. */
+const MAX_PREDICTION_CONFIDENCE_PCT = 92;
+
+export function computePredictionConfidencePct(weeksOfData: number, consistency: ConsistencyResult, daysRemaining: number): number {
+  const dataScore = Math.min(1, weeksOfData / 6);
+  const consistencyScore = !consistency.available
+    ? 0.5
+    : consistency.level === "muy-consistente"
+      ? 1
+      : consistency.level === "consistente"
+        ? 0.8
+        : consistency.level === "variable"
+          ? 0.5
+          : 0.25;
+  const cappedDaysRemaining = Math.min(daysRemaining, PREDICTION_MAX_DAYS);
+  const horizonScore = 1 - (cappedDaysRemaining / PREDICTION_MAX_DAYS) * 0.4;
+  return Math.round(MAX_PREDICTION_CONFIDENCE_PCT * (0.4 * dataScore + 0.4 * consistencyScore + 0.2 * horizonScore));
+}
 
 async function computeMonthlyCompliancePace(userId: string, now: Date): Promise<number> {
   const today = businessCalendarDay(now);
@@ -470,9 +611,10 @@ export async function computePrediction(userId: string, now: Date = new Date()):
   const slope = den !== 0 ? num / den : 0;
   const cargaProximaSemanaHoras = Math.max(0, Math.round((yMean + slope * n) * 100) / 100);
 
-  const [cargaTiempo, cumplimientoEstimadoCierreMes] = await Promise.all([
+  const [cargaTiempo, cumplimientoEstimadoCierreMes, consistency] = await Promise.all([
     computeCargaTiempo(userId, now),
     computeMonthlyCompliancePace(userId, now),
+    computeConsistency(userId, now),
   ]);
 
   const horasParaRangoOptimo =
@@ -480,12 +622,25 @@ export async function computePrediction(userId: string, now: Date = new Date()):
       ? Math.max(0, Math.round((cargaTiempo.mensual.rangeMin - cargaTiempo.mensual.realHours) * 100) / 100)
       : 0;
 
+  const today = businessCalendarDay(now);
+  const { end: monthEnd } = monthBounds(today.getUTCFullYear(), today.getUTCMonth() + 1);
+  const daysRemaining = Math.max(0, Math.round((monthEnd.getTime() - today.getTime()) / 86400000));
+
+  const confidencePct = computePredictionConfidencePct(n, consistency, daysRemaining);
+  const halfWidth = Math.max(2, Math.round((100 - confidencePct) * 0.2));
+  const cumplimientoEstimadoRango = {
+    min: Math.max(0, cumplimientoEstimadoCierreMes - halfWidth),
+    max: Math.min(100, cumplimientoEstimadoCierreMes + halfWidth),
+  };
+
   return {
     available: true,
     confidence,
+    confidencePct,
     weeksOfData: n,
     cargaProximaSemanaHoras,
     cumplimientoEstimadoCierreMes,
+    cumplimientoEstimadoRango,
     horasParaRangoOptimo,
     maxProjectionDays: PREDICTION_MAX_DAYS,
   };
@@ -504,7 +659,7 @@ export type HealthScoreResult = {
 };
 
 /** Mapea horas reales del mes a un puntaje 0-100 usando los 4 límites REALES (no el % con techo en 100 usado para mostrar el semáforo) — Óptimo=100, decrece simétricamente hacia ambos extremos. */
-function cargaHealthScore(realHours: number, baseHours: number, limitHighHours: number, limitOverloadHours: number): number {
+export function cargaHealthScore(realHours: number, baseHours: number, limitHighHours: number, limitOverloadHours: number): number {
   if (baseHours <= 0) return 100;
   if (realHours >= baseHours && realHours <= limitHighHours) return 100;
   if (realHours < baseHours) {
@@ -525,7 +680,7 @@ function consistencyToScore(consistency: ConsistencyResult): number {
   }
 }
 
-function capacityToScore(estado: string, disponiblePct: number): number {
+export function capacityToScore(estado: string, disponiblePct: number): number {
   if (estado === "alta") return 100;
   if (estado === "limitada") return 70;
   if (estado === "sin-planificacion") return 70;
@@ -648,6 +803,20 @@ async function getRiskTrendVsPrevMonth(userId: string, year: number, month: numb
   }
 }
 
+/** Clasificación Bajo/Medio/Alto/Crítico a partir del score y los 3 umbrales configurables — función pura, testeable sin BD. */
+export function classifyOperationalRisk(
+  score: number,
+  thresholdMedio: number,
+  thresholdAlto: number,
+  thresholdCritico: number
+): { classification: OperationalRiskResult["classification"]; classificationColor: OperationalRiskResult["classificationColor"] } {
+  const classification: OperationalRiskResult["classification"] =
+    score >= thresholdCritico ? "Crítico" : score >= thresholdAlto ? "Alto" : score >= thresholdMedio ? "Medio" : "Bajo";
+  const classificationColor: OperationalRiskResult["classificationColor"] =
+    classification === "Crítico" ? "red" : classification === "Alto" ? "orange" : classification === "Medio" ? "yellow" : "green";
+  return { classification, classificationColor };
+}
+
 export async function computeOperationalRisk(userId: string, now: Date = new Date()): Promise<OperationalRiskResult> {
   const config = await getEffectiveAnalyticsConfig(now);
   const today = businessCalendarDay(now);
@@ -704,10 +873,7 @@ export async function computeOperationalRisk(userId: string, now: Date = new Dat
   push("Muchas tareas sin planificación", "riskWeightSinPlanificacion", sinPlanPct, `${capacity.tasksSinEstimar} ${pluralize(capacity.tasksSinEstimar, "tarea sin horas estimadas", "tareas sin horas estimadas")}`);
 
   const score = Math.round(factors.reduce((s, f) => s + f.points, 0) * 100) / 100;
-  const classification: OperationalRiskResult["classification"] =
-    score >= config.riskThresholdCritico ? "Crítico" : score >= config.riskThresholdAlto ? "Alto" : score >= config.riskThresholdMedio ? "Medio" : "Bajo";
-  const classificationColor: OperationalRiskResult["classificationColor"] =
-    classification === "Crítico" ? "red" : classification === "Alto" ? "orange" : classification === "Medio" ? "yellow" : "green";
+  const { classification, classificationColor } = classifyOperationalRisk(score, config.riskThresholdMedio, config.riskThresholdAlto, config.riskThresholdCritico);
 
   const trendVsPrevMonth = await getRiskTrendVsPrevMonth(userId, year, month, score);
 
@@ -933,5 +1099,303 @@ export async function computeAlerts(userId: string, now: Date = new Date()): Pro
     });
   }
 
-  return alerts.sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity]);
+  const sorted = alerts.sort((a, b) => SEVERITY_RANK[b.severity] - SEVERITY_RANK[a.severity]);
+
+  const today = businessCalendarDay(now);
+  await auditCalculation(userId, "alerts", monthKey(today.getUTCFullYear(), today.getUTCMonth() + 1), {}, { alerts: sorted.map((a) => a.rule) });
+
+  return sorted;
+}
+
+// ── Historial de alertas resueltas (§S2-F) ──────────────────────────────────
+// Reutiliza AnalyticsAuditLog (ya existe, sin cambios de esquema) — una alerta
+// "resuelta" es una regla que aparecía en un cálculo anterior de computeAlerts
+// y ya no aparece en el más reciente.
+
+export type ResolvedAlert = { rule: string; message: string; daysAgo: number };
+
+export async function getResolvedAlertsHistory(userId: string, currentAlerts: EngineAlert[], now: Date = new Date()): Promise<ResolvedAlert[]> {
+  const activeRules = new Set(currentAlerts.map((a) => a.rule));
+  const RULE_LABEL: Record<string, string> = {
+    sobrecarga_proyectada: "Sobrecarga proyectada",
+    capacidad_critica: "Capacidad crítica",
+    subutilizacion_prolongada: "Subutilización prolongada",
+    tareas_vencidas: "Tareas vencidas",
+    cumplimiento_bajo: "Cumplimiento bajo",
+    horas_extra_inusuales: "Horas extra inusuales",
+    dias_consecutivos_sobrecarga: "Días consecutivos de sobrecarga",
+    caida_registros: "Caída de registros diarios",
+    crecimiento_seguimiento: "Crecimiento de actividades de seguimiento",
+  };
+
+  let entries: Array<{ createdAt: Date; result: unknown }> = [];
+  try {
+    entries = await prisma.analyticsAuditLog.findMany({
+      where: { userId, kind: "alerts" },
+      orderBy: { createdAt: "desc" },
+      take: 30,
+      select: { createdAt: true, result: true },
+    });
+  } catch {
+    return [];
+  }
+
+  const lastSeenActive = new Map<string, Date>();
+  for (const entry of entries) {
+    const rules = entry.result && typeof entry.result === "object" ? (entry.result as { alerts?: unknown }).alerts : undefined;
+    if (!Array.isArray(rules)) continue;
+    for (const rule of rules) {
+      if (typeof rule !== "string" || activeRules.has(rule) || lastSeenActive.has(rule)) continue;
+      lastSeenActive.set(rule, entry.createdAt);
+    }
+  }
+
+  return [...lastSeenActive.entries()]
+    .map(([rule, lastActiveAt]) => ({
+      rule,
+      message: RULE_LABEL[rule] ?? rule,
+      daysAgo: Math.max(0, Math.floor((now.getTime() - lastActiveAt.getTime()) / 86400000)),
+    }))
+    .sort((a, b) => a.daysAgo - b.daysAgo)
+    .slice(0, 3);
+}
+
+// ── Motor de recomendaciones deterministas con impacto (§S3-A) ──────────────
+//
+// Sin IA — cruza quién tiene exceso de horas comprometidas (capacityForecast
+// .disponible < 0) con quién tiene capacidad disponible (.disponible > 0) y
+// sugiere una redistribución concreta. El impacto esperado (pts de Score,
+// pts de Riesgo) se calcula recomponiendo el factor "Capacidad futura" del
+// Score de Salud y el factor "Sobrecarga proyectada" del Riesgo Operativo con
+// las MISMAS fórmulas del motor (capacityToScore/classifyCapacity), evaluadas
+// antes/después del movimiento hipotético — no son números inventados, pero
+// tampoco vuelven a correr el pipeline completo por persona (sería costoso
+// para una lista de sugerencias); solo el/los factor(es) que cambian.
+
+export type TeamRecommendation = {
+  priority: "alta" | "media";
+  priorityColor: "red" | "yellow";
+  text: string;
+  impactScorePts: number;
+  impactRiskPts: number;
+};
+
+export async function computeTeamRecommendations(
+  members: Array<{ id: string; name: string }>,
+  now: Date = new Date()
+): Promise<TeamRecommendation[]> {
+  if (members.length < 2) return [];
+  const config = await getEffectiveAnalyticsConfig(now);
+  const capacityMap = await computeTeamCapacityForecast(members.map((m) => m.id), now);
+  const nameOf = new Map(members.map((m) => [m.id, m.name]));
+
+  const overloaded = [...capacityMap.entries()]
+    .filter(([, c]) => c.disponible < 0)
+    .map(([id, c]) => ({ id, name: nameOf.get(id)!, excess: Math.round(-c.disponible * 100) / 100, capacity: c }))
+    .sort((a, b) => b.excess - a.excess);
+
+  const availablePool = [...capacityMap.entries()]
+    .filter(([, c]) => c.disponible > 0)
+    .map(([id, c]) => ({ id, name: nameOf.get(id)!, free: c.disponible }))
+    .sort((a, b) => b.free - a.free);
+
+  const recommendations: TeamRecommendation[] = [];
+
+  for (const person of overloaded.slice(0, 5)) {
+    let remaining = person.excess;
+    const allocations: Array<{ name: string; hours: number }> = [];
+    for (const avail of availablePool) {
+      if (remaining <= 0.01) break;
+      const take = Math.round(Math.min(remaining, avail.free) * 100) / 100;
+      if (take <= 0) continue;
+      allocations.push({ name: avail.name, hours: take });
+      avail.free = Math.round((avail.free - take) * 100) / 100;
+      remaining = Math.round((remaining - take) * 100) / 100;
+    }
+    if (allocations.length === 0) continue;
+    const movedTotal = Math.round(allocations.reduce((s, a) => s + a.hours, 0) * 100) / 100;
+
+    const before = person.capacity;
+    const newDisponible = Math.round((before.disponible + movedTotal) * 100) / 100;
+    const newDisponiblePct = before.baseFuturaTotal > 0 ? Math.round((newDisponible / before.baseFuturaTotal) * 100) : 0;
+    const afterEstado = classifyCapacity(newDisponible, before.baseFuturaTotal, newDisponiblePct).estado;
+
+    const beforeCapScore = capacityToScore(before.estado, before.disponiblePct);
+    const afterCapScore = capacityToScore(afterEstado, newDisponiblePct);
+    const impactScorePts = Math.round((((afterCapScore - beforeCapScore) * config.healthWeightCapacidad) / 100) * 100) / 100;
+
+    const beforeSobrecargaPct = before.disponible < 0 ? Math.min(100, Math.abs(before.disponiblePct)) : 0;
+    const afterSobrecargaPct = newDisponible < 0 ? Math.min(100, Math.abs(newDisponiblePct)) : 0;
+    const impactRiskPts = Math.round((((afterSobrecargaPct - beforeSobrecargaPct) * config.riskWeightSobrecarga) / 100) * 100) / 100;
+
+    const priority: "alta" | "media" = person.excess >= 10 || before.disponiblePct <= -30 ? "alta" : "media";
+    const allocationText = allocations.map((a) => `${a.name} (${a.hours}h disp.)`).join(" y ");
+
+    recommendations.push({
+      priority,
+      priorityColor: priority === "alta" ? "red" : "yellow",
+      text: `Redistribuir ${movedTotal}h de ${person.name} entre ${allocationText}`,
+      impactScorePts,
+      impactRiskPts,
+    });
+  }
+
+  return recommendations.sort((a, b) => (a.priority === b.priority ? 0 : a.priority === "alta" ? -1 : 1));
+}
+
+// ── Validación de consistencia entre KPIs (§S3-C) ────────────────────────────
+// Corre ANTES de responder el bundle de Analytics. Si algo falla: se registra
+// en AnalyticsAuditLog con timestamp y detalle (kind: "validation_failure") —
+// el endpoint decide, según el rol del viewer, si expone `validationWarnings`
+// (solo Administrador) o lo oculta por completo al usuario final.
+
+export type ValidationFailure = { rule: string; detail: string };
+
+export async function validateAnalyticsConsistency(
+  userId: string,
+  inputs: {
+    healthScore: HealthScoreResult;
+    prediction: Prediction;
+    capacity: { disponible: number; baseFuturaTotal: number; comprometidoFuturo: number };
+  },
+  now: Date = new Date()
+): Promise<ValidationFailure[]> {
+  const failures: ValidationFailure[] = [];
+
+  // Capacidad disponible ≤ base restante del período.
+  if (inputs.capacity.disponible > inputs.capacity.baseFuturaTotal + 0.01) {
+    failures.push({ rule: "capacidad_excede_base", detail: `Disponible (${inputs.capacity.disponible}h) > base futura (${inputs.capacity.baseFuturaTotal}h)` });
+  }
+  // Horas comprometidas ≥ 0.
+  if (inputs.capacity.comprometidoFuturo < 0) {
+    failures.push({ rule: "comprometido_negativo", detail: `Comprometido futuro negativo (${inputs.capacity.comprometidoFuturo}h)` });
+  }
+  // Score = suma ponderada exacta de sus factores.
+  const sumFactors = Math.round(inputs.healthScore.factors.reduce((s, f) => s + f.points, 0) * 100) / 100;
+  if (Math.abs(sumFactors - inputs.healthScore.score) > 0.5) {
+    failures.push({ rule: "score_no_coincide", detail: `Suma de factores (${sumFactors}) ≠ score (${inputs.healthScore.score})` });
+  }
+  // Predicción siempre con nivel de confianza y cantidad de datos cuando está disponible.
+  if (inputs.prediction.available && (!inputs.prediction.confidence || inputs.prediction.weeksOfData <= 0)) {
+    failures.push({ rule: "prediccion_incompleta", detail: "Predicción disponible sin confianza o sin semanas de datos" });
+  }
+  // Ningún valor calculado es NaN/Infinity.
+  const numericValues = [
+    inputs.capacity.disponible,
+    inputs.capacity.baseFuturaTotal,
+    inputs.capacity.comprometidoFuturo,
+    inputs.healthScore.score,
+    ...(inputs.prediction.available ? [inputs.prediction.confidencePct, inputs.prediction.cumplimientoEstimadoCierreMes] : []),
+  ];
+  if (numericValues.some((n) => !Number.isFinite(n))) {
+    failures.push({ rule: "valor_no_finito", detail: "Se detectó NaN o Infinity en un valor calculado" });
+  }
+
+  diagnostics.validationsRun++;
+  if (failures.length > 0) {
+    diagnostics.validationsFailed++;
+    const today = businessCalendarDay(now);
+    await auditCalculation(
+      userId,
+      "validation_failure",
+      monthKey(today.getUTCFullYear(), today.getUTCMonth() + 1),
+      {},
+      { failures, detectedAt: now.toISOString() }
+    );
+  }
+
+  return failures;
+}
+
+/** Checks 1/2/6 de §S3-C — específicos de cumplimiento general vs. por prioridad (ver Sprint 1 § S1-A). */
+export async function validateCumplimientoConsistency(
+  userId: string,
+  cumplimientoGeneral: { total: number; pct: number },
+  priorityCompliance: Array<{ priority: string; total: number; pct: number }>,
+  now: Date = new Date()
+): Promise<ValidationFailure[]> {
+  const failures: ValidationFailure[] = [];
+
+  const sumPriorityTotals = priorityCompliance.reduce((s, p) => s + p.total, 0);
+  if (sumPriorityTotals !== cumplimientoGeneral.total) {
+    failures.push({ rule: "suma_prioridad_total", detail: `Suma por prioridad (${sumPriorityTotals}) ≠ total (${cumplimientoGeneral.total})` });
+  }
+  if (sumPriorityTotals > 0) {
+    const weighted = priorityCompliance.reduce((s, p) => s + p.pct * p.total, 0) / sumPriorityTotals;
+    if (Math.abs(weighted - cumplimientoGeneral.pct) > 15) {
+      failures.push({ rule: "cumplimiento_incoherente", detail: `Ponderado por prioridad (${Math.round(weighted)}%) muy distinto del general (${cumplimientoGeneral.pct}%)` });
+    }
+  }
+  if (cumplimientoGeneral.pct > 100) failures.push({ rule: "cumplimiento_excede_100", detail: `Cumplimiento general ${cumplimientoGeneral.pct}%` });
+  for (const p of priorityCompliance) {
+    if (p.pct > 100) failures.push({ rule: "cumplimiento_prioridad_excede_100", detail: `${p.priority}: ${p.pct}%` });
+  }
+
+  diagnostics.validationsRun++;
+  if (failures.length > 0) {
+    diagnostics.validationsFailed++;
+    const today = businessCalendarDay(now);
+    await auditCalculation(
+      userId,
+      "validation_failure",
+      monthKey(today.getUTCFullYear(), today.getUTCMonth() + 1),
+      {},
+      { failures, detectedAt: now.toISOString() }
+    );
+  }
+
+  return failures;
+}
+
+// ── Pipeline único del motor (§Sprint 4 S4-F) ────────────────────────────────
+// Todo cálculo del bundle individual de Analytics sigue exactamente este
+// orden — no alterar:
+//   1. Leer datos       → cada compute* hace sus propias consultas
+//   2. Validar calidad  → computeDataQuality primero
+//   3. Calcular KPIs    → prioridad alta primero (§S4-G): Salud/Carga/
+//                         Cumplimiento/Capacidad ya viven dentro de
+//                         computeHealthScore; luego prioridad media en
+//                         paralelo (consistencia, tendencias, predicción)
+//   4. Validar consistencia matemática → validateAnalyticsConsistency
+//   5. Detectar anomalías              → detectAnomalies
+//   6. Generar recomendaciones         → computeAlerts + su historial resuelto
+//   7. Guardar en caché  → lo hace el caller envolviendo esta función en cached()
+//   8. Renderizar        → responsabilidad del endpoint/componente, no del motor
+export type AnalyticsPipelineResult = {
+  dataQuality: DataQualityResult;
+  healthScore: HealthScoreResult;
+  consistency: ConsistencyResult;
+  trends: KpiTrends;
+  prediction: Prediction;
+  anomalies: AnomalyResult;
+  alerts: EngineAlert[];
+  alertsHistory: ResolvedAlert[];
+  validationFailures: ValidationFailure[];
+};
+
+export async function runAnalyticsPipeline(userId: string, now: Date = new Date()): Promise<AnalyticsPipelineResult> {
+  // 1+2. Leer datos y validar su calidad ANTES de calcular ningún KPI.
+  const dataQuality = await computeDataQuality([userId]);
+
+  // 3. Calcular KPIs — prioridad alta (Salud, que compone Carga/Cumplimiento/
+  // Capacidad) primero; prioridad media en paralelo a continuación.
+  const healthScore = await computeHealthScore(userId, now);
+  const [consistency, trends, prediction] = await Promise.all([
+    computeConsistency(userId, now),
+    computeTrends(userId, now),
+    computePrediction(userId, now),
+  ]);
+
+  // 4. Validar consistencia matemática entre los KPIs recién calculados.
+  const capacity = await computeCapacityForecast(userId, now);
+  const validationFailures = await validateAnalyticsConsistency(userId, { healthScore, prediction, capacity }, now);
+
+  // 5. Detectar anomalías respecto al historial personal.
+  const anomalies = await detectAnomalies(userId, now);
+
+  // 6. Generar recomendaciones (a nivel individual: alertas automáticas + su historial resuelto).
+  const alerts = await computeAlerts(userId, now);
+  const alertsHistory = alerts.length === 0 ? await getResolvedAlertsHistory(userId, alerts, now) : [];
+
+  return { dataQuality, healthScore, consistency, trends, prediction, anomalies, alerts, alertsHistory, validationFailures };
 }

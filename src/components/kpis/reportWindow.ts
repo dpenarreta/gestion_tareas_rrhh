@@ -22,7 +22,7 @@ export async function fetchAnalyticsExportMeta(userId: string): Promise<string> 
       hour: "2-digit",
       minute: "2-digit",
     });
-    const confidence = data.prediction?.available ? ` &bull; Confianza de predicción: ${data.prediction.confidence}` : "";
+    const confidence = data.prediction?.available ? ` &bull; Confianza de predicción: ${data.prediction.confidencePct}%` : "";
     return ` &bull; Analytics Engine v${data.engineVersion} &bull; Generado: ${generatedAt} &bull; Calidad de datos: ${data.dataQuality.pct}%${confidence}`;
   } catch {
     return "";

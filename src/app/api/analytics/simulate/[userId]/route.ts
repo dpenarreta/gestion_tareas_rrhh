@@ -6,7 +6,7 @@ import { businessCalendarDay } from "@/lib/businessTime";
 import { monthlyBusinessBase, computeWorkloadRange, computeWorkloadPct, computeCargaTiempo } from "@/lib/workload";
 import { computeCapacityForecast, classifyCapacity } from "@/lib/capacityForecast";
 import { getEffectiveHorasEfectivas } from "@/lib/systemConfig";
-import { computeHealthScore, computeMonthlyHistory } from "@/lib/analytics";
+import { computeHealthScore, computeMonthlyHistory, capacityToScore, cargaHealthScore } from "@/lib/analytics";
 import type { WorkloadColor, WorkloadLabel } from "@/components/kpis/types";
 
 type Ctx = { params: Promise<{ userId: string }> };
@@ -99,18 +99,9 @@ export async function POST(request: Request, ctx: Ctx) {
   const cargaFactor = healthScore.factors.find((f) => f.name === "Carga laboral")!;
   const otherFactorsPoints = healthScore.factors.filter((f) => f.name !== "Capacidad futura" && f.name !== "Carga laboral").reduce((s, f) => s + f.points, 0);
 
-  function capacityScoreFor(estado: string, disponiblePct: number): number {
-    if (estado === "alta" || estado === "limitada" || estado === "sin-planificacion") return estado === "alta" ? 100 : 70;
-    return disponiblePct < 0 ? 0 : 40;
-  }
-  function cargaScoreFor(realHours: number, baseHours: number, limitHighHours: number, limitOverloadHours: number): number {
-    if (baseHours <= 0) return 100;
-    if (realHours >= baseHours && realHours <= limitHighHours) return 100;
-    if (realHours < baseHours) return Math.round(Math.max(0, Math.min(100, (realHours / baseHours) * 100)));
-    const overBy = realHours - limitHighHours;
-    const span = Math.max((limitOverloadHours - limitHighHours) * 2, 1);
-    return Math.round(Math.max(0, 100 - (overBy / span) * 100));
-  }
+  // Reutiliza las MISMAS funciones del motor (capacityToScore/cargaHealthScore
+  // en analytics.ts) — antes había copias locales que podían desincronizarse
+  // (ver Sprint 4 § S4-B single source of truth).
   function recombinePoints(newCapacityPoints: number, newCargaPoints: number): { score: number; classification: string } {
     const score = Math.round((otherFactorsPoints + newCapacityPoints + newCargaPoints) * 100) / 100;
     const classification = score >= 90 ? "Excelente" : score >= 75 ? "Bueno" : score >= 60 ? "Riesgo" : "Crítico";
@@ -126,7 +117,7 @@ export async function POST(request: Request, ctx: Ctx) {
     const newDisponible = Math.round((capacity.disponible - body.hours) * 100) / 100;
     const newDisponiblePct = capacity.baseFuturaTotal > 0 ? Math.round((newDisponible / capacity.baseFuturaTotal) * 100) : 0;
     const cls = classifyCapacity(newDisponible, capacity.baseFuturaTotal, newDisponiblePct);
-    const newCapacityScore = capacityScoreFor(cls.estado, newDisponiblePct);
+    const newCapacityScore = capacityToScore(cls.estado, newDisponiblePct);
     // La carga laboral (horas ya trabajadas este mes) no cambia al asignar una
     // tarea nueva todavía sin iniciar — se conserva el puntaje de carga actual.
     const { score, classification } = recombinePoints(pointsFor(newCapacityScore, capacityFactor.weight), cargaFactor.points);
@@ -151,8 +142,8 @@ export async function POST(request: Request, ctx: Ctx) {
     const newDisponiblePct = newBaseFuturaTotal > 0 ? Math.round((newDisponible / newBaseFuturaTotal) * 100) : 0;
     const cls = classifyCapacity(newDisponible, newBaseFuturaTotal, newDisponiblePct);
 
-    const newCargaScore = cargaScoreFor(cargaTiempo.mensual.realHours, newBaseHours, newLimitHigh, newLimitOverload);
-    const newCapacityScore = capacityScoreFor(cls.estado, newDisponiblePct);
+    const newCargaScore = cargaHealthScore(cargaTiempo.mensual.realHours, newBaseHours, newLimitHigh, newLimitOverload);
+    const newCapacityScore = capacityToScore(cls.estado, newDisponiblePct);
     const { score, classification } = recombinePoints(pointsFor(newCapacityScore, capacityFactor.weight), pointsFor(newCargaScore, cargaFactor.weight));
 
     after = {
@@ -171,7 +162,7 @@ export async function POST(request: Request, ctx: Ctx) {
     const newDisponible = Math.round((newBaseFuturaTotal - capacity.comprometidoFuturo) * 100) / 100;
     const newDisponiblePct = newBaseFuturaTotal > 0 ? Math.round((newDisponible / newBaseFuturaTotal) * 100) : 0;
     const cls = classifyCapacity(newDisponible, newBaseFuturaTotal, newDisponiblePct);
-    const newCapacityScore = capacityScoreFor(cls.estado, newDisponiblePct);
+    const newCapacityScore = capacityToScore(cls.estado, newDisponiblePct);
     // Las vacaciones futuras no modifican las horas ya trabajadas este mes — el puntaje de carga se conserva.
     const { score, classification } = recombinePoints(pointsFor(newCapacityScore, capacityFactor.weight), cargaFactor.points);
     after = {
@@ -194,8 +185,8 @@ export async function POST(request: Request, ctx: Ctx) {
     const newDisponiblePct = newBaseFuturaTotal > 0 ? Math.round((newDisponible / newBaseFuturaTotal) * 100) : 0;
     const cls = classifyCapacity(newDisponible, newBaseFuturaTotal, newDisponiblePct);
 
-    const newCargaScore = cargaScoreFor(cargaTiempo.mensual.realHours, newBaseHours, newLimitHigh, newLimitOverload);
-    const newCapacityScore = capacityScoreFor(cls.estado, newDisponiblePct);
+    const newCargaScore = cargaHealthScore(cargaTiempo.mensual.realHours, newBaseHours, newLimitHigh, newLimitOverload);
+    const newCapacityScore = capacityToScore(cls.estado, newDisponiblePct);
     const { score, classification } = recombinePoints(pointsFor(newCapacityScore, capacityFactor.weight), pointsFor(newCargaScore, cargaFactor.weight));
 
     after = {

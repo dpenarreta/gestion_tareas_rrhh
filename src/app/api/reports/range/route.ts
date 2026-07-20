@@ -5,6 +5,7 @@ import { canAccessReports, ROLE_LABEL } from "@/lib/roles";
 import { isTaskOverdue } from "@/lib/utils";
 import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
+import { computeSimpleScore } from "@/lib/analytics";
 import Groq from "groq-sdk";
 import type { Role } from "@/generated/prisma/client";
 import type { MonthSnapshot, RangeReportData, ReportMemberKpi } from "@/components/kpis/types";
@@ -274,11 +275,7 @@ export async function GET(request: NextRequest) {
             ? Math.round(inProgress.reduce((s, t) => s + t.progress, 0) / inProgress.length)
             : 0;
         const overdue = tasks.filter((t) => isTaskOverdue(t.endDate, t.status, refDate)).length;
-        const score = Math.round(
-          (completedPct / 100) * 40 +
-            Math.max(0, 20 - Math.max(0, cargaPct - 100) * 0.5) +
-            (avgProgress / 100) * 20,
-        );
+        const score = computeSimpleScore(completedPct, cargaPct, avgProgress);
         return {
           id: user.id,
           name: user.name,

@@ -4,6 +4,7 @@ import { getSession } from "@/lib/session";
 import { getSubordinateRoles, ROLE_LEVEL } from "@/lib/roles";
 import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct, type MonthlyBusinessBase } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
+import { computeSimpleScore } from "@/lib/analytics";
 import type { ExecutiveDashboardData } from "@/components/kpis/types";
 import type { KpiColor, WorkloadColor, WorkloadLabel } from "@/components/kpis/types";
 
@@ -28,6 +29,7 @@ type MemberMonthKpi = {
   name: string;
   role: string;
   completedPct: number;
+  completed: number;
   cargaPct: number;
   cargaRealHours: number;
   cargaBaseHours: number;
@@ -45,6 +47,7 @@ const EMPTY_RESPONSE: ExecutiveDashboardData = {
   alerts: { lowCumplimiento: [], sobrecarga: [], pendingIdeas: [] },
   ranking: [],
   workload: [],
+  ceo: { estado: "green", estadoLabel: "Sin datos", cambios: [], atender: [] },
 };
 
 export async function GET() {
@@ -140,16 +143,14 @@ export async function GET() {
 
       const inProgress = tasks.filter((t) => t.status === "EN_PROGRESO");
       const avgProgress = inProgress.length > 0 ? Math.round(inProgress.reduce((s, t) => s + t.progress, 0) / inProgress.length) : 0;
-      const scoreC = (completedPct / 100) * 40;
-      const scoreL = Math.max(0, 20 - Math.max(0, cargaPct - 100) * 0.5);
-      const scoreA = (avgProgress / 100) * 20;
-      const score = Math.round(scoreC + scoreL + scoreA);
+      const score = computeSimpleScore(completedPct, cargaPct, avgProgress);
 
       return {
         id: user.id,
         name: user.name,
         role: user.role,
         completedPct,
+        completed,
         cargaPct,
         cargaRealHours,
         cargaBaseHours: userBiz.baseHours,
@@ -205,6 +206,54 @@ export async function GET() {
 
   const workload = current.members.map((m) => ({ id: m.id, name: m.name, realHours: m.cargaRealHours, baseHours: m.cargaBaseHours, color: m.cargaColor }));
 
+  // ── Bloque CEO (§S2-A) ────────────────────────────────────────────────────
+  // Todo derivado de los snapshots mensuales ya calculados arriba — sin
+  // consultas adicionales, sin depender de cookies/sesión (ver Sprint 2 S2-A).
+  const estado: "green" | "yellow" | "red" =
+    current.avgCumplimiento < 60 || sobrecargaCount >= 2
+      ? "red"
+      : current.avgCumplimiento < 80 || sobrecargaCount >= 1 || lowCumplimiento.length >= 1
+        ? "yellow"
+        : "green";
+  const estadoLabel = estado === "red" ? "Crítico" : estado === "yellow" ? "Atención" : "Saludable";
+
+  const cambios: Array<{ text: string; positive: boolean }> = [];
+  if (previous) {
+    cambios.push({ text: `Cumplimiento ${trendDelta >= 0 ? "+" : ""}${trendDelta}%`, positive: trendDelta >= 0 });
+  }
+  for (const m of current.members) {
+    const prevLabel = previousByUser.get(m.id)?.cargaLabel;
+    if (m.cargaLabel === "Sobrecarga" && prevLabel !== "Sobrecarga") {
+      cambios.push({ text: `${m.name} quedó sobrecargado/a`, positive: false });
+    } else if (prevLabel === "Sobrecarga" && m.cargaLabel !== "Sobrecarga") {
+      cambios.push({ text: `${m.name} salió de sobrecarga`, positive: true });
+    }
+  }
+  const rankingWithTrend = ranking.filter((m) => Math.abs(m.scoreTrend) >= 5);
+  const topImprover = rankingWithTrend.filter((m) => m.scoreTrend > 0).sort((a, b) => b.scoreTrend - a.scoreTrend)[0];
+  if (topImprover) cambios.push({ text: `${topImprover.name} mejoró su score +${topImprover.scoreTrend} pts`, positive: true });
+  const topDecliner = rankingWithTrend.filter((m) => m.scoreTrend < 0).sort((a, b) => a.scoreTrend - b.scoreTrend)[0];
+  if (topDecliner) cambios.push({ text: `${topDecliner.name} bajó su score ${topDecliner.scoreTrend} pts`, positive: false });
+  const topCompleter = [...current.members].filter((m) => m.completed >= 3).sort((a, b) => b.completed - a.completed)[0];
+  if (topCompleter) cambios.push({ text: `${topCompleter.name} completó ${topCompleter.completed} tareas este mes`, positive: true });
+
+  const atenderCandidates: Array<{ text: string; severity: number }> = [];
+  for (const a of sobrecargaAlerts) {
+    atenderCandidates.push({ text: `${a.name} — sobrecarga proyectada (${a.value}%)`, severity: 100 + a.value });
+  }
+  for (const a of lowCumplimiento) {
+    const prevPct = previousByUser.get(a.userId)?.completedPct;
+    const declining = prevPct !== undefined && a.value < prevPct;
+    atenderCandidates.push({
+      text: declining ? `${a.name} — cumplimiento en descenso (${a.value}%, antes ${prevPct}%)` : `${a.name} — cumplimiento bajo (${a.value}%)`,
+      severity: 100 - a.value,
+    });
+  }
+  const atender = atenderCandidates
+    .sort((a, b) => b.severity - a.severity)
+    .slice(0, 3)
+    .map(({ text }) => text);
+
   const response: ExecutiveDashboardData = {
     month: current.key,
     overview: {
@@ -220,6 +269,7 @@ export async function GET() {
     alerts: { lowCumplimiento, sobrecarga: sobrecargaAlerts, pendingIdeas },
     ranking,
     workload,
+    ceo: { estado, estadoLabel, cambios: cambios.slice(0, 4), atender },
   };
 
   return NextResponse.json(response);

@@ -9,10 +9,10 @@ import * as XLSX from "xlsx";
 import type { Role } from "@/generated/prisma/client";
 import { ROLE_LABEL } from "@/lib/roles";
 import type { KpiData, KpiColor, WorkloadColor, WorkloadLabel } from "./types";
-import { DonutChart, CumplimientoLineChart, REASON_LABEL } from "./KpiCharts";
+import { DonutChart, CumplimientoLineChart, HistorySparklineList, REASON_LABEL } from "./KpiCharts";
 import WorkloadCard from "./WorkloadCard";
 import { TaskBreakdownCard, PriorityComplianceCard, NovaInsightsCard } from "./InsightCards";
-import { AdvancedAnalyticsPanel } from "./AdvancedAnalytics";
+import { AdvancedAnalyticsPanel, ExplainModal, KpiSectionNav, MaturityStars, maturityFromCount } from "./AdvancedAnalytics";
 import { formatDate } from "@/lib/utils";
 import { hoursToDisplay } from "@/lib/timeFormat";
 import { openReportWindow, fetchAnalyticsExportMeta } from "./reportWindow";
@@ -561,6 +561,7 @@ export default function MyKpisModule({ currentUserId, currentUserName, currentUs
   const [rangeReport, setRangeReport] = useState<PersonalRangeReport | null>(null);
   const [rangeLoading, setRangeLoading] = useState(false);
   const [rangeError, setRangeError] = useState<string | null>(null);
+  const [explainCumplimientoOpen, setExplainCumplimientoOpen] = useState(false);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -683,8 +684,32 @@ export default function MyKpisModule({ currentUserId, currentUserName, currentUs
                 Período: <span className="text-title">{formatMonthLabel(month)}</span>
               </p>
 
+              {kpi.validationWarnings && kpi.validationWarnings.length > 0 && (
+                <div className="rounded-xl border border-warning/30 bg-warning/[.08] px-3.5 py-2.5">
+                  <p className="text-xs font-semibold text-warning mb-1">
+                    ⚠ Solo visible para Administrador — validación de consistencia detectó {kpi.validationWarnings.length} {kpi.validationWarnings.length === 1 ? "problema" : "problemas"}
+                  </p>
+                  <ul className="text-[11px] text-secondary space-y-0.5">
+                    {kpi.validationWarnings.map((f, i) => (
+                      <li key={i}><span className="font-mono text-disabled">{f.rule}</span> — {f.detail}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <KpiSectionNav />
+
               {/* ── 1. Resumen ejecutivo (Hoy/Semana/Mes) ────────────────── */}
-              <WorkloadCard cargaTiempo={kpi.cargaTiempo} />
+              <div id="carga" className="scroll-mt-16">
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <span className="text-[11px] text-disabled uppercase tracking-wider font-medium">Carga laboral</span>
+                  <MaturityStars
+                    level={maturityFromCount(kpi.cargaTiempo.dailyHistory.filter((d) => d.realHours > 0).length)}
+                    title={`Madurez del dato: ${kpi.cargaTiempo.dailyHistory.filter((d) => d.realHours > 0).length} días con registro`}
+                  />
+                </div>
+                <WorkloadCard cargaTiempo={kpi.cargaTiempo} />
+              </div>
 
               {/* Score + Donuts */}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -716,13 +741,27 @@ export default function MyKpisModule({ currentUserId, currentUserName, currentUs
                   )}
                 </div>
 
-                <div className={`rounded-2xl border p-5 flex flex-col items-center gap-3 ${CARD_BG[kpi.cumplimiento.color]}`}>
-                  <p className="text-[11px] text-secondary uppercase tracking-wider font-medium self-start">Cumplimiento</p>
+                <div id="cumplimiento" className={`scroll-mt-16 rounded-2xl border p-5 flex flex-col items-center gap-3 ${CARD_BG[kpi.cumplimiento.color]}`}>
+                  <div className="w-full flex items-center justify-between self-start">
+                    <span className="flex items-center gap-1.5">
+                      <p className="text-[11px] text-secondary uppercase tracking-wider font-medium">Cumplimiento</p>
+                      <MaturityStars
+                        level={maturityFromCount(kpi.cumplimiento.total)}
+                        title={`Madurez del dato: ${kpi.cumplimiento.total} tareas en el período`}
+                      />
+                    </span>
+                    <button
+                      onClick={() => setExplainCumplimientoOpen(true)}
+                      className="text-[11px] font-medium text-primary hover:text-primary-hover"
+                    >
+                      Ver cálculo
+                    </button>
+                  </div>
                   <DonutChart
                     pct={kpi.cumplimiento.completedPct}
                     color={kpi.cumplimiento.color}
                     label={`${kpi.cumplimiento.completedPct}%`}
-                    sublabel={`${kpi.cumplimiento.completed}/${kpi.cumplimiento.total} tareas`}
+                    sublabel={`${kpi.cumplimiento.completedOnTime}/${kpi.cumplimiento.total} a tiempo`}
                   />
                   <div className="w-full space-y-1 text-xs text-main">
                     <div className="flex justify-between">
@@ -762,7 +801,7 @@ export default function MyKpisModule({ currentUserId, currentUserName, currentUs
                   inProgress={kpi.cumplimiento.inProgress}
                   pending={kpi.cumplimiento.pending}
                 />
-                <StatCard label="Completadas" value={kpi.cumplimiento.completed} sub={`${kpi.cumplimiento.completedPct}% del total`} accent />
+                <StatCard label="Completadas" value={kpi.cumplimiento.completed} sub={`${kpi.cumplimiento.completedOnTime} a tiempo (${kpi.cumplimiento.completedPct}%)`} accent />
                 <StatCard
                   label="Vencidas"
                   value={kpi.cumplimiento.overdue}
@@ -788,6 +827,15 @@ export default function MyKpisModule({ currentUserId, currentUserName, currentUs
                 <NovaInsightsCard userId={currentUserId} month={month} />
               </div>
 
+              {explainCumplimientoOpen && (
+                <ExplainModal
+                  title="Cumplimiento"
+                  formula={kpi.cumplimiento.explain.formula}
+                  steps={kpi.cumplimiento.explain.steps}
+                  onClose={() => setExplainCumplimientoOpen(false)}
+                />
+              )}
+
               {/* ── 4. Analytics avanzado: Score de Salud, alertas, tendencias, consistencia, anomalías, predicción ── */}
               <AdvancedAnalyticsPanel userId={currentUserId} />
 
@@ -795,7 +843,10 @@ export default function MyKpisModule({ currentUserId, currentUserName, currentUs
               {kpi.cumplimientoHistory.length > 0 && (
                 <div className="bg-surface rounded-2xl border border-border p-5">
                   <p className="text-[11px] font-semibold text-main uppercase tracking-wider mb-4">Evolución cumplimiento (6 meses)</p>
-                  <CumplimientoLineChart data={kpi.cumplimientoHistory} />
+                  <HistorySparklineList data={kpi.cumplimientoHistory} />
+                  <div className="mt-4 pt-4 border-t border-border">
+                    <CumplimientoLineChart data={kpi.cumplimientoHistory} />
+                  </div>
                 </div>
               )}
 
@@ -847,7 +898,7 @@ export default function MyKpisModule({ currentUserId, currentUserName, currentUs
 
               {/* Task table */}
               {kpi.tasks.length > 0 ? (
-                <div className="bg-surface rounded-2xl border border-border p-5">
+                <div id="tareas" className="scroll-mt-16 bg-surface rounded-2xl border border-border p-5">
                   <h3 className="text-[11px] font-semibold text-main uppercase tracking-wider mb-4">
                     Mis tareas — {formatMonthLabel(month)}
                   </h3>

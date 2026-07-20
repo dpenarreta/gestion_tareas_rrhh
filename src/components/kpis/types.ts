@@ -173,6 +173,7 @@ export type {
 export type AnalyticsBundle = {
   healthScore: import("@/lib/analytics").HealthScoreResult;
   alerts: import("@/lib/analytics").EngineAlert[];
+  alertsHistory: import("@/lib/analytics").ResolvedAlert[];
   trends: import("@/lib/analytics").KpiTrends;
   consistency: import("@/lib/analytics").ConsistencyResult;
   anomalies: import("@/lib/analytics").AnomalyResult;
@@ -180,6 +181,10 @@ export type AnalyticsBundle = {
   dataQuality: import("@/lib/analytics").DataQualityResult;
   engineVersion: string;
   lastUpdated: string;
+  /** true si esta respuesta vino del caché en memoria (TTL configurable) en vez de recalcularse — ver Sprint 2 § S2-G. */
+  cacheActive: boolean;
+  /** Solo presente para Administrador cuando la validación de consistencia (§S3-C) detecta un problema. */
+  validationWarnings?: import("@/lib/analytics").ValidationFailure[];
 };
 
 /** Fila de /api/kpis/team-capacity — ver Analytics § Capacidad para asumir nuevas tareas. */
@@ -394,6 +399,13 @@ export type ExecutiveDashboardData = {
   };
   ranking: ExecutiveRankingMember[];
   workload: ExecutiveWorkloadPoint[];
+  /** Resumen ejecutivo determinístico en cabecera — ver Sprint 2 § S2-A. Groq no interviene aquí. */
+  ceo: {
+    estado: KpiColor;
+    estadoLabel: string;
+    cambios: Array<{ text: string; positive: boolean }>;
+    atender: string[];
+  };
 };
 
 export type KpiData = {
@@ -402,6 +414,7 @@ export type KpiData = {
   cumplimiento: {
     total: number;
     completed: number;
+    completedOnTime: number;
     inProgress: number;
     pending: number;
     overdue: number;
@@ -409,6 +422,7 @@ export type KpiData = {
     overduePct: number;
     avgDelayDays: number;
     color: KpiColor;
+    explain: { formula: string; steps: string[] };
   };
   cargaLaboral: {
     estimatedHours: number;
@@ -452,4 +466,6 @@ export type KpiData = {
     totalTasks: number;
     seguimientoTotal: number;
   } | null;
+  /** Solo presente para Administrador cuando la validación de consistencia (§S3-C) detecta un problema. */
+  validationWarnings?: import("@/lib/analytics").ValidationFailure[];
 };

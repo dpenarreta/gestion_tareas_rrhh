@@ -4,6 +4,7 @@ import { getSession } from "@/lib/session";
 import { isTaskOverdue } from "@/lib/utils";
 import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
+import { computeSimpleScore, computeEstimatedVsRealRatio } from "@/lib/analytics";
 
 function monthBounds(year: number, month: number) {
   return {
@@ -128,12 +129,7 @@ export async function GET(request: NextRequest) {
       .filter((t) => t.completedAt! >= start && t.completedAt! <= end)
       .reduce((s, t) => s + t.realHours, 0);
     const totalReal = nonFijaReal + fijaReal;
-    const cargaRatio =
-      totalEstimated > 0
-        ? Math.round((totalReal / totalEstimated) * 100)
-        : totalReal > 0
-          ? 200
-          : 0;
+    const cargaRatio = computeEstimatedVsRealRatio(totalReal, totalEstimated);
 
     const inProgress = tasks.filter((t) => t.status === "EN_PROGRESO");
     const avgProgress =
@@ -141,11 +137,8 @@ export async function GET(request: NextRequest) {
         ? Math.round(inProgress.reduce((s, t) => s + t.progress, 0) / inProgress.length)
         : 0;
 
-    // Simplified score without comment count for bulk range queries
-    const scoreC = (completedPct / 100) * 40;
-    const scoreL = Math.max(0, 20 - Math.max(0, cargaRatio - 100) * 0.5);
-    const scoreA = (avgProgress / 100) * 20;
-    const score = Math.round(scoreC + scoreL + scoreA);
+    // Sin conteo de comentarios en consultas de rango masivas (mismo comportamiento previo).
+    const score = computeSimpleScore(completedPct, cargaRatio, avgProgress);
 
     // Flag if this month had no real deadline tasks
     const overdueCount = tasks.filter((t) => isTaskOverdue(t.endDate, t.status, refDate)).length;

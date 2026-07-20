@@ -191,6 +191,58 @@ export function CumplimientoLineChart({
   );
 }
 
+// ── Historial con sparkline + tendencia (§S2-E) ──────────────────────────────
+// Un sparkline por mes (nivel de bloque Unicode) construido a partir de los
+// valores de cumplimiento de los últimos meses — ya filtrados a "solo meses
+// con datos reales" por el backend (ver Analytics § evolución de cumplimiento).
+
+const SPARK_BLOCKS = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"];
+
+/** Un bloque Unicode por mes, escalado al rango min-max de toda la serie visible. */
+function buildSparkline(values: number[]): string {
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = max - min;
+  return values
+    .map((v) => SPARK_BLOCKS[span === 0 ? 4 : Math.round(((v - min) / span) * (SPARK_BLOCKS.length - 1))])
+    .join("");
+}
+
+function historyRowColor(pct: number): string {
+  if (pct >= 80) return "🟢";
+  if (pct >= 60) return "🟡";
+  return "🔴";
+}
+
+export function HistorySparklineList({ data }: { data: Array<{ month: string; label: string; completedPct: number }> }) {
+  if (data.length === 0) {
+    return <p className="text-sm text-disabled italic">Sin historial suficiente</p>;
+  }
+  const sparkline = buildSparkline(data.map((d) => d.completedPct));
+  return (
+    <div className="space-y-1.5">
+      {data.map((d, i) => {
+        const prev = i > 0 ? data[i - 1].completedPct : null;
+        const trend = prev === null ? "=" : d.completedPct > prev ? "▲" : d.completedPct < prev ? "▼" : "=";
+        const trendColor = trend === "▲" ? "text-success" : trend === "▼" ? "text-danger" : "text-disabled";
+        return (
+          <div key={d.month} className="flex items-center gap-3 text-sm">
+            <span className="shrink-0" aria-hidden>{historyRowColor(d.completedPct)}</span>
+            <span className="w-14 shrink-0 text-secondary">{d.label}</span>
+            <span className="font-mono text-primary tracking-tight shrink-0" aria-hidden>
+              {sparkline.split("").map((ch, ci) => (
+                <span key={ci} className={ci === i ? "text-primary" : "text-disabled/50"}>{ch}</span>
+              ))}
+            </span>
+            <span className={`shrink-0 font-bold ${trendColor}`}>{trend}</span>
+            <span className="ml-auto font-semibold text-main shrink-0">{d.completedPct}%</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 // ── Consultas horizontal bar chart ───────────────────────────────────────────
 
 export function ConsultasBarChart({ data }: { data: KpiData["seguimiento"]["byReason"] }) {

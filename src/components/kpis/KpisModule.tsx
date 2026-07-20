@@ -7,14 +7,15 @@ import type { KpiData, KpiColor, TeamMemberKpi, CapacityMember, CapacitySummary 
 import {
   DonutChart,
   CumplimientoLineChart,
+  HistorySparklineList,
   ConsultasBarChart,
   REASON_LABEL,
 } from "./KpiCharts";
 import MonthlyReports from "./MonthlyReports";
 import WorkloadCard from "./WorkloadCard";
 import { TaskBreakdownCard, NovaInsightsCard, PriorityComplianceCard } from "./InsightCards";
-import { WorkloadBalanceCard, TeamCapacityCard } from "./TeamWorkloadCards";
-import { AdvancedAnalyticsPanel } from "./AdvancedAnalytics";
+import { WorkloadBalanceCard, TeamCapacityCard, TeamRecommendationsCard } from "./TeamWorkloadCards";
+import { AdvancedAnalyticsPanel, ExplainModal, KpiSectionNav, MaturityStars, maturityFromCount } from "./AdvancedAnalytics";
 import OperationalRiskCard, { TeamOperationalRiskCard } from "./OperationalRiskCard";
 import { openReportWindow, fetchAnalyticsExportMeta } from "./reportWindow";
 import * as XLSX from "xlsx";
@@ -436,6 +437,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
   const [kpi, setKpi] = useState<KpiData | null>(null);
   const [kpiLoading, setKpiLoading] = useState(false);
   const [kpiFading, setKpiFading] = useState(false);
+  const [explainCumplimientoOpen, setExplainCumplimientoOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   // ── Fetch team ─────────────────────────────────────────────────────────────
@@ -610,6 +612,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
       </div>
 
       <TeamOperationalRiskCard currentUserRole={currentUserRole} />
+      <TeamRecommendationsCard currentUserRole={currentUserRole} />
 
       {/* ── Two-panel layout ─────────────────────────────────────────────── */}
       <div className="flex flex-col lg:flex-row gap-5 items-stretch lg:items-start">
@@ -692,8 +695,32 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
                 </div>
               </div>
 
+              {kpi.validationWarnings && kpi.validationWarnings.length > 0 && (
+                <div className="rounded-xl border border-warning/30 bg-warning/[.08] px-3.5 py-2.5">
+                  <p className="text-xs font-semibold text-warning mb-1">
+                    ⚠ Solo visible para Administrador — validación de consistencia detectó {kpi.validationWarnings.length} {kpi.validationWarnings.length === 1 ? "problema" : "problemas"}
+                  </p>
+                  <ul className="text-[11px] text-secondary space-y-0.5">
+                    {kpi.validationWarnings.map((f, i) => (
+                      <li key={i}><span className="font-mono text-disabled">{f.rule}</span> — {f.detail}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <KpiSectionNav />
+
               {/* ── 1. Resumen ejecutivo (Hoy/Semana/Mes) ────────────────── */}
-              <WorkloadCard cargaTiempo={kpi.cargaTiempo} />
+              <div id="carga" className="scroll-mt-16">
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <span className="text-[11px] text-disabled uppercase tracking-wider font-medium">Carga laboral</span>
+                  <MaturityStars
+                    level={maturityFromCount(kpi.cargaTiempo.dailyHistory.filter((d) => d.realHours > 0).length)}
+                    title={`Madurez del dato: ${kpi.cargaTiempo.dailyHistory.filter((d) => d.realHours > 0).length} días con registro`}
+                  />
+                </div>
+                <WorkloadCard cargaTiempo={kpi.cargaTiempo} />
+              </div>
 
               {/* ── 2. KPIs principales ───────────────────────────────────── */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -742,14 +769,30 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
               </div>
 
               {/* Donuts + Cumplimiento por prioridad */}
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-                <Section title="Indicadores">
+              <div id="cumplimiento" className="scroll-mt-16 grid grid-cols-1 lg:grid-cols-2 gap-5">
+                <Section
+                  title="Indicadores"
+                  action={
+                    <span className="flex items-center gap-2">
+                      <MaturityStars
+                        level={maturityFromCount(kpi.cumplimiento.total)}
+                        title={`Madurez del dato: ${kpi.cumplimiento.total} tareas en el período`}
+                      />
+                      <button
+                        onClick={() => setExplainCumplimientoOpen(true)}
+                        className="text-[11px] font-medium text-primary hover:text-primary-hover"
+                      >
+                        Ver cálculo
+                      </button>
+                    </span>
+                  }
+                >
                   <div className="flex items-center justify-around py-3">
                     <DonutChart
                       pct={kpi.cumplimiento.completedPct}
                       color={kpi.cumplimiento.color}
                       label="Cumplimiento"
-                      sublabel={`${kpi.cumplimiento.completed}/${kpi.cumplimiento.total} tareas`}
+                      sublabel={`${kpi.cumplimiento.completedOnTime}/${kpi.cumplimiento.total} a tiempo`}
                     />
                     <div className="w-px h-24 bg-border" />
                     <DonutChart
@@ -771,6 +814,15 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
                 <PriorityComplianceCard data={kpi.cumplimientoPorPrioridad} />
               </div>
 
+              {explainCumplimientoOpen && (
+                <ExplainModal
+                  title="Cumplimiento"
+                  formula={kpi.cumplimiento.explain.formula}
+                  steps={kpi.cumplimiento.explain.steps}
+                  onClose={() => setExplainCumplimientoOpen(false)}
+                />
+              )}
+
               {/* ── 3. Insights de Nova ─────────────────────────────────────── */}
               <NovaInsightsCard userId={kpi.user.id} month={month} />
 
@@ -782,7 +834,10 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
 
               {/* ── 5. Tendencias ──────────────────────────────────────────── */}
               <Section title="Evolución del cumplimiento – últimos 6 meses">
-                <CumplimientoLineChart data={kpi.cumplimientoHistory} />
+                <HistorySparklineList data={kpi.cumplimientoHistory} />
+                <div className="mt-4 pt-4 border-t border-border">
+                  <CumplimientoLineChart data={kpi.cumplimientoHistory} />
+                </div>
                 <div className="flex items-center gap-4 mt-2">
                   <div className="flex items-center gap-1.5 text-[11px] text-secondary">
                     <div className="w-6 h-0.5 bg-success border-dashed border-t-2 border-success" />
@@ -832,6 +887,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
               </div>
 
               {/* ── Tasks table ───────────────────────────────────────────── */}
+              <div id="tareas" className="scroll-mt-16">
               <Section
                 title={`Detalle de tareas del período (${kpi.tasks.length})`}
               >
@@ -904,6 +960,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
                   </div>
                 )}
               </Section>
+              </div>
             </div>
           )}
 

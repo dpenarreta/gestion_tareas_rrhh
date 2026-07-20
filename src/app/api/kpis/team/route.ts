@@ -5,6 +5,7 @@ import { canViewTeam, getSubordinateRoles } from "@/lib/roles";
 import { isTaskOverdue } from "@/lib/utils";
 import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct, type MonthlyBusinessBase } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
+import { computeSimpleScore, computeEstimatedVsRealRatio } from "@/lib/analytics";
 import type { KpiColor } from "@/components/kpis/types";
 
 function monthBounds(year: number, month: number) {
@@ -97,12 +98,7 @@ export async function GET(request: NextRequest) {
       tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0;
     const totalEst = tasks.reduce((s, t) => s + t.estimatedHours, 0);
     const totalReal = tasks.reduce((s, t) => s + t.realHours, 0);
-    const cargaRatio =
-      totalEst > 0
-        ? Math.round((totalReal / totalEst) * 100)
-        : totalReal > 0
-          ? 200
-          : 0;
+    const cargaRatio = computeEstimatedVsRealRatio(totalReal, totalEst);
     const inProgress = tasks.filter((t) => t.status === "EN_PROGRESO");
     const avgProgress =
       inProgress.length > 0
@@ -112,11 +108,7 @@ export async function GET(request: NextRequest) {
         : 0;
     const comments = commentMap[sub.id] ?? 0;
 
-    const scoreC = (completedPct / 100) * 40;
-    const scoreL = Math.max(0, 20 - Math.max(0, cargaRatio - 100) * 0.5);
-    const scoreA = (avgProgress / 100) * 20;
-    const scoreAct = Math.min(1, comments / 10) * 20;
-    const score = Math.round(scoreC + scoreL + scoreA + scoreAct);
+    const score = computeSimpleScore(completedPct, cargaRatio, avgProgress, comments);
 
     const color: KpiColor =
       completedPct >= 80 ? "green" : completedPct >= 60 ? "yellow" : "red";

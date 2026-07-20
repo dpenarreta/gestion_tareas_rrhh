@@ -5,7 +5,8 @@ import { getVisibleRoles } from "@/lib/roles";
 import { isTaskOverdue } from "@/lib/utils";
 import { computeCargaTiempo, computeCargaHistory, redactSensitiveWorkloadDetail } from "@/lib/workload";
 import { computeRiskAlerts } from "@/lib/riskAlerts";
-import { computePriorityCompliance } from "@/lib/priorityCompliance";
+import { computePriorityCompliance, isCompletedOnTime } from "@/lib/priorityCompliance";
+import { validateCumplimientoConsistency, computeSimpleScore, computeEstimatedVsRealRatio } from "@/lib/analytics";
 import type { KpiColor } from "@/components/kpis/types";
 
 function cumplimientoColor(pct: number): KpiColor {
@@ -88,12 +89,18 @@ export async function GET(request: NextRequest, ctx: Ctx) {
   });
 
   // ── Cumplimiento ──────────────────────────────────────────────────────────
+  // "Cumplimiento" = % completado A TIEMPO (isCompletedOnTime), misma definición
+  // que cumplimientoPorPrioridad — ver Analytics § Sprint 1 (cumplimiento por
+  // prioridad inconsistente con el general). `completed` (status COMPLETADA,
+  // sin importar si fue a tiempo) se conserva aparte para el desglose de
+  // estados de tarea (completed+inProgress+pending = total).
   const completed = tasks.filter((t) => t.status === "COMPLETADA");
+  const completedOnTime = tasks.filter(isCompletedOnTime);
   const inProgressTasks = tasks.filter((t) => t.status === "EN_PROGRESO");
   const pendingTasks = tasks.filter((t) => t.status === "PENDIENTE");
   const overdueTasks = tasks.filter((t) => isTaskOverdue(t.endDate, t.status, refDate));
   const completedPct =
-    tasks.length > 0 ? Math.round((completed.length / tasks.length) * 100) : 0;
+    tasks.length > 0 ? Math.round((completedOnTime.length / tasks.length) * 100) : 0;
   const overduePct =
     tasks.length > 0 ? Math.round((overdueTasks.length / tasks.length) * 100) : 0;
   const avgDelayDays =
@@ -114,12 +121,7 @@ export async function GET(request: NextRequest, ctx: Ctx) {
   // ── Carga laboral ─────────────────────────────────────────────────────────
   const totalEstimated = tasks.reduce((s, t) => s + t.estimatedHours, 0);
   const totalReal = tasks.reduce((s, t) => s + t.realHours, 0);
-  const cargaRatio =
-    totalEstimated > 0
-      ? Math.round((totalReal / totalEstimated) * 100)
-      : totalReal > 0
-        ? 200
-        : 0;
+  const cargaRatio = computeEstimatedVsRealRatio(totalReal, totalEstimated);
 
   const cumplimientoPorPrioridad = computePriorityCompliance(tasks);
 
@@ -159,11 +161,7 @@ export async function GET(request: NextRequest, ctx: Ctx) {
   const ownTasks = tasks.filter((t) => t.createdById === userId).length;
 
   // ── Score /100 ────────────────────────────────────────────────────────────
-  const scoreC = (completedPct / 100) * 40;
-  const scoreL = Math.max(0, 20 - Math.max(0, cargaRatio - 100) * 0.5);
-  const scoreA = (avgProgress / 100) * 20;
-  const scoreAct = Math.min(1, totalComments / 10) * 20;
-  const score = Math.round(scoreC + scoreL + scoreA + scoreAct);
+  const score = computeSimpleScore(completedPct, cargaRatio, avgProgress, totalComments);
 
   // ── Hours by week ─────────────────────────────────────────────────────────
   const weekMap: Record<number, { estimated: number; real: number }> = {};
@@ -188,11 +186,12 @@ export async function GET(request: NextRequest, ctx: Ctx) {
       assignedToId: userId,
       endDate: { gte: historyStart, lte: end },
     },
-    select: { endDate: true, status: true },
+    select: { endDate: true, status: true, completedAt: true },
   });
 
   // Meses sin ninguna tarea se excluyen del todo (no un 0% engañoso) — ver
-  // Analytics § evolución de cumplimiento.
+  // Analytics § evolución de cumplimiento. Misma definición "a tiempo" que el
+  // cumplimiento del mes actual y por prioridad.
   const cumplimientoHistory = Array.from({ length: 6 }, (_, i) => {
     let m = month - 5 + i;
     let y = year;
@@ -200,7 +199,7 @@ export async function GET(request: NextRequest, ctx: Ctx) {
     while (m > 12) { m -= 12; y++; }
     const { start: hs, end: he } = monthBounds(y, m);
     const mt = historyTasks.filter((t) => t.endDate >= hs && t.endDate <= he);
-    const mc = mt.filter((t) => t.status === "COMPLETADA").length;
+    const mc = mt.filter(isCompletedOnTime).length;
     const pct = mt.length > 0 ? Math.round((mc / mt.length) * 100) : 0;
     const label = new Date(y, m - 1, 1).toLocaleDateString("es-CL", {
       month: "short",
@@ -218,18 +217,26 @@ export async function GET(request: NextRequest, ctx: Ctx) {
   const [prevTasks, prevActivities] = await Promise.all([
     prisma.task.findMany({
       where: { assignedToId: userId, endDate: { gte: ps, lte: pe } },
-      select: { status: true, estimatedHours: true, realHours: true },
+      select: { status: true, estimatedHours: true, realHours: true, completedAt: true, endDate: true },
     }),
     prisma.taskActivity.count({
       where: { authorId: userId, createdAt: { gte: ps, lte: pe } },
     }),
   ]);
-  const prevCompleted = prevTasks.filter((t) => t.status === "COMPLETADA").length;
+  const prevCompleted = prevTasks.filter(isCompletedOnTime).length;
   const prevPct =
     prevTasks.length > 0 ? Math.round((prevCompleted / prevTasks.length) * 100) : 0;
   const prevEst = prevTasks.reduce((s, t) => s + t.estimatedHours, 0);
   const prevReal = prevTasks.reduce((s, t) => s + t.realHours, 0);
   const prevCarga = prevEst > 0 ? Math.round((prevReal / prevEst) * 100) : 0;
+
+  // Validación de consistencia (§S3-C) — solo el Administrador ve el detalle;
+  // para cualquier otro viewer se registra en auditoría y se oculta.
+  const validationFailures = await validateCumplimientoConsistency(
+    userId,
+    { total: tasks.length, pct: completedPct },
+    cumplimientoPorPrioridad
+  );
 
   return NextResponse.json({
     user: { id: targetUser.id, name: targetUser.name, role: targetUser.role },
@@ -237,6 +244,7 @@ export async function GET(request: NextRequest, ctx: Ctx) {
     cumplimiento: {
       total: tasks.length,
       completed: completed.length,
+      completedOnTime: completedOnTime.length,
       inProgress: inProgressTasks.length,
       pending: pendingTasks.length,
       overdue: overdueTasks.length,
@@ -244,6 +252,15 @@ export async function GET(request: NextRequest, ctx: Ctx) {
       overduePct,
       avgDelayDays,
       color: cumplimientoColor(completedPct),
+      explain: {
+        formula: "completadas_a_tiempo / total_tareas × 100",
+        steps: [
+          `Tareas del período: ${tasks.length}`,
+          `Completadas (cualquier momento): ${completed.length}`,
+          `Completadas a tiempo (completedAt ≤ endDate): ${completedOnTime.length}`,
+          `Cumplimiento = ${completedOnTime.length} / ${tasks.length} = ${completedPct}%`,
+        ],
+      },
     },
     cargaLaboral: {
       estimatedHours: Math.round(totalEstimated * 100) / 100,
@@ -291,5 +308,6 @@ export async function GET(request: NextRequest, ctx: Ctx) {
       totalTasks: prevTasks.length,
       seguimientoTotal: prevActivities,
     },
+    ...(session.role === "ADMINISTRADOR" && validationFailures.length > 0 ? { validationWarnings: validationFailures } : {}),
   });
 }

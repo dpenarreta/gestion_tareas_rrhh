@@ -6,6 +6,7 @@ import { isTaskOverdue } from "@/lib/utils";
 import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
 import { getActivityReasonLabelMap } from "@/lib/activityReasons";
+import { computeSimpleScore } from "@/lib/analytics";
 import Groq from "groq-sdk";
 import type { Role, ReportScope } from "@/generated/prisma/client";
 import type { KpiColor, WorkloadLabel } from "@/components/kpis/types";
@@ -276,12 +277,8 @@ export async function POST(request: NextRequest) {
     const recurring = tasks.filter((t) => recurringFreqs.includes(t.frequency));
     const recurringCompleted = recurring.filter((t) => t.status === "COMPLETADA").length;
 
-    // Score (same formula as individual route)
-    const scoreC = (completedPct / 100) * 40;
-    const scoreL = Math.max(0, 20 - Math.max(0, cargaPct - 100) * 0.5);
-    const scoreA = (avgProgress / 100) * 20;
-    // For consolidated, we skip comment scoring since it varies per context
-    const score = Math.round(scoreC + scoreL + scoreA);
+    // Sin conteo de comentarios en el consolidado (varía según contexto, igual que antes).
+    const score = computeSimpleScore(completedPct, cargaPct, avgProgress);
 
     const userActivities = allActivities.filter((a) => a.authorId === user.id);
     const byReasonMap: Record<string, { count: number; totalMinutes: number }> = {};

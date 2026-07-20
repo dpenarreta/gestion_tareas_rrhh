@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import type { Role } from "@/generated/prisma/client";
 import { canViewOperationalRisk } from "@/lib/roles";
+import { isFeatureEnabled } from "@/lib/featureFlags";
 import type { OperationalRiskResult } from "./types";
 import { ExplainModal } from "./AdvancedAnalytics";
 
@@ -23,7 +24,7 @@ export default function OperationalRiskCard({ userId, currentUserRole }: { userI
   const [error, setError] = useState(false);
   const [explainOpen, setExplainOpen] = useState(false);
 
-  const canView = canViewOperationalRisk(currentUserRole);
+  const canView = canViewOperationalRisk(currentUserRole) && isFeatureEnabled("enableOperationalRisk");
 
   useEffect(() => {
     if (!canView) return;
@@ -134,7 +135,7 @@ const DOT_CLASS: Record<string, string> = { Bajo: "bg-success", Medio: "bg-warni
 export function TeamOperationalRiskCard({ currentUserRole }: { currentUserRole: Role }) {
   const [data, setData] = useState<TeamResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const canView = canViewOperationalRisk(currentUserRole);
+  const canView = canViewOperationalRisk(currentUserRole) && isFeatureEnabled("enableOperationalRisk");
 
   useEffect(() => {
     if (!canView) return;

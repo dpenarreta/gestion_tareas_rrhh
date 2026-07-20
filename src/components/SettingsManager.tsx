@@ -13,6 +13,7 @@ import SpecialStatusSection from "@/components/settings/SpecialStatusSection";
 import KpiStartDateSection from "@/components/settings/KpiStartDateSection";
 import AnalyticsConfigSection from "@/components/settings/AnalyticsConfigSection";
 import WelcomeMessageSection from "@/components/settings/WelcomeMessageSection";
+import EngineDiagnosticsSection from "@/components/settings/EngineDiagnosticsSection";
 
 type User = {
   id: string;
@@ -759,6 +760,8 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
           </>
         )}
       </SectionCard>
+
+      <EngineDiagnosticsSection />
 
       <SectionCard title="Configuración de Carga Laboral">
         {hoursLoading || hoursPerDay === null ? (
