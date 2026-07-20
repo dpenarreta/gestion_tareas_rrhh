@@ -377,11 +377,36 @@ type TeamRecommendation = {
   text: string;
   impactScorePts: number;
   impactRiskPts: number;
+  affectedCount: number;
+  easeRank: number;
 };
 
+function RecommendationItem({ r }: { r: TeamRecommendation }) {
+  return (
+    <div className={`rounded-xl p-3.5 border ${r.priorityColor === "red" ? "border-danger/30 bg-danger/[.05]" : "border-warning/30 bg-warning/[.06]"}`}>
+      <p className={`text-xs font-bold uppercase tracking-wider mb-1.5 ${r.priorityColor === "red" ? "text-danger" : "text-warning"}`}>
+        {r.priorityColor === "red" ? "🔴" : "🟡"} Prioridad {r.priority === "alta" ? "Alta" : "Media"}
+      </p>
+      <p className="text-sm text-title mb-2">{r.text}</p>
+      <p className="text-[11px] text-secondary">
+        Impacto esperado:{" "}
+        <strong className={r.impactScorePts >= 0 ? "text-success" : "text-danger"}>
+          {r.impactScorePts >= 0 ? "+" : ""}{r.impactScorePts} pts Score
+        </strong>{" "}
+        |{" "}
+        <strong className={r.impactRiskPts <= 0 ? "text-success" : "text-danger"}>
+          {r.impactRiskPts > 0 ? "+" : ""}{r.impactRiskPts} pts Riesgo Operativo
+        </strong>{" "}
+        · {r.affectedCount} {r.affectedCount === 1 ? "colaborador afectado" : "colaboradores afectados"}
+      </p>
+    </div>
+  );
+}
+
 export function TeamRecommendationsCard({ currentUserRole }: { currentUserRole: Role }) {
-  const [recommendations, setRecommendations] = useState<TeamRecommendation[] | null>(null);
+  const [prioritized, setPrioritized] = useState<{ top: TeamRecommendation[]; additional: TeamRecommendation[] } | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showAdditional, setShowAdditional] = useState(false);
   const canView = canViewOperationalRisk(currentUserRole) && isFeatureEnabled("enableRecommendationEngine");
 
   useEffect(() => {
@@ -392,7 +417,7 @@ export function TeamRecommendationsCard({ currentUserRole }: { currentUserRole: 
         const res = await fetch("/api/analytics/recommendations/team");
         if (res.ok && !cancelled) {
           const data = await res.json();
-          setRecommendations(data.recommendations);
+          setPrioritized(data.prioritized ?? { top: data.recommendations ?? [], additional: [] });
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -405,6 +430,8 @@ export function TeamRecommendationsCard({ currentUserRole }: { currentUserRole: 
 
   if (!canView) return null;
 
+  const recommendations = prioritized ? [...prioritized.top, ...prioritized.additional] : null;
+
   return (
     <div className="bg-surface rounded-[14px] border border-border shadow-[var(--shadow)] p-5">
       <h3 className="text-sm font-semibold text-main uppercase tracking-wider mb-3">Recomendaciones — motor determinista</h3>
@@ -416,27 +443,24 @@ export function TeamRecommendationsCard({ currentUserRole }: { currentUserRole: 
         <p className="text-sm text-disabled py-4 text-center">Sin redistribuciones sugeridas — equipo balanceado.</p>
       ) : (
         <div className="space-y-3">
-          {recommendations.map((r, i) => (
-            <div
-              key={i}
-              className={`rounded-xl p-3.5 border ${r.priorityColor === "red" ? "border-danger/30 bg-danger/[.05]" : "border-warning/30 bg-warning/[.06]"}`}
-            >
-              <p className={`text-xs font-bold uppercase tracking-wider mb-1.5 ${r.priorityColor === "red" ? "text-danger" : "text-warning"}`}>
-                {r.priorityColor === "red" ? "🔴" : "🟡"} Prioridad {r.priority === "alta" ? "Alta" : "Media"}
-              </p>
-              <p className="text-sm text-title mb-2">{r.text}</p>
-              <p className="text-[11px] text-secondary">
-                Impacto esperado:{" "}
-                <strong className={r.impactScorePts >= 0 ? "text-success" : "text-danger"}>
-                  {r.impactScorePts >= 0 ? "+" : ""}{r.impactScorePts} pts Score
-                </strong>{" "}
-                |{" "}
-                <strong className={r.impactRiskPts <= 0 ? "text-success" : "text-danger"}>
-                  {r.impactRiskPts > 0 ? "+" : ""}{r.impactRiskPts} pts Riesgo Operativo
-                </strong>
-              </p>
-            </div>
+          {prioritized!.top.map((r, i) => (
+            <RecommendationItem key={i} r={r} />
           ))}
+          {prioritized!.additional.length > 0 && (
+            <div>
+              {!showAdditional ? (
+                <button onClick={() => setShowAdditional(true)} className="text-xs font-medium text-primary hover:text-primary-hover">
+                  Ver recomendaciones adicionales ({prioritized!.additional.length})
+                </button>
+              ) : (
+                <div className="space-y-3 pt-1">
+                  {prioritized!.additional.map((r, i) => (
+                    <RecommendationItem key={i} r={r} />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

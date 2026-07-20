@@ -13,6 +13,7 @@ import { DonutChart, CumplimientoLineChart, HistorySparklineList, REASON_LABEL }
 import WorkloadCard from "./WorkloadCard";
 import { TaskBreakdownCard, PriorityComplianceCard, NovaInsightsCard } from "./InsightCards";
 import { AdvancedAnalyticsPanel, ExplainModal, KpiSectionNav, MaturityStars, maturityFromCount } from "./AdvancedAnalytics";
+import { InsightsPanel } from "./InsightsPanel";
 import { formatDate } from "@/lib/utils";
 import { hoursToDisplay } from "@/lib/timeFormat";
 import { openReportWindow, fetchAnalyticsExportMeta } from "./reportWindow";
@@ -838,6 +839,9 @@ export default function MyKpisModule({ currentUserId, currentUserName, currentUs
 
               {/* ── 4. Analytics avanzado: Score de Salud, alertas, tendencias, consistencia, anomalías, predicción ── */}
               <AdvancedAnalyticsPanel userId={currentUserId} />
+
+              {/* ── Sprint 6: Decision Intelligence Engine ──────────────────── */}
+              <InsightsPanel userId={currentUserId} />
 
               {/* ── 5. Tendencias ─────────────────────────────────────────── */}
               {kpi.cumplimientoHistory.length > 0 && (

@@ -331,6 +331,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-20: feat(analytics): Sprint 6 — Decision Intelligence Engine
 - 2026-07-20: feat(analytics): Sprint 5 — Performance Score, NormalizationEngine y motor v1.3
 - 2026-07-20: feat(analytics): correcciones P0, UX ejecutiva, recomendaciones deterministas y arquitectura del motor
 - 2026-07-20: feat(analytics): motor centralizado determinista - salud laboral, riesgo operativo, alertas, tendencias, predicciones

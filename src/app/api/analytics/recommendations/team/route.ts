@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { getSubordinateRoles, canViewOperationalRisk } from "@/lib/roles";
 import { computeTeamRecommendations, ANALYTICS_ENGINE_VERSION } from "@/lib/analytics";
+import { prioritizeRecommendations } from "@/lib/insightsEngine";
 
 /**
  * Recomendaciones deterministas de redistribución de carga con impacto
@@ -23,6 +24,12 @@ export async function GET() {
   });
 
   const recommendations = await computeTeamRecommendations(subordinates);
+  const { top, additional } = prioritizeRecommendations(recommendations);
 
-  return NextResponse.json({ recommendations, engineVersion: ANALYTICS_ENGINE_VERSION, lastUpdated: new Date().toISOString() });
+  return NextResponse.json({
+    recommendations,
+    prioritized: { top, additional },
+    engineVersion: ANALYTICS_ENGINE_VERSION,
+    lastUpdated: new Date().toISOString(),
+  });
 }

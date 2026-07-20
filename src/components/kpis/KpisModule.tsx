@@ -17,6 +17,7 @@ import { TaskBreakdownCard, NovaInsightsCard, PriorityComplianceCard } from "./I
 import { WorkloadBalanceCard, TeamCapacityCard, TeamRecommendationsCard } from "./TeamWorkloadCards";
 import { AdvancedAnalyticsPanel, ExplainModal, KpiSectionNav, MaturityStars, maturityFromCount } from "./AdvancedAnalytics";
 import OperationalRiskCard, { TeamOperationalRiskCard } from "./OperationalRiskCard";
+import { InsightsPanel } from "./InsightsPanel";
 import { openReportWindow, fetchAnalyticsExportMeta } from "./reportWindow";
 import * as XLSX from "xlsx";
 import { formatDate } from "@/lib/utils";
@@ -831,6 +832,9 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
 
               {/* ── Índice de Riesgo Operativo (gerencia) ───────────────────── */}
               <OperationalRiskCard userId={kpi.user.id} currentUserRole={currentUserRole} />
+
+              {/* ── Sprint 6: Decision Intelligence Engine ──────────────────── */}
+              <InsightsPanel userId={kpi.user.id} />
 
               {/* ── 5. Tendencias ──────────────────────────────────────────── */}
               <Section title="Evolución del cumplimiento – últimos 6 meses">

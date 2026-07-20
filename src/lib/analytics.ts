@@ -198,13 +198,14 @@ function stddev(values: number[]): { mean: number; sd: number; cv: number } {
   return { mean, sd, cv };
 }
 
-function utcWeekStartOf(d: Date): Date {
+/** Exportado para reutilizar el mismo agrupamiento semanal en insightsEngine.ts (§Sprint 6 S6-D, benchmarks personales) — no duplicar esta lógica. */
+export function utcWeekStartOf(d: Date): Date {
   const dow = d.getUTCDay();
   const diff = dow === 0 ? -6 : 1 - dow;
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + diff));
 }
 
-function formatIsoDate(d: Date): string {
+export function formatIsoDate(d: Date): string {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}-${String(d.getUTCDate()).padStart(2, "0")}`;
 }
 
@@ -1379,6 +1380,10 @@ export type TeamRecommendation = {
   text: string;
   impactScorePts: number;
   impactRiskPts: number;
+  /** Personas involucradas (el sobrecargado + cada destino) — usado por la priorización §Sprint 6 S6-H. */
+  affectedCount: number;
+  /** Facilidad de implementación: menos asignaciones destino = más simple de ejecutar. Menor = más fácil. */
+  easeRank: number;
 };
 
 export async function computeTeamRecommendations(
@@ -1438,6 +1443,8 @@ export async function computeTeamRecommendations(
       text: `Redistribuir ${movedTotal}h de ${person.name} entre ${allocationText}`,
       impactScorePts,
       impactRiskPts,
+      affectedCount: allocations.length + 1,
+      easeRank: allocations.length,
     });
   }
 

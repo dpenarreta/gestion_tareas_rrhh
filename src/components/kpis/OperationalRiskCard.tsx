@@ -120,6 +120,13 @@ export default function OperationalRiskCard({ userId, currentUserRole }: { userI
           title="Índice de Riesgo Operativo"
           formula={data.explain.formula}
           steps={data.explain.steps}
+          factors={data.factors.map((f) => ({
+            name: f.name,
+            rawLabel: f.detail,
+            normalizedValue: f.weight > 0 ? Math.round((f.points / f.weight) * 100 * 10) / 10 : 0,
+            weight: f.weight,
+            points: f.points,
+          }))}
           engineVersion={data.engineVersion}
           onClose={() => setExplainOpen(false)}
         />
