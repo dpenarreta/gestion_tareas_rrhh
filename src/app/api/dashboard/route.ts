@@ -7,6 +7,9 @@ import { isTaskOverdue } from "@/lib/utils";
 import { dayBounds, weekBounds, monthBounds } from "@/lib/dateRanges";
 import { getActivityReasonLabelMap } from "@/lib/activityReasons";
 import { getEffectiveWelcomeMessage, getEffectiveWelcomeMessageActive } from "@/lib/systemConfig";
+import { computeCargaTiempo, monthlyBusinessBaseForUsers, computeWorkloadRange } from "@/lib/workload";
+import { computeMonthlyHistory } from "@/lib/analytics";
+import { businessDayRealRange } from "@/lib/businessTime";
 
 function taskStatsForRange(tasks: { status: string; endDate: Date }[], start: Date, end: Date) {
   const inRange = tasks.filter((t) => t.endDate >= start && t.endDate <= end);
@@ -72,15 +75,17 @@ export async function GET() {
   const statsWeek = taskStatsForRange(allWithDates, weekStart, weekEnd);
   const statsMonth = taskStatsForRange(allWithDates, monthStart, monthEnd);
 
-  // Workload % (month)
-  const monthTasks = allWithDates.filter((t) => t.endDate >= monthStart && t.endDate <= monthEnd);
-  const totalEstimated = monthTasks.reduce((s, t) => s + t.estimatedHours, 0);
-  const totalReal = monthTasks.reduce((s, t) => s + t.realHours, 0);
-  const workloadPct = totalEstimated > 0 ? Math.round((totalReal / totalEstimated) * 100) : 0;
-
-  // Cumplimiento del mes
-  const completed = monthTasks.filter((t) => t.status === "COMPLETADA").length;
-  const completedPct = monthTasks.length > 0 ? Math.round((completed / monthTasks.length) * 100) : 0;
+  // Carga laboral y cumplimiento del mes — reutilizan el motor central en vez
+  // de recalcularse aquí (ver Analytics Calculation Registry § D6): antes
+  // "workloadPct" medía horas estimadas vs. reales de las tareas (un concepto
+  // distinto, sin relación con la base laboral) aunque el frontend lo trata
+  // como el semáforo de carga laboral real (workloadLabel en DashboardModule.tsx).
+  const [cargaTiempo, monthlyHistory] = await Promise.all([
+    computeCargaTiempo(session.userId, now),
+    computeMonthlyHistory(session.userId, 1, now),
+  ]);
+  const workloadPct = cargaTiempo.mensual.pct;
+  const completedPct = monthlyHistory[monthlyHistory.length - 1].completedPct;
 
   // Overdue
   const overdue = allMyTasks.filter((t) => isTaskOverdue(t.endDate, t.status, now_)).length;
@@ -173,20 +178,34 @@ export async function GET() {
     .slice(0, 5)
     .map((e) => ({ text: e.text, time: e.time.toISOString() }));
 
-  // Team alerts (for levels 2-4)
+  // Team alerts (for levels 2-4) — quién está en Carga elevada/Sobrecarga este
+  // mes, según el mismo semáforo de 5 zonas usado en todo el resto de la app
+  // (computeWorkloadRange), en vez del ratio estimado/real de tareas (ver
+  // Analytics Calculation Registry § D6). Mismo patrón que
+  // /api/kpis/executive: base laboral por usuario en bloque (sin N+1) +
+  // horas reales desde tareas FIJA completadas y actividades del mes.
   let teamAlerts = 0;
   if (ROLE_LEVEL[session.role] >= 2 && visibleIds.length > 0) {
-    const teamTasks = await prisma.task.findMany({
-      where: { assignedToId: { in: visibleIds }, endDate: { gte: monthStart, lte: monthEnd } },
-      select: { assignedToId: true, estimatedHours: true, realHours: true },
-    });
-    const byUser = new Map<string, { est: number; real: number }>();
-    for (const t of teamTasks) {
-      const cur = byUser.get(t.assignedToId) ?? { est: 0, real: 0 };
-      byUser.set(t.assignedToId, { est: cur.est + t.estimatedHours, real: cur.real + t.realHours });
-    }
-    for (const { est, real } of byUser.values()) {
-      if (est > 0 && real / est > 1) teamAlerts++;
+    const { shared, perUser } = await monthlyBusinessBaseForUsers(visibleIds, now.getFullYear(), now.getMonth() + 1);
+    const { start: realStart } = businessDayRealRange(shared.start);
+    const { end: realEnd } = businessDayRealRange(shared.end);
+    const [fijaTasksForCarga, activitiesForCarga] = await Promise.all([
+      prisma.task.findMany({
+        where: { assignedToId: { in: visibleIds }, type: "FIJA", archivedMonth: null, completedAt: { gte: realStart, lte: realEnd } },
+        select: { assignedToId: true, realHours: true },
+      }),
+      prisma.taskActivity.findMany({
+        where: { authorId: { in: visibleIds }, createdAt: { gte: realStart, lte: realEnd } },
+        select: { authorId: true, duration: true },
+      }),
+    ]);
+    for (const id of visibleIds) {
+      const fijaHours = fijaTasksForCarga.filter((t) => t.assignedToId === id).reduce((s, t) => s + t.realHours, 0);
+      const activityHours = activitiesForCarga.filter((a) => a.authorId === id).reduce((s, a) => s + a.duration, 0) / 60;
+      const cargaRealHours = Math.round((fijaHours + activityHours) * 100) / 100;
+      const userBiz = perUser.get(id) ?? shared;
+      const range = computeWorkloadRange(cargaRealHours, userBiz.limitBaseHours, userBiz.limitLowHours, userBiz.limitHighHours, userBiz.limitOverloadHours);
+      if (range.label === "Carga elevada" || range.label === "Sobrecarga") teamAlerts++;
     }
   }
 

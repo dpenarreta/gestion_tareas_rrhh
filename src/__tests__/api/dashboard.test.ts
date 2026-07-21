@@ -8,14 +8,25 @@ const taskFindMany = vi.fn();
 const announcementFindMany = vi.fn();
 const meetingFindMany = vi.fn();
 const systemConfigHistoryFindFirst = vi.fn();
+const taskActivityFindMany = vi.fn();
+const holidayFindMany = vi.fn();
+const leaveRecordFindMany = vi.fn();
+const specialStatusFindMany = vi.fn();
 
+// computeCargaTiempo/computeMonthlyHistory (motor central, ver Analytics
+// Calculation Registry § D6) tocan estos modelos además de task/user —
+// deben mockearse igual que el resto o el dashboard responde 500.
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: { findUnique: userFindUnique, update: userUpdate, findMany: userFindMany },
     task: { findMany: taskFindMany },
+    taskActivity: { findMany: taskActivityFindMany },
     announcement: { findMany: announcementFindMany },
     meeting: { findMany: meetingFindMany },
     systemConfigHistory: { findFirst: systemConfigHistoryFindFirst },
+    holiday: { findMany: holidayFindMany },
+    leaveRecord: { findMany: leaveRecordFindMany },
+    specialStatus: { findMany: specialStatusFindMany },
   },
 }));
 
@@ -56,6 +67,10 @@ function resetAll() {
   meetingFindMany.mockReset().mockResolvedValue([]);
   getVisibleIdeaAuthorIds.mockReset().mockResolvedValue([]);
   systemConfigHistoryFindFirst.mockReset().mockResolvedValue(null);
+  taskActivityFindMany.mockReset().mockResolvedValue([]);
+  holidayFindMany.mockReset().mockResolvedValue([]);
+  leaveRecordFindMany.mockReset().mockResolvedValue([]);
+  specialStatusFindMany.mockReset().mockResolvedValue([]);
   vi.mocked(getSession).mockReset();
 }
 

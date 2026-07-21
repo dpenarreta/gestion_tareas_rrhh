@@ -116,7 +116,7 @@ Alcance: solo lectura/documentación. No se modificó Prisma, APIs públicas, co
 
 `computeMonthlyCompliancePace` (`analytics.ts` L769-782, usada solo dentro de `computePrediction`) proyecta el cumplimiento de cierre de mes extrapolando el % actual por los días hábiles transcurridos vs. totales del mes. Usa la misma Definición A (`status === "COMPLETADA"`, no on-time) que el resto del motor central, así que es consistente con D1-Definición A, pero es una tercera fórmula (con proyección lineal) que nadie más reutiliza. Riesgo bajo — está correctamente encapsulada y usada en un solo lugar — se documenta por completitud de inventario, no requiere acción.
 
-### 🔴 D6 — `/api/dashboard` (widget principal) reimplementa desde cero tres conceptos ya resueltos por el motor, sin importar `analytics.ts`/`workload.ts` en absoluto
+### ✅ D6 — RESUELTO (2026-07-21) — `/api/dashboard` (widget principal) reimplementaba desde cero tres conceptos ya resueltos por el motor, sin importar `analytics.ts`/`workload.ts` en absoluto
 
 **Duplicación encontrada:** `src/app/api/dashboard/route.ts` no importa ninguna función de `analytics.ts`, `capacityForecast.ts` ni `workload.ts` para sus tres métricas principales — las recalcula todas desde cero, con nombres que colisionan con los conceptos oficiales:
 
@@ -126,9 +126,14 @@ Alcance: solo lectura/documentación. No se modificó Prisma, APIs públicas, co
 
 **Archivos involucrados:** `src/app/api/dashboard/route.ts` (líneas 75-79, 82-83, 176-191).
 
-**Riesgo:** Alto. Es el endpoint del **dashboard de inicio** (la primera pantalla que ve cualquier usuario) — su noción de "% de carga" y de "quién está sobrecargado" puede no coincidir con lo que la misma persona ve un clic después en `/kpis` o en Analytics, porque no comparte ni una sola función con esos módulos.
+**Riesgo (previo a la corrección):** Alto. Es el endpoint del **dashboard de inicio** (la primera pantalla que ve cualquier usuario) — su noción de "% de carga" y de "quién está sobrecargado" no coincidía con lo que la misma persona veía un clic después en `/kpis` o en Analytics, porque no compartía ni una sola función con esos módulos.
 
-**Recomendación:** Documentar (hecho). Candidato prioritario a refactor en un sprint de unificación: reemplazar `workloadPct`/`teamAlerts` por `computeCargaTiempo`/`computeWorkloadRange` y `completedPct` por la función única que resulte de resolver D1.
+**Corrección aplicada** (`src/app/api/dashboard/route.ts`):
+- `workloadPct` ahora es `computeCargaTiempo(userId, now).mensual.pct` — el mismo semáforo/porcentaje de carga real vs. base laboral que usa el resto de la app (fuente única, D5), en vez del ratio estimado/real de tareas.
+- `completedPct` ahora viene de `computeMonthlyHistory(userId, 1, now)[0].completedPct` — reutiliza la función ya existente del motor central en vez de reimplementar la fórmula inline (mantiene la Definición A, ya mayoritaria en el resto de la app — no resuelve D1, que sigue pendiente y fuera de alcance).
+- `teamAlerts` ahora reutiliza `monthlyBusinessBaseForUsers` + `computeWorkloadRange` (mismo patrón, en bloque/sin N+1, que `/api/kpis/executive`) y cuenta miembros en label `"Carga elevada"`/`"Sobrecarga"`, en vez de un ratio estimado/real ad hoc.
+- Se actualizó el mock de Prisma en `src/__tests__/api/dashboard.test.ts` (agregado `taskActivity`/`holiday`/`leaveRecord`/`specialStatus`) para reflejar las nuevas dependencias del motor central. Suite completa verificada: 840/842 tests pasan (los 2 restantes son fallos preexistentes de `kpis-executive.test.ts`, no relacionados con este cambio — confirmado reproduciéndolos en la rama sin este fix). `tsc --noEmit` y `eslint` limpios sobre los archivos modificados.
+- Efecto visible para el usuario: el widget "Carga laboral" del dashboard ahora puede mostrar un número distinto al de antes de este fix (antes medía precisión de estimación de horas; ahora mide carga real vs. base laboral, igual que en `/kpis` y Analytics) — cambio de comportamiento intencional, es la corrección del bug de fondo, no un efecto secundario no buscado.
 
 ### 🟠 D7 — Clasificación del Performance Score reimplementada en `kpis/executive` para el promedio del equipo
 
@@ -435,7 +440,7 @@ flowchart TB
 | # | Hallazgo | Severidad | Acción en este sprint |
 |---|---|---|---|
 | D1 | "Cumplimiento" con 2 definiciones y 9 implementaciones inline sin función compartida | 🔴 Alta | Documentado — no unificado (fuera de alcance) |
-| D6 | `/api/dashboard` (pantalla de inicio) reimplementa carga/cumplimiento/sobrecarga desde cero, sin importar el motor | 🔴 Alta | Documentado — no unificado (fuera de alcance) |
+| D6 | `/api/dashboard` (pantalla de inicio) reimplementaba carga/cumplimiento/sobrecarga desde cero, sin importar el motor | 🔴 Alta | ✅ **Corregido** (2026-07-21) — ahora reutiliza `computeCargaTiempo`/`computeMonthlyHistory`/`monthlyBusinessBaseForUsers`+`computeWorkloadRange` |
 | D2 | Dos motores de alertas de riesgo paralelos (`computeAlerts` vs. `computeRiskAlerts`) | 🟠 Media | Documentado — no unificado (fuera de alcance) |
 | D3 | `computeSimpleScore` consolidado pero alimentado con magnitudes distintas (`cargaRatio` vs. `cargaPct`) según el caller | 🟠 Media | Documentado — no unificado (fuera de alcance) |
 | D7 | Clasificación del Performance Score reimplementada en `kpis/executive` para el promedio del equipo | 🟠 Media | Documentado — no unificado (fuera de alcance) |

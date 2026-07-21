@@ -331,6 +331,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-21: fix(dashboard): reutiliza el Analytics Engine en vez de recalcular carga/cumplimiento/alertas de equipo
 - 2026-07-21: perf(analytics): invalidación granular del caché por usuario
 - 2026-07-21: fix(analytics): Comprometido/Capacidad Disponible no reaccionaba al Tiempo Objetivo validado
 - 2026-07-21: feat(tasks): Sprint 6 — evolución de Horas Estimadas a Tiempo Objetivo
