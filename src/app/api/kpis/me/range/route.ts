@@ -4,7 +4,7 @@ import { getSession } from "@/lib/session";
 import { isTaskOverdue } from "@/lib/utils";
 import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
-import { computeSimpleScore, computeEstimatedVsRealRatio } from "@/lib/analytics";
+import { computeSimpleScore, computeEstimatedVsRealRatio, computeCompletedPctAny } from "@/lib/analytics";
 
 function monthBounds(year: number, month: number) {
   return {
@@ -121,7 +121,7 @@ export async function GET(request: NextRequest) {
     const activities = allActivities.filter((a) => a.createdAt >= start && a.createdAt <= end);
 
     const completed = tasks.filter((t) => t.status === "COMPLETADA").length;
-    const completedPct = tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0;
+    const completedPct = computeCompletedPctAny(tasks);
 
     const totalEstimated = tasks.reduce((s, t) => s + t.estimatedHours, 0);
     const nonFijaReal = tasks.filter((t) => t.type !== "FIJA").reduce((s, t) => s + t.realHours, 0);

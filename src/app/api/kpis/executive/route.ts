@@ -4,7 +4,7 @@ import { getSession } from "@/lib/session";
 import { getSubordinateRoles, ROLE_LEVEL } from "@/lib/roles";
 import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct, type MonthlyBusinessBase } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
-import { computeSimpleScore, computeEstimatedVsRealRatio, cached, computePerformanceScore, computeOperationalRisk, classifyOperationalRisk, classifyPerformanceScore } from "@/lib/analytics";
+import { computeSimpleScore, computeEstimatedVsRealRatio, computeCompletedPctAny, cached, computePerformanceScore, computeOperationalRisk, classifyOperationalRisk, classifyPerformanceScore } from "@/lib/analytics";
 import { getEffectiveAnalyticsConfig } from "@/lib/systemConfig";
 import { cumplimientoColor } from "@/lib/analyticsExplain";
 import type { ExecutiveDashboardData } from "@/components/kpis/types";
@@ -134,7 +134,7 @@ export async function GET() {
     const members: MemberMonthKpi[] = users.map((user) => {
       const tasks = monthTasks.filter((t) => t.assignedToId === user.id);
       const completed = tasks.filter((t) => t.status === "COMPLETADA").length;
-      const completedPct = tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0;
+      const completedPct = computeCompletedPctAny(tasks);
 
       const fijaHours = monthFija.filter((t) => t.assignedToId === user.id).reduce((s, t) => s + t.realHours, 0);
       const activityHours = monthCargaActs.filter((a) => a.authorId === user.id).reduce((s, a) => s + a.duration, 0) / 60;

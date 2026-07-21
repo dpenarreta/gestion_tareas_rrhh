@@ -6,7 +6,7 @@ import { isTaskOverdue } from "@/lib/utils";
 import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
 import { getActivityReasonLabelMap } from "@/lib/activityReasons";
-import { computeSimpleScore, computeEstimatedVsRealRatio } from "@/lib/analytics";
+import { computeSimpleScore, computeEstimatedVsRealRatio, computeCompletedPctAny } from "@/lib/analytics";
 import Groq from "groq-sdk";
 import type { Role, ReportScope } from "@/generated/prisma/client";
 import type { KpiColor, WorkloadLabel } from "@/components/kpis/types";
@@ -251,7 +251,7 @@ export async function POST(request: NextRequest) {
     const tasks = allTasks.filter((t) => t.assignedToId === user.id);
     const completed = tasks.filter((t) => t.status === "COMPLETADA").length;
     const overdue = tasks.filter((t) => isTaskOverdue(t.endDate, t.status, refDate)).length;
-    const completedPct = tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0;
+    const completedPct = computeCompletedPctAny(tasks);
 
     const fijaHours = fijaTasksForCarga
       .filter((t) => t.assignedToId === user.id)

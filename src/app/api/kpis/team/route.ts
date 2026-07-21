@@ -5,8 +5,8 @@ import { canViewTeam, getSubordinateRoles } from "@/lib/roles";
 import { isTaskOverdue } from "@/lib/utils";
 import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct, type MonthlyBusinessBase } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
-import { computeSimpleScore, computeEstimatedVsRealRatio } from "@/lib/analytics";
-import type { KpiColor } from "@/components/kpis/types";
+import { computeSimpleScore, computeEstimatedVsRealRatio, computeCompletedPctAny } from "@/lib/analytics";
+import { cumplimientoColor } from "@/lib/analyticsExplain";
 
 function monthBounds(year: number, month: number) {
   const start = new Date(year, month - 1, 1);
@@ -92,10 +92,8 @@ export async function GET(request: NextRequest) {
 
   const users = subordinates.map((sub) => {
     const tasks = allTasks.filter((t) => t.assignedToId === sub.id);
-    const completed = tasks.filter((t) => t.status === "COMPLETADA").length;
     const overdueCount = tasks.filter((t) => isTaskOverdue(t.endDate, t.status, refDate)).length;
-    const completedPct =
-      tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0;
+    const completedPct = computeCompletedPctAny(tasks);
     const totalEst = tasks.reduce((s, t) => s + t.estimatedHours, 0);
     const totalReal = tasks.reduce((s, t) => s + t.realHours, 0);
     const cargaRatio = computeEstimatedVsRealRatio(totalReal, totalEst);
@@ -110,8 +108,7 @@ export async function GET(request: NextRequest) {
 
     const score = computeSimpleScore(completedPct, cargaRatio, avgProgress, comments);
 
-    const color: KpiColor =
-      completedPct >= 80 ? "green" : completedPct >= 60 ? "yellow" : "red";
+    const color = cumplimientoColor(completedPct);
 
     // ── Carga laboral por rango (5 zonas) — balance de carga y capacidad disponible ──
     const fijaHours = fijaTasksForCarga

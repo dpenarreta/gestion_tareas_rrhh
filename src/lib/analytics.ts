@@ -129,6 +129,30 @@ export function computeEstimatedVsRealRatio(totalReal: number, totalEstimated: n
 }
 
 /**
+ * Definición A de "cumplimiento" (§Analytics Calculation Registry D1): % de
+ * tareas con `status === "COMPLETADA"` en el período, sin importar si se
+ * cerraron a tiempo. Coexiste con `isCompletedOnTime` (Definición B, "a
+ * tiempo", `priorityCompliance.ts`) — usada solo en `/api/kpis/[userId]` y
+ * `/api/kpis/me` — son fórmulas DISTINTAS, no una duplicada de la otra;
+ * decidir cuál debería ser la única oficial es una decisión de negocio
+ * pendiente, documentada pero no resuelta aquí. Esta función consolida la
+ * Definición A, antes reimplementada inline en 9 lugares (4 dentro de este
+ * archivo: `computeMonthlyHistory`, `computeWeeklyHistory`,
+ * `computeHealthScore`, `computePerformanceScore`).
+ *
+ * `emptyValue` es el resultado cuando `tasks` está vacío — dos usos
+ * legítimamente distintos coexistían antes de esta función: `0` para
+ * pantallas de reporte/ranking/histórico (sin tareas = sin dato que
+ * mostrar) y `100` para el Score de Salud/Performance (sin tareas asignadas
+ * ese mes no debe penalizar el score).
+ */
+export function computeCompletedPctAny(tasks: { status: string }[], emptyValue: 0 | 100 = 0): number {
+  if (tasks.length === 0) return emptyValue;
+  const completed = tasks.filter((t) => t.status === "COMPLETADA").length;
+  return Math.round((completed / tasks.length) * 100);
+}
+
+/**
  * Puntos ponderados = rawScore(0-100) × weight% / 100, redondeado a 2
  * decimales — convierte un sub-score/porcentaje ya calculado (crudo o
  * normalizado) en su aporte de puntos dentro de una suma ponderada. Usada por
@@ -327,7 +351,6 @@ export async function computeMonthlyHistory(userId: string, monthsBack = 6, now:
     const { end: mRealEnd } = businessDayRealRange(biz.end);
 
     const monthTasks = tasks.filter((t) => t.endDate >= start && t.endDate <= end);
-    const completed = monthTasks.filter((t) => t.status === "COMPLETADA").length;
     const overdue = monthTasks.filter((t) => isTaskOverdue(t.endDate, t.status, now));
     const overdueAlta = overdue.filter((t) => t.priority === "ALTA").length;
 
@@ -353,7 +376,7 @@ export async function computeMonthlyHistory(userId: string, monthsBack = 6, now:
       month: monthKey(year, month),
       label: monthLabel(year, month),
       totalTasks: monthTasks.length,
-      completedPct: monthTasks.length > 0 ? Math.round((completed / monthTasks.length) * 100) : 0,
+      completedPct: computeCompletedPctAny(monthTasks),
       overdueCount: overdue.length,
       overdueAltaCount: overdueAlta,
       cargaRealHours,
@@ -437,7 +460,7 @@ export async function computeWeeklyHistory(userId: string, weeksBack = 6, now: D
       baseHours: Math.round(businessDays * hoursPerDay * 100) / 100,
       totalTasks: weekTasks.length,
       completedTasks: completed,
-      completedPct: weekTasks.length > 0 ? Math.round((completed / weekTasks.length) * 100) : 0,
+      completedPct: computeCompletedPctAny(weekTasks),
       daysWithRegistration,
     };
   });
@@ -925,8 +948,7 @@ export async function computeHealthScore(userId: string, now: Date = new Date(),
     monthlyBusinessBase(year, month),
   ]);
 
-  const completed = tasks.filter((t) => t.status === "COMPLETADA").length;
-  const completedPct = tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 100;
+  const completedPct = computeCompletedPctAny(tasks, 100);
   const overdue = tasks.filter((t) => isTaskOverdue(t.endDate, t.status, now));
   const overdueAlta = overdue.filter((t) => t.priority === "ALTA").length;
   const overdueNormal = overdue.length - overdueAlta;
@@ -1058,8 +1080,7 @@ export async function computePerformanceScore(userId: string, now: Date = new Da
   ]);
   const [cumplimientoCurve, vencidasCurve, consistenciaCurve, trazabilidadCurve] = curves;
 
-  const completed = tasks.filter((t) => t.status === "COMPLETADA").length;
-  const completedPct = tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 100;
+  const completedPct = computeCompletedPctAny(tasks, 100);
   const overdue = tasks.filter((t) => isTaskOverdue(t.endDate, t.status, now));
   const overdueAlta = overdue.filter((t) => t.priority === "ALTA").length;
   const overdueNormal = overdue.length - overdueAlta;
