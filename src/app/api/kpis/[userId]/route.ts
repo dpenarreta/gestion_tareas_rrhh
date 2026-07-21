@@ -7,13 +7,8 @@ import { computeCargaTiempo, computeCargaHistory, redactSensitiveWorkloadDetail 
 import { computeRiskAlerts } from "@/lib/riskAlerts";
 import { computePriorityCompliance, isCompletedOnTime } from "@/lib/priorityCompliance";
 import { validateCumplimientoConsistency, computeSimpleScore, computeEstimatedVsRealRatio } from "@/lib/analytics";
+import { cumplimientoColor } from "@/lib/analyticsExplain";
 import type { KpiColor } from "@/components/kpis/types";
-
-function cumplimientoColor(pct: number): KpiColor {
-  if (pct >= 80) return "green";
-  if (pct >= 60) return "yellow";
-  return "red";
-}
 
 function cargaColor(ratio: number): KpiColor {
   if (ratio <= 100) return "green";

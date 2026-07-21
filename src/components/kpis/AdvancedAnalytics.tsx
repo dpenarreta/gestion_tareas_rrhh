@@ -22,6 +22,8 @@ import {
   scoreLevelExplanation,
   confidenceLabel,
   reliabilityPctFromStars,
+  derivedNormalizedValue,
+  maturityFromWeeks,
   CONFIDENCE_TOOLTIPS,
   CONSISTENCY_FALLBACK_NOTE,
   SCORE_CLASSIFICATION_REFERENCE,
@@ -83,25 +85,6 @@ export function MaturityStars({ level, title }: { level: 1 | 2 | 3 | 4 | 5; titl
       ))}
     </span>
   );
-}
-
-/** Cumplimiento/carga: más tareas o días con registro en el período → más estrellas. */
-export function maturityFromCount(count: number, thresholds: [number, number, number, number] = [1, 3, 6, 10]): 1 | 2 | 3 | 4 | 5 {
-  const [t1, t2, t3, t4] = thresholds;
-  if (count >= t4) return 5;
-  if (count >= t3) return 4;
-  if (count >= t2) return 3;
-  if (count >= t1) return 2;
-  return 1;
-}
-
-/** Predicción: más semanas de historial disponibles → más estrellas. */
-export function maturityFromWeeks(weeksOfData: number): 1 | 2 | 3 | 4 | 5 {
-  if (weeksOfData >= 6) return 5;
-  if (weeksOfData >= 4) return 4;
-  if (weeksOfData >= 2) return 3;
-  if (weeksOfData >= 1) return 2;
-  return 1;
 }
 
 // ── Tooltips educativos (§Sprint 6.5 S6.5-K) ─────────────────────────────────
@@ -817,7 +800,7 @@ export function AdvancedAnalyticsPanel({ userId }: { userId: string }) {
     data.healthScore.factors.map((f) => ({
       name: f.name,
       rawLabel: f.rawLabel,
-      normalizedValue: f.weight > 0 ? Math.round((f.points / f.weight) * 100 * 10) / 10 : 0,
+      normalizedValue: derivedNormalizedValue(f.points, f.weight),
       weight: f.weight,
       points: f.points,
     }))

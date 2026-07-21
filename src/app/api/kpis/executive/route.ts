@@ -6,8 +6,9 @@ import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct, 
 import { businessDayRealRange } from "@/lib/businessTime";
 import { computeSimpleScore, computeEstimatedVsRealRatio, cached, computePerformanceScore, computeOperationalRisk, classifyOperationalRisk, classifyPerformanceScore } from "@/lib/analytics";
 import { getEffectiveAnalyticsConfig } from "@/lib/systemConfig";
+import { cumplimientoColor } from "@/lib/analyticsExplain";
 import type { ExecutiveDashboardData } from "@/components/kpis/types";
-import type { KpiColor, WorkloadColor, WorkloadLabel } from "@/components/kpis/types";
+import type { WorkloadColor, WorkloadLabel } from "@/components/kpis/types";
 
 function monthBounds(year: number, month: number) {
   const start = new Date(year, month - 1, 1);
@@ -17,12 +18,6 @@ function monthBounds(year: number, month: number) {
 
 function monthLabel(year: number, month: number) {
   return new Date(year, month - 1, 1).toLocaleDateString("es-CL", { month: "short", year: "2-digit" });
-}
-
-function cumplimientoColor(pct: number): KpiColor {
-  if (pct >= 80) return "green";
-  if (pct >= 60) return "yellow";
-  return "red";
 }
 
 type MemberMonthKpi = {

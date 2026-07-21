@@ -10,7 +10,71 @@
  * rutas de API.
  */
 
+import type { KpiColor } from "@/components/kpis/types";
+
 export type ScoreLevel = "Bajo" | "Medio" | "Alto" | "Muy alto";
+
+// ── Umbral compartido 80/60 (§Analytics Calculation Registry D10) ───────────
+// `cumplimientoColor` y `resultBarClass` reimplementaban por separado el mismo
+// criterio "bueno ≥80% / regular ≥60% / malo <60%" en 4 sitios (3 rutas de
+// /api/kpis + InsightCards.tsx) — única fuente ahora.
+
+type ScoreBand = "good" | "warning" | "bad";
+
+function scoreBand8060(pct: number): ScoreBand {
+  if (pct >= 80) return "good";
+  if (pct >= 60) return "warning";
+  return "bad";
+}
+
+/** `KpiColor` para un % (cumplimiento, etc.) — única fuente para /api/kpis/[userId], /api/kpis/me y /api/kpis/executive. */
+export function cumplimientoColor(pct: number): KpiColor {
+  const band = scoreBand8060(pct);
+  return band === "good" ? "green" : band === "warning" ? "yellow" : "red";
+}
+
+/** Clase Tailwind de fondo para una barra de resultado 0-100, mismo umbral que `cumplimientoColor` — única fuente para InsightCards.tsx. */
+export function resultBarClass(pct: number): string {
+  const band = scoreBand8060(pct);
+  return band === "good" ? "bg-success" : band === "warning" ? "bg-warning" : "bg-danger";
+}
+
+/**
+ * Invierte `points/weight` → valor normalizado 0-100 (1 decimal), para
+ * modales "¿Cómo se obtuvo?" que muestran `normalizedValue` a partir de
+ * factores ya calculados (`HealthFactor`/`RiskFactor`, que solo traen
+ * `points`/`weight`, no el valor normalizado en sí) — antes duplicada en
+ * AdvancedAnalytics.tsx y OperationalRiskCard.tsx (§D10).
+ */
+export function derivedNormalizedValue(points: number, weight: number): number {
+  return weight > 0 ? Math.round((points / weight) * 100 * 10) / 10 : 0;
+}
+
+// ── Nivel de madurez del dato (§S2-H) — estrellas 1-5 según cuánto historial
+// respalda un KPI (más historial/registro = más estrellas), puramente
+// informativo, no altera el cálculo. Antes vivían en AdvancedAnalytics.tsx —
+// se movieron aquí (mismo criterio que el resto del archivo: helpers de
+// presentación compartidos, ver §D10) para que KpisModule/MyKpisModule no
+// dependan de un componente cliente solo para una función pura.
+
+/** Cumplimiento/carga: más tareas o días con registro en el período → más estrellas. */
+export function maturityFromCount(count: number, thresholds: [number, number, number, number] = [1, 3, 6, 10]): 1 | 2 | 3 | 4 | 5 {
+  const [t1, t2, t3, t4] = thresholds;
+  if (count >= t4) return 5;
+  if (count >= t3) return 4;
+  if (count >= t2) return 3;
+  if (count >= t1) return 2;
+  return 1;
+}
+
+/** Predicción: más semanas de historial disponibles → más estrellas. */
+export function maturityFromWeeks(weeksOfData: number): 1 | 2 | 3 | 4 | 5 {
+  if (weeksOfData >= 6) return 5;
+  if (weeksOfData >= 4) return 4;
+  if (weeksOfData >= 2) return 3;
+  if (weeksOfData >= 1) return 2;
+  return 1;
+}
 
 /** Mismos umbrales que ScoreZoneBar (0-40-70-90-100, ver AdvancedAnalytics.tsx) — un puntaje normalizado siempre cae en una de estas 4 franjas. */
 export function scoreLevel(normalizedValue: number): ScoreLevel {

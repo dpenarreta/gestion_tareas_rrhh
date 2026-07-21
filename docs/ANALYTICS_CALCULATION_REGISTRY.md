@@ -187,16 +187,19 @@ Alcance: solo lectura/documentación. No se modificó Prisma, APIs públicas, co
 
 **Recomendación:** Si se decide mantener `riskAlerts.ts` (en vez de retirarlo a favor de `computeAlerts`, ver D2), hacer que `businessDaysBetween` reciba el set de feriados y reutilice `countBusinessDays` de `workload.ts`.
 
-### 🟡 D10 — Heurísticas de "confianza/madurez" (★) reimplementadas 3 veces con escalas distintas, y umbral de color 80/60 repetido en 4 sitios
+### ✅ D10 — RESUELTO (2026-07-21) — Heurísticas de "confianza/madurez" (★) y umbral de color 80/60 dispersos en varios componentes
 
 **Duplicación encontrada:**
-- Confianza por cantidad de historial: `consistencyReliabilityFromWeeks` (`analytics.ts` L584-589, semanas ≤4→baja/2★ … >12→muy-alta/5★), `computeConfidence` (`insightsEngine.ts` L44-51, compuesto de observaciones+calidad+consistencia con umbrales 0.85/0.65/0.45/0.25), y `maturityFromCount`/`maturityFromWeeks` (`AdvancedAnalytics.tsx` L89-105, con umbrales propios `[1,3,6,10]` y `1/2/4/6` semanas) — tres implementaciones del mismo concepto ("¿cuánto confiar en este número según su historial?"), cada una con su propia escala, sin una función compartida.
-- Umbral de color 80/60 para "bueno/regular/malo": `cumplimientoColor` (repetido en `kpis/[userId]`, `kpis/me`, `kpis/executive`) y `resultBarClass` (`InsightCards.tsx` L61-65) — mismo criterio visual reimplementado 4 veces.
-- Re-derivación de `normalizedValue = f.points / f.weight × 100` para el modal "¿Cómo se obtuvo?", duplicada entre `AdvancedAnalytics.tsx` (L820) y `OperationalRiskCard.tsx` (L133) — es una inversión de un cálculo ya hecho (no una fórmula de negocio nueva), pero vive en dos componentes en vez de un helper compartido.
+- Umbral de color 80/60 para "bueno/regular/malo": `cumplimientoColor` (repetido en `kpis/[userId]`, `kpis/me`, `kpis/executive`) y `resultBarClass` (`InsightCards.tsx`) — mismo criterio visual reimplementado 4 veces, byte-por-byte idéntico.
+- Re-derivación de `normalizedValue = f.points / f.weight × 100` para el modal "¿Cómo se obtuvo?", duplicada entre `AdvancedAnalytics.tsx` y `OperationalRiskCard.tsx` — inversión de un cálculo ya hecho, sin helper compartido.
+- `maturityFromCount`/`maturityFromWeeks` vivían dentro de `AdvancedAnalytics.tsx` (un componente cliente) aunque `KpisModule.tsx`/`MyKpisModule.tsx` las importaban desde ahí solo por ser funciones puras sin hogar propio — no una fórmula de negocio nueva, pero un lugar equivocado para algo reutilizado por 2 módulos más.
+- (Se documentó, pero **no se fusionó** — son conceptualmente distintas): `consistencyReliabilityFromWeeks` (`analytics.ts`), `computeConfidence` (`insightsEngine.ts`) y `maturityFromCount`/`maturityFromWeeks` calculan las 3 "confianza según historial", cada una con su propia escala y propósito (Confiabilidad de Consistencia vs. Confianza compuesta de Insights vs. madurez puramente visual de una tarjeta). Forzarlas a una sola fórmula cambiaría el resultado de al menos 2 de las 3 — fuera de alcance de un fix de duplicación.
 
-**Riesgo:** Bajo — son heurísticas de presentación (colores, estrellas), no alteran ningún KPI numérico expuesto en `AnalyticsBundle`/`KpiData`. El riesgo es de mantenimiento (4-5 lugares a actualizar si cambia el criterio) y de coherencia visual (dos tarjetas de confianza podrían mostrar un número distinto de estrellas para la "misma" confianza si sus escalas divergen).
+**Riesgo (previo a la corrección):** Bajo — heurísticas de presentación (colores, estrellas), no alteraban ningún KPI numérico expuesto en `AnalyticsBundle`/`KpiData`.
 
-**Recomendación:** Sin acción requerida en este sprint. Candidato a un pequeño refactor de "helpers de presentación compartidos" (p. ej. mover a `analyticsExplain.ts`, que ya cumple ese rol para otras traducciones).
+**Corrección aplicada:** se agregaron a `src/lib/analyticsExplain.ts` (el módulo ya designado como "helpers de presentación compartidos", puro, sin `server-only`) — `cumplimientoColor`, `resultBarClass` (ambos sobre un `scoreBand8060` interno compartido), `derivedNormalizedValue`, y se trasladaron `maturityFromCount`/`maturityFromWeeks` desde `AdvancedAnalytics.tsx`. Se actualizaron los 7 consumidores (`kpis/[userId]`, `kpis/me`, `kpis/executive`, `InsightCards.tsx`, `AdvancedAnalytics.tsx`, `OperationalRiskCard.tsx`, `KpisModule.tsx`, `MyKpisModule.tsx`) para importar desde `analyticsExplain.ts` en vez de reimplementar o reexportar vía un componente.
+
+**Verificación:** `tsc --noEmit`/`eslint` limpios en los 9 archivos tocados; sin tests dedicados a estos helpers de presentación (no hay tests de componente para `InsightCards`/`AdvancedAnalytics`/`OperationalRiskCard`); suite completa 840/842 (mismos 2 fallos preexistentes, no relacionados). Sin cambio de comportamiento — mismos colores, mismas estrellas, mismos valores normalizados, ahora desde una sola fuente por concepto.
 
 ### 🟢 D5 — Confirmado: sin duplicación en Carga Laboral / Capacidad / Riesgo / Consistencia / Benchmark
 
@@ -469,7 +472,7 @@ flowchart TB
 | D4 | `computeMonthlyCompliancePace` era una 4ª variante de cumplimiento dentro del motor, recalculada en vez de reutilizada | 🟡 Baja | ✅ **Corregido** (2026-07-21) — ahora reutiliza `computeMonthlyHistory` |
 | D8 | `analytics/simulate` reimplementaba una línea de aritmética de ponderación (`pointsFor`), en realidad repetida 4 veces en el motor | 🟡 Baja | ✅ **Corregido** (2026-07-21) — extraída `weightedPoints()`, usada en las 4 implementaciones |
 | D9 | `riskAlerts.ts` contaba "días hábiles" sin excluir feriados, a diferencia de `countBusinessDays` | 🟡 Baja-Media | ✅ **Corregido** (2026-07-21) — ahora reutiliza `countBusinessDays` |
-| D10 | Heurísticas de confianza/★ y umbral de color 80/60 reimplementados en 3-4 componentes de UI | 🟡 Baja | Documentado, sin acción requerida |
+| D10 | Umbral de color 80/60, `normalizedValue` derivado y `maturityFrom*` dispersos en varios componentes de UI | 🟡 Baja | ✅ **Corregido** (2026-07-21) — consolidados en `analyticsExplain.ts`; las 3 heurísticas de "confianza según historial" se documentaron como intencionalmente distintas, sin fusionar |
 | D5 | Carga/Capacidad/Riesgo/Consistencia/Benchmark/Normalización: sin duplicación — Single Source of Truth confirmado | ✅ — | Ninguna |
 
 **Nota de proceso:** los hallazgos D6-D10 surgieron de un segundo agente de exploración lanzado en paralelo como verificación cruzada sobre las mismas rutas/componentes; sus citas de línea más específicas (`dashboard/route.ts`, `kpis/executive` L230-231, `analytics/simulate` L110-112, `riskAlerts.ts` L23-31, componentes de UI) fueron releídas y confirmadas directamente antes de incorporarlas aquí.

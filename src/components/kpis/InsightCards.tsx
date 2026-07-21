@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { PriorityCompliance } from "./types";
+import { resultBarClass } from "@/lib/analyticsExplain";
 
 // ── Task breakdown (reemplaza el número simple de "Total tareas") ───────────
 
@@ -58,11 +59,6 @@ const PRIORITY_LABEL: Record<PriorityCompliance["priority"], string> = {
   BAJA: "Baja",
 };
 
-function resultBarClass(pct: number): string {
-  if (pct >= 80) return "bg-success";
-  if (pct >= 60) return "bg-warning";
-  return "bg-danger";
-}
 
 export function PriorityComplianceCard({ data }: { data: PriorityCompliance[] }) {
   const alta = data.find((d) => d.priority === "ALTA");

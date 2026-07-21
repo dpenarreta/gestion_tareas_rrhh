@@ -6,7 +6,7 @@ import { canViewOperationalRisk } from "@/lib/roles";
 import { isFeatureEnabled } from "@/lib/featureFlags";
 import type { OperationalRiskResult } from "./types";
 import { ExplainModal, InfoTooltip, ConfidenceBadges } from "./AdvancedAnalytics";
-import { CONFIDENCE_TOOLTIPS, type ConfidenceIndicators } from "@/lib/analyticsExplain";
+import { CONFIDENCE_TOOLTIPS, derivedNormalizedValue, type ConfidenceIndicators } from "@/lib/analyticsExplain";
 
 type RiskResponse = OperationalRiskResult & { confidence: ConfidenceIndicators; engineVersion: string; lastUpdated: string };
 
@@ -130,7 +130,7 @@ export default function OperationalRiskCard({ userId, currentUserRole }: { userI
           factors={data.factors.map((f) => ({
             name: f.name,
             rawLabel: f.detail,
-            normalizedValue: f.weight > 0 ? Math.round((f.points / f.weight) * 100 * 10) / 10 : 0,
+            normalizedValue: derivedNormalizedValue(f.points, f.weight),
             weight: f.weight,
             points: f.points,
           }))}

@@ -331,6 +331,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-21: fix(analytics): consolida helpers de presentación duplicados en analyticsExplain.ts
 - 2026-07-21: fix(analytics): riskAlerts.ts reutiliza countBusinessDays (holiday-aware) para el gap de inactividad
 - 2026-07-21: fix(analytics): computeMonthlyCompliancePace reutiliza computeMonthlyHistory en vez de recalcular
 - 2026-07-21: fix(analytics): extrae weightedPoints para eliminar la aritmética de ponderación duplicada 4 veces
