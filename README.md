@@ -331,6 +331,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-21: fix(analytics): extrae weightedPoints para eliminar la aritmética de ponderación duplicada 4 veces
 - 2026-07-21: fix(analytics): extrae classifyPerformanceScore para eliminar la clasificación duplicada en kpis/executive
 - 2026-07-21: fix(analytics): unifica el input de computeSimpleScore entre executive/reports y kpis/me
 - 2026-07-21: fix(analytics): alinea el umbral de tareas vencidas de computeRiskAlerts con Ajustes

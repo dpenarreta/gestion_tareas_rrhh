@@ -155,15 +155,17 @@ Alcance: solo lectura/documentación. No se modificó Prisma, APIs públicas, co
 
 **Verificación:** `tsc --noEmit`/`eslint` limpios; suite completa 840/842 (mismos 2 fallos preexistentes de `kpis-executive.test.ts`, no relacionados). Sin cambios de comportamiento visibles — los umbrales/colores resultantes son idénticos a los de antes, solo se consolidó su fuente.
 
-### 🟡 D8 — Simulador de escenarios reimplementa la aritmética de ponderación de puntos
+### ✅ D8 — RESUELTO (2026-07-21) — Simulador de escenarios reimplementaba la aritmética de ponderación de puntos
 
-**Duplicación encontrada:** `src/app/api/analytics/simulate/[userId]/route.ts` define localmente `pointsFor(score, weight)` (L110-112: `Math.round(((score * weight) / 100) * 100) / 100`) — aritméticamente idéntica a la que usa `mk()` dentro de `computeHealthScore` (`analytics.ts` L918) para convertir un sub-score en puntos ponderados. No existe una función exportada `weightedPoints()` en el motor, así que el simulador (que sí reutiliza correctamente `computeWorkloadRange`/`computeWorkloadPct`/`classifyCapacity`/`capacityToScore`/`cargaHealthScore`) tuvo que reescribir esta única línea de aritmética.
+**Duplicación encontrada:** `src/app/api/analytics/simulate/[userId]/route.ts` definía localmente `pointsFor(score, weight)` (`Math.round(((score * weight) / 100) * 100) / 100`) — aritméticamente idéntica a la que usaban, cada uno por su cuenta, `mk()` dentro de `computeHealthScore`, `mk()` dentro de `computePerformanceScore` y `push()` dentro de `computeOperationalRisk` (`analytics.ts`) para convertir un sub-score/porcentaje en puntos ponderados. No existía una función exportada `weightedPoints()` en el motor — al auditar se encontró que el patrón estaba repetido **4 veces**, no solo entre el simulador y `computeHealthScore` como se documentó inicialmente.
 
-**Archivos involucrados:** `analytics/simulate/[userId]/route.ts` (L110-112) vs. `analytics.ts` (`mk()`, L918, interno a `computeHealthScore`).
+**Archivos involucrados (antes):** `analytics/simulate/[userId]/route.ts` (`pointsFor`) vs. `analytics.ts` (`mk()` en `computeHealthScore`, `mk()` en `computePerformanceScore`, `push()` en `computeOperationalRisk` — las 3 con la misma operación algebraica, una de ellas escrita en el orden `(rawPct/100)*weight` en vez de `(rawPct*weight)/100`, equivalente pero no idéntica textualmente).
 
-**Riesgo:** Bajo — es una operación de una sola línea (`× peso / 100`), sin lógica de negocio propia; el simulador ya documenta explícitamente que reutiliza "las MISMAS fórmulas del motor" para todo lo demás.
+**Riesgo (previo a la corrección):** Bajo — es una operación de una sola línea (`× peso / 100`), sin lógica de negocio propia.
 
-**Recomendación:** Sin acción requerida en este sprint; si se extraen helpers compartidos en el futuro, incluir `weightedPoints()` en la lista.
+**Corrección aplicada:** se extrajo `weightedPoints(rawScore, weightPct)` en `analytics.ts` (junto a `computeSimpleScore`/`computeEstimatedVsRealRatio`, la sección de "fórmulas compartidas") y se reemplazaron las 4 implementaciones — `computeHealthScore`, `computePerformanceScore`, `computeOperationalRisk` y el simulador — para usarla. `pointsFor` se eliminó del simulador.
+
+**Verificación:** `tsc --noEmit`/`eslint` limpios; sin tests dedicados a esta función (operación aritmética pura de una línea, ya cubierta indirectamente por los tests de `computeHealthScore`/`computePerformanceScore`/`computeOperationalRisk` que verifican el `score` final); suite completa 840/842 (mismos 2 fallos preexistentes, no relacionados). Sin cambio de comportamiento — misma aritmética, ahora en una sola función.
 
 ### 🟡 D9 — `riskAlerts.ts` reimplementa "días hábiles entre fechas" sin excluir feriados
 
@@ -455,7 +457,7 @@ flowchart TB
 | D3 | `computeSimpleScore` consolidado pero alimentado con magnitudes distintas (`cargaRatio` vs. `cargaPct`) según el caller | 🟠 Media | ✅ **Corregido** (2026-07-21) — las 7 rutas ahora pasan `computeEstimatedVsRealRatio` |
 | D7 | Clasificación del Performance Score reimplementada en `kpis/executive` para el promedio del equipo | 🟠 Media | ✅ **Corregido** (2026-07-21) — extraída `classifyPerformanceScore()`, reutilizada en ambos sitios |
 | D4 | `computeMonthlyCompliancePace` es una 3ª variante de cumplimiento, pero bien encapsulada | 🟡 Baja | Documentado, sin acción requerida |
-| D8 | `analytics/simulate` reimplementa una línea de aritmética de ponderación (`pointsFor`) ya existente en `mk()` | 🟡 Baja | Documentado, sin acción requerida |
+| D8 | `analytics/simulate` reimplementaba una línea de aritmética de ponderación (`pointsFor`), en realidad repetida 4 veces en el motor | 🟡 Baja | ✅ **Corregido** (2026-07-21) — extraída `weightedPoints()`, usada en las 4 implementaciones |
 | D9 | `riskAlerts.ts` cuenta "días hábiles" sin excluir feriados, a diferencia de `countBusinessDays` | 🟡 Baja-Media | Documentado, sin acción requerida |
 | D10 | Heurísticas de confianza/★ y umbral de color 80/60 reimplementados en 3-4 componentes de UI | 🟡 Baja | Documentado, sin acción requerida |
 | D5 | Carga/Capacidad/Riesgo/Consistencia/Benchmark/Normalización: sin duplicación — Single Source of Truth confirmado | ✅ — | Ninguna |

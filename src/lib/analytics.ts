@@ -128,6 +128,19 @@ export function computeEstimatedVsRealRatio(totalReal: number, totalEstimated: n
   return totalReal > 0 ? 200 : 0;
 }
 
+/**
+ * Puntos ponderados = rawScore(0-100) × weight% / 100, redondeado a 2
+ * decimales — convierte un sub-score/porcentaje ya calculado (crudo o
+ * normalizado) en su aporte de puntos dentro de una suma ponderada. Usada por
+ * el Score de Salud, Performance Score y el Índice de Riesgo Operativo (cada
+ * uno con sus propios factores/pesos) y por el simulador de escenarios
+ * (`/api/analytics/simulate`), que antes reimplementaba esta misma línea
+ * localmente (ver Analytics Calculation Registry § D8). Única fuente ahora.
+ */
+export function weightedPoints(rawScore: number, weightPct: number): number {
+  return Math.round(((rawScore * weightPct) / 100) * 100) / 100;
+}
+
 // ── Caché en memoria (TTL configurable) ──────────────────────────────────────
 //
 // Recalcular únicamente cuando cambian tareas/permisos/config/cierre de mes —
@@ -915,7 +928,7 @@ export async function computeHealthScore(userId: string, now: Date = new Date(),
 
   const mk = (name: string, rawLabel: string, weightKey: AnalyticsConfigKey, rawScore: number): HealthFactor => {
     const weight = config[weightKey];
-    const points = Math.round(((rawScore * weight) / 100) * 100) / 100;
+    const points = weightedPoints(rawScore, weight);
     return { name, rawLabel, weight, points, detail: `${rawLabel} × ${weight}% = ${points} pts` };
   };
 
@@ -1048,7 +1061,7 @@ export async function computePerformanceScore(userId: string, now: Date = new Da
 
   const mk = (name: string, curve: CurveName, rawValue: number, rawLabel: string, weight: number, curvePoints: CurvePoint[]): PerformanceFactor => {
     const normalizedValue = normalize(curve, rawValue, curvePoints);
-    const points = Math.round(((normalizedValue * weight) / 100) * 100) / 100;
+    const points = weightedPoints(normalizedValue, weight);
     return { name, curve, rawValue: Math.round(rawValue * 10) / 10, rawLabel, normalizedValue, weight, points, detail: `${rawLabel} → normalizado ${normalizedValue} × ${weight}% = ${points} pts` };
   };
 
@@ -1242,7 +1255,7 @@ export async function computeOperationalRisk(userId: string, now: Date = new Dat
   const factors: RiskFactor[] = [];
   const push = (name: string, weightKey: AnalyticsConfigKey, rawPct: number, detail: string) => {
     const weight = config[weightKey];
-    const points = Math.round(((rawPct / 100) * weight) * 100) / 100;
+    const points = weightedPoints(rawPct, weight);
     factors.push({ name, weight, points, detail });
   };
 
