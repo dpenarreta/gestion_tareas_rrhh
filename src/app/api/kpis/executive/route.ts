@@ -4,7 +4,7 @@ import { getSession } from "@/lib/session";
 import { getSubordinateRoles, ROLE_LEVEL } from "@/lib/roles";
 import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct, type MonthlyBusinessBase } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
-import { computeSimpleScore, cached, computePerformanceScore, computeOperationalRisk, classifyOperationalRisk } from "@/lib/analytics";
+import { computeSimpleScore, computeEstimatedVsRealRatio, cached, computePerformanceScore, computeOperationalRisk, classifyOperationalRisk } from "@/lib/analytics";
 import { getEffectiveAnalyticsConfig } from "@/lib/systemConfig";
 import type { ExecutiveDashboardData } from "@/components/kpis/types";
 import type { KpiColor, WorkloadColor, WorkloadLabel } from "@/components/kpis/types";
@@ -103,7 +103,7 @@ export async function GET() {
   const [allTasks, allActivities, fijaTasksForCarga, activitiesForCarga, pendingIdeasRaw] = await Promise.all([
     prisma.task.findMany({
       where: { assignedToId: { in: userIds }, endDate: { gte: rangeStart, lte: rangeEnd } },
-      select: { assignedToId: true, status: true, endDate: true, progress: true },
+      select: { assignedToId: true, status: true, endDate: true, progress: true, estimatedHours: true, realHours: true },
     }),
     prisma.taskActivity.findMany({
       where: { authorId: { in: userIds }, createdAt: { gte: rangeStart, lte: rangeEnd }, task: { type: "SEGUIMIENTO" } },
@@ -151,7 +151,15 @@ export async function GET() {
 
       const inProgress = tasks.filter((t) => t.status === "EN_PROGRESO");
       const avgProgress = inProgress.length > 0 ? Math.round(inProgress.reduce((s, t) => s + t.progress, 0) / inProgress.length) : 0;
-      const score = computeSimpleScore(completedPct, cargaPct, avgProgress);
+      // computeSimpleScore espera el ratio estimado/real de las tareas del
+      // período (ver su propia definición en analytics.ts), no el % de carga
+      // vs. base laboral — antes se pasaba cargaPct aquí, dando un "Score" no
+      // comparable con el de /kpis/me, /kpis/team, etc. (Analytics Calculation
+      // Registry § D3).
+      const totalEstimated = tasks.reduce((s, t) => s + t.estimatedHours, 0);
+      const totalReal = tasks.reduce((s, t) => s + t.realHours, 0);
+      const cargaRatio = computeEstimatedVsRealRatio(totalReal, totalEstimated);
+      const score = computeSimpleScore(completedPct, cargaRatio, avgProgress);
 
       return {
         id: user.id,

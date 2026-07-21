@@ -166,7 +166,7 @@ describe("POST /api/reports/generate", () => {
     mockSession({ role: "JEFE_NACIONAL", userId: "u1" });
     userFindMany.mockResolvedValue([{ id: "sub1", name: "Ana", role: "ASISTENTE_GH" }]);
     taskFindMany.mockResolvedValue([
-      { assignedToId: "sub1", createdById: "sub1", status: "PENDIENTE", endDate: new Date("2026-06-05"), progress: 0, type: "FIJA", frequency: "PUNTUAL", realHours: 0 },
+      { assignedToId: "sub1", createdById: "sub1", status: "PENDIENTE", endDate: new Date("2026-06-05"), progress: 0, type: "FIJA", frequency: "PUNTUAL", estimatedHours: 4, realHours: 0 },
     ]);
     monthlyReportUpsert.mockImplementation(async ({ create }: { create: Record<string, unknown> }) => ({
       id: "r1", month: 6, year: 2026, scope: "JEFE", data: create.data, aiAnalysis: "",

@@ -103,18 +103,20 @@ Alcance: solo lectura/documentación. No se modificó Prisma, APIs públicas, co
 
 **Verificación:** `tsc --noEmit`/`eslint` limpios; se actualizó el mock de Prisma en `src/__tests__/api/kpis-me-userid.test.ts` (agregado `systemConfigHistory`, requerido por la nueva llamada a `getEffectiveAnalyticsConfig`); suite completa 840/842 (mismos 2 fallos preexistentes de `kpis-executive.test.ts`, no relacionados).
 
-### 🟠 D3 — `computeSimpleScore` consolidado, pero alimentado con inputs semánticamente distintos según el caller
+### ✅ D3 — RESUELTO (2026-07-21) — `computeSimpleScore` consolidado, pero alimentado con inputs semánticamente distintos según el caller
 
-**Duplicación encontrada:** `computeSimpleScore(completedPct, cargaRatio, avgProgress, totalComments)` ya es una única función (consolidada en Sprint 4 §S4-B, ver comentario en `analytics.ts` L108-116) — el código en sí NO está duplicado. Pero el segundo parámetro (`cargaRatio`) recibe dos magnitudes distintas según quién llama:
+**Duplicación encontrada:** `computeSimpleScore(completedPct, cargaRatio, avgProgress, totalComments)` ya era una única función (consolidada en Sprint 4 §S4-B, ver comentario en `analytics.ts` L108-116) — el código en sí no estaba duplicado. Pero el segundo parámetro (`cargaRatio`) recibía dos magnitudes distintas según quién llamaba:
 
-- `kpis/[userId]`, `kpis/team`, `kpis/me`, `kpis/me/range` → pasan `computeEstimatedVsRealRatio(totalReal, totalEstimated)` (horas reales vs. estimadas de las tareas del período).
-- `reports/generate`, `reports/range`, `kpis/executive` → pasan `cargaPct` (horas reales vs. base laboral del mes, de `computeWorkloadRange`/`computeWorkloadPct`).
+- `kpis/[userId]`, `kpis/team`, `kpis/me`, `kpis/me/range` → pasaban `computeEstimatedVsRealRatio(totalReal, totalEstimated)` (horas reales vs. estimadas de las tareas del período) — esta es la magnitud que la propia función espera, según su nombre de parámetro y el comentario que documentó su consolidación en Sprint 4.
+- `reports/generate`, `reports/range`, `kpis/executive` → pasaban `cargaPct` (horas reales vs. base laboral del mes, de `computeWorkloadRange`/`computeWorkloadPct`) — una magnitud distinta, con el mismo nombre de resultado (`score`).
 
-**Archivos involucrados:** `kpis/[userId]`, `kpis/team`, `kpis/me`, `kpis/me/range` (ratio estimado/real) vs. `reports/generate`, `reports/range`, `kpis/executive` (% de carga vs. base).
+**Riesgo (previo a la corrección):** Medio. El "Score" de un mismo colaborador para el mismo mes podía diferir entre su vista personal y el ranking ejecutivo/reporte porque el segundo factor de la fórmula medía cosas distintas, aunque la función y el nombre del resultado fueran idénticos.
 
-**Riesgo:** Medio. El "Score" de un mismo colaborador para el mismo mes puede diferir entre su vista personal y el ranking ejecutivo/reporte porque el segundo factor de la fórmula mide cosas distintas, aunque la función y el nombre del resultado (`score`) sean idénticos.
+**Corrección aplicada** (`kpis/executive/route.ts`, `reports/generate/route.ts`, `reports/range/route.ts`): las 3 rutas ahora calculan `computeEstimatedVsRealRatio(totalReal, totalEstimated)` a partir de `estimatedHours`/`realHours` de las tareas del período (agregados a los `select` de Prisma, que antes no los traían) y pasan ese `cargaRatio` a `computeSimpleScore`, igual que `kpis/[userId]`/`kpis/team`/`kpis/me`/`kpis/me/range`. Las 7 rutas que producen este "Score" ahora alimentan la función con la misma magnitud — el `cargaPct` (workload vs. base laboral) que ya calculaban para el semáforo de carga se mantiene sin cambios, solo dejó de reutilizarse (incorrectamente) como input del Score.
 
-**Recomendación:** Documentar (hecho). Si se retoma este KPI en un sprint futuro, renombrar el parámetro de `computeSimpleScore` para dejar explícito cuál de las dos magnitudes espera, o exponer dos variantes con nombre distinto.
+**Efecto visible:** el "Score" del ranking ejecutivo y de los informes mensuales/de rango puede cambiar de valor respecto a antes de este fix para colaboradores cuyo `cargaPct` y `cargaRatio` difieran (lo habitual, al ser magnitudes distintas) — cambio de comportamiento intencional, es la corrección del desalineamiento, no un efecto secundario. El resto de campos (`cargaPct`, `cargaLabel`, `cargaColor`, `cumplimiento`, etc.) no cambia.
+
+**Verificación:** `tsc --noEmit`/`eslint` limpios; se agregaron `estimatedHours`/`realHours` a los fixtures de tareas en `src/__tests__/api/kpis-executive.test.ts` y `src/__tests__/api/reports.test.ts` para reflejar los nuevos campos consultados; suite completa 840/842 (mismos 2 fallos preexistentes de `kpis-executive.test.ts`, no relacionados con este cambio).
 
 ### 🟡 D4 — `computeMonthlyCompliancePace` es una tercera variante de "cumplimiento", con proyección propia
 
@@ -334,7 +336,7 @@ flowchart TB
 | Predicción | ✅ Sí | `computePrediction` (analytics.ts) | ninguna |
 | Benchmark Inteligente (3 niveles) | ✅ Sí | `computeSmartBenchmark` (analytics.ts) | ninguna |
 | Cumplimiento por prioridad | ✅ Sí | `computePriorityCompliance` (priorityCompliance.ts) | ninguna |
-| Score simple (0-100, legacy rankings/reportes) | ✅ Código único, ⚠️ inputs no uniformes | `computeSimpleScore` (analytics.ts) | ver **D3** — mismo código, pero el 2º parámetro recibe `cargaRatio` (estimado/real) en 4 rutas y `cargaPct` (carga vs. base) en 3 rutas |
+| Score simple (0-100, legacy rankings/reportes) | ✅ Sí (corregido, ver **D3**) | `computeSimpleScore` (analytics.ts) | ninguna — las 7 rutas pasan ahora `computeEstimatedVsRealRatio` como 2º parámetro |
 | Ratio horas estimadas/reales | ✅ Sí | `computeEstimatedVsRealRatio` (analytics.ts) | ninguna |
 | **Cumplimiento (% completado)** | ❌ **No** | *(no existe una única fuente)* | ver **D1** — 8 implementaciones inline en 6 archivos + 4 dentro del propio motor, con 2 definiciones (con/sin "a tiempo") que comparten el nombre de campo `completedPct` |
 | Alertas de riesgo / recomendaciones automáticas | ❌ **No** | *(dos motores paralelos)* | ver **D2** — `computeAlerts` (analytics.ts, configurable) vs. `computeRiskAlerts` (riskAlerts.ts, legado, umbrales fijos) |
@@ -446,7 +448,7 @@ flowchart TB
 | D1 | "Cumplimiento" con 2 definiciones y 9 implementaciones inline sin función compartida | 🔴 Alta | Documentado — no unificado (fuera de alcance) |
 | D6 | `/api/dashboard` (pantalla de inicio) reimplementaba carga/cumplimiento/sobrecarga desde cero, sin importar el motor | 🔴 Alta | ✅ **Corregido** (2026-07-21) — ahora reutiliza `computeCargaTiempo`/`computeMonthlyHistory`/`monthlyBusinessBaseForUsers`+`computeWorkloadRange` |
 | D2 | Dos motores de alertas de riesgo paralelos (`computeAlerts` vs. `computeRiskAlerts`) | 🟡 Media→Baja | 🟡 **Parcialmente corregido** (2026-07-21) — umbral de "vencidas" ahora comparte config; ambos motores se mantienen (alcances distintos, documentado) |
-| D3 | `computeSimpleScore` consolidado pero alimentado con magnitudes distintas (`cargaRatio` vs. `cargaPct`) según el caller | 🟠 Media | Documentado — no unificado (fuera de alcance) |
+| D3 | `computeSimpleScore` consolidado pero alimentado con magnitudes distintas (`cargaRatio` vs. `cargaPct`) según el caller | 🟠 Media | ✅ **Corregido** (2026-07-21) — las 7 rutas ahora pasan `computeEstimatedVsRealRatio` |
 | D7 | Clasificación del Performance Score reimplementada en `kpis/executive` para el promedio del equipo | 🟠 Media | Documentado — no unificado (fuera de alcance) |
 | D4 | `computeMonthlyCompliancePace` es una 3ª variante de cumplimiento, pero bien encapsulada | 🟡 Baja | Documentado, sin acción requerida |
 | D8 | `analytics/simulate` reimplementa una línea de aritmética de ponderación (`pointsFor`) ya existente en `mk()` | 🟡 Baja | Documentado, sin acción requerida |

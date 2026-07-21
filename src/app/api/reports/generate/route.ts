@@ -6,7 +6,7 @@ import { isTaskOverdue } from "@/lib/utils";
 import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
 import { getActivityReasonLabelMap } from "@/lib/activityReasons";
-import { computeSimpleScore } from "@/lib/analytics";
+import { computeSimpleScore, computeEstimatedVsRealRatio } from "@/lib/analytics";
 import Groq from "groq-sdk";
 import type { Role, ReportScope } from "@/generated/prisma/client";
 import type { KpiColor, WorkloadLabel } from "@/components/kpis/types";
@@ -221,6 +221,8 @@ export async function POST(request: NextRequest) {
         progress: true,
         type: true,
         frequency: true,
+        estimatedHours: true,
+        realHours: true,
       },
     }),
     prisma.taskActivity.findMany({
@@ -277,8 +279,15 @@ export async function POST(request: NextRequest) {
     const recurring = tasks.filter((t) => recurringFreqs.includes(t.frequency));
     const recurringCompleted = recurring.filter((t) => t.status === "COMPLETADA").length;
 
+    // computeSimpleScore espera el ratio estimado/real de las tareas del
+    // período, no el % de carga vs. base laboral (ver Analytics Calculation
+    // Registry § D3) — antes se pasaba cargaPct, dando un "Score" no
+    // comparable con el de /kpis/me, /kpis/team, etc.
+    const totalEstimated = tasks.reduce((s, t) => s + t.estimatedHours, 0);
+    const totalReal = tasks.reduce((s, t) => s + t.realHours, 0);
+    const cargaRatio = computeEstimatedVsRealRatio(totalReal, totalEstimated);
     // Sin conteo de comentarios en el consolidado (varía según contexto, igual que antes).
-    const score = computeSimpleScore(completedPct, cargaPct, avgProgress);
+    const score = computeSimpleScore(completedPct, cargaRatio, avgProgress);
 
     const userActivities = allActivities.filter((a) => a.authorId === user.id);
     const byReasonMap: Record<string, { count: number; totalMinutes: number }> = {};

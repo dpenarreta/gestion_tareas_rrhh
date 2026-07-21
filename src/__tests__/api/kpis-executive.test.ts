@@ -127,14 +127,16 @@ describe("GET /api/kpis/executive", () => {
       { id: "sub2", name: "Beto", role: "COORDINADOR_ZS" },
     ]);
     // endDate dentro de agosto 2026 (mes en curso, "ahora" = 2026-08-01).
+    // estimatedHours/realHours alimentan computeEstimatedVsRealRatio (score,
+    // ver Analytics Calculation Registry § D3) — no la carga laboral en sí.
     taskFindMany.mockResolvedValue([
-      { assignedToId: "sub1", status: "COMPLETADA", endDate: new Date("2026-08-05"), progress: 100 },
-      { assignedToId: "sub1", status: "COMPLETADA", endDate: new Date("2026-08-10"), progress: 100 },
+      { assignedToId: "sub1", status: "COMPLETADA", endDate: new Date("2026-08-05"), progress: 100, estimatedHours: 4, realHours: 4 },
+      { assignedToId: "sub1", status: "COMPLETADA", endDate: new Date("2026-08-10"), progress: 100, estimatedHours: 4, realHours: 4 },
       // sub2: 1 de 4 completada → 25% (< 60% → alerta de cumplimiento)
-      { assignedToId: "sub2", status: "COMPLETADA", endDate: new Date("2026-08-05"), progress: 100 },
-      { assignedToId: "sub2", status: "PENDIENTE", endDate: new Date("2026-08-06"), progress: 0 },
-      { assignedToId: "sub2", status: "PENDIENTE", endDate: new Date("2026-08-07"), progress: 0 },
-      { assignedToId: "sub2", status: "PENDIENTE", endDate: new Date("2026-08-08"), progress: 0 },
+      { assignedToId: "sub2", status: "COMPLETADA", endDate: new Date("2026-08-05"), progress: 100, estimatedHours: 3, realHours: 3 },
+      { assignedToId: "sub2", status: "PENDIENTE", endDate: new Date("2026-08-06"), progress: 0, estimatedHours: 3, realHours: 0 },
+      { assignedToId: "sub2", status: "PENDIENTE", endDate: new Date("2026-08-07"), progress: 0, estimatedHours: 3, realHours: 0 },
+      { assignedToId: "sub2", status: "PENDIENTE", endDate: new Date("2026-08-08"), progress: 0, estimatedHours: 3, realHours: 0 },
     ]);
     improvementIdeaFindMany.mockResolvedValue([
       { id: "idea1", title: "Idea pendiente", status: "PROPUESTA", author: { name: "Carla" } },

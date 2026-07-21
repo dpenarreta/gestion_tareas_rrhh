@@ -5,7 +5,7 @@ import { canAccessReports, ROLE_LABEL } from "@/lib/roles";
 import { isTaskOverdue } from "@/lib/utils";
 import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
-import { computeSimpleScore } from "@/lib/analytics";
+import { computeSimpleScore, computeEstimatedVsRealRatio } from "@/lib/analytics";
 import Groq from "groq-sdk";
 import type { Role } from "@/generated/prisma/client";
 import type { MonthSnapshot, RangeReportData, ReportMemberKpi } from "@/components/kpis/types";
@@ -210,6 +210,8 @@ export async function GET(request: NextRequest) {
           progress: true,
           type: true,
           frequency: true,
+          estimatedHours: true,
+          realHours: true,
         },
       }),
       prisma.taskActivity.findMany({
@@ -275,7 +277,13 @@ export async function GET(request: NextRequest) {
             ? Math.round(inProgress.reduce((s, t) => s + t.progress, 0) / inProgress.length)
             : 0;
         const overdue = tasks.filter((t) => isTaskOverdue(t.endDate, t.status, refDate)).length;
-        const score = computeSimpleScore(completedPct, cargaPct, avgProgress);
+        // computeSimpleScore espera el ratio estimado/real de las tareas del
+        // período, no el % de carga vs. base laboral (ver Analytics
+        // Calculation Registry § D3) — antes se pasaba cargaPct aquí.
+        const totalEstimated = tasks.reduce((s, t) => s + t.estimatedHours, 0);
+        const totalReal = tasks.reduce((s, t) => s + t.realHours, 0);
+        const cargaRatio = computeEstimatedVsRealRatio(totalReal, totalEstimated);
+        const score = computeSimpleScore(completedPct, cargaRatio, avgProgress);
         return {
           id: user.id,
           name: user.name,
