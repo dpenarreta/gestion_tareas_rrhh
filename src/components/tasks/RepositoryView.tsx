@@ -6,6 +6,7 @@ import type { Task } from "./types";
 import { taskColorHex } from "./colors";
 import { formatDate } from "@/lib/utils";
 import { hoursToDisplay } from "@/lib/timeFormat";
+import { getOfficialTargetTime, isTargetTimeValidated } from "@/lib/targetTime";
 import CorrectArchivedTaskModal from "./CorrectArchivedTaskModal";
 
 type RepositoryMonth = { year: number; month: number; totalTasks: number; completedTasks: number; totalHours: number };
@@ -139,7 +140,7 @@ export default function RepositoryView({ currentUserRole }: Props) {
                   <th className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Estado</th>
                   <th className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Prioridad</th>
                   <th className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Fin</th>
-                  <th className="text-right px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">H. Est.</th>
+                  <th className="text-right px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">T. Objetivo</th>
                   <th className="text-right px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">H. Reales</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Avance</th>
                   {isAdmin && <th className="text-right px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Acciones</th>}
@@ -181,7 +182,12 @@ export default function RepositoryView({ currentUserRole }: Props) {
                         </span>
                       </td>
                       <td className="px-3 py-3 whitespace-nowrap text-main">{formatDate(task.endDate)}</td>
-                      <td className="px-3 py-3 text-right text-main">{hoursToDisplay(task.estimatedHours)}h</td>
+                      <td className="px-3 py-3 text-right text-main">
+                        {hoursToDisplay(getOfficialTargetTime(task))}h
+                        {isTargetTimeValidated(task) && (
+                          <span className="ml-1 text-success text-[10px]" title="Tiempo objetivo validado">✓</span>
+                        )}
+                      </td>
                       <td className="px-3 py-3 text-right text-main">{hoursToDisplay(task.realHours)}h</td>
                       <td className="px-3 py-3">
                         <div className="flex items-center gap-2 min-w-[80px]">

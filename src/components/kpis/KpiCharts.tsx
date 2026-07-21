@@ -144,7 +144,7 @@ export function WeeklyHoursChart({ data }: { data: KpiData["horasByWeek"] }) {
           formatter={(v) => [`${hoursToDisplay(Number(v))}h`]}
         />
         <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8, color: ct.axis }} />
-        <Bar dataKey="estimated" name="Estimado" fill={ct.track} radius={[4, 4, 0, 0]} maxBarSize={32} />
+        <Bar dataKey="estimated" name="Tiempo objetivo" fill={ct.track} radius={[4, 4, 0, 0]} maxBarSize={32} />
         <Bar dataKey="real" name="Real" fill={ct.primary} radius={[4, 4, 0, 0]} maxBarSize={32} />
       </BarChart>
     </ResponsiveContainer>

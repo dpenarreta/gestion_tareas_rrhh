@@ -17,7 +17,7 @@ export async function GET() {
       "Frecuencia",
       "Fecha Inicio (Formato: YYYY-MM-DD)",
       "Fecha Fin (Formato: YYYY-MM-DD)",
-      "Horas Estimadas",
+      "Tiempo Objetivo",
       "Asignado a (email)",
       "Tipo",
     ],

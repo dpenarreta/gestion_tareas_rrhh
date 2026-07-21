@@ -66,4 +66,5 @@ export const CONFIDENCE_TOOLTIPS = {
   trazabilidad: "Mide qué tan bien quedó documentado el trabajo realizado.",
   consistencia: "Mide la estabilidad del desempeño entre períodos.",
   referenciaUtilizada: "Indica contra qué estándar se interpreta este indicador.",
+  targetTimePrecision: "Mide qué tan cerca estuvo la ejecución real del Tiempo Objetivo esperado — no reemplaza al Performance Score.",
 } as const;

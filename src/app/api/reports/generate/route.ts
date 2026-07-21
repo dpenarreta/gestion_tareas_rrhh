@@ -114,7 +114,7 @@ async function buildAiAnalysis(data: ReportData, reasonLabelMap: Record<string, 
 RESUMEN DEL EQUIPO:
 - Promedio de cumplimiento: ${data.teamSummary.avgCumplimiento}% (objetivo mínimo: 60%, objetivo ideal: 80%)
 - Total tareas completadas: ${data.teamSummary.totalCompletedTasks} de ${data.teamSummary.totalTasks}
-- Carga laboral del equipo: ${data.teamSummary.avgCargaPct}% (${data.teamSummary.totalCargaRealHours}h reales de ${data.teamSummary.totalCargaBaseHours}h base — la base es dinámica, calculada como días hábiles lunes-viernes del mes × ${data.teamSummary.hoursPerDay}h efectivas configuradas por persona; las horas estimadas por tarea son solo referencia y no forman parte de este cálculo). El rango óptimo configurado por persona este mes es de ${data.teamSummary.cargaRangeMin}h a ${data.teamSummary.cargaRangeMax}h — usa ese rango, no un 100% exacto, para juzgar si alguien está en carga óptima, elevada o sobrecarga.
+- Carga laboral del equipo: ${data.teamSummary.avgCargaPct}% (${data.teamSummary.totalCargaRealHours}h reales de ${data.teamSummary.totalCargaBaseHours}h base — la base es dinámica, calculada como días hábiles lunes-viernes del mes × ${data.teamSummary.hoursPerDay}h efectivas configuradas por persona; el Tiempo Objetivo por tarea es solo referencia y no forma parte de este cálculo). El rango óptimo configurado por persona este mes es de ${data.teamSummary.cargaRangeMin}h a ${data.teamSummary.cargaRangeMax}h — usa ese rango, no un 100% exacto, para juzgar si alguien está en carga óptima, elevada o sobrecarga.
 - Total consultas SEGUIMIENTO atendidas: ${data.teamSummary.totalConsultas}
 
 RANKING DE CUMPLIMIENTO (de mayor a menor):

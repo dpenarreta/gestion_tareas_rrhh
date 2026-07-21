@@ -122,7 +122,7 @@ export async function POST(request: NextRequest) {
 
     const estimatedHours = parseFloat(String(estimatedHoursRaw));
     if (isNaN(estimatedHours)) {
-      errors.push({ row: rowNum, error: "Horas estimadas inválidas" });
+      errors.push({ row: rowNum, error: "Tiempo objetivo inválido" });
       continue;
     }
 

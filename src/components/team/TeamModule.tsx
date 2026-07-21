@@ -11,6 +11,7 @@ import ActivityPanel from "@/components/tasks/ActivityPanel";
 import TaskFormModal from "@/components/tasks/TaskFormModal";
 import { formatDate, isTaskOverdue } from "@/lib/utils";
 import { hoursToDisplay } from "@/lib/timeFormat";
+import { getOfficialTargetTime, isTargetTimeValidated } from "@/lib/targetTime";
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -194,7 +195,10 @@ function MemberTaskRow({ task, onCommentClick, onActivityClick }: {
           {formatDate(task.endDate)}
         </span>
       </td>
-      <td className="px-3 py-3 text-right text-main text-xs">{hoursToDisplay(task.estimatedHours)}h</td>
+      <td className="px-3 py-3 text-right text-main text-xs">
+        {hoursToDisplay(getOfficialTargetTime(task))}h
+        {isTargetTimeValidated(task) && <span className="ml-1 text-success" title="Tiempo objetivo validado">✓</span>}
+      </td>
       <td className="px-3 py-3 text-right text-secondary text-xs">{hoursToDisplay(task.realHours)}h</td>
       <td className="px-3 py-3 text-center">
         <div className="inline-flex items-center gap-2">
@@ -258,7 +262,7 @@ function MemberTasksTable({
         case "priority": av = PRIORITY_ORDER[a.priority] ?? 9; bv = PRIORITY_ORDER[b.priority] ?? 9; break;
         case "startDate": av = a.startDate; bv = b.startDate; break;
         case "endDate": av = a.endDate; bv = b.endDate; break;
-        case "estimatedHours": av = a.estimatedHours; bv = b.estimatedHours; break;
+        case "estimatedHours": av = getOfficialTargetTime(a); bv = getOfficialTargetTime(b); break;
         case "realHours": av = a.realHours; bv = b.realHours; break;
         case "comments": av = a._count.comments; bv = b._count.comments; break;
       }
@@ -331,7 +335,7 @@ function MemberTasksTable({
                           <th onDoubleClick={() => handleSort("priority")} className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Prioridad<SortIcon col="priority" /></th>
                           <th onDoubleClick={() => handleSort("startDate")} className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Inicio<SortIcon col="startDate" /></th>
                           <th onDoubleClick={() => handleSort("endDate")} className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Fin<SortIcon col="endDate" /></th>
-                          <th onDoubleClick={() => handleSort("estimatedHours")} className="text-right px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">H. Est.<SortIcon col="estimatedHours" /></th>
+                          <th onDoubleClick={() => handleSort("estimatedHours")} className="text-right px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">T. Objetivo<SortIcon col="estimatedHours" /></th>
                           <th onDoubleClick={() => handleSort("realHours")} className="text-right px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">H. Reales<SortIcon col="realHours" /></th>
                           <th onDoubleClick={() => handleSort("comments")} className="text-center px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Coment.<SortIcon col="comments" /></th>
                         </tr>

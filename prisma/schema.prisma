@@ -74,6 +74,15 @@ enum SpecialStatusType {
   LACTANCIA
 }
 
+// Motivo de ajuste al validar el Tiempo Objetivo (§Sprint 6 S6-C).
+enum TargetTimeAdjustReason {
+  PROCEDIMIENTO_ESTANDAR
+  COMPLEJIDAD_DETECTADA
+  CAMBIO_ALCANCE
+  REVISION_LIDER
+  OTRO
+}
+
 model User {
   id                    String          @id @default(cuid())
   email                 String          @unique
@@ -119,6 +128,8 @@ model User {
   specialStatuses             SpecialStatus[]       @relation("SpecialStatusUser")
   specialStatusesCreated      SpecialStatus[]       @relation("SpecialStatusCreator")
   analyticsAuditLogs          AnalyticsAuditLog[]   @relation("AnalyticsAuditUser")
+  targetTimeValidations       Task[]                @relation("TargetTimeValidator")
+  targetTimeAuditLogs         TargetTimeAuditLog[]  @relation("TargetTimeAuditUser")
 }
 
 model ActivityReason {
@@ -259,8 +270,22 @@ model Task {
   frequency      TaskFrequency
   startDate      DateTime
   endDate        DateTime
+  // Tiempo objetivo inicial (§Sprint 6 S6-B) — definido al crear la tarea. El
+  // nombre de columna se mantiene por compatibilidad con datos existentes;
+  // en la interfaz se presenta como "Tiempo objetivo". NUNCA se sobrescribe
+  // automáticamente con horas reales (§S6-E) — solo la validación humana
+  // (targetTimeValidated) puede reemplazarlo como referencia oficial.
   estimatedHours Float
   realHours      Float              @default(0)
+  // Tiempo objetivo validado (§Sprint 6 S6-B/S6-C) — null hasta que un líder
+  // autorizado (Administrador/Jefe Nacional/Coordinador Nacional, nunca el
+  // responsable de la tarea) lo valide explícitamente. Mientras sea null, la
+  // referencia oficial sigue siendo estimatedHours (§S6-H). Cada cambio queda
+  // en TargetTimeAuditLog.
+  targetTimeValidated     Float?
+  targetTimeValidatedAt   DateTime?
+  targetTimeValidatedById String?
+  targetTimeValidator     User?              @relation("TargetTimeValidator", fields: [targetTimeValidatedById], references: [id])
   progress       Int                @default(0)
   completedAt    DateTime?
   type           TaskType           @default(FIJA)
@@ -545,6 +570,26 @@ model AnalyticsAuditLog {
   createdAt     DateTime @default(now())
 
   @@index([userId, kind, period])
+}
+
+// Auditoría de validaciones del Tiempo Objetivo (§Sprint 6 S6-C/S6-G). taskId es
+// intencionalmente una referencia suelta (sin FK), igual que ActivityAuditLog,
+// para que el registro sobreviva aunque la tarea se elimine más adelante.
+// Nunca se elimina ni se sobrescribe un registro — cada validación agrega uno nuevo.
+model TargetTimeAuditLog {
+  id            String                 @id @default(cuid())
+  taskId        String
+  userId        String
+  user          User                   @relation("TargetTimeAuditUser", fields: [userId], references: [id])
+  userRole      Role
+  previousValue Float?
+  newValue      Float
+  reason        TargetTimeAdjustReason
+  reasonDetail  String?
+  ipAddress     String?
+  createdAt     DateTime               @default(now())
+
+  @@index([taskId])
 }
 
 model MeetingInvitee {

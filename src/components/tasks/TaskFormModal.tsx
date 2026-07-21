@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import type { Task, AssignableUser, TaskType } from "./types";
 import { hoursToDisplay, displayToHours, validateDisplayHours, INVALID_HOURS_MESSAGE } from "@/lib/timeFormat";
+import { TARGET_TIME_TOOLTIP } from "@/lib/targetTime";
 
 const STATUS_OPTIONS = [
   { value: "PENDIENTE", label: "Pendiente" },
@@ -73,7 +74,7 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
     e.preventDefault();
     if (!title.trim()) { setError("El título es requerido"); return; }
     if (!startDate || !endDate) { setError("Las fechas son requeridas"); return; }
-    if (!estimatedHours) { setError("Las horas estimadas son requeridas"); return; }
+    if (!estimatedHours) { setError("El tiempo objetivo es requerido"); return; }
     if (!validateDisplayHours(estimatedHours)) { setError(INVALID_HOURS_MESSAGE); return; }
 
     setSaving(true);
@@ -250,7 +251,17 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-main mb-1.5">Horas estimadas *</label>
+            <label className="block text-xs font-semibold text-main mb-1.5 flex items-center gap-1.5">
+              Tiempo objetivo *
+              <span
+                title={TARGET_TIME_TOOLTIP}
+                aria-label={TARGET_TIME_TOOLTIP}
+                tabIndex={0}
+                className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-surface2 text-disabled text-[9px] font-bold leading-none cursor-help shrink-0 hover:bg-primary-surface hover:text-primary transition-colors"
+              >
+                i
+              </span>
+            </label>
             <input
               type="text"
               inputMode="decimal"

@@ -195,7 +195,7 @@ describe("PATCH /api/tasks/[id]/correct", () => {
 function xlsxFile(rows: unknown[][]): File {
   const header = [
     "Título", "Descripción", "Prioridad", "Frecuencia",
-    "Fecha Inicio", "Fecha Fin", "Horas Estimadas", "Asignado a (email)", "Tipo",
+    "Fecha Inicio", "Fecha Fin", "Tiempo Objetivo", "Asignado a (email)", "Tipo",
   ];
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
@@ -271,13 +271,13 @@ describe("POST /api/tasks/import", () => {
     expect(invalid.errors[0].error).toMatch(/formato de fecha inválido/);
   });
 
-  it("reporta error si las horas estimadas no son numéricas", async () => {
+  it("reporta error si el tiempo objetivo no es numérico", async () => {
     mockSession({});
     const res = await importPOST(
       importRequest([["Tarea", "d", "ALTA", "PUNTUAL", "2026-01-05", "2026-01-10", "no-numero", "", "FIJA"]])
     );
     const body = await res.json();
-    expect(body.errors[0].error).toMatch(/Horas estimadas inválidas/);
+    expect(body.errors[0].error).toMatch(/Tiempo objetivo inválido/);
   });
 
   it("busca al usuario por email y usa su id como assignedToId; reporta error si no existe", async () => {

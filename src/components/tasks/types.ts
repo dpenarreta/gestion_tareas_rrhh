@@ -76,6 +76,10 @@ export type Task = {
   endDate: string;
   estimatedHours: number;
   realHours: number;
+  // Tiempo Objetivo validado (§Sprint 6) — null hasta que un líder autorizado
+  // lo valide. Mientras sea null, la referencia oficial sigue siendo
+  // estimatedHours (ver src/lib/targetTime.ts § getOfficialTargetTime).
+  targetTimeValidated: number | null;
   progress: number;
   color: string | null;
   corrected: boolean;

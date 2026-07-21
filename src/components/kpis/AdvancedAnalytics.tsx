@@ -16,6 +16,7 @@ import type {
 import type { ResolvedAlert } from "@/lib/analytics";
 import { isFeatureEnabled } from "@/lib/featureFlags";
 import { SmartBenchmarkPanel } from "./SmartBenchmark";
+import TargetTimePrecisionCard from "./TargetTimePrecisionCard";
 import {
   scoreLevel,
   scoreLevelExplanation,
@@ -48,6 +49,7 @@ export const KPI_SECTION_LINKS_DEFAULT = [
   { id: "cumplimiento", label: "Cumplimiento" },
   { id: "alertas", label: "Alertas" },
   { id: "prediccion", label: "Predicción" },
+  { id: "tiempo-objetivo", label: "Tiempo Objetivo" },
   { id: "tareas", label: "Tareas" },
 ];
 
@@ -872,6 +874,10 @@ export function AdvancedAnalyticsPanel({ userId }: { userId: string }) {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         <TrendsCard trends={data.trends} />
         <DataQualityCard result={data.dataQuality} />
+      </div>
+
+      <div id="tiempo-objetivo" className="scroll-mt-16">
+        <TargetTimePrecisionCard userId={userId} />
       </div>
 
       {explainLegacyOpen && (

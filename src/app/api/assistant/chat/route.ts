@@ -87,7 +87,7 @@ async function buildTaskContext(userId: string): Promise<string> {
     return `- [${STATUS_LABEL[t.status]}] "${t.title}"
   Prioridad: ${t.priority} | Tipo: ${t.type} | Avance: ${t.progress}%
   Fechas: ${fmt(t.startDate)} → ${fmt(t.endDate)}${vencida ? " ⚠️ VENCIDA" : ""}
-  Horas: ${round2(t.estimatedHours)}h estimadas / ${round2(t.realHours)}h reales`;
+  Horas: ${round2(t.estimatedHours)}h de tiempo objetivo / ${round2(t.realHours)}h reales`;
   });
 
   return `TAREAS DEL USUARIO (fecha actual: ${fmt(today)}):
@@ -173,7 +173,7 @@ async function buildTeamContext(userId: string, userRole: Role): Promise<string>
     memberLines.push(
       `${m.name} (${ROLE_LABEL[m.role] ?? m.role}):
   Tareas: ${tasks.length} total | ${completed} completadas (${pct}%) | ${inProgress} en curso | ${overdue} vencidas
-  Horas: ${estH}h estimadas / ${realH}h reales → Carga: ${carga}%${inProgress > 0 ? ` | Avance prom. en curso: ${avgProg}%` : ""}`
+  Horas: ${estH}h de tiempo objetivo / ${realH}h reales → Carga: ${carga}%${inProgress > 0 ? ` | Avance prom. en curso: ${avgProg}%` : ""}`
     );
   }
 

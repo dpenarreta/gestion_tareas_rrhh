@@ -193,7 +193,7 @@ function downloadKpisExcel(kpi: KpiData, month: string, name: string, role: stri
     ["Score global", `${kpi.score}/100`],
     ["Cumplimiento", `${kpi.cumplimiento.completedPct}%`],
     ["Carga laboral", `${kpi.cargaLaboral.ratio}%`],
-    ["Horas reales / estimadas", `${hoursToDisplay(kpi.cargaLaboral.realHours)}h / ${hoursToDisplay(kpi.cargaLaboral.estimatedHours)}h`],
+    ["Horas reales / Tiempo objetivo", `${hoursToDisplay(kpi.cargaLaboral.realHours)}h / ${hoursToDisplay(kpi.cargaLaboral.estimatedHours)}h`],
     ["Total tareas", kpi.cumplimiento.total],
     ["Completadas", kpi.cumplimiento.completed],
     ["Vencidas", kpi.cumplimiento.overdue],
@@ -229,7 +229,7 @@ function downloadKpisExcel(kpi: KpiData, month: string, name: string, role: stri
 
   if (kpi.horasByWeek.length > 0) {
     const horasRows = [
-      ["Semana", "Horas estimadas", "Horas reales"],
+      ["Semana", "Tiempo objetivo", "Horas reales"],
       ...kpi.horasByWeek.map((w) => [w.week, w.estimated, w.real]),
     ];
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(horasRows), "Horas semanales");
@@ -357,7 +357,7 @@ function downloadRangeExcel(
     ["Score promedio", `${data.aggregated.avgScore}/100`],
     ["Tareas completadas", `${data.aggregated.totalCompletedTasks} / ${data.aggregated.totalTasks}`],
     ["Horas reales", `${hoursToDisplay(data.aggregated.totalRealHours)}h`],
-    ["Horas estimadas", `${hoursToDisplay(data.aggregated.totalEstimatedHours)}h`],
+    ["Tiempo objetivo", `${hoursToDisplay(data.aggregated.totalEstimatedHours)}h`],
     [
       "Carga laboral (rango)",
       `${data.aggregated.cargaLabel} — ${hoursToDisplay(data.aggregated.totalCargaRealHours)}h (rango óptimo ${hoursToDisplay(data.aggregated.cargaRangeMin)}-${hoursToDisplay(data.aggregated.cargaRangeMax)}h)`,
@@ -1077,7 +1077,7 @@ export default function MyKpisModule({ currentUserId, currentUserName, currentUs
                 <StatCard label="Cumplimiento promedio" value={`${rangeReport.aggregated.avgCumplimiento}%`} sub={`${rangeReport.months.length} meses`} accent />
                 <StatCard label="Score promedio" value={`${rangeReport.aggregated.avgScore}/100`} sub="sin considerar comentarios" />
                 <StatCard label="Tareas completadas" value={`${rangeReport.aggregated.totalCompletedTasks}`} sub={`de ${rangeReport.aggregated.totalTasks} totales`} />
-                <StatCard label="Horas acumuladas" value={`${hoursToDisplay(rangeReport.aggregated.totalRealHours)}h`} sub={`de ${hoursToDisplay(rangeReport.aggregated.totalEstimatedHours)}h estimadas`} />
+                <StatCard label="Horas acumuladas" value={`${hoursToDisplay(rangeReport.aggregated.totalRealHours)}h`} sub={`de ${hoursToDisplay(rangeReport.aggregated.totalEstimatedHours)}h de tiempo objetivo`} />
                 <StatCard
                   label="Carga laboral (rango)"
                   value={`${hoursToDisplay(rangeReport.aggregated.totalCargaRealHours)}h`}

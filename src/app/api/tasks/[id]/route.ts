@@ -20,6 +20,7 @@ const taskSelect = {
   endDate: true,
   estimatedHours: true,
   realHours: true,
+  targetTimeValidated: true,
   progress: true,
   color: true,
   corrected: true,

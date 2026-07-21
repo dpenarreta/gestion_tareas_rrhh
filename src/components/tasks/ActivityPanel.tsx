@@ -3,11 +3,44 @@
 import { useState, useEffect, useRef, useMemo } from "react";
 import type { Role } from "@/generated/prisma/client";
 import type { Task, TaskActivity, FollowUpReminder } from "./types";
+import { ROLE_LABEL } from "@/lib/roles";
 import TimeInput24 from "@/components/ui/TimeInput24";
 import type { ActivityFormat } from "@/lib/activityFormat";
 import { fetchActivityReasons, selectableReasons, formatDuration, type ActivityReasonConfig } from "./activityReasons";
 import { rangesOverlap } from "@/lib/timeOverlap";
+import { hoursToDisplay } from "@/lib/timeFormat";
 import ActivityItem from "./ActivityItem";
+import ValidateTargetTimeModal from "./ValidateTargetTimeModal";
+import {
+  TARGET_TIME_REASON_LABEL,
+  type TargetTimeAdjustReason,
+  type HistoricalDeviationInsight,
+} from "@/lib/targetTime";
+
+type TargetTimeAuditEntry = {
+  id: string;
+  previousValue: number | null;
+  newValue: number;
+  reason: TargetTimeAdjustReason;
+  reasonDetail: string | null;
+  user: { id: string; name: string };
+  userRole: string;
+  createdAt: string;
+};
+
+type TargetTimeInfo = {
+  estimatedHours: number;
+  targetTimeValidated: number | null;
+  targetTimeValidatedAt: string | null;
+  validatedBy: { id: string; name: string } | null;
+  isValidated: boolean;
+  officialTarget: number;
+  realHours: number;
+  deviation: { hours: number; pct: number | null };
+  canValidate: boolean;
+  auditHistory: TargetTimeAuditEntry[];
+  historicalDeviation: HistoricalDeviationInsight;
+};
 
 type DayScheduleEntry = { id: string; startTime: string; endTime: string; taskId: string; taskTitle: string };
 
@@ -57,6 +90,11 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
   const [endTime, setEndTime] = useState("");
   const [description, setDescription] = useState("");
   const [daySchedule, setDaySchedule] = useState<DayScheduleEntry[]>([]);
+
+  const [targetTimeInfo, setTargetTimeInfo] = useState<TargetTimeInfo | null>(null);
+  const [targetTimeExpanded, setTargetTimeExpanded] = useState(true);
+  const [auditExpanded, setAuditExpanded] = useState(false);
+  const [validateOpen, setValidateOpen] = useState(false);
 
   const [reminders, setReminders] = useState<FollowUpReminder[]>([]);
   const [remindersExpanded, setRemindersExpanded] = useState(true);
@@ -120,6 +158,19 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
   useEffect(() => {
     fetchActivityReasons().then(setReasons);
   }, []);
+
+  const loadTargetTime = useMemo(
+    () => () =>
+      fetch(`/api/tasks/${task.id}/target-time`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => setTargetTimeInfo(data))
+        .catch(() => setTargetTimeInfo(null)),
+    [task.id]
+  );
+
+  useEffect(() => {
+    loadTargetTime();
+  }, [loadTargetTime]);
 
   useEffect(() => {
     if (readOnly || activityFormat !== "timerange") return;
@@ -294,6 +345,123 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
             <span className="text-xs font-medium text-primary">Tiempo total acumulado</span>
             <span className="text-sm font-bold text-primary">{formatDuration(totalMinutes)}</span>
           </div>
+        )}
+
+        {/* Tiempo Objetivo (§Sprint 6) */}
+        {targetTimeInfo && (
+          <div className="px-4 py-3 border-b border-border">
+            <button
+              onClick={() => setTargetTimeExpanded((v) => !v)}
+              className="w-full flex items-center gap-1.5 text-xs font-semibold text-main hover:text-primary transition-colors"
+            >
+              <svg
+                className={`w-3 h-3 shrink-0 transition-transform duration-200 ${targetTimeExpanded ? "rotate-90" : ""}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+              </svg>
+              <span>Tiempo Objetivo</span>
+            </button>
+
+            <div
+              className={`grid transition-all duration-300 ease-in-out ${
+                targetTimeExpanded ? "grid-rows-[1fr] opacity-100 mt-2.5" : "grid-rows-[0fr] opacity-0"
+              }`}
+            >
+              <div className="overflow-hidden space-y-2.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-secondary">Tiempo objetivo</span>
+                  <span className="font-semibold text-title flex items-center gap-1.5">
+                    {hoursToDisplay(targetTimeInfo.officialTarget)}h
+                    {targetTimeInfo.isValidated ? (
+                      <span
+                        className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-success/[.13] text-success"
+                        title={targetTimeInfo.validatedBy ? `Validado por ${targetTimeInfo.validatedBy.name}` : "Validado"}
+                      >
+                        Validado
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-warning/[.15] text-warning">
+                        Pendiente de validar
+                      </span>
+                    )}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-secondary">Horas reales</span>
+                  <span className="font-semibold text-title">{hoursToDisplay(targetTimeInfo.realHours)}h</span>
+                </div>
+                {targetTimeInfo.realHours > 0 && (
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-secondary">Desviación</span>
+                    <span className={`font-semibold ${targetTimeInfo.deviation.hours > 0 ? "text-danger" : targetTimeInfo.deviation.hours < 0 ? "text-success" : "text-disabled"}`}>
+                      {targetTimeInfo.deviation.hours > 0 ? "+" : ""}
+                      {targetTimeInfo.deviation.hours}h
+                      {targetTimeInfo.deviation.pct !== null && ` (${targetTimeInfo.deviation.pct > 0 ? "+" : ""}${targetTimeInfo.deviation.pct}%)`}
+                    </span>
+                  </div>
+                )}
+
+                {targetTimeInfo.historicalDeviation.available && (
+                  <p className="text-[11px] text-warning bg-warning/[.08] rounded-lg px-2.5 py-2 leading-relaxed">
+                    {targetTimeInfo.historicalDeviation.recommendation}
+                  </p>
+                )}
+
+                {targetTimeInfo.canValidate && (
+                  <button
+                    onClick={() => setValidateOpen(true)}
+                    className="w-full bg-primary text-white rounded-lg py-1.5 text-xs font-medium hover:bg-primary-hover transition-colors"
+                  >
+                    Validar tiempo objetivo
+                  </button>
+                )}
+
+                {targetTimeInfo.auditHistory.length > 0 && (
+                  <div>
+                    <button
+                      onClick={() => setAuditExpanded((v) => !v)}
+                      className="text-[11px] font-medium text-primary hover:text-primary-hover"
+                    >
+                      {auditExpanded ? "Ocultar" : "Ver"} historial de validaciones ({targetTimeInfo.auditHistory.length})
+                    </button>
+                    {auditExpanded && (
+                      <div className="space-y-1.5 mt-2">
+                        {targetTimeInfo.auditHistory.map((a) => (
+                          <div key={a.id} className="bg-background rounded-lg px-2.5 py-2 text-[11px] space-y-0.5">
+                            <p className="text-title font-medium">
+                              {a.previousValue !== null ? `${hoursToDisplay(a.previousValue)}h → ` : ""}
+                              {hoursToDisplay(a.newValue)}h
+                            </p>
+                            <p className="text-secondary">{TARGET_TIME_REASON_LABEL[a.reason]}{a.reasonDetail ? `: ${a.reasonDetail}` : ""}</p>
+                            <p className="text-disabled">
+                              {a.user.name} ({ROLE_LABEL[a.userRole as Role] ?? a.userRole}) · {formatReminderDateTime(a.createdAt)}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {validateOpen && targetTimeInfo && (
+          <ValidateTargetTimeModal
+            taskId={task.id}
+            taskTitle={task.title}
+            currentValue={targetTimeInfo.officialTarget}
+            historicalDeviation={targetTimeInfo.historicalDeviation}
+            onClose={() => setValidateOpen(false)}
+            onValidated={() => {
+              setValidateOpen(false);
+              loadTargetTime();
+            }}
+          />
         )}
 
         {/* Seguimiento planificado */}

@@ -86,7 +86,7 @@ const FACTOR_EXPLANATION: Record<string, string> = {
   "Baja capacidad futura (<10%)": "Posible causa principal: la carga ya comprometida deja muy poco margen sobre la base laboral restante del mes.",
   "Variabilidad excesiva entre semanas": "Relación observada: el ritmo de horas trabajadas y tareas completadas varía fuertemente semana a semana (coeficiente de variación alto).",
   "Alta concentración en un solo tipo de actividad": "Posible causa principal: un solo motivo de consulta concentra la mayoría del tiempo de Seguimiento del período.",
-  "Muchas tareas sin planificación": "Relación observada: varias tareas abiertas no tienen horas estimadas, lo que reduce la confiabilidad de la proyección de capacidad.",
+  "Muchas tareas sin planificación": "Relación observada: varias tareas abiertas no tienen tiempo objetivo definido, lo que reduce la confiabilidad de la proyección de capacidad.",
 };
 
 const FACTOR_ACTION: Record<string, (f: RiskFactor) => Omit<SuggestedAction, "impact" | "impactNote">> = {
@@ -340,10 +340,10 @@ export function computeIndicatorRelations(
   if (capacity.tasksSinEstimar >= 3 && capacity.confiabilidad.pct < 80) {
     relations.push({
       id: "sin-estimar-vs-confiabilidad",
-      statement: "La falta de estimación de horas en varias tareas reduce la confiabilidad de la proyección de capacidad futura.",
+      statement: "La falta de tiempo objetivo definido en varias tareas reduce la confiabilidad de la proyección de capacidad futura.",
       confidence: relationConfidence(monthsWithData, capacity.tasksSinEstimar / 3),
       evidencia: [
-        { label: "Tareas sin horas estimadas", before: "—", after: `${capacity.tasksSinEstimar}` },
+        { label: "Tareas sin tiempo objetivo definido", before: "—", after: `${capacity.tasksSinEstimar}` },
         { label: "Confiabilidad de la proyección", before: "100%", after: `${capacity.confiabilidad.pct}%` },
       ],
     });

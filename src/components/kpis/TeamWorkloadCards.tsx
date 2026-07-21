@@ -116,7 +116,7 @@ function ConfiabilidadLine({ member }: { member: CapacityMember }) {
     <div className="text-xs text-secondary mt-2 pt-2 border-t border-border space-y-0.5">
       <p className="font-semibold text-main">Confiabilidad del cálculo: {c.pct}%</p>
       <p className={c.tasksWithoutEstimate === 0 ? "text-success" : "text-warning"}>
-        {c.tasksWithoutEstimate === 0 ? "✓" : "⚠"} {c.tasksWithoutEstimate === 0 ? "Todas las tareas estimadas" : `${c.tasksWithoutEstimate} ${c.tasksWithoutEstimate === 1 ? "tarea sin estimación" : "tareas sin estimación"}`}
+        {c.tasksWithoutEstimate === 0 ? "✓" : "⚠"} {c.tasksWithoutEstimate === 0 ? "Todas las tareas con tiempo objetivo definido" : `${c.tasksWithoutEstimate} ${c.tasksWithoutEstimate === 1 ? "tarea sin tiempo objetivo" : "tareas sin tiempo objetivo"}`}
       </p>
       <p className={c.holidaysConfigured ? "text-success" : "text-warning"}>
         {c.holidaysConfigured ? "✓ Feriados configurados" : "⚠ Sin feriados configurados para este año"}
@@ -181,7 +181,7 @@ function CapacityRow({
           </div>
           {member.tasksSinEstimar > 0 && (
             <p className="text-xs text-warning font-medium mt-2">
-              ⚠ {member.tasksSinEstimar} {member.tasksSinEstimar === 1 ? "tarea no tiene" : "tareas no tienen"} horas estimadas. La capacidad proyectada puede estar subestimada.
+              ⚠ {member.tasksSinEstimar} {member.tasksSinEstimar === 1 ? "tarea no tiene" : "tareas no tienen"} tiempo objetivo definido. La capacidad proyectada puede estar subestimada.
             </p>
           )}
           <ConfiabilidadLine member={member} />
@@ -209,7 +209,7 @@ const SCENARIO_TABS: Array<{ type: ScenarioType; label: string }> = [
 ];
 
 const SCENARIO_FIELD: Record<ScenarioType, { label: string; placeholder: string; suffix: string }> = {
-  assign_task: { label: "Horas estimadas de la nueva tarea (HH.MM)", placeholder: "ej: 16.00", suffix: "h" },
+  assign_task: { label: "Tiempo objetivo de la nueva tarea (HH.MM)", placeholder: "ej: 16.00", suffix: "h" },
   daily_hours: { label: "Nuevas horas efectivas por día", placeholder: "ej: 7.00", suffix: "h/día" },
   vacation: { label: "Días de vacaciones", placeholder: "ej: 5", suffix: "días" },
   permiso: { label: "Horas de permiso", placeholder: "ej: 4.00", suffix: "h" },
@@ -482,7 +482,7 @@ export function TeamCapacityCard({ members, summary }: { members: CapacityMember
       <ExecutiveSummaryBox summary={summary} />
       {anyMissingEstimate && (
         <p className="text-xs text-warning font-medium mb-3">
-          ⚠ {totalMissingEstimate} {totalMissingEstimate === 1 ? "tarea no tiene" : "tareas no tienen"} horas estimadas. La capacidad proyectada puede estar subestimada.
+          ⚠ {totalMissingEstimate} {totalMissingEstimate === 1 ? "tarea no tiene" : "tareas no tienen"} tiempo objetivo definido. La capacidad proyectada puede estar subestimada.
         </p>
       )}
       {sorted.length === 0 ? (

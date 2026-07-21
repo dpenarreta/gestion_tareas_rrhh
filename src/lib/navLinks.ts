@@ -8,6 +8,7 @@ import {
   Sparkles,
   UserCog,
   Settings,
+  Target,
   type LucideIcon,
 } from "lucide-react";
 import type { Role } from "@/generated/prisma/client";
@@ -48,6 +49,10 @@ export function getNavLinks(role: Role): NavLink[] {
     if (canManageUsers(role)) {
       links.push({ href: "/admin/users", label: "Usuarios", icon: UserCog, section: "gestion" });
     }
+  }
+
+  if (role === "ADMINISTRADOR" || role === "JEFE_NACIONAL") {
+    links.push({ href: "/tiempo-objetivo", label: "Tiempo Objetivo", icon: Target, section: "gestion" });
   }
 
   if (role === "ADMINISTRADOR") {

@@ -235,10 +235,10 @@ function downloadExcel(kpi: KpiData) {
     ["Días promedio de retraso", kpi.cumplimiento.avgDelayDays],
     [""],
     ["CARGA LABORAL", ""],
-    ["Horas estimadas", hoursToDisplay(kpi.cargaLaboral.estimatedHours)],
+    ["Tiempo objetivo", hoursToDisplay(kpi.cargaLaboral.estimatedHours)],
     ["Horas reales", hoursToDisplay(kpi.cargaLaboral.realHours)],
     ["Carga laboral %", `${kpi.cargaLaboral.ratio}%`],
-    ["Nota", "Horas sobre el estimado pueden indicar exceso de carga laboral, no incumplimiento"],
+    ["Nota", "Horas sobre el tiempo objetivo pueden indicar exceso de carga laboral, no incumplimiento"],
     [""],
     ["CALIDAD", ""],
     ["Tareas recurrentes completadas", `${kpi.calidad.recurringCompleted}/${kpi.calidad.recurringTotal}`],
@@ -336,12 +336,12 @@ async function downloadPDF(kpi: KpiData) {
   <h2>Carga Laboral ${colorEmoji(kpi.cargaLaboral.color)}</h2>
   <div class="grid2">
     <div class="card">
-      <div class="card-title">Horas reales / estimadas</div>
+      <div class="card-title">Horas reales / Tiempo objetivo</div>
       <div class="card-value">${kpi.cargaLaboral.ratio}%</div>
-      <div class="note">${hoursToDisplay(kpi.cargaLaboral.realHours)}h reales de ${hoursToDisplay(kpi.cargaLaboral.estimatedHours)}h estimadas</div>
+      <div class="note">${hoursToDisplay(kpi.cargaLaboral.realHours)}h reales de ${hoursToDisplay(kpi.cargaLaboral.estimatedHours)}h de tiempo objetivo</div>
     </div>
     <div class="card">
-      <div class="note" style="margin-top:12px">⚠️ Horas sobre el estimado pueden indicar exceso de carga laboral, no incumplimiento</div>
+      <div class="note" style="margin-top:12px">⚠️ Horas sobre el tiempo objetivo pueden indicar exceso de carga laboral, no incumplimiento</div>
     </div>
   </div>
 

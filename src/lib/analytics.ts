@@ -25,6 +25,7 @@ import {
 import { normalize, type CurveName, type CurvePoint } from "@/lib/normalizationEngine";
 import type { DailyCargaPoint } from "@/components/kpis/types";
 import type { Role } from "@/generated/prisma/client";
+import { getOfficialTargetTime, isTargetTimeValidated, computePrecisionPct, precisionClassification, type PrecisionClassification } from "@/lib/targetTime";
 
 /**
  * Motor centralizado de Analytics — TODA métrica, tendencia, alerta y
@@ -1237,7 +1238,7 @@ export async function computeOperationalRisk(userId: string, now: Date = new Dat
   push("Alta concentración en un solo tipo de actividad", "riskWeightConcentracion", concentration.pct, concentration.detail);
 
   const sinPlanPct = Math.min(100, capacity.tasksSinEstimar * 25);
-  push("Muchas tareas sin planificación", "riskWeightSinPlanificacion", sinPlanPct, `${capacity.tasksSinEstimar} ${pluralize(capacity.tasksSinEstimar, "tarea sin horas estimadas", "tareas sin horas estimadas")}`);
+  push("Muchas tareas sin planificación", "riskWeightSinPlanificacion", sinPlanPct, `${capacity.tasksSinEstimar} ${pluralize(capacity.tasksSinEstimar, "tarea sin tiempo objetivo definido", "tareas sin tiempo objetivo definido")}`);
 
   const score = Math.round(factors.reduce((s, f) => s + f.points, 0) * 100) / 100;
   const { classification, classificationColor } = classifyOperationalRisk(score, config.riskThresholdMedio, config.riskThresholdAlto, config.riskThresholdCritico);
@@ -1300,13 +1301,64 @@ export async function computeDataQuality(userIds: string[]): Promise<DataQuality
   const sinHorasConfig = hasHoursConfig === 0;
 
   const issues: DataQualityIssue[] = [];
-  if (tasksSinEstimar > 0) issues.push({ key: "sin_estimar", label: "Tareas sin horas estimadas", count: tasksSinEstimar });
+  if (tasksSinEstimar > 0) issues.push({ key: "sin_estimar", label: "Tareas sin tiempo objetivo definido", count: tasksSinEstimar });
   if (fechasInconsistentes > 0) issues.push({ key: "fechas_inconsistentes", label: "Tareas con fecha de inicio posterior a la fecha fin", count: fechasInconsistentes });
   if (seguimientoSinActividad > 0) issues.push({ key: "seguimiento_sin_actividad", label: "Tareas de Seguimiento sin actividades registradas", count: seguimientoSinActividad });
   if (sinHorasConfig) issues.push({ key: "sin_horas_config", label: "Horas efectivas nunca configuradas explícitamente (usando el valor por defecto del sistema)", count: 1 });
 
   const pct = Math.max(0, Math.round(100 - (tasksSinEstimar * 3 + fechasInconsistentes * 10 + seguimientoSinActividad * 2 + (sinHorasConfig ? 10 : 0))));
   return { pct, issues };
+}
+
+// ── Precisión del Tiempo Objetivo (§Sprint 6 S6-F) ──────────────────────────
+//
+// NUEVO KPI, aditivo — no reemplaza ningún indicador existente (Performance
+// Score, Operational Risk, etc. quedan exactamente iguales). Responde "qué
+// tan cerca estuvo la ejecución real del estándar operativo esperado" sobre
+// las tareas completadas del mes en curso. Usa el Tiempo Objetivo Validado
+// como referencia oficial cuando existe; si una tarea aún no fue validada,
+// usa el Tiempo Objetivo Inicial (§S6-H) — nunca deja de calcularse por
+// falta de validación, solo queda documentado qué referencia usó cada caso.
+
+export type TargetTimePrecisionResult =
+  | { available: false; reason: string }
+  | {
+      available: true;
+      avgPrecisionPct: number;
+      classification: PrecisionClassification;
+      sampleSize: number;
+      /** % de las tareas de la muestra cuya referencia fue el Tiempo Objetivo Validado (vs. el inicial) — ver §S6-H. */
+      validatedPct: number;
+    };
+
+export async function computeTargetTimePrecision(userId: string, now: Date = new Date()): Promise<TargetTimePrecisionResult> {
+  const today = businessCalendarDay(now);
+  const year = today.getUTCFullYear();
+  const month = today.getUTCMonth() + 1;
+  const { start, end } = monthBounds(year, month);
+
+  const tasks = await prisma.task.findMany({
+    where: { assignedToId: userId, status: "COMPLETADA", completedAt: { gte: start, lte: end }, realHours: { gt: 0 } },
+    select: { estimatedHours: true, targetTimeValidated: true, realHours: true },
+  });
+  if (tasks.length === 0) return { available: false, reason: "Sin tareas completadas con horas reales registradas este mes." };
+
+  const scored = tasks
+    .map((t) => ({ official: getOfficialTargetTime(t), validated: isTargetTimeValidated(t), realHours: t.realHours }))
+    .filter((x) => x.official > 0)
+    .map((x) => ({ ...x, pct: computePrecisionPct(x.realHours, x.official)! }));
+  if (scored.length === 0) return { available: false, reason: "Ninguna tarea completada este mes tiene un Tiempo Objetivo mayor a cero." };
+
+  const avgPrecisionPct = Math.round((scored.reduce((s, x) => s + x.pct, 0) / scored.length) * 10) / 10;
+  const validatedPct = Math.round((scored.filter((x) => x.validated).length / scored.length) * 100);
+
+  return {
+    available: true,
+    avgPrecisionPct,
+    classification: precisionClassification(avgPrecisionPct),
+    sampleSize: scored.length,
+    validatedPct,
+  };
 }
 
 // ── Motor de alertas automáticas (§1) ───────────────────────────────────────────

@@ -95,7 +95,7 @@ ${problematicText}
 RESUMEN ACUMULADO DEL PERÍODO:
 - Cumplimiento promedio: ${data.aggregated.teamSummary.avgCumplimiento}% (objetivo mínimo: 60%, objetivo ideal: 80%)
 - Total tareas completadas: ${data.aggregated.teamSummary.totalCompletedTasks} de ${data.aggregated.teamSummary.totalTasks}
-- Carga laboral acumulada: ${data.aggregated.teamSummary.avgCargaPct}% (${data.aggregated.teamSummary.totalCargaRealHours}h reales de ${data.aggregated.teamSummary.totalCargaBaseHours}h base — base dinámica: días hábiles lunes-viernes de cada mes × horas efectivas configuradas por persona (según lo vigente en cada mes del rango); las horas estimadas por tarea son solo referencia y no forman parte de este cálculo). Rango óptimo configurado por persona en el último mes del rango: ${data.aggregated.teamSummary.cargaRangeMin}h a ${data.aggregated.teamSummary.cargaRangeMax}h — usa ese rango, no un 100% exacto, para juzgar carga óptima vs. sobrecarga.
+- Carga laboral acumulada: ${data.aggregated.teamSummary.avgCargaPct}% (${data.aggregated.teamSummary.totalCargaRealHours}h reales de ${data.aggregated.teamSummary.totalCargaBaseHours}h base — base dinámica: días hábiles lunes-viernes de cada mes × horas efectivas configuradas por persona (según lo vigente en cada mes del rango); el Tiempo Objetivo por tarea es solo referencia y no forma parte de este cálculo). Rango óptimo configurado por persona en el último mes del rango: ${data.aggregated.teamSummary.cargaRangeMin}h a ${data.aggregated.teamSummary.cargaRangeMax}h — usa ese rango, no un 100% exacto, para juzgar carga óptima vs. sobrecarga.
 - Total consultas SEGUIMIENTO: ${data.aggregated.teamSummary.totalConsultas}
 
 RANKING PROMEDIO DEL PERÍODO:
