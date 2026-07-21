@@ -103,8 +103,11 @@ describe("GET /api/kpis/executive", () => {
     expect(res.status).toBe(401);
   });
 
-  it("responde 403 si el rol no es JEFE_NACIONAL", async () => {
-    mockSession({ role: "COORDINADOR_NACIONAL" });
+  // Dashboard ejecutivo: nivel >= 3 (Administrador, Jefe Nacional, Coordinador
+  // Nacional) — ROLE_LEVEL.COORDINADOR_NACIONAL = 3, así que ese rol SÍ tiene
+  // acceso; se usa un rol de nivel 1 para probar el rechazo real.
+  it("responde 403 si el rol es de nivel inferior a 3", async () => {
+    mockSession({ role: "ASISTENTE_GH" });
     const res = await executiveGET();
     expect(res.status).toBe(403);
   });
@@ -159,8 +162,13 @@ describe("GET /api/kpis/executive", () => {
     expect(body.alerts.pendingIdeas[0]).toMatchObject({ title: "Idea pendiente", authorName: "Carla" });
 
     expect(body.workload).toHaveLength(2);
-    expect(body.trend).toHaveLength(6);
-    expect(body.trend[5].month).toBe("2026-08");
+    // Los fixtures solo tienen tareas en agosto 2026 (mes en curso) — los
+    // otros 5 meses del historial de 6 meses no tienen ningún miembro con
+    // tareas, así que se excluyen del trend ("no un 0% engañoso", ver
+    // comentario de kpis/executive/route.ts). Con historial multi-mes real,
+    // el trend tendría hasta 6 entradas.
+    expect(body.trend).toHaveLength(1);
+    expect(body.trend[0].month).toBe("2026-08");
   });
 
   it("nunca incluye ADMINISTRADOR ni al propio JEFE_NACIONAL en el ranking (vía getSubordinateRoles)", async () => {
