@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { isTaskOverdue } from "@/lib/utils";
 import { businessCalendarDay, isBusinessDay } from "@/lib/businessTime";
+import { getEffectiveAnalyticsConfig } from "@/lib/systemConfig";
 import type { WorkloadLabel } from "@/components/kpis/types";
 
 export type RiskAlertSeverity = "red" | "yellow";
@@ -37,6 +38,16 @@ function businessDaysBetween(from: Date, to: Date): number {
  * registro de actividades en los últimos 2+ días laborables. Array vacío =
  * sin alertas activas (el componente que consume esto debe mostrar el
  * estado "Sin alertas" cuando length === 0).
+ *
+ * Complementa (no duplica) al motor de alertas del Analytics Engine
+ * (`computeAlerts`, `src/lib/analytics.ts`, panel avanzado/Nova): este motor
+ * es deliberadamente más simple e inmediato — due-soon a 3 días e inactividad
+ * de 2+ días laborables no tienen equivalente allá. El umbral de "tareas
+ * vencidas" SÍ es una regla que ambos motores evalúan, así que reutiliza el
+ * mismo valor configurable (`alertOverdueTaskThreshold`, Ajustes) para que un
+ * cambio de umbral se refleje aquí igual que en el panel avanzado — antes
+ * estaba hardcodeado en ">0", desalineado de Ajustes (ver Analytics
+ * Calculation Registry § D2).
  */
 export async function computeRiskAlerts({
   userId,
@@ -59,7 +70,7 @@ export async function computeRiskAlerts({
   const today = businessCalendarDay(now);
   const in3Days = new Date(today.getTime() + 3 * 86400000);
 
-  const [openTasks, lastActivity] = await Promise.all([
+  const [openTasks, lastActivity, config] = await Promise.all([
     prisma.task.findMany({
       where: { assignedToId: userId, archivedMonth: null, status: { not: "COMPLETADA" } },
       select: { endDate: true, status: true, priority: true },
@@ -69,16 +80,22 @@ export async function computeRiskAlerts({
       orderBy: { createdAt: "desc" },
       select: { createdAt: true },
     }),
+    getEffectiveAnalyticsConfig(now),
   ]);
 
+  // Mismo umbral configurable que computeAlerts ("tareas_vencidas",
+  // analytics.ts) — >=2x el umbral es roja, >=1x es amarilla, por debajo no
+  // alerta (evita ruido para 1-2 tareas vencidas cuando el umbral configurado
+  // es mayor, igual que en el panel avanzado).
   const overdue = openTasks.filter((t) => isTaskOverdue(t.endDate, t.status, now));
-  if (overdue.length > 0) {
+  const overdueThreshold = config.alertOverdueTaskThreshold;
+  if (overdue.length >= overdueThreshold) {
     const critical = overdue.filter((t) => t.priority === "ALTA").length;
     alerts.push({
-      severity: "red",
+      severity: overdue.length >= overdueThreshold * 2 ? "red" : "yellow",
       message:
-        `${overdue.length} ${pluralize(overdue.length, "tarea vencida", "tareas vencidas")}` +
-        (critical > 0 ? ` (${critical} ${pluralize(critical, "crítica", "críticas")} de prioridad alta)` : ""),
+        `${overdue.length} ${pluralize(overdue.length, "tarea vencida", "tareas vencidas")} (umbral configurado: ${overdueThreshold})` +
+        (critical > 0 ? ` — ${critical} ${pluralize(critical, "crítica", "críticas")} de prioridad alta` : ""),
     });
   }
 

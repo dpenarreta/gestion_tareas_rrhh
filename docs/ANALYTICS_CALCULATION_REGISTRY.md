@@ -87,7 +87,7 @@ Alcance: solo lectura/documentación. No se modificó Prisma, APIs públicas, co
 
 **Recomendación:** No unificar en este sprint (fuera de alcance). Registrar como candidato a fusión futura: extraer una función única `computeCompletedPct(tasks, mode: "any" | "onTime")` en `priorityCompliance.ts` o `analytics.ts`, y hacer que las 8 reimplementaciones inline la llamen. Decidir primero, con el negocio, cuál definición es la oficial (o si ambas deben coexistir con nombres de campo distintos, p. ej. `completedAnyPct` vs. `completedOnTimePct`, para que dejen de compartir el nombre `completedPct`).
 
-### 🟠 D2 — Dos motores de alertas de riesgo independientes y paralelos
+### 🟡 D2 — PARCIALMENTE RESUELTO (2026-07-21) — Dos motores de alertas de riesgo independientes y paralelos
 
 **Duplicación encontrada:** `computeRiskAlerts` (`src/lib/riskAlerts.ts`) y `computeAlerts` (`src/lib/analytics.ts` §1, "Motor de alertas automáticas") cubren superficies solapadas (tareas vencidas, carga laboral fuera de rango óptimo) con reglas, severidades y redacción de mensaje completamente independientes.
 
@@ -95,9 +95,13 @@ Alcance: solo lectura/documentación. No se modificó Prisma, APIs públicas, co
 - `computeRiskAlerts` (`riskAlerts.ts`) — consumida por `src/app/api/kpis/[userId]/route.ts` y `src/app/api/kpis/me/route.ts` (panel básico "Mis KPIs").
 - `computeAlerts` (`analytics.ts`) — consumida por `runAnalyticsPipeline` → `src/app/api/analytics/[userId]/route.ts` y `src/app/api/kpis/nova-insights/[userId]/route.ts` (panel avanzado de Analytics + Nova).
 
-**Riesgo:** Medio. No hay contradicción de datos (cada uno lee `Task`/`TaskActivity` en vivo), pero sí de **criterio**: `computeRiskAlerts` marca "tareas vencidas" con cualquier cantidad > 0 y "carga fuera de rango" con cualquier desviación; `computeAlerts` usa umbrales configurables (`alertOverdueTaskThreshold`, `alertConsecutiveOverloadDays`) y produce severidades escalonadas (red/orange/yellow). Un cambio en la configuración del motor (Ajustes) solo afecta a `computeAlerts`, dejando a `computeRiskAlerts` con umbrales fijos hardcodeados — un Administrador que sube el umbral de tareas vencidas en Ajustes verá el panel avanzado calmarse pero el básico seguir alertando igual.
+**Riesgo (previo a la corrección):** Medio. No hay contradicción de datos (cada uno lee `Task`/`TaskActivity` en vivo), pero sí de **criterio**: `computeRiskAlerts` marcaba "tareas vencidas" con cualquier cantidad > 0; `computeAlerts` usa el umbral configurable `alertOverdueTaskThreshold` con severidades escalonadas (red/orange/yellow). Un cambio en la configuración del motor (Ajustes) solo afectaba a `computeAlerts`, dejando a `computeRiskAlerts` con el umbral fijo hardcodeado en ">0" — un Administrador que subía el umbral de tareas vencidas en Ajustes veía el panel avanzado calmarse pero el básico seguir alertando igual.
 
-**Recomendación:** Documentar (hecho) y evaluar en un sprint futuro si `riskAlerts.ts` debe retirarse en favor de `computeAlerts`, o si de verdad sirve un propósito distinto (alerta inmediata simple vs. motor configurable) que justifique mantener ambos con nombres que dejen clara la diferencia.
+**Corrección aplicada** (`src/lib/riskAlerts.ts`): la regla "tareas vencidas" de `computeRiskAlerts` ahora lee `alertOverdueTaskThreshold` vía `getEffectiveAnalyticsConfig` (el mismo valor que usa `computeAlerts`) en vez de un `>0` hardcodeado, con el mismo criterio de severidad por tramos (`>=umbral` amarilla, `>=2×umbral` roja) que el panel avanzado — un cambio de umbral en Ajustes ahora se refleja en ambos paneles. Efecto visible: con el umbral por defecto (3), un colaborador con 1-2 tareas vencidas deja de ver esta alerta específica en "Mis KPIs" (antes se disparaba con solo 1) — cambio de comportamiento intencional, es la corrección del desalineamiento con Ajustes, no un efecto secundario.
+
+**Por qué queda "parcialmente" resuelto, no fusionado:** la regla de "carga fuera de rango óptimo" de `computeRiskAlerts` NO se tocó — consume el `WorkloadLabel` ya calculado por `computeCargaTiempo` (canónico, D5), que ya reacciona a los límites de carga configurables; no había desalineamiento real ahí. Tampoco se retiró `riskAlerts.ts` en favor de `computeAlerts`: las alertas de "actividades por vencer en 3 días" e "inactividad de 2+ días laborables" son exclusivas de este motor y no tienen equivalente en `computeAlerts` — retirarlo eliminaría esas dos señales del panel básico. Se documentó explícitamente en el código (`riskAlerts.ts`) que ambos motores coexisten a propósito con alcances distintos (inmediato/simple vs. configurable/estratégico).
+
+**Verificación:** `tsc --noEmit`/`eslint` limpios; se actualizó el mock de Prisma en `src/__tests__/api/kpis-me-userid.test.ts` (agregado `systemConfigHistory`, requerido por la nueva llamada a `getEffectiveAnalyticsConfig`); suite completa 840/842 (mismos 2 fallos preexistentes de `kpis-executive.test.ts`, no relacionados).
 
 ### 🟠 D3 — `computeSimpleScore` consolidado, pero alimentado con inputs semánticamente distintos según el caller
 
@@ -441,7 +445,7 @@ flowchart TB
 |---|---|---|---|
 | D1 | "Cumplimiento" con 2 definiciones y 9 implementaciones inline sin función compartida | 🔴 Alta | Documentado — no unificado (fuera de alcance) |
 | D6 | `/api/dashboard` (pantalla de inicio) reimplementaba carga/cumplimiento/sobrecarga desde cero, sin importar el motor | 🔴 Alta | ✅ **Corregido** (2026-07-21) — ahora reutiliza `computeCargaTiempo`/`computeMonthlyHistory`/`monthlyBusinessBaseForUsers`+`computeWorkloadRange` |
-| D2 | Dos motores de alertas de riesgo paralelos (`computeAlerts` vs. `computeRiskAlerts`) | 🟠 Media | Documentado — no unificado (fuera de alcance) |
+| D2 | Dos motores de alertas de riesgo paralelos (`computeAlerts` vs. `computeRiskAlerts`) | 🟡 Media→Baja | 🟡 **Parcialmente corregido** (2026-07-21) — umbral de "vencidas" ahora comparte config; ambos motores se mantienen (alcances distintos, documentado) |
 | D3 | `computeSimpleScore` consolidado pero alimentado con magnitudes distintas (`cargaRatio` vs. `cargaPct`) según el caller | 🟠 Media | Documentado — no unificado (fuera de alcance) |
 | D7 | Clasificación del Performance Score reimplementada en `kpis/executive` para el promedio del equipo | 🟠 Media | Documentado — no unificado (fuera de alcance) |
 | D4 | `computeMonthlyCompliancePace` es una 3ª variante de cumplimiento, pero bien encapsulada | 🟡 Baja | Documentado, sin acción requerida |

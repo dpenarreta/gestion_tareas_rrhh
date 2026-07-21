@@ -7,6 +7,7 @@ const taskFindMany = vi.fn();
 const commentCount = vi.fn();
 const taskActivityCount = vi.fn();
 const taskActivityFindFirst = vi.fn();
+const systemConfigHistoryFindFirst = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -14,6 +15,9 @@ vi.mock("@/lib/prisma", () => ({
     task: { findMany: taskFindMany },
     comment: { count: commentCount },
     taskActivity: { count: taskActivityCount, findFirst: taskActivityFindFirst },
+    // computeRiskAlerts ahora lee alertOverdueTaskThreshold vía
+    // getEffectiveAnalyticsConfig (ver Analytics Calculation Registry § D2).
+    systemConfigHistory: { findFirst: systemConfigHistoryFindFirst },
   },
 }));
 
@@ -84,6 +88,7 @@ function resetAll() {
   commentCount.mockReset().mockResolvedValue(0);
   taskActivityCount.mockReset().mockResolvedValue(0);
   taskActivityFindFirst.mockReset().mockResolvedValue(null);
+  systemConfigHistoryFindFirst.mockReset().mockResolvedValue(null);
   vi.mocked(getSession).mockReset();
 }
 
