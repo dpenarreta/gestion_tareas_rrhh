@@ -175,13 +175,15 @@ Alcance: solo lectura/documentación. No se modificó Prisma, APIs públicas, co
 
 **Verificación:** `tsc --noEmit`/`eslint` limpios; sin tests dedicados a esta función (operación aritmética pura de una línea, ya cubierta indirectamente por los tests de `computeHealthScore`/`computePerformanceScore`/`computeOperationalRisk` que verifican el `score` final); suite completa 840/842 (mismos 2 fallos preexistentes, no relacionados). Sin cambio de comportamiento — misma aritmética, ahora en una sola función.
 
-### 🟡 D9 — `riskAlerts.ts` reimplementa "días hábiles entre fechas" sin excluir feriados
+### ✅ D9 — RESUELTO (2026-07-21) — `riskAlerts.ts` reimplementaba "días hábiles entre fechas" sin excluir feriados
 
-**Duplicación encontrada:** `businessDaysBetween` (`src/lib/riskAlerts.ts` L23-31) cuenta días hábiles usando solo `isBusinessDay` (lunes-viernes) — **no consulta el set de feriados configurados**, a diferencia de `countBusinessDays` (`workload.ts` L35-41), que sí excluye feriados. Se usa para la alerta "sin registro de actividades en los últimos N días laborables".
+**Duplicación encontrada:** `businessDaysBetween` (`src/lib/riskAlerts.ts`) contaba días hábiles usando solo `isBusinessDay` (lunes-viernes) — **no consultaba el set de feriados configurados**, a diferencia de `countBusinessDays` (`workload.ts`), que sí excluye feriados. Se usaba para la alerta "sin registro de actividades en los últimos N días laborables".
 
-**Archivos involucrados:** `riskAlerts.ts` (L23-31) vs. `workload.ts` (`countBusinessDays`, L35-41).
+**Riesgo (previo a la corrección):** Bajo-Medio — en semanas con feriado, esta alerta podía sobreestimar en 1 los "días laborables sin registro" (contaba el feriado como día hábil exigible).
 
-**Riesgo:** Bajo-Medio — en semanas con feriado, esta alerta puede sobreestimar en 1 los "días laborables sin registro" (cuenta el feriado como día hábil exigible). Consistente con que `riskAlerts.ts` es, en general, un motor más simple y no configurable (ver D2).
+**Corrección aplicada:** se eliminó `businessDaysBetween` de `riskAlerts.ts` y se reemplazó por `countBusinessDays` (`workload.ts`, ya holiday-aware), con el set de feriados obtenido vía `getHolidaySet()` (`holidays.ts`) en la misma tanda de queries paralelas que ya existía. Se ajustó el rango pasado (`lastDay + 1 día` hasta `today`) para preservar exactamente la misma semántica "días estrictamente después del último registro, incluyendo hoy" que tenía la función eliminada.
+
+**Verificación:** `tsc --noEmit`/`eslint` limpios; se agregó el mock de `prisma.holiday.findMany` a `src/__tests__/api/kpis-me-userid.test.ts` (antes ausente, la nueva llamada a `getHolidaySet()` habría lanzado sin él); suite completa 840/842 (mismos 2 fallos preexistentes, no relacionados). Efecto visible: en semanas con feriado configurado, la alerta "sin registro" puede contar un día laborable menos que antes — corrección del sobreconteo, no un efecto secundario.
 
 **Recomendación:** Si se decide mantener `riskAlerts.ts` (en vez de retirarlo a favor de `computeAlerts`, ver D2), hacer que `businessDaysBetween` reciba el set de feriados y reutilice `countBusinessDays` de `workload.ts`.
 
@@ -466,7 +468,7 @@ flowchart TB
 | D7 | Clasificación del Performance Score reimplementada en `kpis/executive` para el promedio del equipo | 🟠 Media | ✅ **Corregido** (2026-07-21) — extraída `classifyPerformanceScore()`, reutilizada en ambos sitios |
 | D4 | `computeMonthlyCompliancePace` era una 4ª variante de cumplimiento dentro del motor, recalculada en vez de reutilizada | 🟡 Baja | ✅ **Corregido** (2026-07-21) — ahora reutiliza `computeMonthlyHistory` |
 | D8 | `analytics/simulate` reimplementaba una línea de aritmética de ponderación (`pointsFor`), en realidad repetida 4 veces en el motor | 🟡 Baja | ✅ **Corregido** (2026-07-21) — extraída `weightedPoints()`, usada en las 4 implementaciones |
-| D9 | `riskAlerts.ts` cuenta "días hábiles" sin excluir feriados, a diferencia de `countBusinessDays` | 🟡 Baja-Media | Documentado, sin acción requerida |
+| D9 | `riskAlerts.ts` contaba "días hábiles" sin excluir feriados, a diferencia de `countBusinessDays` | 🟡 Baja-Media | ✅ **Corregido** (2026-07-21) — ahora reutiliza `countBusinessDays` |
 | D10 | Heurísticas de confianza/★ y umbral de color 80/60 reimplementados en 3-4 componentes de UI | 🟡 Baja | Documentado, sin acción requerida |
 | D5 | Carga/Capacidad/Riesgo/Consistencia/Benchmark/Normalización: sin duplicación — Single Source of Truth confirmado | ✅ — | Ninguna |
 

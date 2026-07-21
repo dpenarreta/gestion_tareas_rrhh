@@ -1,7 +1,9 @@
 import { prisma } from "@/lib/prisma";
 import { isTaskOverdue } from "@/lib/utils";
-import { businessCalendarDay, isBusinessDay } from "@/lib/businessTime";
+import { businessCalendarDay } from "@/lib/businessTime";
 import { getEffectiveAnalyticsConfig } from "@/lib/systemConfig";
+import { countBusinessDays } from "@/lib/workload";
+import { getHolidaySet } from "@/lib/holidays";
 import type { WorkloadLabel } from "@/components/kpis/types";
 
 export type RiskAlertSeverity = "red" | "yellow";
@@ -18,17 +20,6 @@ function pluralize(n: number, singular: string, plural: string): string {
 /** UTC-midnight for a pure calendar-date field (Task.endDate) — no business-timezone shift, see businessTime.ts. */
 function utcMidnight(d: Date): Date {
   return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
-}
-
-/** Días laborables (lun-vie) estrictamente entre `from` y `to` (ambos UTC-medianoche), contando `to` si aplica. */
-function businessDaysBetween(from: Date, to: Date): number {
-  let count = 0;
-  const cursor = new Date(from);
-  while (cursor.getTime() < to.getTime()) {
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
-    if (isBusinessDay(cursor)) count++;
-  }
-  return count;
 }
 
 /**
@@ -70,7 +61,7 @@ export async function computeRiskAlerts({
   const today = businessCalendarDay(now);
   const in3Days = new Date(today.getTime() + 3 * 86400000);
 
-  const [openTasks, lastActivity, config] = await Promise.all([
+  const [openTasks, lastActivity, config, holidays] = await Promise.all([
     prisma.task.findMany({
       where: { assignedToId: userId, archivedMonth: null, status: { not: "COMPLETADA" } },
       select: { endDate: true, status: true, priority: true },
@@ -81,6 +72,7 @@ export async function computeRiskAlerts({
       select: { createdAt: true },
     }),
     getEffectiveAnalyticsConfig(now),
+    getHolidaySet(),
   ]);
 
   // Mismo umbral configurable que computeAlerts ("tareas_vencidas",
@@ -122,7 +114,13 @@ export async function computeRiskAlerts({
   // ningún TaskActivity histórico puede simplemente ser nuevo, no en riesgo.
   if (lastActivity) {
     const lastDay = businessCalendarDay(lastActivity.createdAt);
-    const gap = businessDaysBetween(lastDay, today);
+    // countBusinessDays (workload.ts) excluye feriados configurados — antes
+    // esta alerta contaba un feriado como día hábil exigible, sobreestimando
+    // el gap en semanas con feriado (ver Analytics Calculation Registry § D9).
+    // +1 día para excluir lastDay del conteo (gap es "días DESPUÉS del último
+    // registro", igual semántica que la función local que reemplaza).
+    const dayAfterLastActivity = new Date(lastDay.getTime() + 86400000);
+    const gap = countBusinessDays(dayAfterLastActivity, today, holidays);
     if (gap >= 2) {
       alerts.push({
         severity: "red",

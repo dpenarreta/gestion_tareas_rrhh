@@ -8,6 +8,7 @@ const commentCount = vi.fn();
 const taskActivityCount = vi.fn();
 const taskActivityFindFirst = vi.fn();
 const systemConfigHistoryFindFirst = vi.fn();
+const holidayFindMany = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -16,8 +17,10 @@ vi.mock("@/lib/prisma", () => ({
     comment: { count: commentCount },
     taskActivity: { count: taskActivityCount, findFirst: taskActivityFindFirst },
     // computeRiskAlerts ahora lee alertOverdueTaskThreshold vía
-    // getEffectiveAnalyticsConfig (ver Analytics Calculation Registry § D2).
+    // getEffectiveAnalyticsConfig (ver Analytics Calculation Registry § D2)
+    // y el set de feriados vía getHolidaySet (ver § D9).
     systemConfigHistory: { findFirst: systemConfigHistoryFindFirst },
+    holiday: { findMany: holidayFindMany },
   },
 }));
 
@@ -89,6 +92,7 @@ function resetAll() {
   taskActivityCount.mockReset().mockResolvedValue(0);
   taskActivityFindFirst.mockReset().mockResolvedValue(null);
   systemConfigHistoryFindFirst.mockReset().mockResolvedValue(null);
+  holidayFindMany.mockReset().mockResolvedValue([]);
   vi.mocked(getSession).mockReset();
 }
 
