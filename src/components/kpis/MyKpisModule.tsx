@@ -755,7 +755,7 @@ export default function MyKpisModule({ currentUserId, currentUserName, currentUs
                       onClick={() => setExplainCumplimientoOpen(true)}
                       className="text-[11px] font-medium text-primary hover:text-primary-hover"
                     >
-                      Ver cálculo
+                      ¿Cómo se obtuvo este resultado?
                     </button>
                   </div>
                   <DonutChart

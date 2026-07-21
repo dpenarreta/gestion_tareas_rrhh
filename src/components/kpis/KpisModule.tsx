@@ -783,7 +783,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
                         onClick={() => setExplainCumplimientoOpen(true)}
                         className="text-[11px] font-medium text-primary hover:text-primary-hover"
                       >
-                        Ver cálculo
+                        ¿Cómo se obtuvo este resultado?
                       </button>
                     </span>
                   }

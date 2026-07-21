@@ -86,9 +86,9 @@ export default function RoleTargetsSection() {
   return (
     <SectionCard title="Objetivo esperado del cargo">
       <p className="text-xs text-secondary">
-        Configuración opcional por cargo, usada únicamente como referencia en el Benchmark Personal cuando un cargo
-        tiene pocos o ningún colaborador para comparar entre pares (§Sprint 7). Nunca modifica el cálculo de ningún
-        KPI — si se deja en blanco, esa comparación simplemente no se muestra.
+        Configuración opcional por cargo, usada únicamente como referencia utilizada cuando un cargo tiene pocos o
+        ningún colaborador para comparar entre pares (§Sprint 7). Nunca modifica el cálculo de ningún KPI — si se
+        deja en blanco, esa comparación simplemente no se muestra.
       </p>
 
       {error && (

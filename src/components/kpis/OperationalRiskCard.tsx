@@ -5,9 +5,10 @@ import type { Role } from "@/generated/prisma/client";
 import { canViewOperationalRisk } from "@/lib/roles";
 import { isFeatureEnabled } from "@/lib/featureFlags";
 import type { OperationalRiskResult } from "./types";
-import { ExplainModal } from "./AdvancedAnalytics";
+import { ExplainModal, InfoTooltip, ConfidenceBadges } from "./AdvancedAnalytics";
+import { CONFIDENCE_TOOLTIPS, type ConfidenceIndicators } from "@/lib/analyticsExplain";
 
-type RiskResponse = OperationalRiskResult & { engineVersion: string; lastUpdated: string };
+type RiskResponse = OperationalRiskResult & { confidence: ConfidenceIndicators; engineVersion: string; lastUpdated: string };
 
 const CLASS_TEXT: Record<string, string> = { Bajo: "text-success", Medio: "text-warning", Alto: "text-orange-500", Crítico: "text-danger" };
 const CLASS_RING: Record<string, string> = { Bajo: "ring-success/25", Medio: "ring-warning/25", Alto: "ring-orange-500/25", Crítico: "ring-danger/25" };
@@ -64,8 +65,10 @@ export default function OperationalRiskCard({ userId, currentUserRole }: { userI
   return (
     <div className="bg-surface rounded-[14px] border border-border shadow-[var(--shadow)] p-5">
       <div className="flex items-center justify-between mb-1">
-        <h3 className="text-sm font-semibold text-main uppercase tracking-wider">Índice de Riesgo Operativo</h3>
-        <button onClick={() => setExplainOpen(true)} className="text-xs font-medium text-primary hover:text-primary-hover">Ver cálculo</button>
+        <h3 className="text-sm font-semibold text-main uppercase tracking-wider flex items-center gap-1.5">
+          Índice de Riesgo Operativo <InfoTooltip text={CONFIDENCE_TOOLTIPS.operationalRisk} />
+        </h3>
+        <button onClick={() => setExplainOpen(true)} className="text-xs font-medium text-primary hover:text-primary-hover">¿Cómo se obtuvo este resultado?</button>
       </div>
       <p className="text-[11px] text-disabled mb-3">
         Riesgo para el equipo — complementa al Performance Score, no lo reemplaza (§Sprint 5)
@@ -106,7 +109,7 @@ export default function OperationalRiskCard({ userId, currentUserRole }: { userI
       </div>
 
       <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider mb-1.5 pt-2 border-t border-border">Acciones sugeridas</p>
-      <ul className="space-y-1">
+      <ul className="space-y-1 mb-3">
         {data.suggestedActions.map((a, i) => (
           <li key={i} className="text-xs text-title flex gap-1.5">
             <span className="text-primary shrink-0">→</span>
@@ -114,6 +117,10 @@ export default function OperationalRiskCard({ userId, currentUserRole }: { userI
           </li>
         ))}
       </ul>
+
+      <div className="pt-2 border-t border-border">
+        <ConfidenceBadges {...data.confidence} compact />
+      </div>
 
       {explainOpen && (
         <ExplainModal
@@ -127,7 +134,14 @@ export default function OperationalRiskCard({ userId, currentUserRole }: { userI
             weight: f.weight,
             points: f.points,
           }))}
+          dataUsed={data.factors.map((f) => `${f.name}: ${f.detail}`)}
+          resultValue={Math.round(data.score)}
+          resultInterpretation={`Riesgo ${data.classification}`}
           engineVersion={data.engineVersion}
+          lastUpdated={data.lastUpdated}
+          dataSource="Capacidad proyectada, tendencias de cumplimiento, consistencia semanal, horas de fin de semana y tareas vencidas del mes en curso"
+          referenceUsed="Clasificación por umbrales configurados en Ajustes: Bajo / Medio / Alto / Crítico"
+          confidence={data.confidence}
           onClose={() => setExplainOpen(false)}
         />
       )}

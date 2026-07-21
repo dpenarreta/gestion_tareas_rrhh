@@ -154,7 +154,7 @@ function PersonalBenchmarkSection({ benchmark }: { benchmark: PersonalBenchmark 
   return (
     <div className="rounded-[14px] border border-border bg-surface shadow-[var(--shadow)] p-5">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-sm font-semibold text-main uppercase tracking-wider">Benchmark personal — solo contra su propio historial</h3>
+        <h3 className="text-sm font-semibold text-main uppercase tracking-wider">Referencia utilizada — solo contra su propio historial</h3>
         <MaturityStars level={benchmark.confidence.stars} title={`Confianza: ${benchmark.confidence.label}`} />
       </div>
       {benchmark.observations === 0 ? (

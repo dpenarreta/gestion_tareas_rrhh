@@ -2,6 +2,8 @@
 
 import { useState, useEffect } from "react";
 import type { SmartBenchmarkResult, MetricBenchmark, PersonalEvolution } from "./types";
+import { InfoTooltip, ConfidenceBadges } from "./AdvancedAnalytics";
+import { CONFIDENCE_TOOLTIPS, MIN_PEER_SAMPLE, type ConfidenceIndicators } from "@/lib/analyticsExplain";
 
 // ── Metadatos por métrica (unidad, dirección "mejor") ────────────────────────
 
@@ -150,42 +152,93 @@ const MODE_BADGE: Record<SmartBenchmarkResult["mode"], string> = {
   personal: "bg-primary-surface text-primary",
 };
 
-// ── "¿Cómo se calculó?" ───────────────────────────────────────────────────────
+// ── "¿Cómo se obtuvo este resultado?" (§Sprint 6.5 S6.5-E) ──────────────────
 
-function BenchmarkExplainModal({ result, onClose }: { result: SmartBenchmarkResult; onClose: () => void }) {
+const MODE_LABEL: Record<SmartBenchmarkResult["mode"], string> = {
+  cargo: "Cargo",
+  "cargo-limitado": "Cargo (muestra limitada)",
+  personal: "Historial personal",
+};
+
+function BenchmarkExplainModal({
+  result,
+  evolution,
+  confidence,
+  lastUpdated,
+  onClose,
+}: {
+  result: SmartBenchmarkResult;
+  evolution: PersonalEvolution;
+  confidence: ConfidenceIndicators;
+  lastUpdated: string;
+  onClose: () => void;
+}) {
+  const isPersonal = result.mode === "personal";
+  const modeLabel = MODE_LABEL[result.mode];
+
+  // §S6.5-D — nunca solo "Historial personal": se listan las señales
+  // concretas que respaldan el cálculo, nunca inventadas (mismos campos que
+  // ya calcula computePersonalEvolution/computeSmartBenchmark).
+  const dataUsed: string[] = isPersonal
+    ? evolution.available
+      ? [
+          `${evolution.observations} ${evolution.observations === 1 ? "observación histórica analizada" : "observaciones históricas analizadas"}`,
+          `${evolution.spanWeeks} ${evolution.spanWeeks === 1 ? "semana" : "semanas"} de historial personal considerado`,
+        ]
+      : [result.explain.dataAvailable]
+    : [`${result.explain.peerCount + 1} colaboradores del cargo con datos del mes en curso`, `Período: ${result.explain.periodAnalyzed}`];
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="relative w-full max-w-md bg-surface border border-border rounded-[14px] shadow-2xl p-5 max-h-[80vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-title uppercase tracking-wider">¿Cómo se calculó?</h3>
+          <h3 className="text-sm font-semibold text-title uppercase tracking-wider">¿Cómo se obtuvo este resultado?</h3>
           <button onClick={onClose} className="text-disabled hover:text-main transition-colors" aria-label="Cerrar">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
         </div>
-        <div className="space-y-2.5 text-sm">
+        <div className="space-y-3 text-sm">
           <div className="flex items-center justify-between">
-            <span className="text-secondary">Benchmark utilizado</span>
-            <span className="font-semibold text-title capitalize">{result.mode === "cargo-limitado" ? "Cargo (muestra limitada)" : result.mode === "cargo" ? "Cargo" : "Personal"}</span>
+            <span className="text-secondary flex items-center gap-1">Referencia utilizada <InfoTooltip text={CONFIDENCE_TOOLTIPS.referenciaUtilizada} /></span>
+            <span className="font-semibold text-title">{modeLabel}</span>
           </div>
           <div>
             <p className="text-secondary text-xs mb-0.5">Motivo</p>
             <p className="text-title">{result.explain.reason}</p>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-secondary">Colaboradores considerados</span>
-            <span className="font-semibold text-title">{result.explain.peerCount}</span>
+
+          <div className="rounded-xl border border-border bg-background p-3">
+            <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider mb-1.5">Datos utilizados</p>
+            <ul className="space-y-1">
+              {dataUsed.map((d, i) => (
+                <li key={i} className="text-xs text-title flex items-start gap-1.5">
+                  <span className="text-success shrink-0">✓</span>
+                  <span>{d}</span>
+                </li>
+              ))}
+            </ul>
           </div>
+
+          <div>
+            <div className="flex items-center justify-between">
+              <span className="text-secondary">Grupo comparable</span>
+              <span className="font-semibold text-title">{isPersonal ? "No aplica" : `${result.explain.peerCount} colaboradores`}</span>
+            </div>
+            {isPersonal && (
+              <p className="text-[11px] text-disabled mt-1">
+                Se requiere una muestra mínima de {MIN_PEER_SAMPLE} colaboradores con el mismo cargo para realizar comparaciones entre pares. Por este motivo el sistema utiliza su evolución histórica como referencia — cuando exista una muestra suficiente, la referencia cambiará automáticamente.
+              </p>
+            )}
+          </div>
+
           <div className="flex items-center justify-between">
             <span className="text-secondary">Período utilizado</span>
             <span className="font-semibold text-title">{result.explain.periodAnalyzed}</span>
           </div>
-          <div>
-            <p className="text-secondary text-xs mb-0.5">Datos disponibles</p>
-            <p className="text-title">{result.explain.dataAvailable}</p>
-          </div>
+
           {result.roleTarget && (
             <div className="pt-2 border-t border-border">
               <p className="text-secondary text-xs mb-1">Objetivo del cargo configurado</p>
@@ -195,7 +248,37 @@ function BenchmarkExplainModal({ result, onClose }: { result: SmartBenchmarkResu
             </div>
           )}
         </div>
-        <p className="text-[11px] text-disabled pt-3 mt-3 border-t border-border">Motor: Analytics Engine v{result.engineVersion}</p>
+
+        <div className="pt-3 mt-3 border-t border-border">
+          <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider mb-1.5">Confianza del cálculo</p>
+          <ConfidenceBadges {...confidence} />
+        </div>
+
+        <div className="pt-3 mt-3 border-t border-border">
+          <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider mb-1.5">Resumen de auditoría</p>
+          <div className="space-y-1 text-[11px] text-secondary">
+            <div className="flex items-center justify-between">
+              <span>Fecha del cálculo</span>
+              <span className="text-title font-medium">{new Date(lastUpdated).toLocaleString("es-CL")}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Versión del motor</span>
+              <span className="text-title font-medium">Analytics Engine v{result.engineVersion}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Referencia utilizada</span>
+              <span className="text-title font-medium">{modeLabel}</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Calidad del dato</span>
+              <span className="text-title font-medium">{confidence.dataQualityPct}%</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span>Confiabilidad</span>
+              <span className="text-title font-medium">{confidence.reliabilityPct}%</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -251,7 +334,7 @@ function PersonalEvolutionCard({ evolution }: { evolution: PersonalEvolution }) 
 const METRIC_ORDER: MetricKey[] = ["performance", "operationalRisk", "cumplimiento", "cargaLaboral", "capacidadFutura"];
 
 export function SmartBenchmarkPanel({ userId }: { userId: string }) {
-  const [data, setData] = useState<{ benchmark: SmartBenchmarkResult; evolution: PersonalEvolution } | null>(null);
+  const [data, setData] = useState<{ benchmark: SmartBenchmarkResult; evolution: PersonalEvolution; confidence: ConfidenceIndicators; lastUpdated: string } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [explainOpen, setExplainOpen] = useState(false);
@@ -284,21 +367,23 @@ export function SmartBenchmarkPanel({ userId }: { userId: string }) {
     );
   }
   if (error || !data) {
-    return <div className="text-sm text-disabled text-center py-6">No se pudo cargar el benchmark.</div>;
+    return <div className="text-sm text-disabled text-center py-6">No se pudo cargar la referencia utilizada.</div>;
   }
 
-  const { benchmark, evolution } = data;
+  const { benchmark, evolution, confidence, lastUpdated } = data;
 
   return (
     <div className="space-y-5">
       <div className="rounded-[14px] border border-border bg-surface shadow-[var(--shadow)] p-5">
         <div className="flex items-center justify-between mb-1 flex-wrap gap-2">
           <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold text-main uppercase tracking-wider">Benchmark</h3>
+            <h3 className="text-sm font-semibold text-main uppercase tracking-wider flex items-center gap-1.5">
+              Referencia utilizada <InfoTooltip text={CONFIDENCE_TOOLTIPS.referenciaUtilizada} />
+            </h3>
             <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${MODE_BADGE[benchmark.mode]}`}>{MODE_HEADLINE[benchmark.mode]}</span>
           </div>
           <button onClick={() => setExplainOpen(true)} className="text-xs font-medium text-primary hover:text-primary-hover">
-            ¿Cómo se calculó?
+            ¿Cómo se obtuvo este resultado?
           </button>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-3">
@@ -306,11 +391,16 @@ export function SmartBenchmarkPanel({ userId }: { userId: string }) {
             <MetricBlock key={key} metricKey={key} m={benchmark[key]} />
           ))}
         </div>
+        <div className="pt-3 mt-3 border-t border-border">
+          <ConfidenceBadges {...confidence} compact />
+        </div>
       </div>
 
       <PersonalEvolutionCard evolution={evolution} />
 
-      {explainOpen && <BenchmarkExplainModal result={benchmark} onClose={() => setExplainOpen(false)} />}
+      {explainOpen && (
+        <BenchmarkExplainModal result={benchmark} evolution={evolution} confidence={confidence} lastUpdated={lastUpdated} onClose={() => setExplainOpen(false)} />
+      )}
     </div>
   );
 }

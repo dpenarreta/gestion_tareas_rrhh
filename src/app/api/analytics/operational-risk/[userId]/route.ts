@@ -3,11 +3,18 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { getVisibleRoles, canViewOperationalRisk } from "@/lib/roles";
 import { getEffectiveAnalyticsConfig } from "@/lib/systemConfig";
-import { cached, computeOperationalRisk, ANALYTICS_ENGINE_VERSION } from "@/lib/analytics";
+import { cached, computeOperationalRisk, computeConsistency, computeDataQuality, ANALYTICS_ENGINE_VERSION } from "@/lib/analytics";
+import { reliabilityPctFromStars } from "@/lib/analyticsExplain";
 
 type Ctx = { params: Promise<{ userId: string }> };
 
-/** Índice de Riesgo Operativo individual — ver Analytics § 13. Visibilidad restringida (gerencia), nunca nivel 1. */
+/**
+ * Índice de Riesgo Operativo individual — ver Analytics § 13. Visibilidad
+ * restringida (gerencia), nunca nivel 1. `confidence` (§Sprint 6.5 S6.5-G) es
+ * metadata de PRESENTACIÓN calculada aquí, en la capa de ruta — nunca altera
+ * `score`/`classification`/`factors`, que siguen viniendo intactos de
+ * `computeOperationalRisk`.
+ */
 export async function GET(request: Request, ctx: Ctx) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
@@ -23,7 +30,16 @@ export async function GET(request: Request, ctx: Ctx) {
   }
 
   const config = await getEffectiveAnalyticsConfig();
-  const { value, computedAt } = await cached(`risk:${userId}`, config.cacheTtlMinutes, () => computeOperationalRisk(userId));
+  const [{ value, computedAt }, consistency, dataQuality] = await Promise.all([
+    cached(`risk:${userId}`, config.cacheTtlMinutes, () => computeOperationalRisk(userId)),
+    computeConsistency(userId),
+    computeDataQuality([userId]),
+  ]);
 
-  return NextResponse.json({ ...value, engineVersion: ANALYTICS_ENGINE_VERSION, lastUpdated: new Date(computedAt).toISOString() });
+  const confidence = {
+    dataQualityPct: dataQuality.pct,
+    reliabilityPct: consistency.available ? reliabilityPctFromStars(consistency.reliability.stars) : 50,
+  };
+
+  return NextResponse.json({ ...value, confidence, engineVersion: ANALYTICS_ENGINE_VERSION, lastUpdated: new Date(computedAt).toISOString() });
 }

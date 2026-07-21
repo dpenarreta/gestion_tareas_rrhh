@@ -16,6 +16,16 @@ import type {
 import type { ResolvedAlert } from "@/lib/analytics";
 import { isFeatureEnabled } from "@/lib/featureFlags";
 import { SmartBenchmarkPanel } from "./SmartBenchmark";
+import {
+  scoreLevel,
+  scoreLevelExplanation,
+  confidenceLabel,
+  reliabilityPctFromStars,
+  CONFIDENCE_TOOLTIPS,
+  CONSISTENCY_FALLBACK_NOTE,
+  SCORE_CLASSIFICATION_REFERENCE,
+  type ConfidenceIndicators,
+} from "@/lib/analyticsExplain";
 
 function formatDateTime(iso: string): string {
   const d = new Date(iso);
@@ -92,35 +102,142 @@ export function maturityFromWeeks(weeksOfData: number): 1 | 2 | 3 | 4 | 5 {
   return 1;
 }
 
-// ── Explicabilidad genérica — "Ver cálculo" (§7) ─────────────────────────────
+// ── Tooltips educativos (§Sprint 6.5 S6.5-K) ─────────────────────────────────
 
-/** Un factor con desglose raw→normalizado→peso→contribución (§Sprint 5 S5-J). */
-type ExplainFactor = { name: string; rawLabel: string; normalizedValue: number; weight: number; points: number };
+/** Ayuda contextual accesible (title nativo) sobre un concepto — sin JS extra, funciona con teclado y lectores de pantalla. */
+export function InfoTooltip({ text }: { text: string }) {
+  return (
+    <span
+      title={text}
+      aria-label={text}
+      tabIndex={0}
+      className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-surface2 text-disabled text-[9px] font-bold leading-none cursor-help shrink-0 hover:bg-primary-surface hover:text-primary transition-colors"
+    >
+      i
+    </span>
+  );
+}
+
+// ── Confianza del cálculo (§Sprint 6.5 S6.5-G) ───────────────────────────────
+// Dos indicadores DISTINTOS: Calidad del dato (completitud) y Confiabilidad
+// del cálculo (solidez estadística) — nunca se combinan en un solo número.
+
+export function ConfidenceBadges({ dataQualityPct, reliabilityPct, compact = false }: ConfidenceIndicators & { compact?: boolean }) {
+  const dqColor = dataQualityPct >= 90 ? "text-success" : dataQualityPct >= 70 ? "text-warning" : "text-danger";
+  const relColor = reliabilityPct >= 90 ? "text-success" : reliabilityPct >= 70 ? "text-warning" : "text-danger";
+  return (
+    <div className={compact ? "flex items-center gap-3 text-[11px]" : "grid grid-cols-2 gap-2"}>
+      <div className={compact ? "flex items-center gap-1" : "rounded-lg border border-border bg-background px-3 py-2"}>
+        <span className="flex items-center gap-1 text-disabled">
+          Calidad del dato <InfoTooltip text={CONFIDENCE_TOOLTIPS.dataQuality} />
+        </span>
+        <span className={`font-bold ${dqColor} ${compact ? "ml-1" : "block text-base"}`}>{dataQualityPct}%</span>
+      </div>
+      <div className={compact ? "flex items-center gap-1" : "rounded-lg border border-border bg-background px-3 py-2"}>
+        <span className="flex items-center gap-1 text-disabled">
+          Confiabilidad del cálculo <InfoTooltip text={CONFIDENCE_TOOLTIPS.reliability} />
+        </span>
+        <span className={`font-bold ${relColor} ${compact ? "ml-1" : "block text-base"}`}>{reliabilityPct}% <span className="font-normal text-disabled">({confidenceLabel(reliabilityPct)})</span></span>
+      </div>
+    </div>
+  );
+}
+
+// ── Explicabilidad genérica — "¿Cómo se obtuvo este resultado?" (§Sprint 6.5 S6.5-E) ──
+
+/** Un factor con desglose raw→nivel→puntaje→peso→aporte (§Sprint 5 S5-J, ampliado en Sprint 6.5). */
+export type ExplainFactor = {
+  name: string;
+  rawLabel: string;
+  normalizedValue: number;
+  weight: number;
+  points: number;
+  /** Presente cuando este factor usó una regla de respaldo (p. ej. consistencia sin historial suficiente) — ver Sprint 6.5 § S6.5-F. Nunca se muestra el puntaje de respaldo sin esta explicación. */
+  fallbackNote?: string;
+};
+
+function ExplainFactorCard({ f }: { f: ExplainFactor }) {
+  const level = scoreLevel(f.normalizedValue);
+  return (
+    <div className="rounded-xl border border-border bg-background p-3">
+      <p className="text-xs font-semibold text-title mb-2">{f.name}</p>
+      <div className="flex items-center justify-between text-[11px] text-secondary">
+        <span>Valor original</span>
+        <span className="font-mono text-main">{f.rawLabel}</span>
+      </div>
+      <div className="text-center text-disabled text-xs">↓</div>
+      <div className="flex items-center justify-between text-[11px] text-secondary">
+        <span>Nivel obtenido</span>
+        <span className="font-mono text-main">{level}</span>
+      </div>
+      <div className="text-center text-disabled text-xs">↓</div>
+      <div className="flex items-center justify-between text-[11px] text-secondary">
+        <span>Puntaje obtenido</span>
+        <span className="font-mono text-main">{f.normalizedValue}/100</span>
+      </div>
+      <div className="text-center text-disabled text-xs">↓</div>
+      <div className="flex items-center justify-between text-[11px] text-secondary">
+        <span>Peso aplicado</span>
+        <span className="font-mono text-main">{f.weight}%</span>
+      </div>
+      <div className="text-center text-disabled text-xs">↓</div>
+      <div className="flex items-center justify-between text-xs font-semibold">
+        <span className="text-title">Aporte al resultado</span>
+        <span className="text-primary">{f.points} pts</span>
+      </div>
+      {f.fallbackNote ? (
+        <p className="text-[11px] text-warning bg-warning/[.1] rounded-lg px-2.5 py-2 mt-2.5 leading-relaxed">{f.fallbackNote}</p>
+      ) : (
+        <p className="text-[10px] text-disabled mt-2 leading-relaxed">{scoreLevelExplanation(f.normalizedValue)}</p>
+      )}
+    </div>
+  );
+}
 
 export function ExplainModal({
   title,
   formula,
   steps,
   factors,
+  dataUsed,
+  resultValue,
+  resultInterpretation,
   engineVersion,
   formulaSetVersion,
+  lastUpdated,
+  dataSource,
+  referenceUsed,
+  confidence,
   onClose,
 }: {
   title: string;
   formula: string;
   steps: string[];
-  /** Si se pasa, se muestra un desglose visual por factor (valor original → normalización → peso → contribución) en vez de/además de los `steps` textuales — ver Sprint 5 § S5-J. */
+  /** Si se pasa, se muestra un desglose visual por factor (valor original → nivel → puntaje → peso → aporte) en vez de/además de los `steps` textuales — ver Sprint 5 § S5-J. */
   factors?: ExplainFactor[];
+  /** Checklist de "DATOS UTILIZADOS" (§Sprint 6.5 S6.5-D) — p. ej. ["124 tareas analizadas", "16 semanas evaluadas"]. */
+  dataUsed?: string[];
+  /** Bloque 4 "RESULTADO FINAL" (§S6.5-E) — puntaje final y su interpretación ejecutiva. */
+  resultValue?: number;
+  resultInterpretation?: string;
   engineVersion?: string;
   formulaSetVersion?: string;
+  /** Fecha del cálculo, ISO — para el resumen de auditoría (§S6.5-J). */
+  lastUpdated?: string;
+  /** Fuente de datos usada — para el resumen de auditoría (§S6.5-J). */
+  dataSource?: string;
+  /** Referencia utilizada para interpretar este indicador — para el resumen de auditoría (§S6.5-J). */
+  referenceUsed?: string;
+  confidence?: ConfidenceIndicators;
   onClose: () => void;
 }) {
+  const hasAudit = Boolean(engineVersion || formulaSetVersion || lastUpdated || dataSource || referenceUsed || confidence);
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="relative w-full max-w-md bg-surface border border-border rounded-[14px] shadow-2xl p-5 max-h-[80vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-semibold text-title uppercase tracking-wider">Ver cálculo — {title}</h3>
+          <h3 className="text-sm font-semibold text-title uppercase tracking-wider">¿Cómo se obtuvo este resultado? — {title}</h3>
           <button onClick={onClose} className="text-disabled hover:text-main transition-colors" aria-label="Cerrar">
             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -131,31 +248,24 @@ export function ExplainModal({
           Fórmula: <code className="text-title bg-background px-1.5 py-0.5 rounded">{formula}</code>
         </p>
 
+        {dataUsed && dataUsed.length > 0 && (
+          <div className="rounded-xl border border-border bg-background p-3 mb-3">
+            <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider mb-1.5">Datos utilizados</p>
+            <ul className="space-y-1">
+              {dataUsed.map((d, i) => (
+                <li key={i} className="text-xs text-title flex items-start gap-1.5">
+                  <span className="text-success shrink-0">✓</span>
+                  <span>{d}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {factors ? (
           <div className="space-y-3 mb-3">
             {factors.map((f) => (
-              <div key={f.name} className="rounded-xl border border-border bg-background p-3">
-                <p className="text-xs font-semibold text-title mb-2">{f.name}</p>
-                <div className="flex items-center justify-between text-[11px] text-secondary">
-                  <span>Valor original</span>
-                  <span className="font-mono text-main">{f.rawLabel}</span>
-                </div>
-                <div className="text-center text-disabled text-xs">↓</div>
-                <div className="flex items-center justify-between text-[11px] text-secondary">
-                  <span>Normalizado</span>
-                  <span className="font-mono text-main">{f.normalizedValue}</span>
-                </div>
-                <div className="text-center text-disabled text-xs">↓</div>
-                <div className="flex items-center justify-between text-[11px] text-secondary">
-                  <span>Peso</span>
-                  <span className="font-mono text-main">{f.weight}%</span>
-                </div>
-                <div className="text-center text-disabled text-xs">↓</div>
-                <div className="flex items-center justify-between text-xs font-semibold">
-                  <span className="text-title">Contribución</span>
-                  <span className="text-primary">{f.points} pts</span>
-                </div>
-              </div>
+              <ExplainFactorCard key={f.name} f={f} />
             ))}
           </div>
         ) : (
@@ -166,12 +276,71 @@ export function ExplainModal({
           </ol>
         )}
 
-        {(engineVersion || formulaSetVersion) && (
-          <p className="text-[11px] text-disabled pt-3 border-t border-border">
-            {engineVersion && <>Motor: Analytics Engine v{engineVersion}</>}
-            {engineVersion && formulaSetVersion && " · "}
-            {formulaSetVersion && <>Fórmulas v{formulaSetVersion}</>}
-          </p>
+        {(resultValue !== undefined || resultInterpretation) && (
+          <div className="rounded-xl border border-primary/25 bg-primary-surface/40 p-3 mb-3">
+            <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider mb-1">Resultado final</p>
+            <div className="flex items-baseline gap-2">
+              {resultValue !== undefined && <span className="text-2xl font-extrabold text-title">{resultValue}</span>}
+              {resultInterpretation && <span className="text-sm font-semibold text-primary">{resultInterpretation}</span>}
+            </div>
+          </div>
+        )}
+
+        {confidence && (
+          <div className="mb-3">
+            <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider mb-1.5">Confianza del cálculo</p>
+            <ConfidenceBadges {...confidence} />
+          </div>
+        )}
+
+        {hasAudit && (
+          <div className="pt-3 mt-1 border-t border-border">
+            <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider mb-1.5">Resumen de auditoría</p>
+            <div className="space-y-1 text-[11px] text-secondary">
+              {lastUpdated && (
+                <div className="flex items-center justify-between">
+                  <span>Fecha del cálculo</span>
+                  <span className="text-title font-medium">{formatDateTime(lastUpdated)}</span>
+                </div>
+              )}
+              {engineVersion && (
+                <div className="flex items-center justify-between">
+                  <span>Versión del motor</span>
+                  <span className="text-title font-medium">Analytics Engine v{engineVersion}</span>
+                </div>
+              )}
+              {formulaSetVersion && (
+                <div className="flex items-center justify-between">
+                  <span>Versión de fórmulas</span>
+                  <span className="text-title font-medium">v{formulaSetVersion}</span>
+                </div>
+              )}
+              {dataSource && (
+                <div className="flex items-center justify-between">
+                  <span>Fuente de datos</span>
+                  <span className="text-title font-medium text-right">{dataSource}</span>
+                </div>
+              )}
+              {referenceUsed && (
+                <div className="flex items-center justify-between">
+                  <span>Referencia utilizada</span>
+                  <span className="text-title font-medium text-right">{referenceUsed}</span>
+                </div>
+              )}
+              {confidence && (
+                <>
+                  <div className="flex items-center justify-between">
+                    <span>Calidad del dato</span>
+                    <span className="text-title font-medium">{confidence.dataQualityPct}%</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Confiabilidad</span>
+                    <span className="text-title font-medium">{confidence.reliabilityPct}%</span>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
         )}
       </div>
     </div>
@@ -214,10 +383,10 @@ export function HealthScoreCard({ result, onExplain }: { result: HealthScoreResu
     <div className="bg-surface rounded-[14px] border border-border shadow-[var(--shadow)] p-5">
       <div className="flex items-center justify-between mb-1">
         <h3 className="text-sm font-semibold text-main uppercase tracking-wider">Score de Salud Laboral</h3>
-        <button onClick={onExplain} className="text-xs font-medium text-primary hover:text-primary-hover">Ver cálculo</button>
+        <button onClick={onExplain} className="text-xs font-medium text-primary hover:text-primary-hover">¿Cómo se obtuvo este resultado?</button>
       </div>
       <p className="text-[10px] font-semibold text-disabled bg-surface2 inline-block px-2 py-0.5 rounded-full mb-3">
-        Legacy — será retirado en una versión futura
+        Versión anterior — será retirada en una versión futura
       </p>
       <div className="flex items-center gap-4 mb-3">
         <div className={`w-20 h-20 rounded-full ring-4 ${CLASS_RING[result.classification]} bg-background flex flex-col items-center justify-center shrink-0`}>
@@ -245,12 +414,14 @@ export function HealthScoreCard({ result, onExplain }: { result: HealthScoreResu
 // Responde una sola pregunta: "¿qué tan bien está ejecutando su trabajo?" — NO
 // mezcla carga/capacidad/riesgo (eso vive en Operational Risk, ver más abajo).
 
-export function PerformanceScoreCard({ result, onExplain }: { result: PerformanceScoreResult; onExplain: () => void }) {
+export function PerformanceScoreCard({ result, onExplain, confidence }: { result: PerformanceScoreResult; onExplain: () => void; confidence?: ConfidenceIndicators }) {
   return (
     <div className="bg-surface rounded-[14px] border border-border shadow-[var(--shadow)] p-5">
       <div className="flex items-center justify-between mb-1">
-        <h3 className="text-sm font-semibold text-main uppercase tracking-wider">Performance Score</h3>
-        <button onClick={onExplain} className="text-xs font-medium text-primary hover:text-primary-hover">Ver cálculo</button>
+        <h3 className="text-sm font-semibold text-main uppercase tracking-wider flex items-center gap-1.5">
+          Performance Score <InfoTooltip text={CONFIDENCE_TOOLTIPS.performanceScore} />
+        </h3>
+        <button onClick={onExplain} className="text-xs font-medium text-primary hover:text-primary-hover">¿Cómo se obtuvo este resultado?</button>
       </div>
       <p className="text-[10px] font-semibold text-primary bg-primary-surface inline-block px-2 py-0.5 rounded-full mb-3">
         Nuevo — Analytics Engine v{result.engineVersion}
@@ -265,14 +436,22 @@ export function PerformanceScoreCard({ result, onExplain }: { result: Performanc
       <div className="mb-4">
         <ScoreZoneBar score={result.score} />
       </div>
-      <div className="space-y-1.5">
+      <div className="space-y-1.5 mb-3">
         {result.factors.map((f) => (
           <div key={f.name} className="flex items-center justify-between text-xs">
-            <span className="text-secondary">{f.name} <span className="text-disabled">({f.rawLabel})</span></span>
+            <span className="text-secondary flex items-center gap-1">
+              {f.name} <span className="text-disabled">({f.rawLabel})</span>
+              {f.name === "Índice de Trazabilidad" && <InfoTooltip text={CONFIDENCE_TOOLTIPS.trazabilidad} />}
+            </span>
             <span className="font-semibold text-main">{f.points} pts</span>
           </div>
         ))}
       </div>
+      {confidence && (
+        <div className="pt-2 border-t border-border">
+          <ConfidenceBadges {...confidence} compact />
+        </div>
+      )}
     </div>
   );
 }
@@ -380,16 +559,18 @@ export function TrendsCard({ trends }: { trends: KpiTrends }) {
 
 const CONSISTENCY_COLOR: Record<string, string> = { "muy-consistente": "text-success", "consistente": "text-success", "variable": "text-warning", "muy-variable": "text-danger" };
 
-export function ConsistencyCard({ result }: { result: ConsistencyResult }) {
+export function ConsistencyCard({ result, dataQualityPct }: { result: ConsistencyResult; dataQualityPct?: number }) {
   const v2 = isFeatureEnabled("enableConsistencyV2");
   const [explainOpen, setExplainOpen] = useState(false);
   return (
     <div className="rounded-[14px] border border-border bg-surface shadow-[var(--shadow)] p-5">
       <div className="flex items-center justify-between mb-2">
-        <h3 className="text-sm font-semibold text-main uppercase tracking-wider">Consistencia</h3>
+        <h3 className="text-sm font-semibold text-main uppercase tracking-wider flex items-center gap-1.5">
+          Consistencia <InfoTooltip text={CONFIDENCE_TOOLTIPS.consistencia} />
+        </h3>
         {result.available && (
           <button onClick={() => setExplainOpen(true)} className="text-xs font-medium text-primary hover:text-primary-hover">
-            Ver cálculo
+            ¿Cómo se obtuvo este resultado?
           </button>
         )}
       </div>
@@ -402,7 +583,7 @@ export function ConsistencyCard({ result }: { result: ConsistencyResult }) {
             <span className={`${v2 ? "text-sm" : "text-xl"} font-semibold ${CONSISTENCY_COLOR[result.level]}`}>{result.label}</span>
           </div>
           <p className="text-xs text-secondary mt-1">
-            Variación (CV): {result.coefficientOfVariation}% — {result.interpretation}
+            Variabilidad: {result.coefficientOfVariation}% (CV) — {result.interpretation}
           </p>
           <div className="flex items-center gap-2 mt-2">
             <MaturityStars level={result.reliability.stars} title={result.reliability.label} />
@@ -417,7 +598,7 @@ export function ConsistencyCard({ result }: { result: ConsistencyResult }) {
           <div className="absolute inset-0 bg-black/40" onClick={() => setExplainOpen(false)} />
           <div className="relative w-full max-w-md bg-surface border border-border rounded-[14px] shadow-2xl p-5 max-h-[80vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-semibold text-title uppercase tracking-wider">Ver cálculo — Consistencia</h3>
+              <h3 className="text-sm font-semibold text-title uppercase tracking-wider">¿Cómo se obtuvo este resultado? — Consistencia</h3>
               <button onClick={() => setExplainOpen(false)} className="text-disabled hover:text-main transition-colors" aria-label="Cerrar">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -425,8 +606,15 @@ export function ConsistencyCard({ result }: { result: ConsistencyResult }) {
               </button>
             </div>
             <p className="text-xs text-secondary mb-3">
-              El CV (Coeficiente de Variación) mide cuánto varía su carga/cumplimiento semana a semana — mientras más bajo, más estable. Se calcula únicamente sobre semanas con datos reales, nunca sobre semanas anteriores al inicio de su historial.
+              La Variabilidad (CV, Coeficiente de Variación) mide cuánto varía su carga/cumplimiento semana a semana — mientras más bajo, más estable. Se calcula únicamente sobre semanas con datos reales, nunca sobre semanas anteriores al inicio de su historial.
             </p>
+            <div className="rounded-xl border border-border bg-background p-3 mb-3">
+              <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider mb-1.5">Datos utilizados</p>
+              <ul className="space-y-1">
+                <li className="text-xs text-title flex items-start gap-1.5"><span className="text-success shrink-0">✓</span><span>{result.weeksAnalyzed} {result.weeksAnalyzed === 1 ? "semana evaluada" : "semanas evaluadas"}</span></li>
+                <li className="text-xs text-title flex items-start gap-1.5"><span className="text-success shrink-0">✓</span><span>{result.daysAnalyzed} {result.daysAnalyzed === 1 ? "día con actividad" : "días con actividad"}</span></li>
+              </ul>
+            </div>
             <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider mb-1">Semanas utilizadas</p>
             {result.explain.periodsUsed.length === 0 ? (
               <p className="text-xs text-disabled italic mb-3">Ninguna.</p>
@@ -449,13 +637,19 @@ export function ConsistencyCard({ result }: { result: ConsistencyResult }) {
                 </ul>
               </>
             )}
-            <div className="pt-3 border-t border-border space-y-1">
+            <div className="pt-3 border-t border-border space-y-1 mb-3">
               {result.explain.steps.map((s, i) => (
                 <p key={i} className="text-xs text-main">
                   {s}
                 </p>
               ))}
             </div>
+            {dataQualityPct !== undefined && (
+              <div className="pt-3 border-t border-border">
+                <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider mb-1.5">Confianza del cálculo</p>
+                <ConfidenceBadges dataQualityPct={dataQualityPct} reliabilityPct={reliabilityPctFromStars(result.reliability.stars)} />
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -491,7 +685,7 @@ export function AnomaliesCard({ result }: { result: AnomalyResult }) {
 const CONFIDENCE_LABEL: Record<string, string> = { alta: "Alta confianza", media: "Media confianza", baja: "Baja confianza" };
 const CONFIDENCE_COLOR: Record<string, string> = { alta: "text-success", media: "text-warning", baja: "text-disabled" };
 
-export function PredictionCard({ result }: { result: Prediction }) {
+export function PredictionCard({ result, dataQualityPct }: { result: Prediction; dataQualityPct?: number }) {
   const v2 = isFeatureEnabled("enablePredictionV2");
   return (
     <div className="rounded-[14px] border border-border bg-surface shadow-[var(--shadow)] p-5">
@@ -537,6 +731,11 @@ export function PredictionCard({ result }: { result: Prediction }) {
           <p className="text-[10px] text-disabled pt-1.5 border-t border-border mt-1.5">
             {CONFIDENCE_LABEL[result.confidence]}{v2 ? ` (${result.confidencePct}%)` : ""} · basado en {result.weeksOfData} {result.weeksOfData === 1 ? "semana" : "semanas"} de datos · proyección máxima {result.maxProjectionDays} días
           </p>
+          {dataQualityPct !== undefined && (
+            <div className="pt-2 border-t border-border">
+              <ConfidenceBadges dataQualityPct={dataQualityPct} reliabilityPct={result.confidencePct} compact />
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -605,6 +804,23 @@ export function AdvancedAnalyticsPanel({ userId }: { userId: string }) {
     return <div className="text-sm text-disabled text-center py-8">No se pudo cargar Analytics avanzado. Intenta de nuevo.</div>;
   }
 
+  const consistencyReliabilityPct = data.consistency.available ? reliabilityPctFromStars(data.consistency.reliability.stars) : 50;
+  const sharedConfidence: ConfidenceIndicators = { dataQualityPct: data.dataQuality.pct, reliabilityPct: consistencyReliabilityPct };
+
+  const withFallbackNote = (factors: ExplainFactor[]): ExplainFactor[] =>
+    factors.map((f) => (f.name === "Consistencia" && f.rawLabel === "Sin historial suficiente" ? { ...f, fallbackNote: CONSISTENCY_FALLBACK_NOTE } : f));
+
+  const performanceFactors = withFallbackNote(data.performanceScore.factors);
+  const healthFactors: ExplainFactor[] = withFallbackNote(
+    data.healthScore.factors.map((f) => ({
+      name: f.name,
+      rawLabel: f.rawLabel,
+      normalizedValue: f.weight > 0 ? Math.round((f.points / f.weight) * 100 * 10) / 10 : 0,
+      weight: f.weight,
+      points: f.points,
+    }))
+  );
+
   return (
     <div className="space-y-5">
       <p className="text-[11px] text-disabled flex flex-wrap gap-x-1.5">
@@ -635,7 +851,7 @@ export function AdvancedAnalyticsPanel({ userId }: { userId: string }) {
       )}
 
       <div id="score" className="scroll-mt-16 grid grid-cols-1 lg:grid-cols-2 gap-5">
-        <PerformanceScoreCard result={data.performanceScore} onExplain={() => setExplainPerfOpen(true)} />
+        <PerformanceScoreCard result={data.performanceScore} onExplain={() => setExplainPerfOpen(true)} confidence={sharedConfidence} />
         <HealthScoreCard result={data.healthScore} onExplain={() => setExplainLegacyOpen(true)} />
       </div>
 
@@ -646,10 +862,10 @@ export function AdvancedAnalyticsPanel({ userId }: { userId: string }) {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-        <ConsistencyCard result={data.consistency} />
+        <ConsistencyCard result={data.consistency} dataQualityPct={data.dataQuality.pct} />
         <AnomaliesCard result={data.anomalies} />
         <div id="prediccion" className="scroll-mt-16">
-          <PredictionCard result={data.prediction} />
+          <PredictionCard result={data.prediction} dataQualityPct={data.dataQuality.pct} />
         </div>
       </div>
 
@@ -660,10 +876,18 @@ export function AdvancedAnalyticsPanel({ userId }: { userId: string }) {
 
       {explainLegacyOpen && (
         <ExplainModal
-          title="Score de Salud Laboral (Legacy)"
+          title="Score de Salud Laboral (Versión anterior)"
           formula={data.healthScore.explain.formula}
           steps={data.healthScore.explain.steps}
+          factors={healthFactors}
+          dataUsed={data.healthScore.factors.map((f) => `${f.name}: ${f.rawLabel}`)}
+          resultValue={Math.round(data.healthScore.score)}
+          resultInterpretation={data.healthScore.classification}
           engineVersion={data.engineVersion}
+          lastUpdated={data.lastUpdated}
+          dataSource="Tareas del mes en curso, carga horaria, consistencia semanal y capacidad proyectada"
+          referenceUsed={SCORE_CLASSIFICATION_REFERENCE}
+          confidence={sharedConfidence}
           onClose={() => setExplainLegacyOpen(false)}
         />
       )}
@@ -672,9 +896,16 @@ export function AdvancedAnalyticsPanel({ userId }: { userId: string }) {
           title="Performance Score"
           formula={data.performanceScore.explain.formula}
           steps={data.performanceScore.explain.steps}
-          factors={data.performanceScore.factors}
+          factors={performanceFactors}
+          dataUsed={data.performanceScore.factors.map((f) => `${f.name}: ${f.rawLabel}`)}
+          resultValue={Math.round(data.performanceScore.score)}
+          resultInterpretation={data.performanceScore.classification}
           engineVersion={data.engineVersion}
           formulaSetVersion={data.formulaSetVersion}
+          lastUpdated={data.lastUpdated}
+          dataSource="Tareas del mes en curso, historial semanal de registros y actividades/comentarios documentados"
+          referenceUsed={SCORE_CLASSIFICATION_REFERENCE}
+          confidence={sharedConfidence}
           onClose={() => setExplainPerfOpen(false)}
         />
       )}
