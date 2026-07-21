@@ -132,10 +132,14 @@ export function computeEstimatedVsRealRatio(totalReal: number, totalEstimated: n
 //
 // Recalcular únicamente cuando cambian tareas/permisos/config/cierre de mes —
 // ver Analytics § Caché y performance. Los endpoints envuelven su cálculo
-// principal con `cached()`; los mutation endpoints relevantes llaman
-// `invalidateAnalyticsCache()` (limpieza total: simple y correcta — el TTL ya
-// es corto, y varias vistas son agregados de equipo sin una clave de usuario
-// única que targetear con precisión).
+// principal con `cached()`, siempre con una clave `prefix:${userId}` (ver
+// todos los `cached(` de este archivo y de las rutas de Analytics — ninguna
+// clave usa otro formato). `invalidateAnalyticsCache(userId)` aprovecha ese
+// formato fijo para borrar solo las entradas de ese usuario cuando se le
+// pasa uno o varios ids; sin argumento hace limpieza total, reservada para
+// cambios verdaderamente globales (config del sistema, curvas de
+// normalización, cierre de mes) que no tienen un usuario único al que
+// targetear.
 type CacheEntry<T> = { value: T; expiresAt: number; computedAt: number };
 const cache = new Map<string, CacheEntry<unknown>>();
 
@@ -171,8 +175,24 @@ export async function cached<T>(key: string, ttlMinutes: number, compute: () => 
   return { value, computedAt, fromCache: false };
 }
 
-export function invalidateAnalyticsCache(): void {
-  cache.clear();
+/**
+ * Sin argumentos: limpieza total (comportamiento histórico, para cambios
+ * globales sin un usuario único al que targetear). Con uno o varios userId:
+ * borra únicamente las claves de caché de esos usuarios — toda clave de este
+ * módulo termina en `:${userId}` (ver comentario arriba), así que basta con
+ * comparar el sufijo tras los dos puntos finales.
+ */
+export function invalidateAnalyticsCache(userIds?: string | string[]): void {
+  if (userIds === undefined) {
+    cache.clear();
+    return;
+  }
+  const ids = new Set(Array.isArray(userIds) ? userIds : [userIds]);
+  if (ids.size === 0) return;
+  for (const key of cache.keys()) {
+    const suffix = key.slice(key.lastIndexOf(":") + 1);
+    if (ids.has(suffix)) cache.delete(key);
+  }
 }
 
 // ── Helpers de fecha ──────────────────────────────────────────────────────────

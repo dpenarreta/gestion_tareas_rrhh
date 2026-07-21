@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
     if (updated) updatedCount++;
   }
 
-  invalidateAnalyticsCache();
+  invalidateAnalyticsCache(eligible.map((t) => t.assignedToId));
 
   return NextResponse.json({ updatedCount, skippedSelfAssigned });
 }

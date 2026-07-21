@@ -78,6 +78,7 @@ export async function POST(request: NextRequest) {
 
   let imported = 0;
   const errors: { row: number; error: string }[] = [];
+  const affectedUserIds = new Set<string>();
 
   for (let i = 0; i < dataRows.length; i++) {
     const rowNum = i + 2;
@@ -152,13 +153,14 @@ export async function POST(request: NextRequest) {
         },
       });
       imported++;
+      affectedUserIds.add(assignedToId);
     } catch {
       errors.push({ row: rowNum, error: "Error al crear la tarea" });
     }
   }
 
   if (imported > 0) {
-    invalidateAnalyticsCache();
+    invalidateAnalyticsCache([...affectedUserIds]);
   }
 
   return NextResponse.json({ imported, errors });

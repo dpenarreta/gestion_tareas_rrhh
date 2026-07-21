@@ -142,7 +142,7 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     console.error(`[PATCH /api/tasks/${id}/correct] No se encontró MonthClosure para ${task.archivedMonth}`);
   }
 
-  invalidateAnalyticsCache();
+  invalidateAnalyticsCache(task.assignedToId);
 
   return NextResponse.json(updated);
 }

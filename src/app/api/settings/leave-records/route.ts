@@ -123,6 +123,6 @@ export async function POST(request: NextRequest) {
       })
     )
   );
-  invalidateAnalyticsCache();
+  invalidateAnalyticsCache(userId);
   return NextResponse.json({ records, businessDaysCount: businessDays.length }, { status: 201 });
 }

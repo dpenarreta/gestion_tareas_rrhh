@@ -164,7 +164,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     });
 
     await recalcRealHours(taskId);
-    invalidateAnalyticsCache();
+    invalidateAnalyticsCache(task.assignedToId);
 
     const rules = await getNotificationRules();
     if (rules.retroactiveNotifyRoles.length > 0) {

@@ -31,7 +31,7 @@ export async function PATCH(_req: Request, ctx: Ctx) {
     data: { isActive: false, endDate },
     include: { user: { select: { id: true, name: true } } },
   });
-  invalidateAnalyticsCache();
+  invalidateAnalyticsCache(existing.userId);
   return NextResponse.json(updated);
 }
 
@@ -49,6 +49,6 @@ export async function DELETE(_req: Request, ctx: Ctx) {
   }
 
   await prisma.specialStatus.delete({ where: { id } });
-  invalidateAnalyticsCache();
+  invalidateAnalyticsCache(existing.userId);
   return NextResponse.json({ ok: true });
 }

@@ -105,7 +105,11 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   if ("color" in body) data.color = body.color;
 
   const updated = await prisma.task.update({ where: { id }, data, select: taskSelect });
-  invalidateAnalyticsCache();
+  // El responsable puede cambiar en este PATCH (reasignación) — invalidar
+  // tanto al anterior como al nuevo si difieren, nunca solo uno.
+  const affectedUserIds = new Set([task.assignedToId]);
+  if (typeof data.assignedToId === "string") affectedUserIds.add(data.assignedToId);
+  invalidateAnalyticsCache([...affectedUserIds]);
   const [updatedWithUnread] = await attachUnreadComments([updated], session.userId);
   return NextResponse.json(updatedWithUnread);
 }
@@ -132,6 +136,6 @@ export async function DELETE(_req: NextRequest, ctx: Ctx) {
   }
 
   await prisma.task.delete({ where: { id } });
-  invalidateAnalyticsCache();
+  invalidateAnalyticsCache(task.assignedToId);
   return NextResponse.json({ ok: true });
 }

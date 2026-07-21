@@ -77,7 +77,7 @@ export async function POST(request: NextRequest) {
     select: taskSelect,
   });
 
-  invalidateAnalyticsCache();
+  invalidateAnalyticsCache(assignedToId);
 
   if (assignedToId !== session.userId) {
     await prisma.notification.create({

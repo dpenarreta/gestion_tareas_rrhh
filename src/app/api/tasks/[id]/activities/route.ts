@@ -144,7 +144,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     });
 
     await recalcRealHours(taskId);
-    invalidateAnalyticsCache();
+    invalidateAnalyticsCache(task.assignedToId);
 
     return NextResponse.json(activity, { status: 201 });
   } catch (err) {

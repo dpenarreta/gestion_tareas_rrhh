@@ -105,7 +105,7 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     });
 
     await recalcRealHours(taskId);
-    invalidateAnalyticsCache();
+    invalidateAnalyticsCache(task.assignedToId);
 
     await prisma.activityAuditLog.create({
       data: {
@@ -157,7 +157,11 @@ export async function DELETE(_req: NextRequest, ctx: Ctx) {
 
     await prisma.taskActivity.delete({ where: { id: activityId } });
     await recalcRealHours(taskId);
-    invalidateAnalyticsCache();
+    // El autor de la actividad puede ser distinto del responsable de la
+    // tarea (tareas SEGUIMIENTO compartidas) — las horas reales se atribuyen
+    // al responsable, así que hay que invalidar su caché, no el del autor.
+    const task = await prisma.task.findUnique({ where: { id: taskId }, select: { assignedToId: true } });
+    invalidateAnalyticsCache(task?.assignedToId);
 
     return NextResponse.json({ ok: true });
   } catch (err) {

@@ -19,6 +19,6 @@ export async function DELETE(_req: Request, ctx: Ctx) {
   }
 
   await prisma.leaveRecord.delete({ where: { id } });
-  invalidateAnalyticsCache();
+  invalidateAnalyticsCache(existing.userId);
   return NextResponse.json({ ok: true });
 }

@@ -113,6 +113,6 @@ export async function POST(request: NextRequest) {
     },
     include: { user: { select: { id: true, name: true } } },
   });
-  invalidateAnalyticsCache();
+  invalidateAnalyticsCache(userId);
   return NextResponse.json(record, { status: 201 });
 }

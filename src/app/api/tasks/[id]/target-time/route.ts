@@ -126,7 +126,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   });
   if (!updated) return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
 
-  invalidateAnalyticsCache();
+  invalidateAnalyticsCache(task.assignedToId);
 
   return NextResponse.json({
     targetTimeValidated: updated.targetTimeValidated,
