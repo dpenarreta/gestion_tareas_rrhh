@@ -1286,7 +1286,10 @@ export async function computeDataQuality(userIds: string[]): Promise<DataQuality
   if (userIds.length === 0) return { pct: 100, issues: [] };
 
   const [openTasks, allTasksForDates, seguimientoTasks, hasHoursConfig] = await Promise.all([
-    prisma.task.findMany({ where: { assignedToId: { in: userIds }, status: { not: "COMPLETADA" }, archivedMonth: null }, select: { estimatedHours: true } }),
+    prisma.task.findMany({
+      where: { assignedToId: { in: userIds }, status: { not: "COMPLETADA" }, archivedMonth: null },
+      select: { estimatedHours: true, targetTimeValidated: true },
+    }),
     prisma.task.findMany({ where: { assignedToId: { in: userIds }, archivedMonth: null }, select: { startDate: true, endDate: true } }),
     prisma.task.findMany({
       where: { assignedToId: { in: userIds }, type: "SEGUIMIENTO", archivedMonth: null },
@@ -1295,7 +1298,7 @@ export async function computeDataQuality(userIds: string[]): Promise<DataQuality
     prisma.systemConfigHistory.count({ where: { key: CONFIG_KEY_HORAS_EFECTIVAS } }),
   ]);
 
-  const tasksSinEstimar = openTasks.filter((t) => t.estimatedHours <= 0).length;
+  const tasksSinEstimar = openTasks.filter((t) => getOfficialTargetTime(t) <= 0).length;
   const fechasInconsistentes = allTasksForDates.filter((t) => t.startDate.getTime() > t.endDate.getTime()).length;
   const seguimientoSinActividad = seguimientoTasks.filter((t) => t.activities.length === 0).length;
   const sinHorasConfig = hasHoursConfig === 0;

@@ -6,6 +6,7 @@ import { leaveHoursForDay, type DayLeaveInfo } from "@/lib/leaves";
 import { getEffectiveHorasEfectivas } from "@/lib/systemConfig";
 import { getTeamSpecialStatusDayMap, type SpecialStatusDayMap } from "@/lib/specialStatus";
 import { isWorkingDay, countBusinessDays, sumWeightedBaseHours } from "@/lib/workload";
+import { getOfficialTargetTime } from "@/lib/targetTime";
 
 /**
  * Hora local (huso de negocio, UTC-5) a la que se asume terminada la jornada
@@ -139,7 +140,15 @@ export async function computeTeamCapacityForecast(
       getTeamSpecialStatusDayMap(userIds, monthStart, monthEnd),
       prisma.task.findMany({
         where: { assignedToId: { in: userIds }, status: { in: ["PENDIENTE", "EN_PROGRESO"] }, archivedMonth: null },
-        select: { assignedToId: true, status: true, estimatedHours: true, realHours: true, startDate: true, endDate: true },
+        select: {
+          assignedToId: true,
+          status: true,
+          estimatedHours: true,
+          targetTimeValidated: true,
+          realHours: true,
+          startDate: true,
+          endDate: true,
+        },
       }),
       (async () => {
         const { start: realStart } = businessDayRealRange(monthStart);
@@ -193,20 +202,24 @@ export async function computeTeamCapacityForecast(
     const baseFuturaTotal = Math.round((horasRestantesHoy + baseFuturaFullDays) * 100) / 100;
 
     // ── Comprometido futuro ──
+    // El Tiempo Objetivo Validado es la referencia OFICIAL cuando existe
+    // (§Sprint 6 S6-H) — nunca el estimado inicial obsoleto una vez que un
+    // líder lo validó. getOfficialTargetTime() aplica el mismo fallback que
+    // el resto del motor: validado ?? inicial.
     const userTasks = openTasks.filter((t) => t.assignedToId === userId);
     const enProgreso = userTasks.filter((t) => t.status === "EN_PROGRESO");
-    const enProgresoEstimadas = enProgreso.filter((t) => t.estimatedHours > 0);
+    const enProgresoEstimadas = enProgreso.filter((t) => getOfficialTargetTime(t) > 0);
     const enProgresoSinEstimar = enProgreso.length - enProgresoEstimadas.length;
     const comprometidoEnProgreso = Math.round(
-      enProgresoEstimadas.reduce((s, t) => s + Math.max(0, t.estimatedHours - t.realHours), 0) * 100
+      enProgresoEstimadas.reduce((s, t) => s + Math.max(0, getOfficialTargetTime(t) - t.realHours), 0) * 100
     ) / 100;
 
     const pendientes = userTasks.filter(
       (t) => t.status === "PENDIENTE" && t.startDate.getTime() <= monthEnd.getTime() && t.endDate.getTime() >= today.getTime()
     );
-    const pendientesEstimadas = pendientes.filter((t) => t.estimatedHours > 0);
+    const pendientesEstimadas = pendientes.filter((t) => getOfficialTargetTime(t) > 0);
     const pendientesSinEstimar = pendientes.length - pendientesEstimadas.length;
-    const comprometidoPendiente = Math.round(pendientesEstimadas.reduce((s, t) => s + t.estimatedHours, 0) * 100) / 100;
+    const comprometidoPendiente = Math.round(pendientesEstimadas.reduce((s, t) => s + getOfficialTargetTime(t), 0) * 100) / 100;
 
     const comprometidoFuturo = Math.round((comprometidoEnProgreso + comprometidoPendiente) * 100) / 100;
     const tasksSinEstimar = enProgresoSinEstimar + pendientesSinEstimar;
