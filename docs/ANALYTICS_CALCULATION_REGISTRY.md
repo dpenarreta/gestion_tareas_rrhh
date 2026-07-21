@@ -141,15 +141,19 @@ Alcance: solo lectura/documentación. No se modificó Prisma, APIs públicas, co
 - Se actualizó el mock de Prisma en `src/__tests__/api/dashboard.test.ts` (agregado `taskActivity`/`holiday`/`leaveRecord`/`specialStatus`) para reflejar las nuevas dependencias del motor central. Suite completa verificada: 840/842 tests pasan (los 2 restantes son fallos preexistentes de `kpis-executive.test.ts`, no relacionados con este cambio — confirmado reproduciéndolos en la rama sin este fix). `tsc --noEmit` y `eslint` limpios sobre los archivos modificados.
 - Efecto visible para el usuario: el widget "Carga laboral" del dashboard ahora puede mostrar un número distinto al de antes de este fix (antes medía precisión de estimación de horas; ahora mide carga real vs. base laboral, igual que en `/kpis` y Analytics) — cambio de comportamiento intencional, es la corrección del bug de fondo, no un efecto secundario no buscado.
 
-### 🟠 D7 — Clasificación del Performance Score reimplementada en `kpis/executive` para el promedio del equipo
+### ✅ D7 — RESUELTO (2026-07-21) — Clasificación del Performance Score reimplementada en `kpis/executive` para el promedio del equipo
 
-**Duplicación encontrada:** `src/app/api/kpis/executive/route.ts` (L230-231) recalcula inline los umbrales de clasificación (`>=90 Excelente / >=75 Bueno / >=60 Riesgo / <60 Crítico`, y el color `>=75 green / >=60 yellow / red`) para clasificar el **promedio del equipo** de Performance Score — exactamente los mismos umbrales que `computePerformanceScore` aplica al score individual (`analytics.ts` L1052-1053). No existe una función exportada `classifyPerformanceScore()` (a diferencia de `classifyOperationalRisk`, que sí existe y sí se reutiliza aquí mismo para el Riesgo Operativo del equipo, L232).
+**Duplicación encontrada:** `src/app/api/kpis/executive/route.ts` recalculaba inline los umbrales de clasificación (`>=90 Excelente / >=75 Bueno / >=60 Riesgo / <60 Crítico`, y el color `>=75 green / >=60 yellow / red`) para clasificar el **promedio del equipo** de Performance Score — exactamente los mismos umbrales que `computePerformanceScore` aplicaba al score individual, inline también. No existía una función exportada `classifyPerformanceScore()` (a diferencia de `classifyOperationalRisk`, que sí existe y sí se reutiliza en el mismo archivo para el Riesgo Operativo del equipo).
 
-**Archivos involucrados:** `kpis/executive/route.ts` (L230-231) vs. `analytics.ts` (L1052-1053, dentro de `computePerformanceScore`).
+**Archivos involucrados (antes):** `kpis/executive/route.ts` vs. `analytics.ts` (dentro de `computePerformanceScore`).
 
-**Riesgo:** Medio — hoy los umbrales coinciden porque se copiaron a mano, pero si `computePerformanceScore` cambia sus bandas de clasificación (p. ej. vía un ajuste de negocio), el bloque CEO del dashboard ejecutivo quedará desalineado silenciosamente porque no hay una función compartida que ambos consuman.
+**Riesgo (previo a la corrección):** Medio — los umbrales coincidían porque se habían copiado a mano, pero si `computePerformanceScore` cambiaba sus bandas de clasificación, el bloque CEO del dashboard ejecutivo habría quedado desalineado silenciosamente, sin una función compartida que ambos consumieran.
 
-**Recomendación:** Extraer `classifyPerformanceScore(score)` en `analytics.ts` (mismo patrón que `classifyOperationalRisk`) y que ambos sitios la usen.
+**Corrección aplicada:** se extrajo `classifyPerformanceScore(score)` en `analytics.ts` (mismo patrón que `classifyOperationalRisk` — función pura, sin acceso a BD) y ambos sitios la usan ahora: `computePerformanceScore` la aplica al score individual, `kpis/executive/route.ts` la aplica al promedio del equipo. Un cambio futuro en las bandas de clasificación solo requiere tocar un lugar.
+
+**Nota de alcance:** `computeHealthScore` (Score de Salud Laboral, LEGACY) tiene una clasificación inline con los mismos umbrales/colores — no se tocó a propósito: es un KPI separado y congelado por diseño (ver Sprint 5 § S5-A), y fusionarlo con `classifyPerformanceScore` acoplaría dos scores que el propio motor mantiene deliberadamente independientes. Fuera de alcance de D7, que solo trataba sobre Performance Score.
+
+**Verificación:** `tsc --noEmit`/`eslint` limpios; suite completa 840/842 (mismos 2 fallos preexistentes de `kpis-executive.test.ts`, no relacionados). Sin cambios de comportamiento visibles — los umbrales/colores resultantes son idénticos a los de antes, solo se consolidó su fuente.
 
 ### 🟡 D8 — Simulador de escenarios reimplementa la aritmética de ponderación de puntos
 
@@ -449,7 +453,7 @@ flowchart TB
 | D6 | `/api/dashboard` (pantalla de inicio) reimplementaba carga/cumplimiento/sobrecarga desde cero, sin importar el motor | 🔴 Alta | ✅ **Corregido** (2026-07-21) — ahora reutiliza `computeCargaTiempo`/`computeMonthlyHistory`/`monthlyBusinessBaseForUsers`+`computeWorkloadRange` |
 | D2 | Dos motores de alertas de riesgo paralelos (`computeAlerts` vs. `computeRiskAlerts`) | 🟡 Media→Baja | 🟡 **Parcialmente corregido** (2026-07-21) — umbral de "vencidas" ahora comparte config; ambos motores se mantienen (alcances distintos, documentado) |
 | D3 | `computeSimpleScore` consolidado pero alimentado con magnitudes distintas (`cargaRatio` vs. `cargaPct`) según el caller | 🟠 Media | ✅ **Corregido** (2026-07-21) — las 7 rutas ahora pasan `computeEstimatedVsRealRatio` |
-| D7 | Clasificación del Performance Score reimplementada en `kpis/executive` para el promedio del equipo | 🟠 Media | Documentado — no unificado (fuera de alcance) |
+| D7 | Clasificación del Performance Score reimplementada en `kpis/executive` para el promedio del equipo | 🟠 Media | ✅ **Corregido** (2026-07-21) — extraída `classifyPerformanceScore()`, reutilizada en ambos sitios |
 | D4 | `computeMonthlyCompliancePace` es una 3ª variante de cumplimiento, pero bien encapsulada | 🟡 Baja | Documentado, sin acción requerida |
 | D8 | `analytics/simulate` reimplementa una línea de aritmética de ponderación (`pointsFor`) ya existente en `mk()` | 🟡 Baja | Documentado, sin acción requerida |
 | D9 | `riskAlerts.ts` cuenta "días hábiles" sin excluir feriados, a diferencia de `countBusinessDays` | 🟡 Baja-Media | Documentado, sin acción requerida |

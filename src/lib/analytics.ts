@@ -1001,6 +1001,24 @@ async function computeTrazabilidadRaw(userId: string, start: Date, end: Date, no
   return { raw, detail: `${Math.round(registroPct)}% días con registro, ${comments} comentarios, ${activities} actividades documentadas` };
 }
 
+/**
+ * Clasificación Excelente/Bueno/Riesgo/Crítico del Performance Score a partir
+ * del score — función pura, testeable sin BD. Extraída para que
+ * `/api/kpis/executive` (promedio del equipo) reutilice exactamente estos
+ * umbrales en vez de reimplementarlos (ver Analytics Calculation Registry §
+ * D7) — mismo patrón que `classifyOperationalRisk` para el Riesgo Operativo.
+ */
+export function classifyPerformanceScore(score: number): {
+  classification: PerformanceScoreResult["classification"];
+  classificationColor: PerformanceScoreResult["classificationColor"];
+} {
+  const classification: PerformanceScoreResult["classification"] =
+    score >= 90 ? "Excelente" : score >= 75 ? "Bueno" : score >= 60 ? "Riesgo" : "Crítico";
+  const classificationColor: PerformanceScoreResult["classificationColor"] =
+    score >= 75 ? "green" : score >= 60 ? "yellow" : "red";
+  return { classification, classificationColor };
+}
+
 /** `precomputedConsistency` — ver nota en computeHealthScore; evita recalcular la misma consulta dentro del pipeline. */
 export async function computePerformanceScore(userId: string, now: Date = new Date(), precomputedConsistency?: ConsistencyResult): Promise<PerformanceScoreResult> {
   const config = await getEffectiveAnalyticsConfig(now);
@@ -1049,8 +1067,7 @@ export async function computePerformanceScore(userId: string, now: Date = new Da
   ];
 
   const score = Math.round(factors.reduce((s, f) => s + f.points, 0) * 100) / 100;
-  const classification = score >= 90 ? "Excelente" : score >= 75 ? "Bueno" : score >= 60 ? "Riesgo" : "Crítico";
-  const classificationColor = score >= 75 ? "green" : score >= 60 ? "yellow" : "red";
+  const { classification, classificationColor } = classifyPerformanceScore(score);
 
   const steps = factors.map((f) => `${f.name}: ${f.rawLabel} → normalizado ${f.normalizedValue} × ${f.weight}% = ${f.points} pts`);
   steps.push(`Total: ${score} → ${classification}`);

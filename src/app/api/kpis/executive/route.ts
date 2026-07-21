@@ -4,7 +4,7 @@ import { getSession } from "@/lib/session";
 import { getSubordinateRoles, ROLE_LEVEL } from "@/lib/roles";
 import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct, type MonthlyBusinessBase } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
-import { computeSimpleScore, computeEstimatedVsRealRatio, cached, computePerformanceScore, computeOperationalRisk, classifyOperationalRisk } from "@/lib/analytics";
+import { computeSimpleScore, computeEstimatedVsRealRatio, cached, computePerformanceScore, computeOperationalRisk, classifyOperationalRisk, classifyPerformanceScore } from "@/lib/analytics";
 import { getEffectiveAnalyticsConfig } from "@/lib/systemConfig";
 import type { ExecutiveDashboardData } from "@/components/kpis/types";
 import type { KpiColor, WorkloadColor, WorkloadLabel } from "@/components/kpis/types";
@@ -235,8 +235,10 @@ export async function GET() {
   ]);
   const avgPerf = perfScores.length > 0 ? Math.round((perfScores.reduce((s, v) => s + v, 0) / perfScores.length) * 10) / 10 : 0;
   const avgRisk = riskScoresRaw.length > 0 ? Math.round((riskScoresRaw.reduce((s, v) => s + v, 0) / riskScoresRaw.length) * 10) / 10 : 0;
-  const perfClassification = avgPerf >= 90 ? "Excelente" : avgPerf >= 75 ? "Bueno" : avgPerf >= 60 ? "Riesgo" : "Crítico";
-  const perfColor: KpiColor = avgPerf >= 75 ? "green" : avgPerf >= 60 ? "yellow" : "red";
+  // Reutiliza la misma clasificación que computePerformanceScore aplica al
+  // score individual (antes se reimplementaban los mismos umbrales aquí para
+  // el promedio del equipo — ver Analytics Calculation Registry § D7).
+  const { classification: perfClassification, classificationColor: perfColor } = classifyPerformanceScore(avgPerf);
   const riskClassified = classifyOperationalRisk(avgRisk, analyticsConfig.riskThresholdMedio, analyticsConfig.riskThresholdAlto, analyticsConfig.riskThresholdCritico);
 
   // ── Bloque CEO — resto (§S2-A) ────────────────────────────────────────────
