@@ -72,7 +72,7 @@ Alcance: solo lectura/documentación. No se modificó Prisma, APIs públicas, co
 **Duplicación encontrada:** dos fórmulas de "cumplimiento" coexisten bajo el mismo nombre de campo (`completedPct`), sin una función compartida:
 
 - **Definición A — "completado en cualquier momento"**: `tasks.filter(t => t.status === "COMPLETADA").length / total`. Reimplementada inline (no vía función compartida) en:
-  - `src/lib/analytics.ts` — `computeMonthlyHistory` (L317), `computeHealthScore` (L905), `computePerformanceScore` (L1020), `computeMonthlyCompliancePace` (L778) — **4 copias dentro del propio motor central**.
+  - `src/lib/analytics.ts` — `computeMonthlyHistory`, `computeHealthScore`, `computePerformanceScore` — **3 copias dentro del propio motor central** (una 4ª, `computeMonthlyCompliancePace`, se corrigió para reutilizar `computeMonthlyHistory` en vez de recalcular — ver **D4**, resuelto).
   - `src/app/api/kpis/team/route.ts` (L95-97)
   - `src/app/api/kpis/executive/route.ts` (L141-142)
   - `src/app/api/kpis/me/range/route.ts` (L123-124)
@@ -81,11 +81,11 @@ Alcance: solo lectura/documentación. No se modificó Prisma, APIs públicas, co
   - `src/app/api/dashboard/route.ts` (L82-83) — ver también **D6**.
 - **Definición B — "completado A TIEMPO"**: `isCompletedOnTime` (`src/lib/priorityCompliance.ts`), usada en `src/app/api/kpis/[userId]/route.ts` y `src/app/api/kpis/me/route.ts` (con comentario explícito reconociendo el cambio de definición — "Analytics § Sprint 1").
 
-**Archivos involucrados:** `analytics.ts` (×4), `kpis/team`, `kpis/executive`, `kpis/me/range`, `reports/generate`, `reports/range`, `dashboard/route.ts` (Definición A — **9 implementaciones inline** en total) vs. `kpis/[userId]`, `kpis/me` (Definición B).
+**Archivos involucrados:** `analytics.ts` (×3), `kpis/team`, `kpis/executive`, `kpis/me/range`, `reports/generate`, `reports/range`, `dashboard/route.ts` (Definición A — **9 implementaciones inline** en total) vs. `kpis/[userId]`, `kpis/me` (Definición B).
 
 **Riesgo:** Alto. Un mismo colaborador puede ver un % de "Cumplimiento" distinto en su página personal (`/kpis` → Definición B, a tiempo) que en el ranking ejecutivo, el reporte mensual o el panel de equipo (Definición A, cualquier momento) — para el mismo mes, sin que ninguna UI aclare la diferencia. `validateCumplimientoConsistency` solo compara cumplimiento general vs. por prioridad (ambos Definición B) — no detecta el desacuerdo entre A y B porque nunca los cruza.
 
-**Recomendación:** No unificar en este sprint (fuera de alcance). Registrar como candidato a fusión futura: extraer una función única `computeCompletedPct(tasks, mode: "any" | "onTime")` en `priorityCompliance.ts` o `analytics.ts`, y hacer que las 8 reimplementaciones inline la llamen. Decidir primero, con el negocio, cuál definición es la oficial (o si ambas deben coexistir con nombres de campo distintos, p. ej. `completedAnyPct` vs. `completedOnTimePct`, para que dejen de compartir el nombre `completedPct`).
+**Recomendación:** No unificar en este sprint (fuera de alcance). Registrar como candidato a fusión futura: extraer una función única `computeCompletedPct(tasks, mode: "any" | "onTime")` en `priorityCompliance.ts` o `analytics.ts`, y hacer que las 9 reimplementaciones inline la llamen. Decidir primero, con el negocio, cuál definición es la oficial (o si ambas deben coexistir con nombres de campo distintos, p. ej. `completedAnyPct` vs. `completedOnTimePct`, para que dejen de compartir el nombre `completedPct`).
 
 ### 🟡 D2 — PARCIALMENTE RESUELTO (2026-07-21) — Dos motores de alertas de riesgo independientes y paralelos
 
@@ -118,9 +118,17 @@ Alcance: solo lectura/documentación. No se modificó Prisma, APIs públicas, co
 
 **Verificación:** `tsc --noEmit`/`eslint` limpios; se agregaron `estimatedHours`/`realHours` a los fixtures de tareas en `src/__tests__/api/kpis-executive.test.ts` y `src/__tests__/api/reports.test.ts` para reflejar los nuevos campos consultados; suite completa 840/842 (mismos 2 fallos preexistentes de `kpis-executive.test.ts`, no relacionados con este cambio).
 
-### 🟡 D4 — `computeMonthlyCompliancePace` es una tercera variante de "cumplimiento", con proyección propia
+### ✅ D4 — RESUELTO (2026-07-21) — `computeMonthlyCompliancePace` era una cuarta variante de "cumplimiento" dentro del propio motor, con proyección propia
 
-`computeMonthlyCompliancePace` (`analytics.ts` L769-782, usada solo dentro de `computePrediction`) proyecta el cumplimiento de cierre de mes extrapolando el % actual por los días hábiles transcurridos vs. totales del mes. Usa la misma Definición A (`status === "COMPLETADA"`, no on-time) que el resto del motor central, así que es consistente con D1-Definición A, pero es una tercera fórmula (con proyección lineal) que nadie más reutiliza. Riesgo bajo — está correctamente encapsulada y usada en un solo lugar — se documenta por completitud de inventario, no requiere acción.
+`computeMonthlyCompliancePace` (`analytics.ts`, usada solo dentro de `computePrediction`) proyecta el cumplimiento de cierre de mes extrapolando el % actual por los días hábiles transcurridos vs. totales del mes. Usaba la misma Definición A (`status === "COMPLETADA"`, no on-time) que el resto del motor central, pero mediante su **propia** consulta de tareas (`select: { status: true }`) y su **propio** cálculo de `completedPct` — no reutilizaba `computeMonthlyHistory`, que ya calcula exactamente ese mismo número para el mes en curso. Sumada a `computeMonthlyHistory`, `computeHealthScore` y `computePerformanceScore` (ver D1), esta era la **4ª** reimplementación de la misma cuenta dentro de un solo archivo.
+
+**Riesgo (previo a la corrección):** Bajo — estaba correctamente encapsulada y usada en un solo lugar, sin exponerse a otros módulos.
+
+**Corrección aplicada:** `computeMonthlyCompliancePace` ahora llama a `computeMonthlyHistory(userId, 1, now)` y toma `completedPct` de ahí, en vez de recalcularlo. Se conserva su única lógica propia: la proyección de ritmo (extrapolar por días hábiles transcurridos vs. totales del mes), que no tiene equivalente en ningún otro sitio del motor.
+
+**Efecto (menor, de precisión):** `computeMonthlyHistory.completedPct` ya viene redondeado a entero antes de aplicar el factor de proyección, mientras que la versión anterior redondeaba solo al final (sobre el % con decimales) — puede producir una diferencia de como máximo ±1 punto porcentual en el resultado proyectado en casos de borde. No afecta la Definición A en sí (sigue siendo `status === "COMPLETADA"` sin considerar a tiempo), solo el orden de redondeo.
+
+**Verificación:** `tsc --noEmit`/`eslint` limpios; sin tests directos de `computeMonthlyCompliancePace`/`computePrediction` (requieren BD, no cubiertos por `analytics-formulas.test.ts`, que solo prueba `computePredictionConfidencePct`); suite completa 840/842 (mismos 2 fallos preexistentes, no relacionados).
 
 ### ✅ D6 — RESUELTO (2026-07-21) — `/api/dashboard` (widget principal) reimplementaba desde cero tres conceptos ya resueltos por el motor, sin importar `analytics.ts`/`workload.ts` en absoluto
 
@@ -344,7 +352,7 @@ flowchart TB
 | Cumplimiento por prioridad | ✅ Sí | `computePriorityCompliance` (priorityCompliance.ts) | ninguna |
 | Score simple (0-100, legacy rankings/reportes) | ✅ Sí (corregido, ver **D3**) | `computeSimpleScore` (analytics.ts) | ninguna — las 7 rutas pasan ahora `computeEstimatedVsRealRatio` como 2º parámetro |
 | Ratio horas estimadas/reales | ✅ Sí | `computeEstimatedVsRealRatio` (analytics.ts) | ninguna |
-| **Cumplimiento (% completado)** | ❌ **No** | *(no existe una única fuente)* | ver **D1** — 8 implementaciones inline en 6 archivos + 4 dentro del propio motor, con 2 definiciones (con/sin "a tiempo") que comparten el nombre de campo `completedPct` |
+| **Cumplimiento (% completado)** | ❌ **No** | *(no existe una única fuente)* | ver **D1** — 9 implementaciones inline en 6 archivos + 3 dentro del propio motor, con 2 definiciones (con/sin "a tiempo") que comparten el nombre de campo `completedPct` |
 | Alertas de riesgo / recomendaciones automáticas | ❌ **No** | *(dos motores paralelos)* | ver **D2** — `computeAlerts` (analytics.ts, configurable) vs. `computeRiskAlerts` (riskAlerts.ts, legado, umbrales fijos) |
 | Clasificación de capacidad (semáforo) | ✅ Sí | `classifyCapacity` (capacityForecast.ts) | ninguna |
 | Clasificación de riesgo operativo (Bajo/Medio/Alto/Crítico) | ✅ Sí | `classifyOperationalRisk` (analytics.ts) | ninguna |
@@ -456,7 +464,7 @@ flowchart TB
 | D2 | Dos motores de alertas de riesgo paralelos (`computeAlerts` vs. `computeRiskAlerts`) | 🟡 Media→Baja | 🟡 **Parcialmente corregido** (2026-07-21) — umbral de "vencidas" ahora comparte config; ambos motores se mantienen (alcances distintos, documentado) |
 | D3 | `computeSimpleScore` consolidado pero alimentado con magnitudes distintas (`cargaRatio` vs. `cargaPct`) según el caller | 🟠 Media | ✅ **Corregido** (2026-07-21) — las 7 rutas ahora pasan `computeEstimatedVsRealRatio` |
 | D7 | Clasificación del Performance Score reimplementada en `kpis/executive` para el promedio del equipo | 🟠 Media | ✅ **Corregido** (2026-07-21) — extraída `classifyPerformanceScore()`, reutilizada en ambos sitios |
-| D4 | `computeMonthlyCompliancePace` es una 3ª variante de cumplimiento, pero bien encapsulada | 🟡 Baja | Documentado, sin acción requerida |
+| D4 | `computeMonthlyCompliancePace` era una 4ª variante de cumplimiento dentro del motor, recalculada en vez de reutilizada | 🟡 Baja | ✅ **Corregido** (2026-07-21) — ahora reutiliza `computeMonthlyHistory` |
 | D8 | `analytics/simulate` reimplementaba una línea de aritmética de ponderación (`pointsFor`), en realidad repetida 4 veces en el motor | 🟡 Baja | ✅ **Corregido** (2026-07-21) — extraída `weightedPoints()`, usada en las 4 implementaciones |
 | D9 | `riskAlerts.ts` cuenta "días hábiles" sin excluir feriados, a diferencia de `countBusinessDays` | 🟡 Baja-Media | Documentado, sin acción requerida |
 | D10 | Heurísticas de confianza/★ y umbral de color 80/60 reimplementados en 3-4 componentes de UI | 🟡 Baja | Documentado, sin acción requerida |

@@ -779,18 +779,28 @@ export function computePredictionConfidencePct(weeksOfData: number, consistency:
   return Math.round(MAX_PREDICTION_CONFIDENCE_PCT * (0.4 * dataScore + 0.4 * consistencyScore + 0.2 * horizonScore));
 }
 
+/**
+ * Reutiliza `computeMonthlyHistory` (misma Definición A de "cumplimiento" que
+ * el resto del motor central) para el % completado hasta hoy — antes hacía su
+ * propia consulta de tareas y su propio cálculo de completedPct, una tercera
+ * variante redundante dentro del propio archivo (ver Analytics Calculation
+ * Registry § D4). Lo único que sigue siendo propio de esta función es la
+ * proyección de ritmo (extrapolar por días hábiles transcurridos vs. totales
+ * del mes) — no hay otro sitio en el motor que la necesite.
+ */
 async function computeMonthlyCompliancePace(userId: string, now: Date): Promise<number> {
   const today = businessCalendarDay(now);
   const year = today.getUTCFullYear();
   const month = today.getUTCMonth() + 1;
-  const [biz, holidays] = await Promise.all([monthlyBusinessBase(year, month), getHolidaySet()]);
+  const [biz, holidays, monthly] = await Promise.all([
+    monthlyBusinessBase(year, month),
+    getHolidaySet(),
+    computeMonthlyHistory(userId, 1, now),
+  ]);
   const elapsedBusinessDays = countBusinessDays(biz.start, today, holidays);
-  const { start, end } = monthBounds(year, month);
-  const tasks = await prisma.task.findMany({ where: { assignedToId: userId, endDate: { gte: start, lte: end } }, select: { status: true } });
-  if (tasks.length === 0 || elapsedBusinessDays === 0) return 0;
-  const completed = tasks.filter((t) => t.status === "COMPLETADA").length;
-  const completedPct = (completed / tasks.length) * 100;
-  const projected = completedPct * (biz.businessDays / elapsedBusinessDays);
+  const current = monthly[monthly.length - 1];
+  if (current.totalTasks === 0 || elapsedBusinessDays === 0) return 0;
+  const projected = current.completedPct * (biz.businessDays / elapsedBusinessDays);
   return Math.min(100, Math.round(projected));
 }
 
