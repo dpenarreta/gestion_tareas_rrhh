@@ -7,7 +7,7 @@ import {
 } from "recharts";
 import * as XLSX from "xlsx";
 import type { Role } from "@/generated/prisma/client";
-import { ROLE_LABEL } from "@/lib/roles";
+import { ROLE_LABEL, isLeadershipRole } from "@/lib/roles";
 import type { KpiData, KpiColor, WorkloadColor, WorkloadLabel } from "./types";
 import { DonutChart, CumplimientoLineChart, HistorySparklineList, REASON_LABEL } from "./KpiCharts";
 import WorkloadCard from "./WorkloadCard";
@@ -605,6 +605,36 @@ export default function MyKpisModule({ currentUserId, currentUserName, currentUs
   // ── Chart data for range ──────────────────────────────────────────────────
   const rangeChartData =
     rangeReport?.months.map((m) => ({ label: m.label, Cumplimiento: m.completedPct })) ?? [];
+
+  // ── Roles de liderazgo (Sprint 0A) ────────────────────────────────────────
+  // Su responsabilidad principal es dirigir equipos, no ejecutar tareas —
+  // Tiempo Objetivo, Horas reales, Cumplimiento personal y Performance
+  // individual no son representativos para este rol. Se reemplaza todo el
+  // panel de "Mi actividad" por un mensaje explicativo; los KPIs del equipo
+  // siguen disponibles en la pestaña "Equipo"/"Resumen ejecutivo". La
+  // clasificación depende únicamente de la jerarquía de roles existente
+  // (ver isLeadershipRole en roles.ts) — sin nuevas categorías.
+  if (isLeadershipRole(currentUserRole as Role)) {
+    return (
+      <div className="flex flex-col gap-6">
+        <div>
+          <h1 className="text-2xl font-bold text-title">Mis KPIs</h1>
+          <p className="text-sm text-secondary mt-0.5">
+            {currentUserName} — {ROLE_LABEL[currentUserRole as Role] ?? currentUserRole}
+          </p>
+        </div>
+        <div className="rounded-2xl border border-border bg-surface p-8 text-center">
+          <p className="text-sm text-secondary max-w-md mx-auto leading-relaxed">
+            Este rol posee funciones principalmente de supervisión y dirección.
+            <br />
+            Sus indicadores individuales de ejecución no son representativos.
+            <br />
+            Consulte los KPIs del equipo para evaluar el desempeño de su área.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-6">

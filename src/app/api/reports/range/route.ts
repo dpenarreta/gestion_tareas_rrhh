@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { canAccessReports, ROLE_LABEL } from "@/lib/roles";
+import { canAccessReports, ROLE_LABEL, ALL_ROLES, isLeadershipRole } from "@/lib/roles";
 import { isTaskOverdue } from "@/lib/utils";
 import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
@@ -163,8 +163,10 @@ export async function GET(request: NextRequest) {
 
     const scope = session.role === "JEFE_NACIONAL" || session.role === "ADMINISTRADOR" ? "JEFE" : "COORDINADOR";
 
-    // El Administrador nunca aparece en informes consolidados, sin importar el scope.
-    const excludedRoles: Role[] = scope === "JEFE" ? ["ADMINISTRADOR"] : ["ADMINISTRADOR", "JEFE_NACIONAL"];
+    // Los roles de liderazgo (Administrador, Jefe Nacional) nunca aparecen
+    // como sujetos individuales de informes consolidados, sin importar el
+    // scope (ver Sprint 0A, isLeadershipRole en roles.ts).
+    const excludedRoles: Role[] = ALL_ROLES.filter(isLeadershipRole);
     const users = await prisma.user.findMany({
       where: { role: { notIn: excludedRoles } },
       select: { id: true, name: true, role: true },

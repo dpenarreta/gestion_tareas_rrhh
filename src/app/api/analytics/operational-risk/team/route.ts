@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { getSubordinateRoles, canViewOperationalRisk, getNotificationTargets } from "@/lib/roles";
+import { getSubordinateRoles, canViewOperationalRisk, getNotificationTargets, isExecutorRole } from "@/lib/roles";
 import { getEffectiveAnalyticsConfig } from "@/lib/systemConfig";
 import { cached, computeOperationalRisk, ANALYTICS_ENGINE_VERSION, type OperationalRiskResult } from "@/lib/analytics";
 
@@ -43,7 +43,9 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   if (!canViewOperationalRisk(session.role)) return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
 
-  const subordinateRoles = getSubordinateRoles(session.role);
+  // Roles de liderazgo excluidos: el Riesgo Operativo individual no es
+  // representativo para quien dirige, no ejecuta (ver Sprint 0A).
+  const subordinateRoles = getSubordinateRoles(session.role).filter(isExecutorRole);
   const subordinates = await prisma.user.findMany({
     where: { role: { in: subordinateRoles } },
     select: { id: true, name: true, role: true },

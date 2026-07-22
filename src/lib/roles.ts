@@ -171,3 +171,37 @@ export function canViewOperationalRisk(role: Role): boolean {
 }
 
 export const ALL_ROLES = Object.keys(ROLE_LABEL) as Role[];
+
+// ── Ejecutor vs. liderazgo (Sprint 0A) ───────────────────────────────────────
+//
+// El motor de Analytics históricamente trataba a TODO usuario como ejecutor
+// de tareas operativas, incluyendo a quienes dirigen equipos (JEFE_NACIONAL,
+// ADMINISTRADOR) — mostrándoles horas comprometidas, capacidad futura, tiempo
+// objetivo y recomendaciones de asignación individuales que no son
+// representativas de su responsabilidad real (dirigir, no ejecutar). La
+// clasificación depende ÚNICAMENTE de ROLE_LEVEL, ya existente — no se crean
+// categorías nuevas (nada de "Operativo/Táctico/Estratégico"). No modifica
+// visibilidad ni permisos (VISIBLE_ROLES/getSubordinateRoles siguen iguales):
+// solo decide qué módulos de Analytics son representativos para un rol y
+// quién puede ser destino de una redistribución de trabajo.
+//
+// Umbral en nivel 4 (JEFE_NACIONAL, ADMINISTRADOR): COORDINADOR_NACIONAL
+// (nivel 3) conserva "Mi actividad" + KPIs personales junto con los del
+// equipo, según el modelo del Sprint 0A — solo JEFE_NACIONAL/ADMINISTRADOR
+// quedan sin indicadores individuales de ejecución.
+
+/**
+ * Roles cuya responsabilidad principal es dirigir equipos, no ejecutar tareas
+ * operativas — sus indicadores individuales de ejecución (horas
+ * comprometidas, capacidad futura, tiempo objetivo, cumplimiento/performance
+ * personal) no son representativos y no deben calcularse ni mostrarse como
+ * datos propios, ni deben aparecer como destino de redistribución de trabajo.
+ */
+export function isLeadershipRole(role: Role): boolean {
+  return ROLE_LEVEL[role] >= 4;
+}
+
+/** Roles cuya responsabilidad SÍ contempla ejecución de tareas — únicos destinos válidos de redistribución de trabajo y únicos sujetos de KPIs individuales de ejecución en vistas de equipo. */
+export function isExecutorRole(role: Role): boolean {
+  return !isLeadershipRole(role);
+}

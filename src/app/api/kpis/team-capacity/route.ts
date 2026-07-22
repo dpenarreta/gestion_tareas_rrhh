@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { canViewTeam, getSubordinateRoles } from "@/lib/roles";
+import { canViewTeam, getSubordinateRoles, isExecutorRole } from "@/lib/roles";
 import { computeTeamCapacityForecast } from "@/lib/capacityForecast";
 
 export async function GET() {
@@ -9,7 +9,9 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   if (!canViewTeam(session.role)) return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
 
-  const subordinateRoles = getSubordinateRoles(session.role);
+  // Roles de liderazgo excluidos: no se calcula capacidad/horas comprometidas
+  // individuales para quien dirige, no ejecuta (ver Sprint 0A).
+  const subordinateRoles = getSubordinateRoles(session.role).filter(isExecutorRole);
   const subordinates = await prisma.user.findMany({
     where: { role: { in: subordinateRoles } },
     select: { id: true, name: true, role: true },

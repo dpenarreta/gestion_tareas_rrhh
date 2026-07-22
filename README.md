@@ -331,6 +331,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-22: feat(analytics): Sprint 0A — corrige el modelo de Analytics según jerarquía organizacional
 - 2026-07-21: test(kpis-executive): corrige 2 aserciones desactualizadas respecto a las reglas de negocio actuales
 - 2026-07-21: fix(analytics): extrae computeCompletedPctAny para consolidar la Definición A de cumplimiento
 - 2026-07-21: fix(analytics): consolida helpers de presentación duplicados en analyticsExplain.ts

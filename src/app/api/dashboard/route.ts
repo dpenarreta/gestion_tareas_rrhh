@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { getVisibleRoles, ROLE_LEVEL } from "@/lib/roles";
+import { getVisibleRoles, ROLE_LEVEL, isExecutorRole } from "@/lib/roles";
 import { getVisibleIdeaAuthorIds } from "@/lib/ideas";
 import { isTaskOverdue } from "@/lib/utils";
 import { dayBounds, weekBounds, monthBounds } from "@/lib/dateRanges";
@@ -95,10 +95,13 @@ export async function GET() {
   const visibleRoles = getVisibleRoles(session.role);
   const visibleUsers = await prisma.user.findMany({
     where: { role: { in: visibleRoles }, id: { not: session.userId } },
-    select: { id: true, name: true },
+    select: { id: true, name: true, role: true },
   });
   const visibleIds = visibleUsers.map((u) => u.id);
   const nameMap = Object.fromEntries(visibleUsers.map((u) => [u.id, u.name]));
+  // Roles de liderazgo excluidos de "quién requiere atención" — su carga
+  // laboral individual no es representativa (ver Sprint 0A).
+  const executorIds = visibleUsers.filter((u) => isExecutorRole(u.role)).map((u) => u.id);
 
   type ActivityEvent = { time: Date; text: string };
   const activityEvents: ActivityEvent[] = [];
@@ -185,21 +188,21 @@ export async function GET() {
   // /api/kpis/executive: base laboral por usuario en bloque (sin N+1) +
   // horas reales desde tareas FIJA completadas y actividades del mes.
   let teamAlerts = 0;
-  if (ROLE_LEVEL[session.role] >= 2 && visibleIds.length > 0) {
-    const { shared, perUser } = await monthlyBusinessBaseForUsers(visibleIds, now.getFullYear(), now.getMonth() + 1);
+  if (ROLE_LEVEL[session.role] >= 2 && executorIds.length > 0) {
+    const { shared, perUser } = await monthlyBusinessBaseForUsers(executorIds, now.getFullYear(), now.getMonth() + 1);
     const { start: realStart } = businessDayRealRange(shared.start);
     const { end: realEnd } = businessDayRealRange(shared.end);
     const [fijaTasksForCarga, activitiesForCarga] = await Promise.all([
       prisma.task.findMany({
-        where: { assignedToId: { in: visibleIds }, type: "FIJA", archivedMonth: null, completedAt: { gte: realStart, lte: realEnd } },
+        where: { assignedToId: { in: executorIds }, type: "FIJA", archivedMonth: null, completedAt: { gte: realStart, lte: realEnd } },
         select: { assignedToId: true, realHours: true },
       }),
       prisma.taskActivity.findMany({
-        where: { authorId: { in: visibleIds }, createdAt: { gte: realStart, lte: realEnd } },
+        where: { authorId: { in: executorIds }, createdAt: { gte: realStart, lte: realEnd } },
         select: { authorId: true, duration: true },
       }),
     ]);
-    for (const id of visibleIds) {
+    for (const id of executorIds) {
       const fijaHours = fijaTasksForCarga.filter((t) => t.assignedToId === id).reduce((s, t) => s + t.realHours, 0);
       const activityHours = activitiesForCarga.filter((a) => a.authorId === id).reduce((s, a) => s + a.duration, 0) / 60;
       const cargaRealHours = Math.round((fijaHours + activityHours) * 100) / 100;

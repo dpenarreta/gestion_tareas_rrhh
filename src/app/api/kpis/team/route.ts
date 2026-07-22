@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { canViewTeam, getSubordinateRoles } from "@/lib/roles";
+import { canViewTeam, getSubordinateRoles, isExecutorRole } from "@/lib/roles";
 import { isTaskOverdue } from "@/lib/utils";
 import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct, type MonthlyBusinessBase } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
@@ -30,7 +30,10 @@ export async function GET(request: NextRequest) {
   const now = new Date();
   const refDate = end < now ? end : now;
 
-  const subordinateRoles = getSubordinateRoles(session.role);
+  // Roles de liderazgo (Jefe Nacional/Administrador) excluidos como sujetos de
+  // KPIs individuales de equipo — su responsabilidad es dirigir, no ejecutar
+  // tareas (ver Sprint 0A). No afecta getVisibleRoles/permisos de tareas.
+  const subordinateRoles = getSubordinateRoles(session.role).filter(isExecutorRole);
   const subordinates = await prisma.user.findMany({
     where: { role: { in: subordinateRoles } },
     select: { id: true, name: true, role: true },

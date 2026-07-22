@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { getSubordinateRoles, ROLE_LEVEL } from "@/lib/roles";
+import { getSubordinateRoles, ROLE_LEVEL, isExecutorRole } from "@/lib/roles";
 import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct, type MonthlyBusinessBase } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
 import { computeSimpleScore, computeEstimatedVsRealRatio, computeCompletedPctAny, cached, computePerformanceScore, computeOperationalRisk, classifyOperationalRisk, classifyPerformanceScore } from "@/lib/analytics";
@@ -63,7 +63,11 @@ export async function GET() {
 
   // getSubordinateRoles(session.role) acota siempre al propio alcance del viewer
   // (p. ej. para Coordinador Nacional excluye a Jefe Nacional y Administrador).
-  const subordinateRoles = getSubordinateRoles(session.role);
+  // isExecutorRole excluye además roles de liderazgo (Jefe Nacional) que sí
+  // podrían aparecer como subordinados del Administrador — su responsabilidad
+  // es dirigir, no ejecutar tareas, así que no deben rankearse como
+  // colaboradores individuales (ver Sprint 0A).
+  const subordinateRoles = getSubordinateRoles(session.role).filter(isExecutorRole);
   const users = await prisma.user.findMany({
     where: { role: { in: subordinateRoles } },
     select: { id: true, name: true, role: true },
