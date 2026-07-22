@@ -136,4 +136,45 @@ Definida en `src/lib/roles.ts`. Niveles:
 
 ## Testing
 
-Sin framework de tests configurado aún.
+Framework de pruebas: Vitest + `@testing-library/react` (jsdom). Ver `docs/ARCHITECTURE.md` § Convenciones técnicas para el detalle del setup (`vitest.config.ts`, stub de `server-only`, mock global de Prisma). Tests en `src/__tests__/`.
+
+## Documentación
+
+Nexo mantiene un sistema oficial de documentación en `/docs` (`README.md` de ese
+directorio es el índice) — es la fuente de verdad sobre la evolución del proyecto,
+pensada para auditorías internas y continuidad del desarrollo. **Cada vez que
+completes exitosamente una implementación** (feature, fix, refactor, cambio de
+reglas de negocio o de arquitectura), como parte del mismo cambio:
+
+1. **Clasifica el cambio** en uno de: `FEATURE`, `FIX`, `REFACTOR`, `UX`, `UI`,
+   `ANALYTICS`, `SECURITY`, `PERFORMANCE`, `DATABASE`, `DOCUMENTATION`,
+   `BREAKING CHANGE`.
+2. **Agrega una entrada en `docs/CHANGELOG.md`** (al principio, es
+   cronológico-descendente) con fecha, tipo, módulo, qué se implementó,
+   archivos afectados, impacto y autor — sigue el formato de las entradas
+   existentes.
+3. Si el cambio modifica **reglas de negocio o arquitectura** (no solo código):
+   agrega también una entrada en `docs/AUDIT_LOG.md` (problema/alternativas/
+   decisión/justificación/impacto — solo para decisiones con análisis real de
+   alternativas) y/o una fila en `docs/DECISIONS.md` (índice liviano, una línea).
+4. Si el cambio **incorpora un KPI nuevo o modifica un cálculo existente** del
+   motor de Analytics: actualiza la sección correspondiente de
+   `docs/ANALYTICS_FORMULAS.md` (objetivo/fórmula/variables/pesos/
+   normalización/ejemplo/casos borde/reglas de negocio/versión/notas).
+5. Si la funcionalidad estaba en `docs/ROADMAP.md` bajo "Planificado" o "En
+   desarrollo", muévela a "Implementado" en el mismo cambio.
+6. Si el cambio afecta `ANALYTICS_ENGINE_VERSION`/`FORMULA_SET_VERSION`
+   (`src/lib/analytics.ts`) o amerita un incremento de versión de NEXO (nueva
+   funcionalidad → MINOR; fix/refactor → PATCH; cambio de arquitectura o de
+   modelo de negocio incompatible con el estado anterior → MAJOR), actualiza
+   `docs/VERSION.md` y el campo `version` de `package.json` en el mismo cambio.
+
+Esto es manual (no hay CI/webhook separado) — la implementación de este
+procedimiento ES el trabajo de Claude Code en cada sesión, no un script aparte.
+No dupliques el changelog automático de `README.md` (una línea por commit,
+mantenido por `.githooks/post-commit`) — ambos mecanismos coexisten con
+propósitos distintos (ver `docs/README.md`).
+
+Si una tarea es puramente exploratoria, de investigación o no cambia código de
+producto (ej. una pregunta, una lectura de código), no se requiere actualizar
+la documentación.

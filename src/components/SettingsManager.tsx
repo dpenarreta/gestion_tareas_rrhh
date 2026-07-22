@@ -16,6 +16,7 @@ import NormalizationCurvesSection from "@/components/settings/NormalizationCurve
 import RoleTargetsSection from "@/components/settings/RoleTargetsSection";
 import WelcomeMessageSection from "@/components/settings/WelcomeMessageSection";
 import EngineDiagnosticsSection from "@/components/settings/EngineDiagnosticsSection";
+import DocumentationSection from "@/components/settings/DocumentationSection";
 
 type User = {
   id: string;
@@ -924,6 +925,8 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
       <AnalyticsConfigSection />
       <NormalizationCurvesSection />
       <RoleTargetsSection />
+
+      <DocumentationSection />
 
       <SectionCard title="Solicitudes de titulares">
         <p className="text-xs text-secondary">
