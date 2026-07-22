@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { Role } from "@/generated/prisma/client";
-import { ROLE_LEVEL } from "@/lib/roles";
+import { ROLE_LEVEL, isLeadershipRole } from "@/lib/roles";
 import KpisModule from "./KpisModule";
 import MyKpisModule from "./MyKpisModule";
 import ExecutiveDashboard from "./ExecutiveDashboard";
@@ -22,6 +22,11 @@ export default function AnalyticsModule({ currentUserId, currentUserRole, curren
   // Componentes de equipo (Balance de carga, Capacidad, KPIs de subordinados):
   // solo roles con subordinados (nivel >= 2) — nivel 1 únicamente ve "Mi actividad".
   const hasTeamTab = ROLE_LEVEL[currentUserRole] >= 2;
+  // Roles de dirección (Administrador, Jefe Nacional) no ejecutan tareas
+  // operativas — la pestaña "Mi actividad" no debe existir para ellos (ni
+  // como botón ni como vista alcanzable), no solo mostrar un mensaje al
+  // entrar. Ver isLeadershipRole en roles.ts — única fuente de verdad.
+  const hasPersonalTab = !isLeadershipRole(currentUserRole);
   const [tab, setTab] = useState<Tab>(hasExecutiveDashboard ? "ejecutivo" : hasTeamTab ? "team" : "personal");
 
   return (
@@ -48,20 +53,22 @@ export default function AnalyticsModule({ currentUserId, currentUserRole, curren
               Equipo
             </button>
           )}
-          <button
-            onClick={() => setTab("personal")}
-            className={`px-3.5 py-1.5 rounded-[8px] text-[13px] transition-all ${
-              tab === "personal" ? "bg-surface text-title font-semibold shadow-[var(--shadow)]" : "text-secondary hover:text-title font-medium"
-            }`}
-          >
-            Mi actividad
-          </button>
+          {hasPersonalTab && (
+            <button
+              onClick={() => setTab("personal")}
+              className={`px-3.5 py-1.5 rounded-[8px] text-[13px] transition-all ${
+                tab === "personal" ? "bg-surface text-title font-semibold shadow-[var(--shadow)]" : "text-secondary hover:text-title font-medium"
+              }`}
+            >
+              Mi actividad
+            </button>
+          )}
         </div>
       </div>
 
       {tab === "ejecutivo" && hasExecutiveDashboard && <ExecutiveDashboard />}
       {tab === "team" && hasTeamTab && <KpisModule currentUserId={currentUserId} currentUserRole={currentUserRole} />}
-      {tab === "personal" && (
+      {tab === "personal" && hasPersonalTab && (
         <MyKpisModule currentUserId={currentUserId} currentUserName={currentUserName} currentUserRole={currentUserRole} />
       )}
     </div>
