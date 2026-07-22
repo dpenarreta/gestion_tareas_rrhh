@@ -147,6 +147,10 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
     [activities]
   );
 
+  // Tareas Fijas: máximo 2 registros (ver FIJA_MAX_ACTIVITIES en
+  // /api/tasks/[id]/activities/route.ts, misma regla aplicada en el servidor).
+  const fijaLimitReached = task.type === "FIJA" && activities.length >= 2;
+
   useEffect(() => {
     fetch(`/api/tasks/${task.id}/activities`)
       .then((r) => r.ok ? r.json() : [])
@@ -327,7 +331,7 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
         <div className="p-4 border-b border-border flex items-center justify-between gap-2">
           <div className="min-w-0">
             <h3 className="font-semibold text-title text-sm truncate">{task.title}</h3>
-            <p className="text-xs text-secondary">{readOnly ? "Actividades de seguimiento" : "Registro de actividades"}</p>
+            <p className="text-xs text-secondary">{readOnly ? "Actividades registradas" : "Registro de actividades"}</p>
           </div>
           <button
             onClick={onClose}
@@ -596,7 +600,14 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
         </div>
 
         {/* Add form */}
-        {!readOnly && <div className="p-4 border-t border-border space-y-3">
+        {!readOnly && fijaLimitReached && (
+          <div className="p-4 border-t border-border">
+            <p className="text-xs text-warning bg-warning/[.08] rounded-lg px-3 py-2.5 text-center leading-relaxed">
+              Esta tarea fija ya alcanzó el número máximo de registros permitidos.
+            </p>
+          </div>
+        )}
+        {!readOnly && !fijaLimitReached && <div className="p-4 border-t border-border space-y-3">
           <p className="text-xs font-semibold text-main">Agregar actividad</p>
 
           <div>

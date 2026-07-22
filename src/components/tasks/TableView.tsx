@@ -9,7 +9,7 @@ import type { ActivityFormat } from "@/lib/activityFormat";
 import { taskColorHex } from "./colors";
 import { fireCelebrationConfetti } from "@/lib/confetti";
 import { formatDate, isTaskOverdue } from "@/lib/utils";
-import { hoursToDisplay, displayToHours, validateDisplayHours, INVALID_HOURS_MESSAGE } from "@/lib/timeFormat";
+import { hoursToDisplay } from "@/lib/timeFormat";
 import { getOfficialTargetTime, isTargetTimeValidated } from "@/lib/targetTime";
 
 type SortKey = "title" | "frequency" | "status" | "priority" | "startDate" | "endDate" | "estimatedHours" | "realHours";
@@ -245,31 +245,21 @@ function TaskRow({
           <span className="ml-1 text-success text-[10px]" title="Tiempo objetivo validado">✓</span>
         )}
       </td>
-      <td className="border border-border px-4 py-3.5 text-right">
-        <InlineEdit
-          value={hoursToDisplay(task.realHours)}
-          type="text"
-          readOnly={!isOwner}
-          onSave={(v) => {
-            if (!validateDisplayHours(v)) { alert(INVALID_HOURS_MESSAGE); return; }
-            onFieldUpdate(task.id, "realHours", displayToHours(v));
-          }}
-        />
+      <td className="border border-border px-4 py-3.5 text-right text-main">
+        {hoursToDisplay(task.realHours)}
         <span className="text-disabled ml-0.5 text-xs">h</span>
       </td>
       <td className="border border-border px-4 py-3.5 text-center">
         <div className="inline-flex items-center gap-2">
-          {task.type === "SEGUIMIENTO" && (
-            <button
-              onClick={() => onActivityClick(task)}
-              className="text-gray-400 hover:text-primary transition-colors"
-              title="Registro de actividades"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </button>
-          )}
+          <button
+            onClick={() => onActivityClick(task)}
+            className="text-gray-400 hover:text-primary transition-colors"
+            title="Registro de actividades"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </button>
           {task.type === "SEGUIMIENTO" && (
             <button
               onClick={() => onRetroactiveClick(task)}

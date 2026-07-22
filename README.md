@@ -331,6 +331,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-22: feat(tasks): unifica el registro de actividades entre tareas Fijas y Seguimiento
 - 2026-07-22: test(kpis): verifica que Coordinador Nacional conserva su Analytics personal
 - 2026-07-22: fix(analytics): elimina la pestaña "Mi actividad" para roles de dirección
 - 2026-07-22: fix(dashboard): oculta carga laboral personal a roles de dirección en Home

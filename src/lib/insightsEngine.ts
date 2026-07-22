@@ -133,7 +133,7 @@ const FACTOR_ACTION: Record<string, (f: RiskFactor) => Omit<SuggestedAction, "im
     when: "Este mes.",
   }),
   "Muchas tareas sin planificación": (f) => ({
-    what: "Completar la estimación de horas de las tareas pendientes.",
+    what: "Completar el Tiempo Objetivo de las tareas pendientes.",
     who: "El colaborador.",
     howMuch: f.detail,
     when: "Antes de iniciar cada tarea nueva.",

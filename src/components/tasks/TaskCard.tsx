@@ -154,7 +154,7 @@ export default function TaskCard({ task, currentUserId, isDragging, onEdit, onDe
           )}
         </span>
         <div className="flex items-center gap-2">
-          {task.type === "SEGUIMIENTO" && onActivityClick && (
+          {onActivityClick && (
             <button
               onClick={(e) => { e.stopPropagation(); onActivityClick(task); }}
               className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-primary transition-colors"

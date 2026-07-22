@@ -202,17 +202,15 @@ function MemberTaskRow({ task, onCommentClick, onActivityClick }: {
       <td className="px-3 py-3 text-right text-secondary text-xs">{hoursToDisplay(task.realHours)}h</td>
       <td className="px-3 py-3 text-center">
         <div className="inline-flex items-center gap-2">
-          {task.type === "SEGUIMIENTO" && (
-            <button
-              onClick={() => onActivityClick(task)}
-              className="text-gray-400 hover:text-primary transition-colors"
-              title="Ver actividades"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </button>
-          )}
+          <button
+            onClick={() => onActivityClick(task)}
+            className="text-gray-400 hover:text-primary transition-colors"
+            title="Ver actividades"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </button>
           <button
             onClick={() => onCommentClick(task)}
             className="inline-flex items-center gap-1 text-xs text-secondary hover:text-primary transition-colors"

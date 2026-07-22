@@ -5,6 +5,7 @@ const taskActivityFindMany = vi.fn();
 const taskActivityFindUnique = vi.fn();
 const taskActivityCreate = vi.fn();
 const taskActivityDelete = vi.fn();
+const taskActivityCount = vi.fn();
 const taskFindUnique = vi.fn();
 const taskUpdate = vi.fn();
 const commentFindMany = vi.fn();
@@ -14,17 +15,18 @@ const taskCommentViewUpsert = vi.fn();
 const notificationCreateMany = vi.fn();
 const userFindMany = vi.fn();
 const activityReasonFindUnique = vi.fn();
+const activityReasonUpsert = vi.fn();
 const systemConfigHistoryFindFirst = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    taskActivity: { findMany: taskActivityFindMany, findUnique: taskActivityFindUnique, create: taskActivityCreate, delete: taskActivityDelete },
+    taskActivity: { findMany: taskActivityFindMany, findUnique: taskActivityFindUnique, create: taskActivityCreate, delete: taskActivityDelete, count: taskActivityCount },
     task: { findUnique: taskFindUnique, update: taskUpdate },
     comment: { findMany: commentFindMany, create: commentCreate, count: commentCount },
     taskCommentView: { upsert: taskCommentViewUpsert },
     notification: { createMany: notificationCreateMany },
     user: { findMany: userFindMany },
-    activityReason: { findUnique: activityReasonFindUnique },
+    activityReason: { findUnique: activityReasonFindUnique, upsert: activityReasonUpsert },
     systemConfigHistory: { findFirst: systemConfigHistoryFindFirst },
   },
 }));
@@ -76,6 +78,7 @@ function resetAll() {
   taskActivityFindUnique.mockReset();
   taskActivityCreate.mockReset();
   taskActivityDelete.mockReset();
+  taskActivityCount.mockReset().mockResolvedValue(0);
   taskFindUnique.mockReset();
   taskUpdate.mockReset().mockResolvedValue({});
   commentFindMany.mockReset();
@@ -88,6 +91,7 @@ function resetAll() {
     isActive: true,
     assignedRoles: ["ASISTENTE_GH", "JEFE_NACIONAL"],
   });
+  activityReasonUpsert.mockReset().mockResolvedValue({});
   commentCount.mockReset().mockResolvedValue(1);
   systemConfigHistoryFindFirst.mockReset().mockResolvedValue(null);
   vi.mocked(getSession).mockReset();
@@ -119,6 +123,104 @@ describe("GET /api/tasks/[id]/activities", () => {
     const res = await activitiesGET(jsonRequest(undefined), ctx());
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual([]);
+  });
+
+  it("migra automáticamente el historial de una tarea Fija con horas reales y cero actividades", async () => {
+    mockSession({});
+    const completedAt = new Date("2026-06-15T10:00:00.000Z");
+    taskFindUnique.mockResolvedValue({
+      id: "task-1",
+      type: "FIJA",
+      realHours: 4.5,
+      assignedToId: "owner-1",
+      completedAt,
+      updatedAt: new Date("2026-06-16T00:00:00.000Z"),
+    });
+    taskActivityCount.mockResolvedValue(0);
+    taskActivityFindMany.mockResolvedValue([{ id: "migrated-1" }]);
+
+    const res = await activitiesGET(jsonRequest(undefined), ctx());
+    expect(res.status).toBe(200);
+
+    expect(activityReasonUpsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { key: "migracion_automatica_registro_historico" },
+        create: expect.objectContaining({
+          key: "migracion_automatica_registro_historico",
+          label: "Registro migrado automáticamente",
+          assignedRoles: [],
+        }),
+      })
+    );
+    expect(taskActivityCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          taskId: "task-1",
+          authorId: "owner-1",
+          reason: "migracion_automatica_registro_historico",
+          duration: 270, // 4.5h * 60
+          description: "Actividad creada automáticamente durante la estandarización del sistema para conservar el historial.",
+          isRetroactive: true,
+          activityDate: completedAt,
+          createdAt: completedAt,
+        }),
+      })
+    );
+  });
+
+  it("no migra una tarea Fija que ya tiene actividades registradas", async () => {
+    mockSession({});
+    taskFindUnique.mockResolvedValue({
+      id: "task-1",
+      type: "FIJA",
+      realHours: 4.5,
+      assignedToId: "owner-1",
+      completedAt: null,
+      updatedAt: new Date(),
+    });
+    taskActivityCount.mockResolvedValue(1);
+    taskActivityFindMany.mockResolvedValue([{ id: "a1" }]);
+
+    const res = await activitiesGET(jsonRequest(undefined), ctx());
+    expect(res.status).toBe(200);
+    expect(activityReasonUpsert).not.toHaveBeenCalled();
+    expect(taskActivityCreate).not.toHaveBeenCalled();
+  });
+
+  it("no migra una tarea Seguimiento (la migración es exclusiva de Fija)", async () => {
+    mockSession({});
+    taskFindUnique.mockResolvedValue({
+      id: "task-1",
+      type: "SEGUIMIENTO",
+      realHours: 4.5,
+      assignedToId: "owner-1",
+      completedAt: null,
+      updatedAt: new Date(),
+    });
+    taskActivityCount.mockResolvedValue(0);
+    taskActivityFindMany.mockResolvedValue([]);
+
+    const res = await activitiesGET(jsonRequest(undefined), ctx());
+    expect(res.status).toBe(200);
+    expect(taskActivityCreate).not.toHaveBeenCalled();
+  });
+
+  it("no migra una tarea Fija con realHours en 0", async () => {
+    mockSession({});
+    taskFindUnique.mockResolvedValue({
+      id: "task-1",
+      type: "FIJA",
+      realHours: 0,
+      assignedToId: "owner-1",
+      completedAt: null,
+      updatedAt: new Date(),
+    });
+    taskActivityFindMany.mockResolvedValue([]);
+
+    const res = await activitiesGET(jsonRequest(undefined), ctx());
+    expect(res.status).toBe(200);
+    expect(taskActivityCount).not.toHaveBeenCalled();
+    expect(taskActivityCreate).not.toHaveBeenCalled();
   });
 });
 
@@ -241,6 +343,37 @@ describe("POST /api/tasks/[id]/activities", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const res = await activitiesPOST(jsonRequest({ reason: "REUNION", hours: 1, minutes: 0 }), ctx());
     expect(res.status).toBe(500);
+  });
+
+  it("responde 409 si una tarea Fija ya tiene 2 registros", async () => {
+    mockSession({ userId: "u1" });
+    taskFindUnique.mockResolvedValue({ id: "task-1", type: "FIJA" });
+    taskActivityCount.mockResolvedValue(2);
+    const res = await activitiesPOST(jsonRequest({ reason: "REUNION", hours: 1, minutes: 0 }), ctx());
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toBe("Esta tarea fija ya alcanzó el número máximo de registros permitidos.");
+    expect(taskActivityCreate).not.toHaveBeenCalled();
+  });
+
+  it("permite el segundo registro de una tarea Fija (aún no llegó al máximo)", async () => {
+    mockSession({ userId: "u1" });
+    taskFindUnique.mockResolvedValue({ id: "task-1", type: "FIJA" });
+    taskActivityCount.mockResolvedValue(1);
+    taskActivityCreate.mockResolvedValue({ id: "a2", duration: 60 });
+    taskActivityFindMany.mockResolvedValue([{ duration: 60 }]);
+    const res = await activitiesPOST(jsonRequest({ reason: "REUNION", hours: 1, minutes: 0 }), ctx());
+    expect(res.status).toBe(201);
+    expect(taskActivityCreate).toHaveBeenCalled();
+  });
+
+  it("una tarea Seguimiento no está sujeta al límite de 2 registros", async () => {
+    mockSession({ userId: "u1" });
+    taskFindUnique.mockResolvedValue({ id: "task-1", type: "SEGUIMIENTO" });
+    taskActivityCount.mockResolvedValue(5);
+    taskActivityCreate.mockResolvedValue({ id: "a6", duration: 60 });
+    taskActivityFindMany.mockResolvedValue([{ duration: 60 }]);
+    const res = await activitiesPOST(jsonRequest({ reason: "REUNION", hours: 1, minutes: 0 }), ctx());
+    expect(res.status).toBe(201);
   });
 });
 

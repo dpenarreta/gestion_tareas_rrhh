@@ -37,6 +37,79 @@ async function recalcRealHours(taskId: string) {
   });
 }
 
+// Máximo de registros permitidos para una tarea Fija — ver
+// MIGRATION_REASON_KEY más abajo para el registro migrado que ocupa el
+// primer cupo cuando existe historial previo.
+const FIJA_MAX_ACTIVITIES = 2;
+export const FIJA_MAX_ACTIVITIES_MESSAGE =
+  "Esta tarea fija ya alcanzó el número máximo de registros permitidos.";
+
+// Sprint "Estandarización de registro de actividades" (§1/§4/§5): las tareas
+// Fijas nunca registraron actividades — solo un valor suelto en
+// Task.realHours, editado a mano, sin historial ni auditoría. Al unificar el
+// modelo de registro con Seguimiento, una tarea Fija con horas reales
+// preexistentes pero SIN ninguna actividad debe conservar esa información
+// como una actividad histórica, no perderla.
+const MIGRATION_REASON_KEY = "migracion_automatica_registro_historico";
+const MIGRATION_ACTIVITY_DESCRIPTION =
+  "Actividad creada automáticamente durante la estandarización del sistema para conservar el historial.";
+
+/**
+ * Migración perezosa e idempotente (§5): se ejecuta solo la primera vez que
+ * se listan las actividades de una tarea Fija con `realHours > 0` y cero
+ * actividades — deja de aplicar apenas exista alguna (incluida ella misma).
+ * No se modifica el schema de Prisma: el "indicador interno
+ * esMigracionAutomatica" pedido por el sprint es, en la práctica, esta clave
+ * de motivo dedicada (nunca asignada a ningún rol, por lo que
+ * `selectableReasons()` la excluye siempre del formulario de registro) — es
+ * consultable para auditoría vía `TaskActivity.reason`, sin necesitar una
+ * columna nueva. Deliberadamente NO se corrió como script masivo contra la
+ * base compartida (ver feedback de sesiones anteriores sobre el riesgo de
+ * escrituras globales en la BD de producción) — se autocompleta sola, tarea
+ * por tarea, a medida que alguien abre su panel de actividades.
+ */
+async function migrateFijaHistoryIfNeeded(task: {
+  id: string;
+  type: string;
+  realHours: number;
+  assignedToId: string;
+  completedAt: Date | null;
+  updatedAt: Date;
+}) {
+  if (task.type !== "FIJA" || task.realHours <= 0) return;
+
+  const existingCount = await prisma.taskActivity.count({ where: { taskId: task.id } });
+  if (existingCount > 0) return;
+
+  await prisma.activityReason.upsert({
+    where: { key: MIGRATION_REASON_KEY },
+    update: {},
+    create: {
+      key: MIGRATION_REASON_KEY,
+      label: "Registro migrado automáticamente",
+      description: "Motivo interno usado por la migración automática de historial de tareas Fijas — no asignar a roles ni usar en registros nuevos.",
+      isActive: true,
+      // Sin roles asignados: selectableReasons() lo excluye siempre del
+      // selector de "Motivo" para actividades nuevas.
+      assignedRoles: [],
+    },
+  });
+
+  const activityDate = task.completedAt ?? task.updatedAt;
+  await prisma.taskActivity.create({
+    data: {
+      taskId: task.id,
+      authorId: task.assignedToId,
+      reason: MIGRATION_REASON_KEY,
+      duration: Math.round(task.realHours * 60),
+      description: MIGRATION_ACTIVITY_DESCRIPTION,
+      isRetroactive: true,
+      activityDate,
+      createdAt: activityDate,
+    },
+  });
+}
+
 export async function GET(_req: NextRequest, ctx: Ctx) {
   try {
     const session = await getSession();
@@ -45,6 +118,13 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     }
 
     const { id } = await ctx.params;
+
+    const task = await prisma.task.findUnique({
+      where: { id },
+      select: { id: true, type: true, realHours: true, assignedToId: true, completedAt: true, updatedAt: true },
+    });
+    if (task) await migrateFijaHistoryIfNeeded(task);
+
     const activities = await prisma.taskActivity.findMany({
       where: { taskId: id },
       select: activitySelect,
@@ -114,8 +194,19 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
     }
 
+    // Tareas Fijas: máximo 2 registros (§4) — el primero suele ser el
+    // registro migrado automáticamente (§5) cuando ya existía historial, y el
+    // segundo queda reservado para correcciones/complementos/ajustes finales.
+    if (task.type === "FIJA") {
+      const existingCount = await prisma.taskActivity.count({ where: { taskId } });
+      if (existingCount >= FIJA_MAX_ACTIVITIES) {
+        return NextResponse.json({ error: FIJA_MAX_ACTIVITIES_MESSAGE }, { status: 409 });
+      }
+    }
+
     // El validador de solapamiento solo aplica cuando se usa el formato
-    // hora inicio/hora fin (no en tareas FIJA, que no pasan por esta ruta).
+    // hora inicio/hora fin (típicamente Seguimiento; nada impide que una
+    // tarea Fija también lo use si su actividad se registra con ese formato).
     if (startTime && endTime) {
       if (timeToMinutes(startTime) === null || timeToMinutes(endTime) === null) {
         return NextResponse.json({ error: "Hora inválida" }, { status: 400 });
