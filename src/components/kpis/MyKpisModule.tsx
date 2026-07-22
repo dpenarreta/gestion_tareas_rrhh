@@ -566,6 +566,13 @@ export default function MyKpisModule({ currentUserId, currentUserName, currentUs
   const [explainCumplimientoOpen, setExplainCumplimientoOpen] = useState(false);
 
   useEffect(() => {
+    // Roles de dirección no ejecutan tareas operativas — su panel individual
+    // se reemplaza por un mensaje explicativo (ver el return anticipado más
+    // abajo), así que no vale la pena calcular/pedir KPIs personales para ellos.
+    if (isLeadershipRole(currentUserRole as Role)) {
+      queueMicrotask(() => setLoading(false));
+      return;
+    }
     queueMicrotask(() => {
       setLoading(true);
       setError(null);
@@ -578,7 +585,7 @@ export default function MyKpisModule({ currentUserId, currentUserName, currentUs
         .catch(() => setError("Error de conexión"))
         .finally(() => setLoading(false));
     });
-  }, [month]);
+  }, [month, currentUserRole]);
 
   async function handleGenerateRange() {
     if (rangeFrom >= rangeTo) {

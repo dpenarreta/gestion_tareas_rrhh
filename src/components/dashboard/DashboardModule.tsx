@@ -17,7 +17,7 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type { Role } from "@/generated/prisma/client";
-import { ROLE_LABEL, canCreateMeetings } from "@/lib/roles";
+import { ROLE_LABEL, canCreateMeetings, isLeadershipRole } from "@/lib/roles";
 import TaskFormModal from "@/components/tasks/TaskFormModal";
 import type { AssignableUser } from "@/components/tasks/types";
 import MeetingFormModalDashboard from "@/components/meetings/MeetingFormModalDashboard";
@@ -205,6 +205,12 @@ function JornadaCard({
   novaLoading: boolean;
 }) {
   const wl = workloadLabel(data.workloadPct);
+  // Roles de dirección (Administrador, Jefe Nacional) no ejecutan tareas
+  // operativas — su carga laboral individual no es representativa y el
+  // texto de la etiqueta ("Puedes asumir nuevas tareas"/"Se recomienda no
+  // asignar nuevas tareas") equivale a una recomendación de redistribución
+  // de trabajo dirigida a ellos, algo explícitamente vetado. Ver isLeadershipRole.
+  const showWorkload = !isLeadershipRole(userRole);
   return (
     <Card focal>
       <CardTitle>Mi jornada</CardTitle>
@@ -212,7 +218,7 @@ function JornadaCard({
       <p className="text-[13px] text-secondary mb-5">{ROLE_LABEL[userRole]}</p>
 
       {/* Nova message */}
-      <div className="bg-primary-surface border border-primary/15 rounded-xl px-4 py-3 mb-5 flex items-start gap-3">
+      <div className={`bg-primary-surface border border-primary/15 rounded-xl px-4 py-3 flex items-start gap-3 ${showWorkload ? "mb-5" : ""}`}>
         <span className="text-xl shrink-0">🤖</span>
         {novaLoading ? (
           <div className="h-4 w-full bg-primary/15 animate-pulse rounded" />
@@ -222,19 +228,21 @@ function JornadaCard({
       </div>
 
       {/* Workload */}
-      <div className={`rounded-xl px-4 py-3 ${wl.bg}`}>
-        <div className="flex items-center justify-between mb-2">
-          <span className={`text-sm font-semibold ${wl.color}`}>Carga laboral</span>
-          <span className={`text-lg font-bold ${wl.color}`}>{data.workloadPct}%</span>
+      {showWorkload && (
+        <div className={`rounded-xl px-4 py-3 ${wl.bg}`}>
+          <div className="flex items-center justify-between mb-2">
+            <span className={`text-sm font-semibold ${wl.color}`}>Carga laboral</span>
+            <span className={`text-lg font-bold ${wl.color}`}>{data.workloadPct}%</span>
+          </div>
+          <div className="h-2 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
+            <div
+              className={`h-full ${wl.bar} rounded-full transition-all`}
+              style={{ width: `${Math.min(100, data.workloadPct)}%` }}
+            />
+          </div>
+          <p className={`text-xs mt-2 ${wl.color}`}>{wl.text}</p>
         </div>
-        <div className="h-2 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
-          <div
-            className={`h-full ${wl.bar} rounded-full transition-all`}
-            style={{ width: `${Math.min(100, data.workloadPct)}%` }}
-          />
-        </div>
-        <p className={`text-xs mt-2 ${wl.color}`}>{wl.text}</p>
-      </div>
+      )}
     </Card>
   );
 }
@@ -545,11 +553,13 @@ function ResumenCard({
   workloadPct,
   teamAlerts,
   roleLevel,
+  userRole,
 }: {
   stats: { today: Stats; week: Stats; month: Stats };
   workloadPct: number;
   teamAlerts: number;
   roleLevel: number;
+  userRole: Role;
 }) {
   const [period, setPeriod] = useState<Period>("month");
   const s = stats[period];
@@ -558,6 +568,9 @@ function ResumenCard({
     { key: "week", label: "Semana" },
     { key: "month", label: "Mes" },
   ];
+  // Ver JornadaCard: carga laboral individual no es representativa para
+  // roles de dirección.
+  const showWorkload = !isLeadershipRole(userRole);
 
   return (
     <Card>
@@ -578,11 +591,13 @@ function ResumenCard({
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className={`grid gap-3 ${showWorkload ? "grid-cols-2" : "grid-cols-3"}`}>
         <StatBox label="Pendientes" value={s.pending} color="text-warning-alt" bg="bg-warning/10" />
         <StatBox label="En progreso" value={s.inProgress} color="text-info" bg="bg-info/10" />
         <StatBox label="Completadas" value={s.completed} color="text-success" bg="bg-success/10" />
-        <StatBox label="Carga laboral" value={`${workloadPct}%`} color="text-primary" bg="bg-primary-surface" />
+        {showWorkload && (
+          <StatBox label="Carga laboral" value={`${workloadPct}%`} color="text-primary" bg="bg-primary-surface" />
+        )}
       </div>
 
       {roleLevel >= 2 && teamAlerts > 0 && (
@@ -785,6 +800,7 @@ export default function DashboardModule({
             workloadPct={data.workloadPct}
             teamAlerts={data.teamAlerts}
             roleLevel={roleLevel}
+            userRole={userRole}
           />
         );
       default:

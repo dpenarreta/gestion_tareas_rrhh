@@ -106,11 +106,20 @@ describe("POST /api/dashboard/nova-message", () => {
   });
 
   it("sin vencidas/por vencer y con carga extrema entre semana, comenta la carga laboral", async () => {
-    mockSession("nova-carga");
+    mockSession("nova-carga", { role: "ANALISTA_CC" });
     computeCargaTiempo.mockResolvedValue({ diaria: { pct: 150, realHours: 9, baseHours: 6, isWeekend: false } });
     const res = await novaMessagePOST();
     const body = await res.json();
     expect(body.message).toMatch(/carga laboral/);
+  });
+
+  it("roles de dirección (Administrador/Jefe Nacional) nunca reciben comentario de carga laboral individual", async () => {
+    mockSession("nova-carga-liderazgo", { role: "ADMINISTRADOR" });
+    computeCargaTiempo.mockResolvedValue({ diaria: { pct: 150, realHours: 9, baseHours: 6, isWeekend: false } });
+    const res = await novaMessagePOST();
+    const body = await res.json();
+    expect(body.message).not.toMatch(/carga laboral/);
+    expect(body.message).toMatch(/Bienvenido a Nexo/);
   });
 
   it("sin nada urgente, felicita por las tareas completadas del mes", async () => {
