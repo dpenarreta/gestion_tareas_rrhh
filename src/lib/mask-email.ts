@@ -13,3 +13,8 @@ export function maskEmail(email: string): string {
 
   return `${mask(local)}@${mask(label)}${rest}`;
 }
+
+/** Enmascara salvo que `allowed` sea true — mismo criterio que /api/users y /api/team. */
+export function maskEmailUnless(email: string, allowed: boolean): string {
+  return allowed ? email : maskEmail(email);
+}

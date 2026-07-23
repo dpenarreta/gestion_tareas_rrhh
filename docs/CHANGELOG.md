@@ -23,6 +23,60 @@
 
 ---
 
+## v1.5.0 — 2026-07-23
+
+**Tipo:** FEATURE / DATABASE
+**Módulo:** Proyectos (nuevo)
+
+**Implementado:**
+- Nuevo módulo "Proyectos", dominio completamente independiente del módulo
+  Trabajo (Task/TaskActivity) — iniciativas transversales de mediana/larga
+  duración con fases, participantes propios y ciclo de vida que no se cierra
+  por cambio de mes.
+- Modelos Prisma nuevos: `Project`, `ProjectParticipant`, `ProjectPhase`,
+  `ProjectActivity`, `ProjectComment`, `ProjectDocument`, `ProjectHistory`
+  (enums `ProjectStatus`, `ProjectDocumentCategory`, `ProjectHistoryEvent`) —
+  reutiliza `TaskStatus`/`TaskPriority` para fases/prioridad en vez de
+  duplicar enums.
+- Ciclo de vida: Pendiente → Planificación → En ejecución → En revisión →
+  Suspendido → Completado/Cancelado, editable solo por el responsable
+  principal, el creador o liderazgo (nivel ≥ 3) — ver
+  `src/lib/projectAccess.ts`.
+- Fases con responsable, progreso, tiempo objetivo y estado propios.
+- Registro de actividades por participante (descripción, fecha, hora,
+  tiempo invertido, comentarios) con la misma ventana de registro
+  retroactivo de 2 días hábiles que Seguimiento — reutiliza
+  `src/lib/businessTime.ts` sin modificarlo.
+- Comentarios y repositorio de documentos (PDF/Excel/Word/Imagen/Correo/
+  Acta, versionado simple) propios del proyecto, sin tocar los del módulo
+  Trabajo.
+- Bitácora de auditoría (`ProjectHistory`) para todo evento relevante:
+  creación, cambio de estado/responsable, alta/baja de participante, fase,
+  comentario, actividad, documento.
+- `Project.realHours`/`targetTimeHours` preparados con la misma convención
+  que `Task` para una futura integración con el Analytics Engine — **no se
+  modificó ninguna fórmula ni cálculo existente** (§13 del pedido).
+- Nueva entrada "Proyectos" en el menú lateral (`src/lib/navLinks.ts`).
+
+**Archivos afectados:** `prisma/schema.prisma`,
+`prisma/migrations/20260723024646_add_projects_module/`,
+`src/lib/projectAccess.ts`, `src/lib/projectHistory.ts`, `src/lib/roles.ts`
+(`canCreateProject`), `src/lib/mask-email.ts` (`maskEmailUnless`),
+`src/lib/navLinks.ts`, `src/app/api/projects/**`,
+`src/app/(protected)/projects/**`, `src/components/projects/**`.
+
+**Impacto:** Nuevo dominio funcional, sin cambios en APIs, esquema o
+comportamiento del módulo Trabajo ni del motor de Analytics. Verificado de
+punta a punta (crear proyecto, fases, participantes, comentarios, actividad
+normal y retroactiva, documentos, historial, límites de permisos) contra la
+base de datos compartida con usuarios `@verify.local` desechables,
+eliminados al finalizar la prueba.
+
+**Autor:** Claude Code
+**Estado:** Implementado
+
+---
+
 ## v1.4.0 — 2026-07-22
 
 **Tipo:** DOCUMENTATION

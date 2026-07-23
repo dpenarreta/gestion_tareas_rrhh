@@ -83,6 +83,46 @@ enum TargetTimeAdjustReason {
   OTRO
 }
 
+// ── Módulo Proyectos ─────────────────────────────────────────────────────────
+// Dominio independiente del módulo Trabajo (Task/TaskActivity) — ver
+// docs/DECISIONS.md. Iniciativas transversales de mediana/larga duración con
+// fases, participantes propios y ciclo de vida que NO se cierra por mes.
+
+enum ProjectStatus {
+  PENDIENTE
+  PLANIFICACION
+  EN_EJECUCION
+  EN_REVISION
+  SUSPENDIDO
+  COMPLETADO
+  CANCELADO
+}
+
+enum ProjectDocumentCategory {
+  PDF
+  EXCEL
+  WORD
+  IMAGEN
+  CORREO
+  ACTA
+  OTRO
+}
+
+enum ProjectHistoryEvent {
+  CREADO
+  ACTUALIZADO
+  PARTICIPANTE_AGREGADO
+  PARTICIPANTE_ELIMINADO
+  RESPONSABLE_CAMBIADO
+  ESTADO_CAMBIADO
+  FASE_AGREGADA
+  FASE_ACTUALIZADA
+  FASE_ELIMINADA
+  COMENTARIO_AGREGADO
+  ACTIVIDAD_REGISTRADA
+  DOCUMENTO_AGREGADO
+}
+
 model User {
   id                    String          @id @default(cuid())
   email                 String          @unique
@@ -130,6 +170,16 @@ model User {
   analyticsAuditLogs          AnalyticsAuditLog[]   @relation("AnalyticsAuditUser")
   targetTimeValidations       Task[]                @relation("TargetTimeValidator")
   targetTimeAuditLogs         TargetTimeAuditLog[]  @relation("TargetTimeAuditUser")
+
+  responsibleProjects      Project[]            @relation("ProjectResponsible")
+  createdProjects          Project[]            @relation("ProjectCreatedBy")
+  projectParticipations    ProjectParticipant[] @relation("ProjectParticipantUser")
+  projectParticipantsAdded ProjectParticipant[] @relation("ProjectParticipantAddedBy")
+  responsiblePhases        ProjectPhase[]       @relation("ProjectPhaseResponsible")
+  projectActivities        ProjectActivity[]    @relation("ProjectActivityAuthor")
+  projectComments          ProjectComment[]     @relation("ProjectCommentAuthor")
+  projectDocumentsUploaded ProjectDocument[]    @relation("ProjectDocumentUploadedBy")
+  projectHistoryActions    ProjectHistory[]     @relation("ProjectHistoryActor")
 }
 
 model ActivityReason {
@@ -262,21 +312,21 @@ model Announcement {
 }
 
 model Task {
-  id             String             @id @default(cuid())
-  title          String
-  description    String?
-  status         TaskStatus         @default(PENDIENTE)
-  priority       TaskPriority
-  frequency      TaskFrequency
-  startDate      DateTime
-  endDate        DateTime
+  id                      String             @id @default(cuid())
+  title                   String
+  description             String?
+  status                  TaskStatus         @default(PENDIENTE)
+  priority                TaskPriority
+  frequency               TaskFrequency
+  startDate               DateTime
+  endDate                 DateTime
   // Tiempo objetivo inicial (§Sprint 6 S6-B) — definido al crear la tarea. El
   // nombre de columna se mantiene por compatibilidad con datos existentes;
   // en la interfaz se presenta como "Tiempo objetivo". NUNCA se sobrescribe
   // automáticamente con horas reales (§S6-E) — solo la validación humana
   // (targetTimeValidated) puede reemplazarlo como referencia oficial.
-  estimatedHours Float
-  realHours      Float              @default(0)
+  estimatedHours          Float
+  realHours               Float              @default(0)
   // Tiempo objetivo validado (§Sprint 6 S6-B/S6-C) — null hasta que un líder
   // autorizado (Administrador/Jefe Nacional/Coordinador Nacional, nunca el
   // responsable de la tarea) lo valide explícitamente. Mientras sea null, la
@@ -286,23 +336,23 @@ model Task {
   targetTimeValidatedAt   DateTime?
   targetTimeValidatedById String?
   targetTimeValidator     User?              @relation("TargetTimeValidator", fields: [targetTimeValidatedById], references: [id])
-  progress       Int                @default(0)
-  completedAt    DateTime?
-  type           TaskType           @default(FIJA)
-  assignedToId   String
-  assignedTo     User               @relation("AssignedTasks", fields: [assignedToId], references: [id])
-  createdById    String
-  createdBy      User               @relation("CreatedTasks", fields: [createdById], references: [id])
-  comments       Comment[]
-  activities     TaskActivity[]
-  commentViews   TaskCommentView[]
-  reminders      FollowUpReminder[]
-  color          String?
-  archivedMonth  String?
-  archivedAt     DateTime?
-  corrected      Boolean            @default(false)
-  createdAt      DateTime           @default(now())
-  updatedAt      DateTime           @updatedAt
+  progress                Int                @default(0)
+  completedAt             DateTime?
+  type                    TaskType           @default(FIJA)
+  assignedToId            String
+  assignedTo              User               @relation("AssignedTasks", fields: [assignedToId], references: [id])
+  createdById             String
+  createdBy               User               @relation("CreatedTasks", fields: [createdById], references: [id])
+  comments                Comment[]
+  activities              TaskActivity[]
+  commentViews            TaskCommentView[]
+  reminders               FollowUpReminder[]
+  color                   String?
+  archivedMonth           String?
+  archivedAt              DateTime?
+  corrected               Boolean            @default(false)
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
 }
 
 model Comment {
@@ -601,4 +651,157 @@ model MeetingInvitee {
   attended  Boolean @default(false)
 
   @@unique([meetingId, userId])
+}
+
+// Iniciativa transversal con fases y participantes propios. Independiente de
+// Task: no aparece en /tasks, no cuenta para carga laboral/Analytics todavía
+// (§13 — el modelo solo se deja preparado, `realHours`/`targetTimeHours` usan
+// la misma convención de Task para que una futura integración sea directa).
+// No se cierra por cambio de mes (§10): solo status COMPLETADO/CANCELADO
+// detiene la acumulación, y ni así se borra información.
+model Project {
+  id              String        @id @default(cuid())
+  name            String
+  description     String?
+  status          ProjectStatus @default(PENDIENTE)
+  priority        TaskPriority
+  area            String?
+  tags            String[]      @default([])
+  observations    String?
+  startDate       DateTime
+  targetDate      DateTime
+  // Tiempo objetivo global, en horas — nunca "horas estimadas" (§12).
+  targetTimeHours Float
+  // Recalculado desde ProjectActivity.duration en cada alta/edición.
+  realHours       Float         @default(0)
+  completedAt     DateTime?
+  responsibleId   String
+  responsible     User          @relation("ProjectResponsible", fields: [responsibleId], references: [id])
+  createdById     String
+  createdBy       User          @relation("ProjectCreatedBy", fields: [createdById], references: [id])
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  participants ProjectParticipant[]
+  phases       ProjectPhase[]
+  activities   ProjectActivity[]
+  comments     ProjectComment[]
+  documents    ProjectDocument[]
+  history      ProjectHistory[]
+
+  @@index([status])
+}
+
+model ProjectParticipant {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation("ProjectParticipantUser", fields: [userId], references: [id])
+  addedById String
+  addedBy   User     @relation("ProjectParticipantAddedBy", fields: [addedById], references: [id])
+  addedAt   DateTime @default(now())
+
+  @@unique([projectId, userId])
+}
+
+// Cada fase tiene su propio responsable/progreso/tiempo objetivo — no hereda
+// el registro de actividades de Task (ver ProjectActivity.phaseId, opcional).
+model ProjectPhase {
+  id              String     @id @default(cuid())
+  projectId       String
+  project         Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name            String
+  status          TaskStatus @default(PENDIENTE)
+  responsibleId   String?
+  responsible     User?      @relation("ProjectPhaseResponsible", fields: [responsibleId], references: [id])
+  startDate       DateTime?
+  targetDate      DateTime?
+  progress        Int        @default(0)
+  notes           String?
+  targetTimeHours Float?
+  order           Int        @default(0)
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  activities ProjectActivity[]
+
+  @@index([projectId, order])
+}
+
+// Registro de actividades de un participante — mismo principio de
+// "cada usuario registra únicamente su trabajo" (§5) que TaskActivity, con
+// ventana de registro retroactivo de 2 días hábiles reutilizando
+// src/lib/businessTime.ts sin modificarlo (§6, §Restricciones).
+model ProjectActivity {
+  id            String        @id @default(cuid())
+  projectId     String
+  project       Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  phaseId       String?
+  phase         ProjectPhase? @relation(fields: [phaseId], references: [id], onDelete: SetNull)
+  authorId      String
+  author        User          @relation("ProjectActivityAuthor", fields: [authorId], references: [id])
+  description   String
+  comments      String?
+  time          String?
+  duration      Int
+  isRetroactive Boolean       @default(false)
+  activityDate  DateTime?
+  createdAt     DateTime      @default(now())
+
+  documents ProjectDocument[]
+
+  @@index([projectId, createdAt])
+}
+
+model ProjectComment {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation("ProjectCommentAuthor", fields: [authorId], references: [id])
+  text      String
+  createdAt DateTime @default(now())
+}
+
+// Repositorio propio del proyecto. `fileData` guarda el archivo en base64
+// (mismo patrón que ImprovementIdea.attachmentData/KnowledgeDocument.content)
+// — sin integración a almacenamiento externo todavía. `previousVersionId` es
+// una referencia suelta (no FK) para permitir historial de versiones sin
+// encadenar borrados.
+model ProjectDocument {
+  id                String                  @id @default(cuid())
+  projectId         String
+  project           Project                 @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  activityId        String?
+  activity          ProjectActivity?        @relation(fields: [activityId], references: [id], onDelete: SetNull)
+  category          ProjectDocumentCategory @default(OTRO)
+  fileName          String
+  mimeType          String?
+  fileData          String?                 @db.Text
+  version           Int                     @default(1)
+  previousVersionId String?
+  uploadedById      String
+  uploadedBy        User                    @relation("ProjectDocumentUploadedBy", fields: [uploadedById], references: [id])
+  createdAt         DateTime                @default(now())
+
+  @@index([projectId])
+}
+
+// Bitácora de auditoría del módulo (§9/§14) — todo evento relevante queda
+// registrado con actor, fecha y valor anterior/nuevo. Nunca se elimina ni se
+// sobrescribe (mismo criterio que TargetTimeAuditLog).
+model ProjectHistory {
+  id            String              @id @default(cuid())
+  projectId     String
+  project       Project             @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  actorId       String
+  actor         User                @relation("ProjectHistoryActor", fields: [actorId], references: [id])
+  event         ProjectHistoryEvent
+  description   String
+  previousValue Json?
+  newValue      Json?
+  createdAt     DateTime            @default(now())
+
+  @@index([projectId, createdAt])
 }

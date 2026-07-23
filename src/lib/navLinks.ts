@@ -9,6 +9,7 @@ import {
   UserCog,
   Settings,
   Target,
+  FolderKanban,
   type LucideIcon,
 } from "lucide-react";
 import type { Role } from "@/generated/prisma/client";
@@ -37,6 +38,7 @@ export function getNavLinks(role: Role): NavLink[] {
     ...(role === "JEFE_NACIONAL"
       ? []
       : [{ href: "/tasks", label: "Trabajo", icon: ListTodo, section: "general" as const }]),
+    { href: "/projects", label: "Proyectos", icon: FolderKanban, section: "general" },
     { href: "/meetings", label: "Reuniones", icon: CalendarDays, section: "general" },
     { href: "/mejora-continua", label: "Mejora Continua", icon: Lightbulb, section: "general" },
   ];

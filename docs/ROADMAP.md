@@ -30,7 +30,10 @@
   titulares, política de retención, RAT documentado.
 - Framework de pruebas automatizadas (Vitest + Testing Library).
 - Sistema de diseño v2 (sidebar, tokens, modo claro/oscuro).
-- Sistema de documentación, bitácora y auditoría (v1.4.0 — este sprint).
+- Sistema de documentación, bitácora y auditoría (v1.4.0).
+- Módulo Proyectos: iniciativas transversales con fases, participantes y
+  ciclo de vida propio, independiente del módulo Trabajo (v1.5.0 — este
+  sprint).
 
 ## En desarrollo
 
@@ -66,7 +69,13 @@ cierre de este sprint)._
   (hoy solo consultables vía Prisma Studio o queries directas).
 - Versionado explícito de la API (`docs/ARCHITECTURE.md` señala que hoy no
   existe un esquema de versionado para las rutas de `src/app/api`).
+- Integrar las horas de `ProjectActivity` al Analytics Engine (carga
+  laboral, Performance Score, capacidad, Tiempo Objetivo, consistencia) —
+  el modelo del módulo Proyectos (v1.5.0) ya deja `realHours`/
+  `targetTimeHours` preparados con la misma convención que `Task`, pero
+  ningún cálculo del motor los lee todavía (decisión explícita del sprint,
+  ver `docs/AUDIT_LOG.md` § 2026-07-23).
 
 ---
 
-_Última actualización: 2026-07-22._
+_Última actualización: 2026-07-23._

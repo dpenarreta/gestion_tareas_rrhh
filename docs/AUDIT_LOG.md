@@ -15,6 +15,53 @@
 
 ---
 
+## 2026-07-23 — Módulo Proyectos: dominio independiente en vez de extender Task
+
+**Problema detectado:** se pidió un sistema para gestionar iniciativas
+transversales de mediana/larga duración (múltiples colaboradores, fases,
+ciclo de vida propio, sin cierre por mes) que conviva con las tareas
+actuales sin reemplazarlas.
+
+**Alternativas evaluadas:**
+1. Extender `Task`/`TaskActivity` con un campo de "tipo" adicional
+   (`PROYECTO`) y una tabla de fases opcional colgando de `Task`.
+2. Modelo de "proyecto padre" con tareas existentes como hijas (un
+   `Task.projectId` opcional).
+3. Dominio completamente nuevo e independiente (`Project` y modelos
+   satélite), sin ninguna relación con `Task`.
+
+**Decisión tomada:** opción 3 — `Project`, `ProjectParticipant`,
+`ProjectPhase`, `ProjectActivity`, `ProjectComment`, `ProjectDocument` y
+`ProjectHistory` como modelos Prisma nuevos, sin FK hacia `Task`/
+`TaskActivity` ni viceversa.
+
+**Justificación técnica:** el pedido explícito era que "un proyecto NO
+finaliza al terminar el mes" y que "no existe un único registro colectivo"
+— ambas reglas contradicen invariantes ya asumidos en el módulo Trabajo
+(`archivedMonth`, `TaskActivity` ligada a un único `assignedToId`). Forzar
+esas reglas dentro de `Task` habría requerido ramas condicionales en cada
+consulta/reporte existente (`archivedMonth`, cierre de mes, Analytics) para
+distinguir "tarea real" de "tarea-proyecto", con alto riesgo de romper
+código que ya asume la semántica actual de `Task`. Un dominio independiente
+cumple "no modificar el módulo Trabajo" y "no romper APIs existentes" de
+forma literal, al costo de cierta duplicación estructural (un
+`ProjectActivity` que se parece a `TaskActivity`) — duplicación considerada
+aceptable frente al riesgo de acoplar dos ciclos de vida incompatibles.
+Los campos `Project.realHours`/`targetTimeHours` sí reutilizan la misma
+convención de nombres y unidades que `Task.realHours`/`estimatedHours`
+para que una futura integración con Analytics (pedida explícitamente como
+"solo preparar el modelo, no recalcular todavía") sea un mapeo directo en
+vez de una reinterpretación.
+
+**Impacto:** módulo nuevo, aislado; cero cambios en `Task`, `TaskActivity`,
+`src/lib/analytics.ts` o cualquier ruta de `/api/tasks`. Migración Prisma
+puramente aditiva (`prisma/migrations/20260723024646_add_projects_module`),
+sin alterar ninguna tabla existente.
+
+**Aprobado por:** Anthony Jácome (dirección de producto).
+
+---
+
 ## 2026-07-21 — Registro de historial de tareas Fijas: migración perezosa en vez de script masivo
 
 **Problema detectado:** al unificar el modelo de registro de actividades

@@ -172,6 +172,14 @@ export function canViewOperationalRisk(role: Role): boolean {
 
 export const ALL_ROLES = Object.keys(ROLE_LABEL) as Role[];
 
+// Módulo Proyectos: quién puede crear una iniciativa transversal — mismo
+// umbral que canViewTeam (nivel >= 2), reutilizado en vez de duplicar la
+// jerarquía (ver src/lib/projectAccess.ts para permisos específicos de un
+// proyecto ya creado, que dependen también de responsable/creador/participante).
+export function canCreateProject(role: Role): boolean {
+  return canViewTeam(role);
+}
+
 // ── Ejecutor vs. liderazgo (Sprint 0A) ───────────────────────────────────────
 //
 // El motor de Analytics históricamente trataba a TODO usuario como ejecutor

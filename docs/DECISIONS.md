@@ -25,6 +25,7 @@
 | Framework de pruebas: Vitest + Testing Library (no Jest) | Integración nativa con Vite/Next 16 sin configuración adicional de transformadores; `vitest.config.ts` ya replica el setup recomendado por la documentación de Next 16 para este propósito. | `CLAUDE.md` |
 | Changelog automático vía hook `post-commit` (no `prepare-commit-msg`) | Un `git add` hecho en `prepare-commit-msg` no queda incluido en el commit que se está creando (comprobado empíricamente); enmendar desde `post-commit` sí funciona. | `.githooks/update-changelog.js` |
 | Sistema de documentación en `/docs` leído en vivo, sin base de datos nueva | Los Markdown ya viven en el repositorio versionado por Git — una tabla nueva solo para mostrarlos duplicaría una fuente de verdad que ya existe. | Este sprint (2026-07-22) |
+| Módulo Proyectos como dominio independiente de Task (no una extensión) | "No cierra por mes" y "sin registro colectivo único" contradicen invariantes ya asumidos por `Task`/`archivedMonth`; un dominio nuevo evita ramas condicionales en código existente. | `AUDIT_LOG.md` § 2026-07-23 |
 
 ---
 
@@ -37,4 +38,4 @@ significativa como para merecer un análisis completo de alternativas
 evaluadas, agregar también una entrada en `docs/AUDIT_LOG.md` y enlazarla
 desde la columna "Detalle completo".
 
-_Última actualización: 2026-07-22._
+_Última actualización: 2026-07-23._
