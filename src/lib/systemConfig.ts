@@ -33,6 +33,13 @@ export const DEFAULT_RETENTION_KNOWLEDGE_DOCS = "indefinite";
 export const CONFIG_KEY_WELCOME_MESSAGE = "welcome_message";
 export const CONFIG_KEY_WELCOME_MESSAGE_ACTIVE = "welcome_message_active";
 
+// Centro de Recuperación (§14) — período de retención de la papelera antes de
+// la purga automática, en horas, para TODOS los módulos registrados (no hay
+// un valor por módulo: es una única política de plataforma). Mismo mecanismo
+// que el resto de esta configuración — ver src/lib/recoveryCenter.ts.
+export const CONFIG_KEY_RECOVERY_RETENTION_HOURS = "recovery_center_retention_hours";
+export const DEFAULT_RECOVERY_RETENTION_HOURS = 48;
+
 /** Value in effect for `key` at `asOf` (defaults to now). Falls back to `fallback` if no history exists yet. */
 export async function getEffectiveConfigValue(
   key: string,
@@ -103,6 +110,14 @@ export async function getEffectiveWelcomeMessage(asOf: Date = new Date()): Promi
 
 export async function getEffectiveWelcomeMessageActive(asOf: Date = new Date()): Promise<boolean> {
   return (await getEffectiveConfigString(CONFIG_KEY_WELCOME_MESSAGE_ACTIVE, asOf, "false")) === "true";
+}
+
+export async function getEffectiveRecoveryRetentionHours(asOf: Date = new Date()): Promise<number> {
+  return getEffectiveConfigValue(CONFIG_KEY_RECOVERY_RETENTION_HOURS, asOf, DEFAULT_RECOVERY_RETENTION_HOURS);
+}
+
+export async function setRecoveryRetentionHours(hours: number, userId: string): Promise<void> {
+  await setConfigValue(CONFIG_KEY_RECOVERY_RETENTION_HOURS, String(hours), userId);
 }
 
 // ── Configuración del motor de Analytics (src/lib/analytics.ts) ─────────────

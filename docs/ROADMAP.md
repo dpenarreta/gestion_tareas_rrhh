@@ -32,8 +32,10 @@
 - Sistema de diseño v2 (sidebar, tokens, modo claro/oscuro).
 - Sistema de documentación, bitácora y auditoría (v1.4.0).
 - Módulo Proyectos: iniciativas transversales con fases, participantes y
-  ciclo de vida propio, independiente del módulo Trabajo (v1.5.0 — este
-  sprint).
+  ciclo de vida propio, independiente del módulo Trabajo (v1.5.0).
+- Centro de Recuperación: servicio corporativo central de papelera/
+  restauración (el usuario ve "Papelera"), con Proyectos como primer
+  módulo integrado (v1.6.0 — este sprint).
 
 ## En desarrollo
 
@@ -59,6 +61,22 @@ cierre de este sprint)._
 - Hacer configurable la hora de corte de jornada (17:00 local) usada por
   `computeCapacityForecast` — actualmente hardcodeada, no editable desde
   Ajustes.
+- Pantalla de Ajustes para el período de retención del Centro de
+  Recuperación (`CONFIG_KEY_RECOVERY_RETENTION_HOURS` en
+  `src/lib/systemConfig.ts` ya existe y es funcional vía `setConfigValue`,
+  falta únicamente el control de UI en Administración).
+- Cron dedicado (ej. Vercel Cron) para `purgeExpiredItems()` — hoy la purga
+  automática es un barrido perezoso disparado al abrir la Papelera; un
+  elemento expirado no se purga hasta que alguien visite esa pantalla.
+- Consola administrativa unificada del Centro de Recuperación (§14) —
+  vista de todos los elementos eliminados de cualquier módulo
+  (🗑 Trabajo, 🗑 Proyectos, 🗑 Documentos, ...). El modelo
+  (`RecoveryItem`/`RecoveryAuditLog`) ya es transversal a cualquier
+  `entityType`; falta la pantalla.
+- Integrar módulos adicionales al Centro de Recuperación (Trabajo,
+  Escritorio Digital, Documentos, Repositorios, Plantillas, Comunicados) —
+  cada uno requiere solo una entrada nueva en `ENTITY_REGISTRY`
+  (`src/lib/recoveryCenter.ts`) más su propia bandera `deletedAt` local.
 
 ## Ideas futuras
 

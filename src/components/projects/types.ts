@@ -23,7 +23,9 @@ export type ProjectHistoryEvent =
   | "FASE_ELIMINADA"
   | "COMENTARIO_AGREGADO"
   | "ACTIVIDAD_REGISTRADA"
-  | "DOCUMENTO_AGREGADO";
+  | "DOCUMENTO_AGREGADO"
+  | "ELIMINADO"
+  | "RESTAURADO";
 
 export type ProjectUserRef = { id: string; name: string; email?: string; role?: string };
 
@@ -172,4 +174,6 @@ export const HISTORY_EVENT_LABEL: Record<ProjectHistoryEvent, string> = {
   COMENTARIO_AGREGADO: "Comentario",
   ACTIVIDAD_REGISTRADA: "Actividad registrada",
   DOCUMENTO_AGREGADO: "Documento agregado",
+  ELIMINADO: "Movido a la papelera",
+  RESTAURADO: "Restaurado desde la papelera",
 };

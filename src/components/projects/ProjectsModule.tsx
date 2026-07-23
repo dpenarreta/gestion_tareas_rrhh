@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { ProjectListItem, ProjectUserRef } from "./types";
 import ProjectCard from "./ProjectCard";
 import CreateProjectModal from "./CreateProjectModal";
+import ProjectTrashPanel from "./ProjectTrashPanel";
 
 type Props = {
   initialProjects: ProjectListItem[];
@@ -16,6 +17,7 @@ type Props = {
 export default function ProjectsModule({ initialProjects, currentUserId, candidateUsers, canCreate }: Props) {
   const [projects, setProjects] = useState(initialProjects);
   const [showCreate, setShowCreate] = useState(false);
+  const [showTrash, setShowTrash] = useState(false);
 
   return (
     <div className="p-4 md:p-6 space-y-5">
@@ -25,12 +27,20 @@ export default function ProjectsModule({ initialProjects, currentUserId, candida
           <p className="text-sm text-secondary">Iniciativas transversales con fases, participantes y seguimiento propio.</p>
         </div>
         {canCreate && (
-          <button
-            onClick={() => setShowCreate(true)}
-            className="bg-primary text-white rounded-xl px-4 py-2 text-sm font-medium hover:bg-primary-hover transition-colors"
-          >
-            + Nuevo proyecto
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setShowTrash(true)}
+              className="border border-border text-secondary rounded-xl px-4 py-2 text-sm font-medium hover:bg-surface2 transition-colors"
+            >
+              Papelera
+            </button>
+            <button
+              onClick={() => setShowCreate(true)}
+              className="bg-primary text-white rounded-xl px-4 py-2 text-sm font-medium hover:bg-primary-hover transition-colors"
+            >
+              + Nuevo proyecto
+            </button>
+          </div>
         )}
       </div>
 
@@ -57,6 +67,18 @@ export default function ProjectsModule({ initialProjects, currentUserId, candida
           onCreated={(created) => {
             setProjects((prev) => [created, ...prev]);
             setShowCreate(false);
+          }}
+        />
+      )}
+
+      {showTrash && (
+        <ProjectTrashPanel
+          onClose={() => setShowTrash(false)}
+          onRestored={() => {
+            fetch("/api/projects")
+              .then((r) => (r.ok ? r.json() : []))
+              .then((data) => setProjects(Array.isArray(data) ? data : []))
+              .catch(() => {});
           }}
         />
       )}

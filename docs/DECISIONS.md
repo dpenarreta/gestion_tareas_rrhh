@@ -26,6 +26,7 @@
 | Changelog automático vía hook `post-commit` (no `prepare-commit-msg`) | Un `git add` hecho en `prepare-commit-msg` no queda incluido en el commit que se está creando (comprobado empíricamente); enmendar desde `post-commit` sí funciona. | `.githooks/update-changelog.js` |
 | Sistema de documentación en `/docs` leído en vivo, sin base de datos nueva | Los Markdown ya viven en el repositorio versionado por Git — una tabla nueva solo para mostrarlos duplicaría una fuente de verdad que ya existe. | Este sprint (2026-07-22) |
 | Módulo Proyectos como dominio independiente de Task (no una extensión) | "No cierra por mes" y "sin registro colectivo único" contradicen invariantes ya asumidos por `Task`/`archivedMonth`; un dominio nuevo evita ramas condicionales en código existente. | `AUDIT_LOG.md` § 2026-07-23 |
+| Centro de Recuperación: registro de adaptadores (`entityType` como `String`), no un enum de Prisma | Un enum exigiría una migración de schema por cada módulo nuevo dado de alta; un registro en código logra costo-cero real de integración. | `AUDIT_LOG.md` § 2026-07-23 |
 
 ---
 

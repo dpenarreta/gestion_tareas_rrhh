@@ -5,6 +5,7 @@ import { canViewProject, isProjectManager } from "@/lib/projectAccess";
 import { canManageUsers } from "@/lib/roles";
 import { maskEmailUnless } from "@/lib/mask-email";
 import { logProjectHistory } from "@/lib/projectHistory";
+import * as recoveryCenter from "@/lib/recoveryCenter";
 import type { ProjectStatus, TaskPriority } from "@/generated/prisma/client";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -58,7 +59,7 @@ const projectDetailSelect = {
 async function loadProjectForAccess(id: string) {
   return prisma.project.findUnique({
     where: { id },
-    select: { id: true, responsibleId: true, createdById: true, participants: { select: { userId: true } } },
+    select: { id: true, responsibleId: true, createdById: true, deletedAt: true, participants: { select: { userId: true } } },
   });
 }
 
@@ -70,7 +71,9 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
 
   const { id } = await ctx.params;
   const access = await loadProjectForAccess(id);
-  if (!access) {
+  // Un proyecto en la papelera no es visible por esta ruta — se administra
+  // únicamente desde la Papelera (GET /api/projects/trash + restore/permanent).
+  if (!access || access.deletedAt) {
     return NextResponse.json({ error: "Proyecto no encontrado" }, { status: 404 });
   }
   if (!canViewProject(session, access, access.participants.map((p) => p.userId))) {
@@ -101,7 +104,7 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
 
   const { id } = await ctx.params;
   const access = await loadProjectForAccess(id);
-  if (!access) {
+  if (!access || access.deletedAt) {
     return NextResponse.json({ error: "Proyecto no encontrado" }, { status: 404 });
   }
   if (!isProjectManager(session, access)) {
@@ -223,4 +226,38 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   }
 
   return NextResponse.json(updated);
+}
+
+/** Mueve el proyecto a la papelera (Centro de Recuperación) — no es un borrado físico. */
+export async function DELETE(_req: NextRequest, ctx: Ctx) {
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+  }
+
+  const { id } = await ctx.params;
+  const access = await loadProjectForAccess(id);
+  if (!access || access.deletedAt) {
+    return NextResponse.json({ error: "Proyecto no encontrado" }, { status: 404 });
+  }
+  if (!isProjectManager(session, access)) {
+    return NextResponse.json({ error: "No tienes permiso para eliminar este proyecto" }, { status: 403 });
+  }
+
+  const current = await prisma.project.findUnique({ where: { id }, select: { name: true } });
+
+  try {
+    await recoveryCenter.moveToTrash({ entityType: "PROJECT", entityId: id, userId: session.userId });
+  } catch (err) {
+    return NextResponse.json({ error: err instanceof Error ? err.message : "Error al mover a la papelera" }, { status: 409 });
+  }
+
+  await logProjectHistory({
+    projectId: id,
+    actorId: session.userId,
+    event: "ELIMINADO",
+    description: `${session.name} movió el proyecto "${current?.name}" a la papelera`,
+  });
+
+  return NextResponse.json({ success: true });
 }

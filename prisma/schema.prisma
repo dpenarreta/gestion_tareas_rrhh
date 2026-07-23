@@ -121,6 +121,36 @@ enum ProjectHistoryEvent {
   COMENTARIO_AGREGADO
   ACTIVIDAD_REGISTRADA
   DOCUMENTO_AGREGADO
+  ELIMINADO
+  RESTAURADO
+}
+
+// ── Centro de Recuperación (arquitectura corporativa, interno) ──────────────
+// El usuario solo ve "Papelera" dentro de cada módulo — este nombre y estos
+// modelos nunca se exponen en la interfaz. Único mecanismo oficial de
+// eliminación temporal/restauración de toda la plataforma (ver
+// src/lib/recoveryCenter.ts y docs/AUDIT_LOG.md). `RecoveryItem.entityType`
+// es un String (no un enum de Prisma) a propósito: registrar un módulo nuevo
+// (Trabajo, Escritorio Digital, Documentos, Repositorios, Plantillas,
+// Comunicados) es agregar una entrada al registro en código — cero
+// migraciones de schema.
+
+enum RecoveryStatus {
+  ACTIVE
+  RESTORED
+  PURGED
+}
+
+enum RecoveryOperation {
+  MOVE_TO_TRASH
+  RESTORE
+  DELETE_PERMANENTLY
+  PURGE_EXPIRED
+}
+
+enum RecoveryOrigin {
+  MANUAL
+  AUTOMATIC
 }
 
 model User {
@@ -180,6 +210,11 @@ model User {
   projectComments          ProjectComment[]     @relation("ProjectCommentAuthor")
   projectDocumentsUploaded ProjectDocument[]    @relation("ProjectDocumentUploadedBy")
   projectHistoryActions    ProjectHistory[]     @relation("ProjectHistoryActor")
+
+  recoveryItemsDeleted  RecoveryItem[]     @relation("RecoveryDeletedBy")
+  recoveryItemsRestored RecoveryItem[]     @relation("RecoveryRestoredBy")
+  recoveryItemsPurged   RecoveryItem[]     @relation("RecoveryPurgedBy")
+  recoveryAuditLogs     RecoveryAuditLog[] @relation("RecoveryAuditUser")
 }
 
 model ActivityReason {
@@ -653,6 +688,61 @@ model MeetingInvitee {
   @@unique([meetingId, userId])
 }
 
+// Estado de una entidad soft-eliminada, de cualquier módulo registrado en
+// src/lib/recoveryCenter.ts. `entityId` es una referencia suelta (sin FK) —
+// vive en la tabla propia de cada módulo (Project, y en el futuro Task,
+// KnowledgeDocument, etc.), no hay una tabla única de "entidades" para
+// apuntar con una FK real. Un mismo (entityType, entityId) puede tener
+// varias filas a lo largo del tiempo (papelera -> restaurado -> papelera de
+// nuevo) — el registro ACTIVE vigente es el más reciente con ese status.
+model RecoveryItem {
+  id             String          @id @default(cuid())
+  entityType     String
+  entityId       String
+  // Snapshot legible al momento de eliminar (ej. nombre del proyecto) — permite
+  // listar la papelera sin depender de que la fila original siga resolviéndose.
+  entityLabel    String?
+  moduleLabel    String
+  status         RecoveryStatus  @default(ACTIVE)
+  deletedById    String
+  deletedBy      User            @relation("RecoveryDeletedBy", fields: [deletedById], references: [id])
+  deletedAt      DateTime        @default(now())
+  retentionHours Int
+  expiresAt      DateTime
+  restoredById   String?
+  restoredBy     User?           @relation("RecoveryRestoredBy", fields: [restoredById], references: [id])
+  restoredAt     DateTime?
+  purgedById     String?
+  purgedBy       User?           @relation("RecoveryPurgedBy", fields: [purgedById], references: [id])
+  purgedAt       DateTime?
+  purgeOrigin    RecoveryOrigin?
+  createdAt      DateTime        @default(now())
+
+  @@index([entityType, entityId])
+  @@index([status, expiresAt])
+}
+
+// Auditoría CENTRAL de toda operación del Centro de Recuperación, para
+// cualquier módulo — nunca una tabla de auditoría por módulo. `entityId` es
+// intencionalmente una referencia suelta (sin FK), igual criterio que
+// ActivityAuditLog/TargetTimeAuditLog, para que el registro sobreviva a la
+// purga definitiva de la entidad original. `userId` es nulo cuando el origen
+// es AUTOMATIC (purga por expiración, sin actor humano).
+model RecoveryAuditLog {
+  id          String            @id @default(cuid())
+  entityType  String
+  entityId    String
+  moduleLabel String
+  userId      String?
+  user        User?             @relation("RecoveryAuditUser", fields: [userId], references: [id])
+  operation   RecoveryOperation
+  origin      RecoveryOrigin
+  createdAt   DateTime          @default(now())
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
+
 // Iniciativa transversal con fases y participantes propios. Independiente de
 // Task: no aparece en /tasks, no cuenta para carga laboral/Analytics todavía
 // (§13 — el modelo solo se deja preparado, `realHours`/`targetTimeHours` usan
@@ -679,6 +769,12 @@ model Project {
   responsible     User          @relation("ProjectResponsible", fields: [responsibleId], references: [id])
   createdById     String
   createdBy       User          @relation("ProjectCreatedBy", fields: [createdById], references: [id])
+  // Bandera local de conveniencia mantenida por el Centro de Recuperación
+  // (src/lib/recoveryCenter.ts, adaptador PROJECT) — permite filtrar
+  // proyectos en la papelera con un WHERE simple en vez de un join contra
+  // RecoveryItem en cada consulta. RecoveryItem sigue siendo la fuente de
+  // verdad de retención/auditoría; esto es solo un espejo de su estado.
+  deletedAt       DateTime?
   createdAt       DateTime      @default(now())
   updatedAt       DateTime      @updatedAt
 
@@ -690,6 +786,7 @@ model Project {
   history      ProjectHistory[]
 
   @@index([status])
+  @@index([deletedAt])
 }
 
 model ProjectParticipant {

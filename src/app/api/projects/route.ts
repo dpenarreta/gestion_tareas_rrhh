@@ -35,15 +35,18 @@ export async function GET() {
   const isLeadership = ROLE_LEVEL[session.role] >= 3;
 
   const projects = await prisma.project.findMany({
-    where: isLeadership
-      ? undefined
-      : {
-          OR: [
-            { responsibleId: session.userId },
-            { createdById: session.userId },
-            { participants: { some: { userId: session.userId } } },
-          ],
-        },
+    where: {
+      deletedAt: null,
+      ...(isLeadership
+        ? {}
+        : {
+            OR: [
+              { responsibleId: session.userId },
+              { createdById: session.userId },
+              { participants: { some: { userId: session.userId } } },
+            ],
+          }),
+    },
     select: projectListSelect,
     orderBy: { createdAt: "desc" },
   });

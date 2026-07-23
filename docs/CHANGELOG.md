@@ -23,6 +23,85 @@
 
 ---
 
+## v1.6.0 — 2026-07-23
+
+**Tipo:** FEATURE / DATABASE / SECURITY
+**Módulo:** Centro de Recuperación (arquitectura corporativa, interno) / Proyectos
+
+**Implementado:**
+- Servicio corporativo centralizado `src/lib/recoveryCenter.ts` (**Centro de
+  Recuperación**, nombre puramente arquitectónico — el usuario solo ve
+  "Papelera" en cada módulo) que administra el ciclo de vida de CUALQUIER
+  entidad eliminada temporalmente en NEXO: `moveToTrash`, `restore`,
+  `deletePermanently`, `purgeExpiredItems`, `getRemainingRetentionTime`,
+  `registerAuditEvent`.
+- Diseño abierto/cerrado: agregar un módulo nuevo (Trabajo, Escritorio
+  Digital, Documentos, Repositorios, Plantillas, Comunicados) requiere
+  únicamente una entrada de datos en `ENTITY_REGISTRY` — cero cambios de
+  lógica en el servicio central y cero migraciones de schema (`entityType`
+  es un `String` libre, no un enum de Prisma).
+- Modelos Prisma nuevos: `RecoveryItem` (estado/retención de cada elemento
+  en papelera) y `RecoveryAuditLog` (auditoría central única de TODA
+  operación, para cualquier módulo — nunca una tabla de auditoría por
+  módulo), más los enums `RecoveryStatus`, `RecoveryOperation`,
+  `RecoveryOrigin`.
+- **Proyectos** es el primer (y único, por ahora) módulo integrado:
+  `Project.deletedAt` (bandera local mantenida por el adaptador del
+  registro, para filtrar sin join), nuevas rutas
+  `DELETE /api/projects/[id]` (mover a la papelera),
+  `POST /api/projects/[id]/restore`, `DELETE /api/projects/[id]/permanent`
+  (irreversible) y `GET /api/projects/trash` (listado con cuenta regresiva
+  de retención, visibilidad acotada a responsable/creador/liderazgo).
+  Eventos `ELIMINADO`/`RESTAURADO` agregados al historial propio del
+  proyecto (`ProjectHistory`), sin duplicar la auditoría central.
+- Período de retención (48 horas por defecto) configurable vía el mismo
+  mecanismo genérico de `SystemConfigHistory` que ya usan
+  horas efectivas/límites de carga/política de retención LOPDP — sin
+  valores hardcodeados en la lógica de negocio (`CONFIG_KEY_RECOVERY_RETENTION_HOURS`
+  en `src/lib/systemConfig.ts`).
+- Purga automática de elementos expirados implementada como barrido
+  perezoso e idempotente disparado al abrir la Papelera (mismo criterio que
+  la migración perezosa de historial de tareas Fijas, ver
+  `docs/AUDIT_LOG.md` § 2026-07-21) — no se implementó un cron dedicado
+  este sprint.
+- Interfaz de "Papelera" para Proyectos: panel deslizante con lista,
+  cuenta regresiva de vencimiento, restaurar y "eliminar definitivamente";
+  botón "Mover a la papelera" en el resumen del proyecto (Zona de peligro).
+- **No implementado a propósito, según el pedido:** consola administrativa
+  unificada que liste elementos eliminados de todos los módulos a la vez —
+  la arquitectura queda preparada (`RecoveryItem`/`RecoveryAuditLog` ya
+  son transversales a cualquier `entityType`), pero la pantalla en sí queda
+  para un sprint futuro.
+
+**Archivos afectados:** `prisma/schema.prisma`,
+`prisma/migrations/20260723033102_add_recovery_center/`,
+`src/lib/recoveryCenter.ts`, `src/lib/systemConfig.ts`,
+`src/app/api/projects/[id]/route.ts` (DELETE),
+`src/app/api/projects/[id]/restore/route.ts`,
+`src/app/api/projects/[id]/permanent/route.ts`,
+`src/app/api/projects/trash/route.ts`, `src/app/api/projects/route.ts`
+(filtro `deletedAt`), `src/app/(protected)/projects/page.tsx`,
+`src/components/projects/ProjectTrashPanel.tsx`,
+`src/components/projects/ProjectSummaryTab.tsx`,
+`src/components/projects/ProjectsModule.tsx`.
+
+**Impacto:** Nuevo mecanismo de plataforma, sin cambios en el
+comportamiento de ningún módulo existente salvo Proyectos (que gana
+capacidad de eliminación/restauración que antes no existía en absoluto).
+Verificado de punta a punta contra la base de datos compartida con
+usuarios `@verify.local` desechables: mover a papelera, listar papelera,
+bloqueo de acceso para quien no es responsable/creador/liderazgo,
+restaurar, eliminar definitivamente (con cascada real sobre fases/
+participantes/actividades/comentarios/documentos/historial del proyecto),
+y purga automática de un elemento con retención vencida — auditoría
+central (`RecoveryAuditLog`) e historial propio del proyecto verificados
+en cada paso. Datos de prueba eliminados al finalizar.
+
+**Autor:** Claude Code
+**Estado:** Implementado
+
+---
+
 ## v1.5.0 — 2026-07-23
 
 **Tipo:** FEATURE / DATABASE

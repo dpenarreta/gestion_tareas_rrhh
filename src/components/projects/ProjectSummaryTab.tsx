@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import type { ProjectDetail, ProjectStatus } from "./types";
 import { PROJECT_STATUS_LABEL } from "./types";
 
@@ -25,10 +26,32 @@ type Props = {
 };
 
 export default function ProjectSummaryTab({ project, canManage, onUpdated }: Props) {
+  const router = useRouter();
   const [editingObservations, setEditingObservations] = useState(false);
   const [observations, setObservations] = useState(project.observations ?? "");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [trashing, setTrashing] = useState(false);
+
+  async function moveToTrash() {
+    if (trashing) return;
+    if (!window.confirm(`¿Mover "${project.name}" a la papelera? Podrás restaurarlo dentro del período de retención.`)) return;
+    setTrashing(true);
+    setError("");
+    try {
+      const res = await fetch(`/api/projects/${project.id}`, { method: "DELETE" });
+      if (res.ok) {
+        router.push("/projects");
+      } else {
+        const d = await res.json().catch(() => ({}));
+        setError(d.error ?? "Error al mover a la papelera");
+        setTrashing(false);
+      }
+    } catch {
+      setError("Error al mover a la papelera");
+      setTrashing(false);
+    }
+  }
 
   const pct = project.targetTimeHours > 0 ? Math.min(100, Math.round((project.realHours / project.targetTimeHours) * 100)) : 0;
 
@@ -166,6 +189,22 @@ export default function ProjectSummaryTab({ project, canManage, onUpdated }: Pro
             <p className="text-[11px] text-disabled mt-2 leading-relaxed">
               El proyecto permanece activo entre meses — solo Completado/Cancelado detiene la acumulación de horas.
             </p>
+          </div>
+        )}
+
+        {canManage && (
+          <div className="bg-surface border border-danger/30 rounded-2xl p-4">
+            <h3 className="text-sm font-semibold text-danger mb-2">Zona de peligro</h3>
+            <p className="text-[11px] text-secondary mb-3 leading-relaxed">
+              Mueve el proyecto a la papelera. Podrás restaurarlo dentro del período de retención configurado.
+            </p>
+            <button
+              onClick={moveToTrash}
+              disabled={trashing}
+              className="w-full border border-danger text-danger rounded-xl py-2 text-sm font-medium hover:bg-danger/[.08] disabled:opacity-40 transition-colors"
+            >
+              {trashing ? "Moviendo…" : "Mover a la papelera"}
+            </button>
           </div>
         )}
 

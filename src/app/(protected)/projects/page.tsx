@@ -33,15 +33,18 @@ export default async function ProjectsPage() {
 
   const [projects, candidateUsers] = await Promise.all([
     prisma.project.findMany({
-      where: isLeadership
-        ? undefined
-        : {
-            OR: [
-              { responsibleId: session.userId },
-              { createdById: session.userId },
-              { participants: { some: { userId: session.userId } } },
-            ],
-          },
+      where: {
+        deletedAt: null,
+        ...(isLeadership
+          ? {}
+          : {
+              OR: [
+                { responsibleId: session.userId },
+                { createdById: session.userId },
+                { participants: { some: { userId: session.userId } } },
+              ],
+            }),
+      },
       select: projectListSelect,
       orderBy: { createdAt: "desc" },
     }),

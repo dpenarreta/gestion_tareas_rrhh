@@ -15,6 +15,61 @@
 
 ---
 
+## 2026-07-23 — Centro de Recuperación: servicio central con registro de adaptadores, en vez de una papelera por módulo
+
+**Problema detectado:** se pidió una "Papelera" para Proyectos, pero con el
+requisito explícito de que la implementación sea una arquitectura
+corporativa reutilizable ("Centro de Recuperación") capaz de absorber
+futuros módulos (Trabajo, Escritorio Digital, Documentos, Repositorios,
+Plantillas, Comunicados) **sin modificar el servicio central** al agregar
+cada uno.
+
+**Alternativas evaluadas:**
+1. Papelera independiente por módulo (un `deletedAt` + su propia lógica de
+   restaurar/purgar en cada dominio), repetida cada vez que un módulo la
+   necesite.
+2. Un enum de Prisma `RecoveryEntityType` con un valor por módulo
+   (`PROJECT`, `TASK`, ...), requiriendo una migración de schema
+   (`ALTER TYPE ... ADD VALUE`) cada vez que se agrega un módulo nuevo.
+3. Servicio central (`src/lib/recoveryCenter.ts`) con un registro de
+   adaptadores en código (`ENTITY_REGISTRY: Record<string, EntityAdapter>`)
+   — `entityType` como `String` libre en `RecoveryItem`/`RecoveryAuditLog`,
+   no un enum.
+
+**Decisión tomada:** opción 3. Cada adaptador expone 3 funciones puente
+(`getDisplayName`, `setTrashed`, `hardDelete`) hacia la tabla propia del
+módulo; las funciones exportadas del servicio (`moveToTrash`, `restore`,
+`deletePermanently`, `purgeExpiredItems`, `getRemainingRetentionTime`,
+`registerAuditEvent`) nunca cambian de firma ni de lógica al integrar un
+módulo nuevo — solo se agrega una entrada de datos al registro.
+
+**Justificación técnica:** la opción 1 es exactamente lo que el pedido
+prohíbe explícitamente ("ningún módulo nuevo deberá implementar su propia
+papelera"). La opción 2 sí sería centralizada, pero cada módulo nuevo
+seguiría exigiendo una migración de base de datos solo para registrar su
+existencia — contradice "agregar un módulo... deberá requerir únicamente
+registrar un nuevo tipo de entidad. No deberá ser necesario modificar el
+servicio principal", que se interpretó en sentido amplio (ni el servicio
+NI el schema deberían tocarse). La opción 3 logra verdadero costo-cero de
+integración: Proyectos es el primer y único módulo dado de alta este
+sprint, dejando el resto como "compatibles, no implementados todavía"
+(pedido explícito: preparar la arquitectura, no migrar todos los módulos
+ahora). El costo es que cada módulo SÍ necesita su propia bandera de
+conveniencia (`Project.deletedAt`) para filtrar sus propias listas sin un
+join contra `RecoveryItem` — una integración local del módulo, no del
+servicio central, y coherente con el patrón ya usado por
+`Task.archivedMonth`/`archivedAt` para su propio archivado por mes.
+
+**Impacto:** `RecoveryItem`/`RecoveryAuditLog` son tablas nuevas,
+transversales, sin FK hacia las tablas de cada módulo (referencia suelta
+por `entityId`, mismo criterio que `ActivityAuditLog`/`TargetTimeAuditLog`)
+— sobreviven aunque la entidad original se purgue definitivamente. Cero
+cambios en Task, Analytics o cualquier módulo fuera de Proyectos.
+
+**Aprobado por:** Anthony Jácome (dirección de producto).
+
+---
+
 ## 2026-07-23 — Módulo Proyectos: dominio independiente en vez de extender Task
 
 **Problema detectado:** se pidió un sistema para gestionar iniciativas
