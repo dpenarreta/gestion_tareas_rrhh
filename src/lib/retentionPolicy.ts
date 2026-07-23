@@ -82,7 +82,7 @@ export async function executePurge(executedBy: string): Promise<{
     await prisma.monthlyReport.deleteMany({ where: { id: { in: reportIds } } });
   }
   if (taskIds.length > 0) {
-    // Comment, TaskActivity, TaskCommentView y FollowUpReminder tienen onDelete: Cascade sobre Task.
+    // Comment, TaskActivity y TaskCommentView tienen onDelete: Cascade sobre Task.
     await prisma.task.deleteMany({ where: { id: { in: taskIds } } });
   }
   if (docsToDelete.length > 0) {

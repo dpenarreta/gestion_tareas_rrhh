@@ -1,10 +1,13 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
 import type { Role } from "@/generated/prisma/client";
 import { getNavLinks, NAV_SECTION_LABELS, type NavSection } from "@/lib/navLinks";
+
+const DESK_UNREAD_POLL_MS = 30000;
 
 type Props = {
   role: Role;
@@ -19,6 +22,24 @@ const SECTIONS: NavSection[] = ["general", "gestion", "inteligencia"];
 export default function Sidebar({ role, collapsed, onToggleCollapsed, mobileOpen, onCloseMobile }: Props) {
   const pathname = usePathname();
   const links = getNavLinks(role);
+  const hasDeskLink = links.some((l) => l.href === "/desk");
+  const [deskUnread, setDeskUnread] = useState(0);
+
+  // Punto rojo sobre el ícono de Escritorio Digital (§2) — solo desaparece
+  // cuando todas las notas fueron abiertas, nunca por simplemente entrar al
+  // módulo (por eso se vuelve a consultar al navegar, no se limpia local).
+  useEffect(() => {
+    if (!hasDeskLink) return;
+    function load() {
+      fetch("/api/desk-notes/unread-count")
+        .then((r) => (r.ok ? r.json() : { unread: 0 }))
+        .then((d) => setDeskUnread(d.unread ?? 0))
+        .catch(() => {});
+    }
+    queueMicrotask(load);
+    const interval = setInterval(load, DESK_UNREAD_POLL_MS);
+    return () => clearInterval(interval);
+  }, [hasDeskLink, pathname]);
 
   return (
     <>
@@ -74,7 +95,12 @@ export default function Sidebar({ role, collapsed, onToggleCollapsed, mobileOpen
                             : "text-secondary hover:text-title hover:bg-surface2"
                         } ${collapsed ? "lg:justify-center" : ""}`}
                       >
-                        <Icon className="w-[18px] h-[18px] shrink-0" strokeWidth={1.8} />
+                        <span className="relative shrink-0">
+                          <Icon className="w-[18px] h-[18px]" strokeWidth={1.8} />
+                          {link.href === "/desk" && deskUnread > 0 && (
+                            <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-danger" aria-label="Notas nuevas" />
+                          )}
+                        </span>
                         <span className={collapsed ? "lg:hidden" : ""}>{link.label}</span>
                         {collapsed && (
                           <span className="hidden lg:group-hover:block absolute left-full ml-2 px-2 py-1 rounded-[7px] bg-title text-background text-xs whitespace-nowrap z-50">

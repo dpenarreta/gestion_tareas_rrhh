@@ -21,7 +21,7 @@ import { ROLE_LABEL, canCreateMeetings, isLeadershipRole } from "@/lib/roles";
 import TaskFormModal from "@/components/tasks/TaskFormModal";
 import type { AssignableUser } from "@/components/tasks/types";
 import MeetingFormModalDashboard from "@/components/meetings/MeetingFormModalDashboard";
-import DeskNotesWidget from "@/components/dashboard/DeskNotesWidget";
+import RemindersWidget from "@/components/dashboard/RemindersWidget";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -776,7 +776,7 @@ export default function DashboardModule({
       case "actividad":
         return <ActividadAreaCard events={data.areaActivity} lastLoginAt={data.lastLoginAt} />;
       case "escritorio":
-        return <DeskNotesWidget />;
+        return <RemindersWidget />;
       case "comunicados":
         return (
           <ComunicadosCard

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { getVisibleIdeaAuthorIds } from "@/lib/ideas";
-import { saveIdeaAttachment, AttachmentError } from "@/lib/storage";
+import { saveAttachment, AttachmentError } from "@/lib/storage";
 import type { IdeaImpact } from "@/generated/prisma/client";
 
 function ideaListSelect(userId: string) {
@@ -86,7 +86,7 @@ export async function POST(request: NextRequest) {
   let attachmentData: string | null = null;
   if (file instanceof File && file.size > 0) {
     try {
-      const saved = await saveIdeaAttachment(file);
+      const saved = await saveAttachment(file);
       attachmentUrl = saved.fileName;
       attachmentData = saved.attachmentData;
     } catch (err) {

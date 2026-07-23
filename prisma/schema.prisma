@@ -158,12 +158,27 @@ enum RecoveryOrigin {
 // Post-it dejado sobre el escritorio físico de alguien) — ver docs/DECISIONS.md.
 // Deliberadamente NO es mensajería/correo: sin hilos, sin asunto, sin
 // destinatarios múltiples. No participa en Analytics/KPIs/carga laboral (§Reglas
-// del pedido) — por eso no tiene ninguna relación con Task/TaskActivity.
+// del pedido) — por eso no tiene ninguna relación con Task/TaskActivity salvo
+// `convertedToTaskId`, un puente opcional y unidireccional (§4 del sprint de
+// evolución: "Convertir en tarea").
 enum DeskNotePriority {
   INFORMACION
   RECORDATORIO
   IMPORTANTE
   URGENTE
+}
+
+// Color del Post-it — independiente de la prioridad (§Sprint evolución §1):
+// la prioridad sigue determinando la franja superior; el color es una
+// preferencia estética libre de quien escribe la nota, igual que elegir un
+// Post-it físico de un color u otro.
+enum DeskNoteColor {
+  AMARILLO
+  ROSADO
+  CELESTE
+  VERDE
+  NARANJA
+  LILA
 }
 
 model DeskNote {
@@ -174,11 +189,25 @@ model DeskNote {
   recipient   User             @relation("DeskNoteRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
   message     String
   priority    DeskNotePriority @default(INFORMACION)
+  color       DeskNoteColor    @default(AMARILLO)
   read        Boolean          @default(false)
   readAt      DateTime?
   pinned      Boolean          @default(false)
   archived    Boolean          @default(false)
   archivedAt  DateTime?
+  // Adjunto opcional — mismo patrón que ImprovementIdea.attachmentData /
+  // ProjectDocument.fileData (base64 en columna @db.Text, sin integración a
+  // almacenamiento externo).
+  attachmentName String?
+  attachmentMime String?
+  attachmentData String?       @db.Text
+  // Puente opcional hacia Trabajo (§4 "Convertir en tarea") — la nota
+  // permanece intacta y visible tras convertirse, nunca se elimina ni se
+  // modifica su contenido. onDelete: SetNull para que borrar la tarea nunca
+  // se lleve la nota por delante.
+  convertedToTaskId String?
+  convertedToTask   Task?      @relation("DeskNoteConvertedTask", fields: [convertedToTaskId], references: [id], onDelete: SetNull)
+  convertedAt       DateTime?
   // Bandera local de conveniencia del Centro de Recuperación (adaptador
   // DESK_NOTE en src/lib/recoveryCenter.ts) — RecoveryItem sigue siendo la
   // fuente de verdad de auditoría/retención, esto solo espeja su estado
@@ -188,6 +217,85 @@ model DeskNote {
 
   @@index([recipientId, archived, deletedAt, createdAt])
   @@index([senderId, deletedAt, createdAt])
+}
+
+// ── Escritorio Digital: Recordatorios personales ────────────────────────────
+// Independientes de Task/Project (§7 del sprint de evolución) — reemplazan
+// por completo al antiguo FollowUpReminder (ligado a una tarea Fija/
+// Seguimiento). Ver docs/AUDIT_LOG.md para la migración de datos.
+enum ReminderPriority {
+  BAJA
+  MEDIA
+  ALTA
+  URGENTE
+}
+
+enum ReminderStatus {
+  PENDIENTE
+  COMPLETADO
+}
+
+enum ReminderRepeat {
+  UNA_VEZ
+  DIARIO
+  SEMANAL
+  MENSUAL
+}
+
+model PersonalReminder {
+  id          String           @id @default(cuid())
+  userId      String
+  user        User             @relation("PersonalReminderUser", fields: [userId], references: [id], onDelete: Cascade)
+  title       String
+  description String?
+  dueAt       DateTime
+  priority    ReminderPriority @default(MEDIA)
+  status      ReminderStatus   @default(PENDIENTE)
+  repeat      ReminderRepeat   @default(UNA_VEZ)
+  completedAt DateTime?
+  // Evita notificar el mismo vencimiento más de una vez (barrido perezoso,
+  // ver src/lib/deskReminders.ts) — se reinicia a false cada vez que dueAt
+  // cambia (edición, posposición, o la siguiente ocurrencia de una repetición).
+  notified    Boolean          @default(false)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([userId, status, dueAt])
+}
+
+// ── Escritorio Digital: Auditoría central ───────────────────────────────────
+// Un solo registro para notas Y recordatorios (§14) — mismo criterio que
+// RecoveryAuditLog: nunca una tabla de auditoría por tipo de entidad.
+// `entityId` es una referencia suelta (sin FK), igual criterio que
+// ActivityAuditLog/RecoveryAuditLog, para sobrevivir a la eliminación de la
+// entidad original.
+enum DeskAuditAction {
+  CREATED
+  EDITED
+  READ
+  PINNED
+  UNPINNED
+  ARCHIVED
+  UNARCHIVED
+  DELETED
+  CONVERTED_TO_TASK
+  PRIORITY_CHANGED
+  POSTPONED
+  COMPLETED
+}
+
+model DeskAuditLog {
+  id         String          @id @default(cuid())
+  entityType String
+  entityId   String
+  userId     String
+  user       User            @relation("DeskAuditUser", fields: [userId], references: [id])
+  action     DeskAuditAction
+  metadata   Json?
+  createdAt  DateTime        @default(now())
+
+  @@index([entityType, entityId])
+  @@index([userId, createdAt])
 }
 
 model User {
@@ -223,7 +331,6 @@ model User {
   ideaStatusChanges           IdeaStatusHistory[]   @relation("IdeaStatusChanger")
   ideaVotes                   IdeaVote[]
   taskCommentViews            TaskCommentView[]
-  followUpReminders           FollowUpReminder[]
   systemConfigChanges         SystemConfigHistory[] @relation("SystemConfigUpdatedBy")
   dataSubjectRequests         DataSubjectRequest[]  @relation("DataSubjectRequestUser")
   dataSubjectRequestsResolved DataSubjectRequest[]  @relation("DataSubjectRequestResolver")
@@ -255,6 +362,8 @@ model User {
 
   sentDeskNotes     DeskNote[] @relation("DeskNoteSender")
   receivedDeskNotes DeskNote[] @relation("DeskNoteRecipient")
+  personalReminders PersonalReminder[] @relation("PersonalReminderUser")
+  deskAuditLogs     DeskAuditLog[]     @relation("DeskAuditUser")
 }
 
 model ActivityReason {
@@ -421,7 +530,7 @@ model Task {
   comments                Comment[]
   activities              TaskActivity[]
   commentViews            TaskCommentView[]
-  reminders               FollowUpReminder[]
+  convertedFromNotes      DeskNote[]         @relation("DeskNoteConvertedTask")
   color                   String?
   archivedMonth           String?
   archivedAt              DateTime?
@@ -510,22 +619,6 @@ model ActivityAuditLog {
   modifiedAt  DateTime @default(now())
 
   @@index([activityId])
-}
-
-model FollowUpReminder {
-  id           String    @id @default(cuid())
-  taskId       String
-  task         Task      @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  userId       String
-  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  title        String
-  description  String?
-  reminderAt   DateTime
-  snoozedUntil DateTime?
-  completedAt  DateTime?
-  createdAt    DateTime  @default(now())
-
-  @@index([userId, completedAt, reminderAt])
 }
 
 enum ReportScope {

@@ -2,9 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canUseDeskNotes } from "@/lib/roles";
-import type { DeskNotePriority } from "@/generated/prisma/client";
+import { saveAttachment, AttachmentError } from "@/lib/storage";
+import { logDeskAudit } from "@/lib/deskAudit";
+import type { DeskNotePriority, DeskNoteColor } from "@/generated/prisma/client";
 
 const VALID_PRIORITIES: DeskNotePriority[] = ["INFORMACION", "RECORDATORIO", "IMPORTANTE", "URGENTE"];
+const VALID_COLORS: DeskNoteColor[] = ["AMARILLO", "ROSADO", "CELESTE", "VERDE", "NARANJA", "LILA"];
 const MAX_MESSAGE_LENGTH = 500;
 
 type View = "desk" | "archive" | "sent";
@@ -13,7 +16,9 @@ const noteSelect = {
   id: true,
   message: true,
   priority: true,
+  color: true,
   read: true,
+  readAt: true,
   pinned: true,
   archived: true,
   createdAt: true,
@@ -21,13 +26,19 @@ const noteSelect = {
   sender: { select: { name: true } },
   recipientId: true,
   recipient: { select: { name: true } },
+  attachmentName: true,
+  attachmentMime: true,
+  convertedToTaskId: true,
+  convertedAt: true,
 } as const;
 
-function serialize(note: {
+type NoteRow = {
   id: string;
   message: string;
   priority: DeskNotePriority;
+  color: DeskNoteColor;
   read: boolean;
+  readAt: Date | null;
   pinned: boolean;
   archived: boolean;
   createdAt: Date;
@@ -35,12 +46,20 @@ function serialize(note: {
   sender: { name: string };
   recipientId: string;
   recipient: { name: string };
-}, currentUserId: string) {
+  attachmentName: string | null;
+  attachmentMime: string | null;
+  convertedToTaskId: string | null;
+  convertedAt: Date | null;
+};
+
+function serialize(note: NoteRow, currentUserId: string) {
   return {
     id: note.id,
     message: note.message,
     priority: note.priority,
+    color: note.color,
     read: note.read,
+    readAt: note.readAt ? note.readAt.toISOString() : null,
     pinned: note.pinned,
     archived: note.archived,
     createdAt: note.createdAt.toISOString(),
@@ -49,6 +68,11 @@ function serialize(note: {
     recipientId: note.recipientId,
     recipientName: note.recipient.name,
     isMine: note.senderId === currentUserId,
+    hasAttachment: Boolean(note.attachmentName),
+    attachmentName: note.attachmentName,
+    attachmentMime: note.attachmentMime,
+    convertedToTaskId: note.convertedToTaskId,
+    convertedAt: note.convertedAt ? note.convertedAt.toISOString() : null,
   };
 }
 
@@ -92,10 +116,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
   }
 
-  const body = await request.json().catch(() => null);
-  const recipientId = typeof body?.recipientId === "string" ? body.recipientId : "";
-  const message = typeof body?.message === "string" ? body.message.trim() : "";
-  const priority = VALID_PRIORITIES.includes(body?.priority) ? (body.priority as DeskNotePriority) : "INFORMACION";
+  const formData = await request.formData();
+  const recipientId = String(formData.get("recipientId") ?? "");
+  const message = String(formData.get("message") ?? "").trim();
+  const priorityRaw = String(formData.get("priority") ?? "");
+  const colorRaw = String(formData.get("color") ?? "");
+  const priority = VALID_PRIORITIES.includes(priorityRaw as DeskNotePriority) ? (priorityRaw as DeskNotePriority) : "INFORMACION";
+  const color = VALID_COLORS.includes(colorRaw as DeskNoteColor) ? (colorRaw as DeskNoteColor) : "AMARILLO";
+  const file = formData.get("file");
 
   if (!recipientId || !message) {
     return NextResponse.json({ error: "Faltan campos requeridos" }, { status: 400 });
@@ -112,8 +140,25 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Destinatario inválido" }, { status: 400 });
   }
 
+  let attachmentName: string | null = null;
+  let attachmentMime: string | null = null;
+  let attachmentData: string | null = null;
+  if (file instanceof File && file.size > 0) {
+    try {
+      const saved = await saveAttachment(file);
+      attachmentName = saved.fileName;
+      attachmentMime = file.type || "application/octet-stream";
+      attachmentData = saved.attachmentData;
+    } catch (err) {
+      if (err instanceof AttachmentError) {
+        return NextResponse.json({ error: err.message }, { status: 400 });
+      }
+      throw err;
+    }
+  }
+
   const note = await prisma.deskNote.create({
-    data: { senderId: session.userId, recipientId, message, priority },
+    data: { senderId: session.userId, recipientId, message, priority, color, attachmentName, attachmentMime, attachmentData },
     select: noteSelect,
   });
 
@@ -123,6 +168,8 @@ export async function POST(request: NextRequest) {
       message: `${session.name} dejó una nota en tu Escritorio Digital`,
     },
   });
+
+  await logDeskAudit({ entityType: "NOTE", entityId: note.id, userId: session.userId, action: "CREATED" });
 
   return NextResponse.json(serialize(note, session.userId), { status: 201 });
 }

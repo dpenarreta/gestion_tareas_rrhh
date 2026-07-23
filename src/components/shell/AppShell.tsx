@@ -7,7 +7,6 @@ import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 import CommandPalette from "./CommandPalette";
 import NovaFab from "./NovaFab";
-import ReminderNotifier from "@/components/reminders/ReminderNotifier";
 
 type Props = {
   role: Role;
@@ -82,7 +81,6 @@ export default function AppShell({ role, userId, userName, roleLabel, onLogout, 
       </div>
       <CommandPalette role={role} open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       {showNovaFab && <NovaFab />}
-      <ReminderNotifier />
     </div>
   );
 }

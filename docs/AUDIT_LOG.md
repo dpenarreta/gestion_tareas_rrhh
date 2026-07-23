@@ -15,6 +15,99 @@
 
 ---
 
+## 2026-07-23 — Escritorio Digital: evolución a "centro personal de trabajo" — migración de recordatorios, notificación perezosa y límites del alcance
+
+**Problema detectado:** el sprint de evolución pidió absorber por completo
+el sistema de recordatorios ligados a tareas (`FollowUpReminder`,
+popup `ReminderNotifier`) dentro de Escritorio Digital como recordatorios
+personales independientes (`PersonalReminder`), además de agregar color de
+Post-it, adjuntos, confirmación de lectura, conversión a tarea, calendario,
+búsqueda y una "Bandeja Hoy". Varias de estas piezas requerían decisiones
+no especificadas en el pedido.
+
+**Decisión 1 — Migración de datos, no coexistencia temporal:** en vez de
+dejar ambos sistemas vivos un tiempo (flag de feature, tabla duplicada), se
+migraron los 18 `FollowUpReminder` activos en producción a
+`PersonalReminder` en un solo paso (script de un uso, ver commit) y luego
+se eliminó la tabla `FollowUpReminder` del schema. Motivo: el pedido dice
+"Eliminar completamente" — mantener el sistema viejo en paralelo
+contradice eso y duplica superficie de mantenimiento sin necesidad real.
+- **Título/descripción:** `FollowUpReminder` no tenía prioridad propia (el
+  modelo nuevo sí, `ReminderPriority`) — se asignó `MEDIA` por defecto a
+  todos los migrados, documentado aquí porque es un dato que **no existía**
+  en el origen, no una migración 1:1.
+- **Contexto de la tarea:** cada recordatorio migrado perdía su tabla padre
+  (`Task`) al independizarse — se preservó el título de la tarea origen
+  dentro de la descripción ("Migrado desde la tarea…") en vez de
+  descartarlo, para no perder contexto histórico.
+- **`notified: true` en todos los migrados:** para que el corte no generara
+  una tormenta de notificaciones por recordatorios ya vencidos que el
+  sistema anterior (popup) ya le había mostrado al usuario en su momento.
+- El script de migración (`scripts/migrate-followup-reminders-to-desk.ts`)
+  se ejecutó una sola vez, se verificó (18 filas migradas, conteo
+  confirmado tras el `DROP TABLE`) y se eliminó del repositorio — dejarlo
+  no aportaba valor una vez que el modelo `FollowUpReminder` que referencia
+  ya no existe en el schema (rompería `tsc` para siempre). El historial de
+  qué se migró y desde qué fila original queda en `DeskAuditLog`
+  (`metadata.migratedFrom = "FollowUpReminder"`, `originalId`), no en el
+  script.
+
+**Decisión 2 — Notificación perezosa reemplaza el popup invasivo:** el
+`ReminderNotifier` anterior era una ventana flotante persistente que
+sondeaba cada 10 minutos y se autoexhibía sobre cualquier pantalla. El
+pedido no prohíbe explícitamente los popups para recordatorios (solo para
+notas nuevas, §2), pero mantenerlo contradice el espíritu de consolidar
+todo en un "centro personal" calmado y pide explícitamente "reutilizar el
+sistema existente de notificaciones" (§15). Se reemplazó por un barrido
+perezoso (`notifyDueReminders()`, disparado al consultar recordatorios o
+la Bandeja Hoy) que crea una fila `Notification` normal (la misma campana
+del Topbar) la primera vez que un recordatorio vence, usando la bandera
+`notified` para no repetirla. Sin cron dedicado, mismo criterio que
+`purgeExpiredItems()` del Centro de Recuperación.
+
+**Decisión 3 — Adjunto de la nota NO se copia al convertir a tarea:** el
+pedido dice "Copiar automáticamente: título, descripción, prioridad,
+adjuntos" pero también, en la misma sección de restricciones, "No modificar
+el módulo Trabajo salvo la eliminación del sistema anterior de
+recordatorios" (§15) — y `Task` no tiene ningún campo de adjunto.
+Agregarlo habría violado la restricción explícita. Se optó por referenciar
+el nombre del archivo dentro de la descripción de la tarea nueva
+("Adjunto en la nota original: …") en vez de duplicar el archivo — la nota
+original (con el adjunto real) permanece intacta y accesible, tal como
+pide el mismo párrafo ("La nota original permanecerá disponible").
+
+**Decisión 4 — `PersonalReminder` NO se integra al Centro de Recuperación:**
+a diferencia de `DeskNote` (ver entrada de abajo), eliminar un recordatorio
+personal es un borrado físico directo, con una fila `DeskAuditLog` (acción
+`DELETED`) como único rastro. Los recordatorios son ítems de productividad
+personal de alta rotación (se crean/completan/eliminan constantemente,
+como un todo-list) — someterlos a retención/restauración habría sido
+sobre-ingeniería no pedida y ajena al patrón habitual de este tipo de
+funcionalidad en cualquier producto comparable. Las notas sí se integraron
+porque representan comunicación entre dos personas, con mayor costo si se
+pierden por error.
+
+**Decisión 5 — "Proyectos con actividad reciente" usa una ventana fija, no
+la última visita real:** la Bandeja Hoy (mejora adoptada, no pedida
+explícitamente) pide proyectos con actividad "desde la última vez que
+ingresó" el usuario. `User` no tiene un timestamp de última visita al
+Escritorio y agregarlo quedaba fuera del alcance ya extenso de este sprint
+(además de ser un campo que crecería para cualquier futura pantalla
+similar, no solo esta). Se usó una ventana fija de 7 días
+(`RECENT_PROJECT_DAYS`) como aproximación razonable, documentada en el
+código (`src/app/api/desk/today/route.ts`) y aquí — no se presenta como
+"desde tu última visita" en la interfaz para no prometer algo que no mide.
+
+**Impacto:** `FollowUpReminder` ya no existe (tabla eliminada); toda
+funcionalidad de seguimiento planificado vive ahora en `PersonalReminder`.
+Verificado en vivo: los 18 registros migrados sobrevivieron intactos al
+`DROP TABLE` (conteo confirmado antes y después), el widget del Dashboard
+y el panel de actividades de Trabajo ya no referencian el sistema viejo.
+
+**Aprobado por:** Anthony Jácome (dirección de producto).
+
+---
+
 ## 2026-07-23 — Escritorio Digital: segundo módulo integrado al Centro de Recuperación, sin construir su propia papelera
 
 **Problema detectado:** el Sprint 1 pidió un módulo nuevo ("Escritorio

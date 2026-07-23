@@ -72,7 +72,10 @@ src/
       team/                       # datos de equipo por usuario
       dashboard/                  # card-order, nova-message
       notifications/              # notificaciones + marcado de lectura
-      reminders/                  # recordatorios de seguimiento (pending, [id])
+      desk-notes/                  # notas Post-it de Escritorio Digital + [id]/attachment,
+                                   #   [id]/convert-to-task, recipients, unread-count
+      desk-reminders/              # recordatorios personales de Escritorio Digital + [id]
+      desk/                        # today (Bandeja Hoy), search — agregados de solo lectura
       repository/                 # repositorio histórico por año (tareas archivadas)
       announcements/              # anuncios fijados en dashboard
       profile/badges/             # insignias del perfil
@@ -89,7 +92,8 @@ src/
     meetings/                     # MeetingsModule, MeetingFormModalDashboard
     dashboard/                    # DashboardModule
     team/                         # TeamModule
-    reminders/                    # ReminderNotifier
+    desk/                         # DeskBoard (Escritorio Digital: notas, recordatorios,
+                                   #   calendario, búsqueda, Bandeja Hoy)
     ui/                           # Badge, Button, Card, Modal, TimeInput24 — primitivas compartidas
     ConsentGate.tsx, NotificationBell.tsx, SettingsManager.tsx, ThemeProvider.tsx, ThemeToggle.tsx,
     UsersManager.tsx              # componentes de nivel superior sin carpeta propia
@@ -161,7 +165,6 @@ El esquema completo vive en `prisma/schema.prisma`. Agrupado por dominio:
   elimine más adelante".
 - **`ActivityComment`**, **`Comment`**, **`TaskCommentView`** — comentarios sobre
   actividades/tareas y su estado de lectura por usuario.
-- **`FollowUpReminder`** — recordatorios de seguimiento con `snoozedUntil`/`completedAt`.
 - **`ActivityReason`** — catálogo de motivos; `isArchived` "se retira del listado
   principal de gestión sin borrarse físicamente — el histórico de TaskActivity sigue
   resolviendo su label original", distinto de `isActive` (solo controla si es
@@ -217,6 +220,26 @@ El esquema completo vive en `prisma/schema.prisma`. Agrupado por dominio:
   `getEffectiveAnalyticsConfig`/`getEffectiveCurve`/`getEffectiveRoleTarget` en
   `src/lib/systemConfig.ts`.
 - **`Announcement`** — anuncios fijables en el dashboard con expiración.
+
+### Escritorio Digital
+- **`DeskNote`** — nota Post-it entre dos colaboradores (sin destinatarios
+  múltiples ni hilos); `priority` (franja superior) y `color` (fondo del
+  Post-it) son dimensiones independientes. `read`/`pinned`/`archived` los
+  controla únicamente el destinatario. `attachmentData` sigue el mismo
+  patrón base64 que `ImprovementIdea.attachmentData`. `convertedToTaskId`
+  es un puente opcional hacia `Task` (`onDelete: SetNull`) — la nota nunca
+  se borra al convertirse. `deletedAt` es la bandera local del Centro de
+  Recuperación (adaptador `DESK_NOTE`).
+- **`PersonalReminder`** — recordatorio personal independiente de
+  Task/Project; reemplazó por completo a `FollowUpReminder` (ver
+  `docs/AUDIT_LOG.md` § 2026-07-23, migración de datos verificada).
+  `repeat` (una vez/diario/semanal/mensual) genera automáticamente la
+  siguiente ocurrencia al completar (`advanceRepeat()` en
+  `src/lib/deskReminders.ts`). `notified` evita notificar el mismo
+  vencimiento más de una vez (barrido perezoso, sin cron dedicado).
+- **`DeskAuditLog`** — auditoría central de Escritorio Digital (notas y
+  recordatorios en una sola tabla, `entityType`/`entityId` como referencia
+  suelta) — mismo criterio que `RecoveryAuditLog`.
 
 ### Base de Conocimiento (Nova RAG)
 - **`KnowledgeDocument`** — documentos subidos para RAG; `status` (PROCESANDO/LISTO/ERROR)

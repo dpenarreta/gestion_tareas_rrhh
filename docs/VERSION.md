@@ -8,7 +8,7 @@
 
 | Componente | Versión | Notas |
 |---|---|---|
-| **NEXO** (producto) | **v1.8.0** | Ver `docs/CHANGELOG.md` para el detalle de qué introdujo cada versión |
+| **NEXO** (producto) | **v1.9.0** | Ver `docs/CHANGELOG.md` para el detalle de qué introdujo cada versión |
 | **Analytics Engine** | v1.5.0 | `ANALYTICS_ENGINE_VERSION` en `src/lib/analytics.ts` |
 | **Formulas Set** | v4.2 | `FORMULA_SET_VERSION` en `src/lib/analytics.ts` — paquete de fórmulas vigente dentro del motor |
 | **API** | Sin versionado explícito (rutas internas de Next.js, no una API pública versionada) | Ver `docs/ARCHITECTURE.md` |
@@ -69,7 +69,8 @@ hacia adelante):
 | v1.5.0 | 2026-07-23 | Módulo Proyectos — iniciativas transversales con fases, participantes y ciclo de vida propio, dominio completamente independiente del módulo Trabajo |
 | v1.6.0 | 2026-07-23 | Centro de Recuperación — servicio corporativo central de papelera/restauración (registro de adaptadores, sin enum de Prisma), Proyectos como primer módulo integrado |
 | v1.7.0 | 2026-07-23 | Sprint 2.1 — refinamiento UX/UI de Proyectos: historial consolidado, responsable/participante distintos, eliminación acotada al creador, fases en tarjetas, registro de tiempo por hora inicio/fin, timeline cronológico, dashboard ejecutivo en Resumen |
-| **v1.8.0** | 2026-07-23 | **Escritorio Digital** — notas rápidas tipo Post-it entre colaboradores (excluye Administrador), widget en Dashboard + tablero completo, segundo módulo integrado al Centro de Recuperación |
+| v1.8.0 | 2026-07-23 | Escritorio Digital — notas rápidas tipo Post-it entre colaboradores (excluye Administrador), widget en Dashboard + tablero completo, segundo módulo integrado al Centro de Recuperación |
+| **v1.9.0** | 2026-07-23 | **Escritorio Digital — centro personal de trabajo**: color de Post-it, adjuntos, confirmación de lectura, convertir nota en tarea, recordatorios personales (reemplazan `FollowUpReminder`, migración de datos verificada), repetición/posposición, calendario, búsqueda unificada, Bandeja Hoy |
 
 Ver `docs/CHANGELOG.md` para el detalle completo de cada versión (tipo de
 cambio, módulo, archivos afectados, impacto).

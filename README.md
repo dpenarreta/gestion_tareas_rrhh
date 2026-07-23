@@ -331,6 +331,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-23: feat(desk): evoluciona Escritorio Digital a centro personal de trabajo
 - 2026-07-23: feat(desk-notes): agrega el módulo Escritorio Digital
 - 2026-07-23: feat(projects): Sprint 2.1 — refinamiento UX/UI del módulo Proyectos
 - 2026-07-23: feat(recovery-center): agrega el Centro de Recuperación (papelera/restauración corporativa)

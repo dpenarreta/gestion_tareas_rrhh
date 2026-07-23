@@ -43,8 +43,14 @@
   acumulado y dashboard ejecutivo en Resumen (v1.7.0).
 - Escritorio Digital: notas rápidas tipo Post-it entre colaboradores
   (excluye Administrador), widget en Dashboard + página de tablero
-  completo, segundo módulo integrado al Centro de Recuperación (v1.8.0 —
-  este sprint).
+  completo, segundo módulo integrado al Centro de Recuperación (v1.8.0).
+- Escritorio Digital — evolución a "centro personal de trabajo": color de
+  Post-it independiente de prioridad, adjuntos, confirmación de lectura,
+  convertir nota en tarea, recordatorios personales (reemplazan por
+  completo a `FollowUpReminder`, con migración de datos verificada) con
+  repetición y posposición, widget del Dashboard limitado a recordatorios,
+  calendario personal, búsqueda unificada y Bandeja Hoy (v1.9.0 — este
+  sprint).
 
 ## En desarrollo
 
@@ -93,6 +99,9 @@ cierre de este sprint)._
   `recoveryCenter.moveToTrash()`), falta la UI de restaurar/purgar, igual
   que para Proyectos (ver el punto de consola administrativa unificada más
   arriba).
+- Timestamp real de "última visita a Escritorio Digital" por usuario — la
+  Bandeja Hoy usa una ventana fija de 7 días para "proyectos con actividad
+  reciente" en su lugar (ver `docs/AUDIT_LOG.md` § 2026-07-23).
 
 ## Ideas futuras
 

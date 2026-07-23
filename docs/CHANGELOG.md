@@ -23,6 +23,97 @@
 
 ---
 
+## v1.9.0 — 2026-07-23
+
+**Tipo:** FEATURE / BREAKING CHANGE / DATABASE
+**Módulo:** Escritorio Digital (evolución — "centro personal de trabajo")
+
+**Implementado:**
+- **Notas — nuevos atributos:** color del Post-it independiente de la
+  prioridad (`DeskNoteColor`: Amarillo/Rosado/Celeste/Verde/Naranja/Lila —
+  la prioridad sigue viviendo solo en la franja superior), adjunto opcional
+  (mismo patrón base64 que `ImprovementIdea`, descarga bajo demanda vía
+  `GET /api/desk-notes/[id]/attachment`, nunca incluido en el listado para
+  no inflar el payload).
+- **Alerta visual de notas nuevas:** punto rojo sobre el ícono "Escritorio
+  Digital" del sidebar (`GET /api/desk-notes/unread-count`, sondeado cada
+  30s) — desaparece únicamente cuando ya no quedan notas sin leer, nunca
+  solo por entrar al módulo.
+- **Confirmación de lectura:** el remitente ve ✓ Entregada / ✓✓ Leída (con
+  fecha/hora de lectura) en la pestaña "Enviadas" — reutiliza `readAt`
+  (ya existía desde el Sprint 1), sin tabla nueva.
+- **Convertir nota en tarea (opcional):** botón en cada nota recibida que
+  abre un formulario mínimo (título editable, Fija/Seguimiento, frecuencia,
+  fechas, tiempo objetivo) y crea la tarea reutilizando `POST /api/tasks`
+  tal cual. La nota original **nunca se edita ni se elimina** — solo queda
+  marcada `convertedToTaskId`/`convertedAt`. La prioridad de la nota se
+  traduce a la escala de Trabajo (Urgente/Importante → Alta, Recordatorio →
+  Media, Información → Baja).
+- **Recordatorios personales — reemplazo completo de `FollowUpReminder`:**
+  nuevo modelo `PersonalReminder`, independiente de Task/Project (título,
+  descripción, fecha/hora, prioridad, repetición, estado). Los 18
+  `FollowUpReminder` activos en producción se migraron automáticamente sin
+  pérdida de historial (ver `docs/AUDIT_LOG.md`) y la sección "Seguimiento
+  planificado" se retiró por completo del panel de actividades de Trabajo.
+- **Repetición** (una vez/diario/semanal/mensual): al completar un
+  recordatorio repetitivo se genera automáticamente la siguiente ocurrencia
+  (`advanceRepeat()`), auditada como una fila `CREATED` nueva.
+- **Recordatorios vencidos:** banda roja "Recordatorio pendiente" dentro de
+  Escritorio Digital; acciones Completar/Posponer (15min/30min/1h/mañana/
+  fecha elegida)/Editar/Eliminar.
+- **Widget del Dashboard reemplazado:** ahora muestra únicamente "Mis
+  próximos recordatorios" (máx. 5, ordenados por fecha, sin completados) —
+  las notas dejaron de tener preview en el Dashboard, se surfacean vía el
+  punto rojo del sidebar en su lugar (ver Decisiones).
+- **Calendario personal** (`CalendarPanel.tsx`): recordatorios + notas
+  pendientes propias en una grilla mensual — no lee ni modifica Reuniones.
+- **Búsqueda unificada** (`GET /api/desk/search`): texto, prioridad, fecha,
+  remitente/destinatario (solo notas), estado — combina notas y
+  recordatorios propios.
+- **"Bandeja Hoy"** (mejora adoptada, no pedida explícitamente): pestaña
+  por defecto al entrar al módulo con 4 bloques — notas pendientes,
+  recordatorios de hoy, tareas próximas a vencer (Trabajo, solo lectura) y
+  proyectos con actividad reciente (Proyectos, solo lectura, ventana fija
+  de 7 días — ver Decisiones).
+- **Auditoría central** (`DeskAuditLog`, un solo modelo para notas y
+  recordatorios, mismo criterio que `RecoveryAuditLog`): creación, edición,
+  lectura, fijado/desfijado, archivado, eliminación, conversión en tarea,
+  cambio de prioridad, posposición, completado — todas con usuario y fecha.
+
+**Archivos afectados:** `prisma/schema.prisma` (+`DeskNoteColor`,
++adjunto/`convertedToTaskId` en `DeskNote`, +`PersonalReminder`,
++`DeskAuditLog`, −`FollowUpReminder`),
+`prisma/migrations/20260723054447_desk_center_evolution_additive/`,
+`prisma/migrations/20260723054842_remove_followup_reminder/`,
+`src/lib/deskAudit.ts` (nuevo), `src/lib/deskReminders.ts` (nuevo),
+`src/lib/storage.ts` (`saveIdeaAttachment` → `saveAttachment`, ahora
+compartido con notas), `src/app/api/desk-notes/**` (color/adjunto,
+`[id]/attachment`, `[id]/convert-to-task`, `unread-count`),
+`src/app/api/desk-reminders/**` (nuevo), `src/app/api/desk/today` y
+`src/app/api/desk/search` (nuevos), `src/components/desk/**`
+(`ConvertToTaskModal`, `ReminderCard`, `NewReminderModal`, `NotesPanel`,
+`RemindersPanel`, `CalendarPanel`, `SearchPanel`, `TodayInbox`, `DeskBoard`
+reestructurado en pestañas), `src/components/dashboard/RemindersWidget.tsx`
+(reemplaza a `DeskNotesWidget.tsx`), `src/components/shell/Sidebar.tsx`
+(punto rojo), `src/components/tasks/ActivityPanel.tsx` (se retira
+"Seguimiento planificado"), `src/components/reminders/` (eliminado —
+`ReminderNotifier.tsx`), `src/app/api/reminders/**` (eliminado).
+
+**Impacto:** cambio de comportamiento intencional (`BREAKING CHANGE`) sobre
+el sistema de recordatorios anterior — quien esperaba "Seguimiento
+planificado" dentro de una tarea ahora encuentra sus recordatorios en
+Escritorio Digital. Sin cambios en Analytics/KPIs/carga laboral (§Reglas).
+Verificado en vivo con cuentas descartables (`*@verify.local`, eliminadas
+al finalizar): nota con color+adjunto, descarga, confirmación de lectura,
+conversión a tarea (bloquea doble conversión, preserva la nota), creación/
+completado/generación automática de la siguiente ocurrencia/posposición de
+recordatorios, Bandeja Hoy, punto rojo, búsqueda, y confirmación de que las
+rutas antiguas de `/api/reminders` ya no existen (404).
+
+**Autor:** Claude Code (dirigido por Anthony Jácome).
+
+---
+
 ## v1.8.0 — 2026-07-23
 
 **Tipo:** FEATURE / DATABASE

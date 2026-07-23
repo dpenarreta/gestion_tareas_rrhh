@@ -1,20 +1,33 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Paperclip, X as XIcon } from "lucide-react";
 import { ROLE_LABEL } from "@/lib/roles";
-import { PRIORITY_LABEL, PRIORITY_STRIPE, type DeskNotePriority, type RecipientOption } from "./types";
+import {
+  PRIORITY_LABEL,
+  PRIORITY_STRIPE,
+  COLOR_LABEL,
+  COLOR_SWATCH,
+  type DeskNotePriority,
+  type DeskNoteColor,
+  type RecipientOption,
+} from "./types";
 import type { Role } from "@/generated/prisma/client";
 
 const PRIORITIES: DeskNotePriority[] = ["INFORMACION", "RECORDATORIO", "IMPORTANTE", "URGENTE"];
+const COLORS: DeskNoteColor[] = ["AMARILLO", "ROSADO", "CELESTE", "VERDE", "NARANJA", "LILA"];
 const MAX_LENGTH = 500;
 
 export default function NewNoteModal({ onClose, onCreated }: { onClose: () => void; onCreated: () => void }) {
   const [recipients, setRecipients] = useState<RecipientOption[]>([]);
   const [recipientId, setRecipientId] = useState("");
   const [priority, setPriority] = useState<DeskNotePriority>("INFORMACION");
+  const [color, setColor] = useState<DeskNoteColor>("AMARILLO");
   const [message, setMessage] = useState("");
+  const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     fetch("/api/desk-notes/recipients")
@@ -29,11 +42,14 @@ export default function NewNoteModal({ onClose, onCreated }: { onClose: () => vo
     if (!message.trim()) { setError("Escribe un mensaje"); return; }
     setSaving(true);
     try {
-      const res = await fetch("/api/desk-notes", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recipientId, priority, message: message.trim() }),
-      });
+      const formData = new FormData();
+      formData.set("recipientId", recipientId);
+      formData.set("priority", priority);
+      formData.set("color", color);
+      formData.set("message", message.trim());
+      if (file) formData.set("file", file);
+
+      const res = await fetch("/api/desk-notes", { method: "POST", body: formData });
       const data = await res.json();
       if (!res.ok) setError(data.error ?? "Error al dejar la nota");
       else onCreated();
@@ -74,6 +90,25 @@ export default function NewNoteModal({ onClose, onCreated }: { onClose: () => vo
           </div>
 
           <div>
+            <label className="block text-xs font-semibold text-main mb-1.5">Color del Post-it</label>
+            <div className="flex items-center gap-2">
+              {COLORS.map((c) => (
+                <button
+                  key={c}
+                  type="button"
+                  title={COLOR_LABEL[c]}
+                  aria-label={COLOR_LABEL[c]}
+                  onClick={() => setColor(c)}
+                  className={`w-7 h-7 rounded-full border-2 transition-transform ${
+                    color === c ? "border-primary scale-110" : "border-transparent hover:scale-105"
+                  }`}
+                  style={{ background: COLOR_SWATCH[c] }}
+                />
+              ))}
+            </div>
+          </div>
+
+          <div>
             <label className="block text-xs font-semibold text-main mb-1.5">Prioridad</label>
             <div className="grid grid-cols-2 gap-2">
               {PRIORITIES.map((p) => (
@@ -104,6 +139,37 @@ export default function NewNoteModal({ onClose, onCreated }: { onClose: () => vo
               className="w-full px-3 py-2 text-sm text-title bg-surface border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary resize-none"
             />
             <p className="mt-1 text-[11px] text-disabled text-right">{message.length}/{MAX_LENGTH}</p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-main mb-1.5">Adjunto (opcional)</label>
+            {file ? (
+              <div className="flex items-center justify-between gap-2 px-3 py-2 bg-background border border-border rounded-xl">
+                <span className="flex items-center gap-1.5 text-xs text-title truncate">
+                  <Paperclip className="w-3.5 h-3.5 shrink-0 text-secondary" strokeWidth={2} />
+                  {file.name}
+                </span>
+                <button type="button" onClick={() => setFile(null)} className="text-disabled hover:text-danger shrink-0">
+                  <XIcon className="w-4 h-4" strokeWidth={2} />
+                </button>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-secondary border border-dashed border-border rounded-xl hover:border-primary/40 hover:text-primary transition-colors"
+              >
+                <Paperclip className="w-3.5 h-3.5" strokeWidth={2} />
+                Adjuntar archivo (máx. 8MB)
+              </button>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              accept=".png,.jpg,.jpeg,.pdf,.doc,.docx,.xls,.xlsx"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            />
           </div>
 
           {error && <p className="text-sm text-danger bg-danger/[.09] px-3 py-2 rounded-xl">{error}</p>}

@@ -33,11 +33,11 @@ vi.mock("@/lib/ideas", () => ({
 
 vi.mock("@/lib/storage", () => {
   class AttachmentError extends Error {}
-  return { saveIdeaAttachment: vi.fn(), AttachmentError };
+  return { saveAttachment: vi.fn(), AttachmentError };
 });
 
 const { getSession } = await import("@/lib/session");
-const { saveIdeaAttachment, AttachmentError } = await import("@/lib/storage");
+const { saveAttachment, AttachmentError } = await import("@/lib/storage");
 const { GET: ideasGET, POST: ideasPOST } = await import("@/app/api/ideas/route");
 const { GET: ideaGET, PATCH: ideaPATCH } = await import("@/app/api/ideas/[id]/route");
 const { GET: historyGET } = await import("@/app/api/ideas/[id]/history/route");
@@ -80,7 +80,7 @@ function resetAll() {
   notificationCreateMany.mockReset().mockResolvedValue({});
   vi.mocked(getSession).mockReset();
   vi.mocked(getVisibleIdeaAuthorIds).mockReset().mockResolvedValue(["u1"]);
-  vi.mocked(saveIdeaAttachment).mockReset();
+  vi.mocked(saveAttachment).mockReset();
 }
 
 describe("GET /api/ideas", () => {
@@ -160,7 +160,7 @@ describe("POST /api/ideas", () => {
 
   it("adjunta el archivo cuando se sube uno válido", async () => {
     mockSession({});
-    vi.mocked(saveIdeaAttachment).mockResolvedValue({ fileName: "adjunto.pdf", attachmentData: "data:application/pdf;base64,xxx" });
+    vi.mocked(saveAttachment).mockResolvedValue({ fileName: "adjunto.pdf", attachmentData: "data:application/pdf;base64,xxx" });
     improvementIdeaCreate.mockResolvedValue({ id: "idea-1", _count: { votes: 0 }, votes: [] });
     userFindMany.mockResolvedValue([]);
 
@@ -178,7 +178,7 @@ describe("POST /api/ideas", () => {
 
   it("responde 400 si el adjunto no pasa la validación de storage (AttachmentError)", async () => {
     mockSession({});
-    vi.mocked(saveIdeaAttachment).mockRejectedValue(new AttachmentError("Tipo de archivo no permitido"));
+    vi.mocked(saveAttachment).mockRejectedValue(new AttachmentError("Tipo de archivo no permitido"));
     const file = new File([new Uint8Array(10)], "malware.exe", { type: "application/octet-stream" });
 
     const res = await ideasPOST({
@@ -192,7 +192,7 @@ describe("POST /api/ideas", () => {
 
   it("relanza errores inesperados de storage que no son AttachmentError", async () => {
     mockSession({});
-    vi.mocked(saveIdeaAttachment).mockRejectedValue(new Error("fallo inesperado"));
+    vi.mocked(saveAttachment).mockRejectedValue(new Error("fallo inesperado"));
     const file = new File([new Uint8Array(10)], "a.pdf", { type: "application/pdf" });
     await expect(
       ideasPOST({

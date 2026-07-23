@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import type { Role } from "@/generated/prisma/client";
-import type { Task, TaskActivity, FollowUpReminder } from "./types";
+import type { Task, TaskActivity } from "./types";
 import { ROLE_LABEL } from "@/lib/roles";
 import TimeInput24 from "@/components/ui/TimeInput24";
 import type { ActivityFormat } from "@/lib/activityFormat";
@@ -44,7 +44,7 @@ type TargetTimeInfo = {
 
 type DayScheduleEntry = { id: string; startTime: string; endTime: string; taskId: string; taskTitle: string };
 
-function formatReminderDateTime(iso: string): string {
+function formatAuditDateTime(iso: string): string {
   const d = new Date(iso);
   const day = String(d.getDate()).padStart(2, "0");
   const month = String(d.getMonth() + 1).padStart(2, "0");
@@ -96,17 +96,6 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
   const [auditExpanded, setAuditExpanded] = useState(false);
   const [validateOpen, setValidateOpen] = useState(false);
 
-  const [reminders, setReminders] = useState<FollowUpReminder[]>([]);
-  const [remindersExpanded, setRemindersExpanded] = useState(true);
-  const remindersDefaultSetRef = useRef(false);
-  const [showReminderForm, setShowReminderForm] = useState(false);
-  const [reminderTitle, setReminderTitle] = useState("");
-  const [reminderDate, setReminderDate] = useState("");
-  const [reminderTime, setReminderTime] = useState("");
-  const [reminderDescription, setReminderDescription] = useState("");
-  const [reminderSubmitting, setReminderSubmitting] = useState(false);
-  const [reminderError, setReminderError] = useState("");
-  const [deletingReminderId, setDeletingReminderId] = useState<string | null>(null);
 
   const bottomRef = useRef<HTMLDivElement>(null);
 
@@ -188,70 +177,6 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
   // Sin sync-effect: mientras el usuario no elija explícitamente, el motivo
   // efectivo es el primero disponible una vez que la lista carga.
   const effectiveReason = reason || selectable[0]?.key || "";
-
-  useEffect(() => {
-    if (readOnly) return;
-    fetch(`/api/reminders?taskId=${task.id}`)
-      .then((r) => (r.ok ? r.json() : []))
-      .then((data) => {
-        const list: FollowUpReminder[] = Array.isArray(data) ? data : [];
-        setReminders(list);
-        if (!remindersDefaultSetRef.current) {
-          setRemindersExpanded(list.length <= 3);
-          remindersDefaultSetRef.current = true;
-        }
-      })
-      .catch(() => setReminders([]));
-  }, [task.id, readOnly]);
-
-  async function submitReminder() {
-    if (!reminderTitle.trim() || !reminderDate || !reminderTime || reminderSubmitting) return;
-    setReminderError("");
-    setReminderSubmitting(true);
-    try {
-      const reminderAt = new Date(`${reminderDate}T${reminderTime}:00`).toISOString();
-      const res = await fetch("/api/reminders", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          taskId: task.id,
-          title: reminderTitle.trim(),
-          description: reminderDescription.trim() || null,
-          reminderAt,
-        }),
-      });
-      if (res.ok) {
-        const created = await res.json();
-        setReminders((prev) => [...prev, created].sort((a, b) => a.reminderAt.localeCompare(b.reminderAt)));
-        setReminderTitle("");
-        setReminderDate("");
-        setReminderTime("");
-        setReminderDescription("");
-        setShowReminderForm(false);
-      } else {
-        let msg = "Error al crear el recordatorio";
-        try {
-          const data = await res.json();
-          msg = data.error ?? msg;
-        } catch { /* respuesta sin body */ }
-        setReminderError(msg);
-      }
-    } finally {
-      setReminderSubmitting(false);
-    }
-  }
-
-  async function handleDeleteReminder(id: string) {
-    setDeletingReminderId(id);
-    try {
-      const res = await fetch(`/api/reminders/${id}`, { method: "DELETE" });
-      if (res.ok) {
-        setReminders((prev) => prev.filter((r) => r.id !== id));
-      }
-    } finally {
-      setDeletingReminderId(null);
-    }
-  }
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -441,7 +366,7 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
                             </p>
                             <p className="text-secondary">{TARGET_TIME_REASON_LABEL[a.reason]}{a.reasonDetail ? `: ${a.reasonDetail}` : ""}</p>
                             <p className="text-disabled">
-                              {a.user.name} ({ROLE_LABEL[a.userRole as Role] ?? a.userRole}) · {formatReminderDateTime(a.createdAt)}
+                              {a.user.name} ({ROLE_LABEL[a.userRole as Role] ?? a.userRole}) · {formatAuditDateTime(a.createdAt)}
                             </p>
                           </div>
                         ))}
@@ -466,109 +391,6 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
               loadTargetTime();
             }}
           />
-        )}
-
-        {/* Seguimiento planificado */}
-        {!readOnly && (
-          <div className="px-4 py-3 border-b border-border">
-            <button
-              onClick={() => setRemindersExpanded((v) => !v)}
-              className="w-full flex items-center gap-1.5 text-xs font-semibold text-main hover:text-primary transition-colors"
-            >
-              <svg
-                className={`w-3 h-3 shrink-0 transition-transform duration-200 ${remindersExpanded ? "rotate-90" : ""}`}
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
-              </svg>
-              <span>
-                Seguimiento planificado{reminders.length > 0 ? ` (${reminders.length})` : ""}
-              </span>
-            </button>
-
-            <div
-              className={`grid transition-all duration-300 ease-in-out ${
-                remindersExpanded ? "grid-rows-[1fr] opacity-100 mt-2.5" : "grid-rows-[0fr] opacity-0"
-              }`}
-            >
-              <div className="overflow-hidden">
-                <div className="flex items-center justify-end">
-                  <button
-                    onClick={() => setShowReminderForm((v) => !v)}
-                    className="text-xs font-medium text-primary hover:text-primary-hover"
-                  >
-                    {showReminderForm ? "Cancelar" : "+ Agregar recordatorio"}
-                  </button>
-                </div>
-
-                {reminders.length > 0 && (
-                  <div className="space-y-1.5 mt-2">
-                    {reminders.map((r) => (
-                      <div key={r.id} className="flex items-start justify-between gap-2 bg-background rounded-lg px-3 py-2">
-                        <div className="min-w-0">
-                          <p className="text-xs font-medium text-title truncate">{r.title}</p>
-                          <p className="text-[10px] text-disabled">{formatReminderDateTime(r.reminderAt)}</p>
-                          {r.description && (
-                            <p className="text-[11px] text-secondary mt-0.5 leading-snug">{r.description}</p>
-                          )}
-                        </div>
-                        <button
-                          onClick={() => handleDeleteReminder(r.id)}
-                          disabled={deletingReminderId === r.id}
-                          className="p-0.5 text-disabled hover:text-danger transition-colors disabled:opacity-40 shrink-0"
-                          title="Eliminar recordatorio"
-                        >
-                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                          </svg>
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {showReminderForm && (
-                  <div className="space-y-2 pt-2">
-                    <input
-                      type="text"
-                      value={reminderTitle}
-                      onChange={(e) => setReminderTitle(e.target.value)}
-                      placeholder="Nombre del recordatorio"
-                      className="w-full border border-border rounded-lg px-3 py-1.5 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
-                    />
-                    <div className="grid grid-cols-2 gap-2">
-                      <input
-                        type="date"
-                        value={reminderDate}
-                        onChange={(e) => setReminderDate(e.target.value)}
-                        className="w-full border border-border rounded-lg px-3 py-1.5 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
-                      />
-                      <TimeInput24 value={reminderTime} onChange={setReminderTime} />
-                    </div>
-                    <textarea
-                      value={reminderDescription}
-                      onChange={(e) => setReminderDescription(e.target.value)}
-                      rows={2}
-                      placeholder="Descripción (opcional)"
-                      className="w-full border border-border rounded-lg px-3 py-1.5 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary resize-none"
-                    />
-                    {reminderError && (
-                      <p className="text-xs text-danger bg-danger/[.09] rounded-lg px-3 py-2">{reminderError}</p>
-                    )}
-                    <button
-                      onClick={submitReminder}
-                      disabled={!reminderTitle.trim() || !reminderDate || !reminderTime || reminderSubmitting}
-                      className="w-full bg-primary text-white rounded-lg py-1.5 text-xs font-medium hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                    >
-                      {reminderSubmitting ? "Guardando…" : "Guardar recordatorio"}
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
         )}
 
         {/* Activity list */}

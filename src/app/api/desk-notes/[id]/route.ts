@@ -2,12 +2,22 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canUseDeskNotes } from "@/lib/roles";
+import { logDeskAudit } from "@/lib/deskAudit";
 import * as recoveryCenter from "@/lib/recoveryCenter";
+import type { DeskAuditAction } from "@/generated/prisma/client";
 
 type Ctx = { params: Promise<{ id: string }> };
 
 const ACTIONS = ["read", "pin", "unpin", "archive", "unarchive"] as const;
 type Action = (typeof ACTIONS)[number];
+
+const ACTION_AUDIT: Record<Action, DeskAuditAction> = {
+  read: "READ",
+  pin: "PINNED",
+  unpin: "UNPINNED",
+  archive: "ARCHIVED",
+  unarchive: "UNARCHIVED",
+};
 
 // El estado de una nota (leída/fijada/archivada) lo controla únicamente quien
 // la recibió — es su escritorio. El remitente no puede alterar la copia de
@@ -28,12 +38,16 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: "Acción inválida" }, { status: 400 });
   }
 
-  const note = await prisma.deskNote.findUnique({ where: { id }, select: { recipientId: true, deletedAt: true } });
+  const note = await prisma.deskNote.findUnique({ where: { id }, select: { recipientId: true, deletedAt: true, read: true } });
   if (!note || note.deletedAt) {
     return NextResponse.json({ error: "Nota no encontrada" }, { status: 404 });
   }
   if (note.recipientId !== session.userId) {
     return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
+  }
+  // Idempotente: marcar leída una nota ya leída no reescribe readAt ni genera auditoría duplicada.
+  if (action === "read" && note.read) {
+    return NextResponse.json({ id, read: true });
   }
 
   const now = new Date();
@@ -49,6 +63,8 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
             : { archived: false, archivedAt: null };
 
   const updated = await prisma.deskNote.update({ where: { id }, data });
+  await logDeskAudit({ entityType: "NOTE", entityId: id, userId: session.userId, action: ACTION_AUDIT[action] });
+
   return NextResponse.json({ id: updated.id, read: updated.read, pinned: updated.pinned, archived: updated.archived });
 }
 
@@ -78,6 +94,8 @@ export async function DELETE(_req: NextRequest, ctx: Ctx) {
   } catch (err) {
     return NextResponse.json({ error: err instanceof Error ? err.message : "Error al eliminar" }, { status: 409 });
   }
+
+  await logDeskAudit({ entityType: "NOTE", entityId: id, userId: session.userId, action: "DELETED" });
 
   return NextResponse.json({ success: true });
 }

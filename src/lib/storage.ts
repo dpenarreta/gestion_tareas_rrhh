@@ -4,9 +4,9 @@ const MAX_SIZE_BYTES = 8 * 1024 * 1024;
 export class AttachmentError extends Error {}
 
 export type SavedAttachment = {
-  /** Full data: URL (data:<mime>;base64,<payload>) — stored in ImprovementIdea.attachmentData. */
+  /** Full data: URL (data:<mime>;base64,<payload>) — stored directly in the owning row. */
   attachmentData: string;
-  /** Original file name, stored in ImprovementIdea.attachmentUrl for display/download. */
+  /** Original file name, stored alongside attachmentData for display/download. */
   fileName: string;
 };
 
@@ -15,9 +15,9 @@ export type SavedAttachment = {
  * Vercel's serverless filesystem is read-only/ephemeral, so writing to
  * public/uploads (the previous approach) silently failed in production —
  * see project history. Storing the attachment in the row itself avoids
- * needing any external file storage.
+ * needing any external file storage. Shared by ImprovementIdea and DeskNote.
  */
-export async function saveIdeaAttachment(file: File): Promise<SavedAttachment> {
+export async function saveAttachment(file: File): Promise<SavedAttachment> {
   if (file.size > MAX_SIZE_BYTES) {
     throw new AttachmentError("El archivo supera el tamaño máximo permitido (8MB)");
   }
