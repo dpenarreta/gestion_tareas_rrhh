@@ -49,8 +49,12 @@
   convertir nota en tarea, recordatorios personales (reemplazan por
   completo a `FollowUpReminder`, con migración de datos verificada) con
   repetición y posposición, widget del Dashboard limitado a recordatorios,
-  calendario personal, búsqueda unificada y Bandeja Hoy (v1.9.0 — este
-  sprint).
+  calendario personal, búsqueda unificada y Bandeja Hoy (v1.9.0).
+- Recordatorios — refinamiento de ciclo de vida: "Completado" deja de ser
+  definitivo, reabrir (con opción de mantener o reprogramar fecha/hora)
+  actualiza la misma fila sin crear un registro nuevo, historial de
+  auditoría visible por recordatorio, y pestaña "Archivados" separada de
+  "Completados" (v1.10.0 — este sprint).
 
 ## En desarrollo
 

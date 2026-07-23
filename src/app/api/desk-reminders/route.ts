@@ -19,6 +19,7 @@ const reminderSelect = {
   status: true,
   repeat: true,
   completedAt: true,
+  archived: true,
   createdAt: true,
 } as const;
 
@@ -39,10 +40,15 @@ export async function GET(request: NextRequest) {
   const to = searchParams.get("to");
   const limitParam = searchParams.get("limit");
   const limit = limitParam ? Math.max(1, Math.min(200, Number(limitParam))) : undefined;
+  // Los archivados quedan fuera por defecto (Dashboard, Hoy, Calendario, listado
+  // normal de Completados) — solo aparecen con ?archived=true explícito, mismo
+  // criterio que DeskNote.
+  const archived = searchParams.get("archived") === "true";
 
   const reminders = await prisma.personalReminder.findMany({
     where: {
       userId: session.userId,
+      archived,
       ...(status === "PENDIENTE" || status === "COMPLETADO" ? { status } : {}),
       ...(from || to
         ? { dueAt: { ...(from ? { gte: new Date(from) } : {}), ...(to ? { lte: new Date(to) } : {}) } }

@@ -129,8 +129,64 @@ export type PersonalReminder = {
   status: ReminderStatus;
   repeat: ReminderRepeat;
   completedAt: string | null;
+  archived: boolean;
   createdAt: string;
 };
+
+export type DeskAuditAction =
+  | "CREATED"
+  | "EDITED"
+  | "READ"
+  | "PINNED"
+  | "UNPINNED"
+  | "ARCHIVED"
+  | "UNARCHIVED"
+  | "DELETED"
+  | "CONVERTED_TO_TASK"
+  | "PRIORITY_CHANGED"
+  | "POSTPONED"
+  | "COMPLETED"
+  | "REOPENED";
+
+export type DeskAuditEvent = {
+  id: string;
+  action: DeskAuditAction;
+  metadata: Record<string, unknown> | null;
+  createdAt: string;
+};
+
+// Narrativa del historial de un recordatorio (§4 Auditoría) — traduce cada
+// acción a la frase que se le muestra al usuario, en el mismo tono del
+// ejemplo del pedido ("Recordatorio creado.", "Reabierto.", ...).
+export function describeReminderEvent(e: DeskAuditEvent): string {
+  switch (e.action) {
+    case "CREATED":
+      return e.metadata?.nextOccurrenceOf ? "Generado automáticamente por repetición." : "Recordatorio creado.";
+    case "COMPLETED":
+      return "Marcado como completado.";
+    case "REOPENED":
+      return "Reabierto.";
+    case "POSTPONED": {
+      const to = typeof e.metadata?.to === "string" ? e.metadata.to : null;
+      return to ? `Nueva fecha programada: ${fmtDueDateTime(to)}.` : "Pospuesto.";
+    }
+    case "EDITED":
+      return "Editado.";
+    case "PRIORITY_CHANGED": {
+      const from = e.metadata?.from;
+      const to = e.metadata?.to;
+      return from && to ? `Prioridad cambiada de ${REMINDER_PRIORITY_LABEL[from as ReminderPriority]} a ${REMINDER_PRIORITY_LABEL[to as ReminderPriority]}.` : "Prioridad cambiada.";
+    }
+    case "ARCHIVED":
+      return "Archivado.";
+    case "UNARCHIVED":
+      return "Restaurado del archivo.";
+    case "DELETED":
+      return "Eliminado.";
+    default:
+      return e.action;
+  }
+}
 
 export const REMINDER_PRIORITY_LABEL: Record<ReminderPriority, string> = {
   BAJA: "Baja",

@@ -9,6 +9,7 @@ const personalReminderFindUnique = vi.fn();
 const personalReminderCreate = vi.fn();
 const personalReminderUpdate = vi.fn();
 const personalReminderDelete = vi.fn();
+const deskAuditLogFindMany = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -19,6 +20,7 @@ vi.mock("@/lib/prisma", () => ({
       update: personalReminderUpdate,
       delete: personalReminderDelete,
     },
+    deskAuditLog: { findMany: deskAuditLogFindMany },
   },
 }));
 
@@ -35,6 +37,7 @@ vi.mock("@/lib/deskReminders", async (importOriginal) => {
 const { getSession } = await import("@/lib/session");
 const { GET, POST } = await import("@/app/api/desk-reminders/route");
 const { PATCH, DELETE } = await import("@/app/api/desk-reminders/[id]/route");
+const { GET: historyGET } = await import("@/app/api/desk-reminders/[id]/history/route");
 
 function mockSession(overrides: Partial<SessionPayload> | null) {
   vi.mocked(getSession).mockResolvedValue(
@@ -81,6 +84,7 @@ function resetAll() {
   personalReminderCreate.mockReset();
   personalReminderUpdate.mockReset();
   personalReminderDelete.mockReset();
+  deskAuditLogFindMany.mockReset();
   logDeskAudit.mockReset();
   vi.mocked(getSession).mockReset();
 }
@@ -100,19 +104,28 @@ describe("GET /api/desk-reminders", () => {
     expect(res.status).toBe(403);
   });
 
-  it("filtra por status y escopa siempre al usuario de la sesión", async () => {
+  it("filtra por status, excluye archivados por defecto y escopa al usuario de la sesión", async () => {
     mockSession({});
     personalReminderFindMany.mockResolvedValue([REMINDER_SELECT_ROW]);
     const res = await GET(getRequest("http://localhost/api/desk-reminders?status=PENDIENTE&limit=5"));
     expect(personalReminderFindMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: expect.objectContaining({ userId: "u1", status: "PENDIENTE" }),
+        where: expect.objectContaining({ userId: "u1", status: "PENDIENTE", archived: false }),
         take: 5,
       })
     );
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body[0].dueAt).toBe("2026-08-01T10:00:00.000Z");
+  });
+
+  it("con archived=true consulta solo los archivados", async () => {
+    mockSession({});
+    personalReminderFindMany.mockResolvedValue([]);
+    await GET(getRequest("http://localhost/api/desk-reminders?archived=true"));
+    expect(personalReminderFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ archived: true }) })
+    );
   });
 });
 
@@ -226,6 +239,128 @@ describe("PATCH /api/desk-reminders/[id]", () => {
     const res = await PATCH(jsonRequest({ title: "Nuevo título" }), ctx());
     expect(res.status).toBe(200);
     expect(logDeskAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "EDITED" }));
+  });
+
+  describe("reabrir (§Refinamiento ciclo de vida)", () => {
+    it("responde 409 si el recordatorio no está completado", async () => {
+      mockSession({ userId: "u1" });
+      personalReminderFindUnique.mockResolvedValue({ ...REMINDER_SELECT_ROW, userId: "u1", status: "PENDIENTE" });
+      const res = await PATCH(jsonRequest({ action: "reopen" }), ctx());
+      expect(res.status).toBe(409);
+      expect(personalReminderUpdate).not.toHaveBeenCalled();
+    });
+
+    it("opción A (sin dueAt): vuelve a PENDIENTE con la misma fecha, mismo id, un solo evento REOPENED", async () => {
+      mockSession({ userId: "u1" });
+      const completed = { ...REMINDER_SELECT_ROW, userId: "u1", status: "COMPLETADO", completedAt: new Date(), archived: false };
+      personalReminderFindUnique.mockResolvedValue(completed);
+      personalReminderUpdate.mockResolvedValue({ ...completed, status: "PENDIENTE", completedAt: null });
+
+      const res = await PATCH(jsonRequest({ action: "reopen" }), ctx("r1"));
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.id).toBe("r1");
+      expect(personalReminderCreate).not.toHaveBeenCalled();
+      expect(personalReminderUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: "r1" },
+          data: expect.objectContaining({ status: "PENDIENTE", completedAt: null, archived: false, archivedAt: null, notified: false }),
+        })
+      );
+      // Sin nueva fecha: solo se audita REOPENED, ningún POSTPONED.
+      expect(logDeskAudit).toHaveBeenCalledTimes(1);
+      expect(logDeskAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "REOPENED", entityId: "r1" }));
+    });
+
+    it("opción B (con dueAt): actualiza la fecha y audita REOPENED + POSTPONED con from/to", async () => {
+      mockSession({ userId: "u1" });
+      const completed = { ...REMINDER_SELECT_ROW, userId: "u1", status: "COMPLETADO", dueAt: new Date("2026-08-01T10:00:00.000Z") };
+      personalReminderFindUnique.mockResolvedValue(completed);
+      personalReminderUpdate.mockResolvedValue({ ...completed, status: "PENDIENTE", dueAt: new Date("2026-08-05T09:00:00.000Z") });
+
+      const res = await PATCH(jsonRequest({ action: "reopen", dueAt: "2026-08-05T09:00:00Z" }), ctx("r1"));
+      expect(res.status).toBe(200);
+      expect(personalReminderUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: expect.objectContaining({ dueAt: new Date("2026-08-05T09:00:00.000Z") }) })
+      );
+      expect(logDeskAudit).toHaveBeenCalledTimes(2);
+      expect(logDeskAudit).toHaveBeenNthCalledWith(1, expect.objectContaining({ action: "REOPENED" }));
+      expect(logDeskAudit).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          action: "POSTPONED",
+          metadata: { from: "2026-08-01T10:00:00.000Z", to: "2026-08-05T09:00:00.000Z" },
+        })
+      );
+    });
+
+    it("responde 400 si la nueva fecha es inválida", async () => {
+      mockSession({ userId: "u1" });
+      personalReminderFindUnique.mockResolvedValue({ ...REMINDER_SELECT_ROW, userId: "u1", status: "COMPLETADO" });
+      const res = await PATCH(jsonRequest({ action: "reopen", dueAt: "no-es-fecha" }), ctx());
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe("archivar / desarchivar", () => {
+    it("archivar marca archived=true, archivedAt y audita ARCHIVED", async () => {
+      mockSession({ userId: "u1" });
+      personalReminderFindUnique.mockResolvedValue({ ...REMINDER_SELECT_ROW, userId: "u1", status: "COMPLETADO" });
+      personalReminderUpdate.mockResolvedValue({ ...REMINDER_SELECT_ROW, archived: true });
+      const res = await PATCH(jsonRequest({ action: "archive" }), ctx());
+      expect(res.status).toBe(200);
+      expect(personalReminderUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { archived: true, archivedAt: expect.any(Date) } })
+      );
+      expect(logDeskAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "ARCHIVED" }));
+    });
+
+    it("desarchivar marca archived=false, archivedAt null y audita UNARCHIVED", async () => {
+      mockSession({ userId: "u1" });
+      personalReminderFindUnique.mockResolvedValue({ ...REMINDER_SELECT_ROW, userId: "u1", archived: true });
+      personalReminderUpdate.mockResolvedValue({ ...REMINDER_SELECT_ROW, archived: false });
+      const res = await PATCH(jsonRequest({ action: "unarchive" }), ctx());
+      expect(res.status).toBe(200);
+      expect(personalReminderUpdate).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { archived: false, archivedAt: null } })
+      );
+      expect(logDeskAudit).toHaveBeenCalledWith(expect.objectContaining({ action: "UNARCHIVED" }));
+    });
+  });
+});
+
+describe("GET /api/desk-reminders/[id]/history", () => {
+  beforeEach(resetAll);
+
+  it("responde 401 si no hay sesión", async () => {
+    mockSession(null);
+    const res = await historyGET(jsonRequest(undefined), ctx());
+    expect(res.status).toBe(401);
+  });
+
+  it("responde 404 si el recordatorio no existe o es de otro usuario", async () => {
+    mockSession({ userId: "u1" });
+    personalReminderFindUnique.mockResolvedValue({ userId: "otro" });
+    const res = await historyGET(jsonRequest(undefined), ctx());
+    expect(res.status).toBe(404);
+  });
+
+  it("devuelve los eventos de auditoría en orden cronológico ascendente", async () => {
+    mockSession({ userId: "u1" });
+    personalReminderFindUnique.mockResolvedValue({ userId: "u1" });
+    deskAuditLogFindMany.mockResolvedValue([
+      { id: "a1", action: "CREATED", metadata: null, createdAt: new Date("2026-07-22T09:10:00Z") },
+      { id: "a2", action: "COMPLETED", metadata: null, createdAt: new Date("2026-07-22T11:30:00Z") },
+    ]);
+    const res = await historyGET(jsonRequest(undefined), ctx("r1"));
+    expect(deskAuditLogFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { entityType: "REMINDER", entityId: "r1" }, orderBy: { createdAt: "asc" } })
+    );
+    const body = await res.json();
+    expect(body).toEqual([
+      { id: "a1", action: "CREATED", metadata: null, createdAt: "2026-07-22T09:10:00.000Z" },
+      { id: "a2", action: "COMPLETED", metadata: null, createdAt: "2026-07-22T11:30:00.000Z" },
+    ]);
   });
 });
 

@@ -37,6 +37,9 @@
 | Adjunto de la nota NO se copia al convertir en tarea (solo se referencia por nombre en la descripción) | `Task` no tiene campo de adjunto y el pedido prohíbe modificar Trabajo salvo la eliminación de recordatorios (§15); la nota original con el adjunto real permanece intacta y accesible. | `AUDIT_LOG.md` § 2026-07-23 |
 | `PersonalReminder` no se integra al Centro de Recuperación (borrado físico + `DeskAuditLog`) | Ítem de productividad personal de alta rotación — someterlo a retención/restauración es sobre-ingeniería no pedida, a diferencia de `DeskNote` (comunicación entre personas). | `AUDIT_LOG.md` § 2026-07-23 |
 | "Proyectos con actividad reciente" (Bandeja Hoy) usa ventana fija de 7 días, no la última visita real | `User` no guarda timestamp de última visita al Escritorio; agregarlo quedaba fuera de alcance. Documentado para no prometer una medición que no existe. | `AUDIT_LOG.md` § 2026-07-23 |
+| Reabrir un recordatorio actualiza la fila existente in-place (nunca crea una nueva) | El pedido es literal: "no se creará un nuevo registro", "se conservará el mismo identificador" — preserva `id` y todo el `DeskAuditLog` acumulado. | `AUDIT_LOG.md` § 2026-07-23 |
+| Reabrir con nueva fecha audita `REOPENED` + `POSTPONED` (dos eventos, no uno nuevo) | El pedido ejemplifica el historial como dos líneas separadas; "reabrir con nueva fecha" y "posponer" son el mismo cambio de campo, no ameritan un tercer valor de enum. | `AUDIT_LOG.md` § 2026-07-23 |
+| Reabrir un recordatorio archivado lo desarchiva automáticamente (incondicional) | Un recordatorio "archivado pero pendiente" es un estado sin caso de uso pedido; reabrir debe devolverlo a activo en todo sentido. | `AUDIT_LOG.md` § 2026-07-23 |
 
 ---
 

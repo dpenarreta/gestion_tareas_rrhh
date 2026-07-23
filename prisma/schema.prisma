@@ -242,6 +242,12 @@ enum ReminderRepeat {
   MENSUAL
 }
 
+// Completado ya NO es un estado definitivo (§Refinamiento ciclo de vida,
+// 2026-07-23) — "Reabrir" regresa status a PENDIENTE conservando el mismo
+// id, nunca crea una fila nueva. `archived` es una dimensión aparte
+// (mismo criterio que DeskNote): un recordatorio completado puede
+// archivarse para salir del historial visible sin perder auditoría ni
+// eliminarse.
 model PersonalReminder {
   id          String           @id @default(cuid())
   userId      String
@@ -253,14 +259,18 @@ model PersonalReminder {
   status      ReminderStatus   @default(PENDIENTE)
   repeat      ReminderRepeat   @default(UNA_VEZ)
   completedAt DateTime?
+  archived    Boolean          @default(false)
+  archivedAt  DateTime?
   // Evita notificar el mismo vencimiento más de una vez (barrido perezoso,
   // ver src/lib/deskReminders.ts) — se reinicia a false cada vez que dueAt
-  // cambia (edición, posposición, o la siguiente ocurrencia de una repetición).
+  // cambia (edición, posposición, reapertura, o la siguiente ocurrencia de
+  // una repetición).
   notified    Boolean          @default(false)
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 
   @@index([userId, status, dueAt])
+  @@index([userId, archived])
 }
 
 // ── Escritorio Digital: Auditoría central ───────────────────────────────────
@@ -282,6 +292,7 @@ enum DeskAuditAction {
   PRIORITY_CHANGED
   POSTPONED
   COMPLETED
+  REOPENED
 }
 
 model DeskAuditLog {

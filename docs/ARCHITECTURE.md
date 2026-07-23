@@ -237,6 +237,11 @@ El esquema completo vive en `prisma/schema.prisma`. Agrupado por dominio:
   siguiente ocurrencia al completar (`advanceRepeat()` en
   `src/lib/deskReminders.ts`). `notified` evita notificar el mismo
   vencimiento más de una vez (barrido perezoso, sin cron dedicado).
+  `status: COMPLETADO` **no es terminal** — "Reabrir" actualiza la misma
+  fila (`id` estable) de vuelta a `PENDIENTE`, nunca crea un registro
+  nuevo (ver `docs/AUDIT_LOG.md` § 2026-07-23, refinamiento de ciclo de
+  vida). `archived`/`archivedAt` son una dimensión aparte de `status`
+  (mismo criterio que `DeskNote.archived`).
 - **`DeskAuditLog`** — auditoría central de Escritorio Digital (notas y
   recordatorios en una sola tabla, `entityType`/`entityId` como referencia
   suelta) — mismo criterio que `RecoveryAuditLog`.

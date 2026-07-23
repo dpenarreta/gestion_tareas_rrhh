@@ -20,6 +20,7 @@ const reminderSelect = {
   status: true,
   repeat: true,
   completedAt: true,
+  archived: true,
   createdAt: true,
 } as const;
 
@@ -32,6 +33,7 @@ function serialize(r: {
   status: string;
   repeat: ReminderRepeat;
   completedAt: Date | null;
+  archived: boolean;
   createdAt: Date;
 }) {
   return {
@@ -112,6 +114,67 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
       userId: session.userId,
       action: "POSTPONED",
       metadata: { from: reminder.dueAt.toISOString(), to: dueAt.toISOString() },
+    });
+    return NextResponse.json(serialize(updated));
+  }
+
+  // Reabrir (§Refinamiento ciclo de vida) — Completado ya no es definitivo.
+  // Nunca crea una fila nueva: mismo id, mismo historial. Opción A (mantener
+  // fecha/hora original) omite dueAt en el body; Opción B lo incluye.
+  if (body.action === "reopen") {
+    if (reminder.status !== "COMPLETADO") {
+      return NextResponse.json({ error: "Solo se puede reabrir un recordatorio completado" }, { status: 409 });
+    }
+
+    let newDueAt: Date | null = null;
+    if (typeof body.dueAt === "string") {
+      newDueAt = new Date(body.dueAt);
+      if (Number.isNaN(newDueAt.getTime())) {
+        return NextResponse.json({ error: "Fecha/hora inválida" }, { status: 400 });
+      }
+    }
+
+    const updated = await prisma.personalReminder.update({
+      where: { id },
+      data: {
+        status: "PENDIENTE",
+        completedAt: null,
+        archived: false,
+        archivedAt: null,
+        notified: false,
+        ...(newDueAt ? { dueAt: newDueAt } : {}),
+      },
+      select: reminderSelect,
+    });
+
+    await logDeskAudit({ entityType: "REMINDER", entityId: id, userId: session.userId, action: "REOPENED" });
+    if (newDueAt) {
+      await logDeskAudit({
+        entityType: "REMINDER",
+        entityId: id,
+        userId: session.userId,
+        action: "POSTPONED",
+        metadata: { from: reminder.dueAt.toISOString(), to: newDueAt.toISOString() },
+      });
+    }
+
+    return NextResponse.json(serialize(updated));
+  }
+
+  // Archivar/desarchivar (§5 Historial de completados) — independiente del
+  // estado; la interfaz solo lo ofrece sobre recordatorios completados.
+  if (body.action === "archive" || body.action === "unarchive") {
+    const archiving = body.action === "archive";
+    const updated = await prisma.personalReminder.update({
+      where: { id },
+      data: { archived: archiving, archivedAt: archiving ? new Date() : null },
+      select: reminderSelect,
+    });
+    await logDeskAudit({
+      entityType: "REMINDER",
+      entityId: id,
+      userId: session.userId,
+      action: archiving ? "ARCHIVED" : "UNARCHIVED",
     });
     return NextResponse.json(serialize(updated));
   }

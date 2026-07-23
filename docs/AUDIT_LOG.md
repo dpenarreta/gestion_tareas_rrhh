@@ -15,6 +15,65 @@
 
 ---
 
+## 2026-07-23 — Recordatorios: "Completado" deja de ser terminal, reabrir nunca crea una fila nueva
+
+**Problema detectado:** el ciclo de vida original de `PersonalReminder`
+(Sprint de evolución de Escritorio Digital, mismo día) trataba `COMPLETADO`
+como un estado final — no había forma de deshacer una compleción accidental
+sin crear un recordatorio nuevo, perdiendo el `id` y el historial de
+auditoría acumulado hasta ese punto. El pedido de refinamiento es explícito:
+"un recordatorio nunca debe perder su historial" y "el sistema debe
+priorizar la recuperación frente a la recreación de información".
+
+**Alternativas evaluadas (reapertura):**
+1. Al "reabrir", crear un nuevo `PersonalReminder` con los mismos datos y
+   marcar el original como referencia histórica — preserva el registro
+   viejo intacto, pero rompe la continuidad de identidad ("el mismo
+   recordatorio") y complica cualquier vista que liste por `id`.
+2. Actualizar la fila existente in-place (`status: PENDIENTE`,
+   `completedAt: null`), conservando `id`/`createdAt`/todo el
+   `DeskAuditLog` acumulado, y agregar el evento `REOPENED`.
+
+**Decisión tomada:** opción 2 — literal con el pedido ("No se creará un
+nuevo registro", "Se conservará el mismo identificador"). `reopen` además
+limpia `archived`/`archivedAt` incondicionalmente: un recordatorio
+archivado-y-completado que se reabre vuelve a estar activo en todos los
+sentidos, no solo en `status` — dejarlo archivado-pero-pendiente habría sido
+un estado confuso sin ningún caso de uso real que lo pidiera.
+
+**Decisión — reapertura con nueva fecha genera DOS eventos de auditoría, no
+uno:** el pedido ejemplifica el historial mostrando "Reabierto." y "Nueva
+fecha programada: …" como dos líneas separadas con timestamps distintos
+(11:42 y 11:43). Se replicó ese comportamiento literalmente: `reopen` con
+`dueAt` registra `REOPENED` y luego `POSTPONED` (reutilizando la acción ya
+existente para reprogramar, con `metadata.from`/`to`) en vez de inventar un
+tercer valor de enum solo para este caso — semánticamente "reabrir con
+nueva fecha" y "posponer" describen el mismo cambio de campo.
+
+**Decisión — recordatorios recurrentes NO se tocan al reabrir el original:**
+completar un recordatorio con `repeat != UNA_VEZ` ya crea automáticamente
+la siguiente ocurrencia (fila independiente, con su propio `id`). Reabrir
+el original después no elimina ni fusiona esa ocurrencia ya generada — el
+usuario puede terminar con dos filas activas (el original reabierto + la
+ocurrencia automática). El pedido no contempla este cruce y no se inventó
+una regla de fusión no solicitada; queda documentado aquí como
+comportamiento aceptado, no como bug pendiente.
+
+**Impacto:** `PersonalReminder` gana `archived`/`archivedAt`;
+`DeskAuditAction` gana `REOPENED`. Sin cambios en notificaciones (la
+bandera `notified` se reinicia igual que en cualquier cambio de `dueAt`),
+recordatorios recurrentes (comportamiento ya descrito arriba), conversión
+de notas, Analytics ni KPIs. Verificado en vivo: un mismo recordatorio
+pasó por 9 transiciones de estado consecutivas (creado → completado →
+reabierto → completado → reabierto con nueva fecha → completado →
+archivado → reabierto) conservando siempre el mismo `id`, con las 9 filas
+correspondientes en `DeskAuditLog` en orden cronológico y sin ninguna
+pérdida.
+
+**Aprobado por:** Anthony Jácome (dirección de producto).
+
+---
+
 ## 2026-07-23 — Escritorio Digital: evolución a "centro personal de trabajo" — migración de recordatorios, notificación perezosa y límites del alcance
 
 **Problema detectado:** el sprint de evolución pidió absorber por completo

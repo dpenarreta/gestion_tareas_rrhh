@@ -23,6 +23,62 @@
 
 ---
 
+## v1.10.0 — 2026-07-23
+
+**Tipo:** FEATURE / DATABASE
+**Módulo:** Escritorio Digital — recordatorios (refinamiento de ciclo de vida)
+
+**Implementado:**
+- **"Completado" deja de ser un estado definitivo:** todo recordatorio
+  completado ahora muestra la acción **↩ Reabrir**. Al usarla, el estado
+  vuelve a `PENDIENTE` sobre la **misma fila** (mismo `id`) — nunca se crea
+  un registro nuevo, nunca se pierde el historial previo.
+- **Diálogo de reapertura con dos opciones:** (A) mantener la fecha/hora
+  original, o (B) elegir una nueva — sin cerrar el diálogo con una tercera
+  vía que cree un recordatorio duplicado.
+- **Historial de completados independiente del archivo:** `PersonalReminder`
+  gana `archived`/`archivedAt` (mismo patrón que `DeskNote`) — un
+  recordatorio completado puede archivarse para salir del historial visible
+  sin eliminarse ni perder auditoría. Nueva pestaña "Archivados" en
+  Recordatorios, junto a Pendientes/Completados.
+- **Eliminar sigue siendo una acción independiente del estado** — nunca
+  ocurre automáticamente al completar (ya era así; se mantiene explícito
+  como requisito de este refinamiento).
+- **Auditoría visible:** nuevo endpoint `GET
+  /api/desk-reminders/[id]/history` (lee `DeskAuditLog`, no duplica datos)
+  y un modal de "Historial" en cada recordatorio con la línea de tiempo
+  completa (creación, completado, reapertura, reprogramación, archivado…)
+  en el mismo tono narrativo del pedido ("Recordatorio creado.",
+  "Reabierto.", "Nueva fecha programada: …").
+- Nueva acción de auditoría `REOPENED`; reabrir con una nueva fecha registra
+  **dos** eventos (`REOPENED` + `POSTPONED`), igual que el ejemplo del
+  pedido muestra como dos líneas separadas.
+
+**Archivos afectados:** `prisma/schema.prisma` (+`archived`/`archivedAt` en
+`PersonalReminder`, +`REOPENED` en `DeskAuditAction`),
+`prisma/migrations/20260723125944_reminder_reopen_archive/`,
+`src/app/api/desk-reminders/route.ts` (filtro `archived`, default
+`false`), `src/app/api/desk-reminders/[id]/route.ts` (acciones `reopen`,
+`archive`, `unarchive`), `src/app/api/desk-reminders/[id]/history/route.ts`
+(nuevo), `src/components/desk/ReopenReminderModal.tsx` (nuevo),
+`src/components/desk/ReminderHistoryModal.tsx` (nuevo),
+`src/components/desk/ReminderCard.tsx`, `RemindersPanel.tsx`, `types.ts`.
+
+**Impacto:** sin cambios en notificaciones, recordatorios recurrentes,
+conversión de notas, Analytics ni KPIs (§7 Compatibilidad) — reabrir un
+recordatorio que generó automáticamente su siguiente ocurrencia al
+completarse no afecta ni elimina esa ocurrencia ya creada (documentado en
+`docs/AUDIT_LOG.md`). Verificado en vivo con una cuenta descartable
+(`*@verify.local`, eliminada al finalizar): ciclo completo
+creado→completado→reabierto (opción A)→completado→reabierto con nueva
+fecha (opción B)→completado→archivado→reabierto (des-archiva
+automáticamente), con el historial de auditoría completo y en orden
+mostrando las 9 transiciones sin perder ninguna.
+
+**Autor:** Claude Code (dirigido por Anthony Jácome).
+
+---
+
 ## v1.9.0 — 2026-07-23
 
 **Tipo:** FEATURE / BREAKING CHANGE / DATABASE

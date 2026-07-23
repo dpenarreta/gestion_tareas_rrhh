@@ -4,25 +4,43 @@ import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import ReminderCard from "./ReminderCard";
 import NewReminderModal from "./NewReminderModal";
-import type { PersonalReminder, ReminderStatus } from "./types";
+import type { PersonalReminder } from "./types";
+
+type View = "PENDIENTE" | "COMPLETADO" | "ARCHIVADO";
+
+const VIEW_LABEL: Record<View, string> = {
+  PENDIENTE: "Pendientes",
+  COMPLETADO: "Completados",
+  ARCHIVADO: "Archivados",
+};
+
+const EMPTY_TEXT: Record<View, string> = {
+  PENDIENTE: "Sin recordatorios pendientes",
+  COMPLETADO: "Sin recordatorios completados",
+  ARCHIVADO: "Sin recordatorios archivados",
+};
+
+function queryFor(view: View): string {
+  return view === "ARCHIVADO" ? "archived=true" : `status=${view}`;
+}
 
 export default function RemindersPanel({ onChanged }: { onChanged?: () => void }) {
-  const [status, setStatus] = useState<ReminderStatus>("PENDIENTE");
+  const [view, setView] = useState<View>("PENDIENTE");
   const [reminders, setReminders] = useState<PersonalReminder[] | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [editing, setEditing] = useState<PersonalReminder | null>(null);
 
-  const load = useCallback((s: ReminderStatus) => {
+  const load = useCallback((v: View) => {
     setReminders(null);
-    fetch(`/api/desk-reminders?status=${s}`)
+    fetch(`/api/desk-reminders?${queryFor(v)}`)
       .then((r) => (r.ok ? r.json() : []))
       .then(setReminders)
       .catch(() => setReminders([]));
   }, []);
 
   useEffect(() => {
-    queueMicrotask(() => load(status));
-  }, [status, load]);
+    queueMicrotask(() => load(view));
+  }, [view, load]);
 
   async function complete(id: string) {
     setReminders((prev) => prev?.filter((r) => r.id !== id) ?? prev);
@@ -41,7 +59,28 @@ export default function RemindersPanel({ onChanged }: { onChanged?: () => void }
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: "postpone", dueAt }),
     });
-    load(status);
+    load(view);
+  }
+
+  // Reabrir siempre saca el recordatorio de Completados/Archivados (vuelve a Pendiente).
+  async function reopen(id: string, dueAt?: string) {
+    setReminders((prev) => prev?.filter((r) => r.id !== id) ?? prev);
+    await fetch(`/api/desk-reminders/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "reopen", ...(dueAt ? { dueAt } : {}) }),
+    });
+    onChanged?.();
+  }
+
+  async function archive(id: string, archived: boolean) {
+    setReminders((prev) => prev?.filter((r) => r.id !== id) ?? prev);
+    await fetch(`/api/desk-reminders/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: archived ? "archive" : "unarchive" }),
+    });
+    onChanged?.();
   }
 
   async function remove(id: string) {
@@ -54,15 +93,15 @@ export default function RemindersPanel({ onChanged }: { onChanged?: () => void }
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div className="flex rounded-xl border border-border overflow-hidden">
-          {(["PENDIENTE", "COMPLETADO"] as ReminderStatus[]).map((s) => (
+          {(["PENDIENTE", "COMPLETADO", "ARCHIVADO"] as View[]).map((v) => (
             <button
-              key={s}
-              onClick={() => setStatus(s)}
+              key={v}
+              onClick={() => setView(v)}
               className={`text-xs font-medium px-3.5 py-2 transition-colors ${
-                status === s ? "bg-primary text-white" : "text-main hover:bg-black/5 dark:hover:bg-white/5"
+                view === v ? "bg-primary text-white" : "text-main hover:bg-black/5 dark:hover:bg-white/5"
               }`}
             >
-              {s === "PENDIENTE" ? "Pendientes" : "Completados"}
+              {VIEW_LABEL[v]}
             </button>
           ))}
         </div>
@@ -81,13 +120,22 @@ export default function RemindersPanel({ onChanged }: { onChanged?: () => void }
       ) : reminders.length === 0 ? (
         <div className="text-center text-disabled text-sm py-16 bg-surface border border-border rounded-2xl">
           <p className="text-3xl mb-2">⏰</p>
-          {status === "PENDIENTE" ? "Sin recordatorios pendientes" : "Sin recordatorios completados"}
+          {EMPTY_TEXT[view]}
         </div>
       ) : (
         <motion.div layout className="space-y-2.5">
           <AnimatePresence mode="popLayout">
             {reminders.map((r) => (
-              <ReminderCard key={r.id} reminder={r} onComplete={complete} onPostpone={postpone} onEdit={setEditing} onDelete={remove} />
+              <ReminderCard
+                key={r.id}
+                reminder={r}
+                onComplete={complete}
+                onPostpone={postpone}
+                onReopen={reopen}
+                onArchive={archive}
+                onEdit={setEditing}
+                onDelete={remove}
+              />
             ))}
           </AnimatePresence>
         </motion.div>
@@ -98,7 +146,7 @@ export default function RemindersPanel({ onChanged }: { onChanged?: () => void }
           onClose={() => setShowNew(false)}
           onSaved={() => {
             setShowNew(false);
-            load(status);
+            load(view);
             onChanged?.();
           }}
         />
@@ -109,7 +157,7 @@ export default function RemindersPanel({ onChanged }: { onChanged?: () => void }
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
-            load(status);
+            load(view);
             onChanged?.();
           }}
         />

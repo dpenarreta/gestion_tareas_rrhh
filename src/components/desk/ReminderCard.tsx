@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Check, Clock, Pencil, Trash2, Repeat } from "lucide-react";
+import { Check, Clock, Pencil, Trash2, Repeat, Undo2, Archive, ArchiveRestore, History } from "lucide-react";
 import {
   type PersonalReminder,
   REMINDER_PRIORITY_COLOR,
@@ -11,6 +11,8 @@ import {
   fmtDueDateTime,
   isOverdue,
 } from "./types";
+import ReopenReminderModal from "./ReopenReminderModal";
+import ReminderHistoryModal from "./ReminderHistoryModal";
 
 const SNOOZE_OPTIONS = [
   { label: "15 minutos", ms: 15 * 60 * 1000 },
@@ -27,13 +29,17 @@ type Props = {
   reminder: PersonalReminder;
   onComplete: (id: string) => void;
   onPostpone: (id: string, dueAt: string) => void;
+  onReopen: (id: string, dueAt?: string) => void;
+  onArchive: (id: string, archived: boolean) => void;
   onEdit: (reminder: PersonalReminder) => void;
   onDelete: (id: string) => void;
 };
 
-export default function ReminderCard({ reminder, onComplete, onPostpone, onEdit, onDelete }: Props) {
+export default function ReminderCard({ reminder, onComplete, onPostpone, onReopen, onArchive, onEdit, onDelete }: Props) {
   const [showSnooze, setShowSnooze] = useState(false);
   const [customDate, setCustomDate] = useState("");
+  const [showReopen, setShowReopen] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
   const overdue = isOverdue(reminder);
   const done = reminder.status === "COMPLETADO";
 
@@ -68,9 +74,12 @@ export default function ReminderCard({ reminder, onComplete, onPostpone, onEdit,
         </button>
 
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="w-2 h-2 rounded-full shrink-0" style={{ background: REMINDER_PRIORITY_COLOR[reminder.priority] }} />
             <p className={`text-sm font-medium truncate ${done ? "text-secondary line-through" : "text-title"}`}>{reminder.title}</p>
+            {reminder.archived && (
+              <span className="text-[10px] font-medium text-disabled bg-surface2 px-1.5 py-0.5 rounded-full shrink-0">Archivado</span>
+            )}
           </div>
           {reminder.description && (
             <p className="text-xs text-secondary mt-0.5 leading-snug">{reminder.description}</p>
@@ -88,64 +97,106 @@ export default function ReminderCard({ reminder, onComplete, onPostpone, onEdit,
           </div>
         </div>
 
-        {!done && (
-          <div className="relative flex items-center gap-1 shrink-0">
-            <button
-              onClick={() => setShowSnooze((v) => !v)}
-              title="Posponer"
-              className="p-1.5 text-disabled hover:text-primary hover:bg-primary-surface rounded-lg transition-colors"
-            >
-              <Clock className="w-4 h-4" strokeWidth={1.8} />
-            </button>
-            <button
-              onClick={() => onEdit(reminder)}
-              title="Editar"
-              className="p-1.5 text-disabled hover:text-title hover:bg-surface2 rounded-lg transition-colors"
-            >
-              <Pencil className="w-4 h-4" strokeWidth={1.8} />
-            </button>
-            <button
-              onClick={() => onDelete(reminder.id)}
-              title="Eliminar"
-              className="p-1.5 text-disabled hover:text-danger hover:bg-danger-soft rounded-lg transition-colors"
-            >
-              <Trash2 className="w-4 h-4" strokeWidth={1.8} />
-            </button>
+        <div className="relative flex items-center gap-1 shrink-0">
+          <button
+            onClick={() => setShowHistory(true)}
+            title="Ver historial"
+            className="p-1.5 text-disabled hover:text-title hover:bg-surface2 rounded-lg transition-colors"
+          >
+            <History className="w-4 h-4" strokeWidth={1.8} />
+          </button>
 
-            {showSnooze && (
-              <div className="absolute right-0 top-full mt-1 w-52 bg-surface border border-border rounded-xl shadow-xl z-20 py-1.5">
-                {SNOOZE_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.label}
-                    onClick={() => snooze(opt.ms)}
-                    className="w-full text-left text-xs text-main px-3 py-1.5 hover:bg-black/5 dark:hover:bg-white/5"
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-                <div className="px-3 py-1.5 flex items-center gap-1.5 border-t border-border mt-1 pt-1.5">
-                  <input
-                    type="datetime-local"
-                    value={customDate}
-                    onChange={(e) => setCustomDate(e.target.value)}
-                    className="flex-1 text-[11px] border border-border rounded-lg px-1.5 py-1 bg-background text-title"
-                  />
-                  <button
-                    disabled={!customDate}
-                    onClick={() => {
-                      onPostpone(reminder.id, new Date(customDate).toISOString());
-                      setShowSnooze(false);
-                    }}
-                    className="text-[11px] font-medium text-primary disabled:opacity-40 shrink-0"
-                  >
-                    Elegir
-                  </button>
-                </div>
+          {!done ? (
+            <>
+              <button
+                onClick={() => setShowSnooze((v) => !v)}
+                title="Posponer"
+                className="p-1.5 text-disabled hover:text-primary hover:bg-primary-surface rounded-lg transition-colors"
+              >
+                <Clock className="w-4 h-4" strokeWidth={1.8} />
+              </button>
+              <button
+                onClick={() => onEdit(reminder)}
+                title="Editar"
+                className="p-1.5 text-disabled hover:text-title hover:bg-surface2 rounded-lg transition-colors"
+              >
+                <Pencil className="w-4 h-4" strokeWidth={1.8} />
+              </button>
+            </>
+          ) : (
+            <>
+              <button
+                onClick={() => setShowReopen(true)}
+                title="Reabrir"
+                className="p-1.5 text-disabled hover:text-primary hover:bg-primary-surface rounded-lg transition-colors"
+              >
+                <Undo2 className="w-4 h-4" strokeWidth={1.8} />
+              </button>
+              <button
+                onClick={() => onArchive(reminder.id, !reminder.archived)}
+                title={reminder.archived ? "Restaurar del archivo" : "Archivar"}
+                className="p-1.5 text-disabled hover:text-title hover:bg-surface2 rounded-lg transition-colors"
+              >
+                {reminder.archived ? <ArchiveRestore className="w-4 h-4" strokeWidth={1.8} /> : <Archive className="w-4 h-4" strokeWidth={1.8} />}
+              </button>
+            </>
+          )}
+
+          <button
+            onClick={() => onDelete(reminder.id)}
+            title="Eliminar"
+            className="p-1.5 text-disabled hover:text-danger hover:bg-danger-soft rounded-lg transition-colors"
+          >
+            <Trash2 className="w-4 h-4" strokeWidth={1.8} />
+          </button>
+
+          {showSnooze && (
+            <div className="absolute right-0 top-full mt-1 w-52 bg-surface border border-border rounded-xl shadow-xl z-20 py-1.5">
+              {SNOOZE_OPTIONS.map((opt) => (
+                <button
+                  key={opt.label}
+                  onClick={() => snooze(opt.ms)}
+                  className="w-full text-left text-xs text-main px-3 py-1.5 hover:bg-black/5 dark:hover:bg-white/5"
+                >
+                  {opt.label}
+                </button>
+              ))}
+              <div className="px-3 py-1.5 flex items-center gap-1.5 border-t border-border mt-1 pt-1.5">
+                <input
+                  type="datetime-local"
+                  value={customDate}
+                  onChange={(e) => setCustomDate(e.target.value)}
+                  className="flex-1 text-[11px] border border-border rounded-lg px-1.5 py-1 bg-background text-title"
+                />
+                <button
+                  disabled={!customDate}
+                  onClick={() => {
+                    onPostpone(reminder.id, new Date(customDate).toISOString());
+                    setShowSnooze(false);
+                  }}
+                  className="text-[11px] font-medium text-primary disabled:opacity-40 shrink-0"
+                >
+                  Elegir
+                </button>
               </div>
-            )}
-          </div>
-        )}
+            </div>
+          )}
+        </div>
       </div>
+
+      {showReopen && (
+        <ReopenReminderModal
+          reminder={reminder}
+          onClose={() => setShowReopen(false)}
+          onReopen={(dueAt) => {
+            onReopen(reminder.id, dueAt);
+            setShowReopen(false);
+          }}
+        />
+      )}
+      {showHistory && (
+        <ReminderHistoryModal reminderId={reminder.id} title={reminder.title} onClose={() => setShowHistory(false)} />
+      )}
     </motion.div>
   );
 }
