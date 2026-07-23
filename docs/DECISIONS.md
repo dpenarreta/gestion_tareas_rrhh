@@ -40,6 +40,11 @@
 | Reabrir un recordatorio actualiza la fila existente in-place (nunca crea una nueva) | El pedido es literal: "no se creará un nuevo registro", "se conservará el mismo identificador" — preserva `id` y todo el `DeskAuditLog` acumulado. | `AUDIT_LOG.md` § 2026-07-23 |
 | Reabrir con nueva fecha audita `REOPENED` + `POSTPONED` (dos eventos, no uno nuevo) | El pedido ejemplifica el historial como dos líneas separadas; "reabrir con nueva fecha" y "posponer" son el mismo cambio de campo, no ameritan un tercer valor de enum. | `AUDIT_LOG.md` § 2026-07-23 |
 | Reabrir un recordatorio archivado lo desarchiva automáticamente (incondicional) | Un recordatorio "archivado pero pendiente" es un estado sin caso de uso pedido; reabrir debe devolverlo a activo en todo sentido. | `AUDIT_LOG.md` § 2026-07-23 |
+| "Convertir en Tarea" se retira de las notas — ahora Nota→Recordatorio→Tarea | El pedido reestructura el flujo en dos pasos; se confirmó 0 uso real de la conversión directa antes de eliminar la columna. | `AUDIT_LOG.md` § 2026-07-23 |
+| El adjunto se copia (no se referencia) en cada hop de conversión Nota→Recordatorio | La nota original puede purgarse a los 15 días de archivada; una referencia suelta perdería el archivo antes de llegar a Tarea. | `AUDIT_LOG.md` § 2026-07-23 |
+| Eliminación definitiva desde Archivadas es un borrado directo, no una segunda papelera | La nota archivada ya tiene su propio reloj de 15 días (§8); envolverla en el Centro de Recuperación además sería una retención duplicada sobre la misma acción. | `AUDIT_LOG.md` § 2026-07-23 |
+| Respuestas de nota acotadas a 2, entre remitente y destinatario únicamente | El pedido es explícito: no es un chat. Al límite, la API devuelve el mensaje exacto pedido en vez de una genérica. | `src/app/api/desk-notes/[id]/replies/route.ts` |
+| Buscador de Escritorio Digital como overlay, no como pestaña | El pedido exige que buscar no obligue a cambiar de sección; una pestaña "Buscar" contradice eso literalmente. | `src/components/desk/GlobalSearchOverlay.tsx` |
 
 ---
 

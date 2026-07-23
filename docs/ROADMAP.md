@@ -54,7 +54,14 @@
   definitivo, reabrir (con opción de mantener o reprogramar fecha/hora)
   actualiza la misma fila sin crear un registro nuevo, historial de
   auditoría visible por recordatorio, y pestaña "Archivados" separada de
-  "Completados" (v1.10.0 — este sprint).
+  "Completados" (v1.10.0).
+- Escritorio Digital — refinamiento notas/recordatorios: lectura automática
+  al abrir la nota (sin botón) con confirmación al remitente, respuestas
+  cortas acotadas a 2, pipeline Nota→Recordatorio→Tarea (reemplaza la
+  conversión directa Nota→Tarea del sprint anterior, que nunca se usó en
+  producción), archivado de notas con retención de 15 días y eliminación
+  definitiva desde Archivadas, buscador único como overlay accesible desde
+  cualquier pestaña (v1.11.0 — este sprint).
 
 ## En desarrollo
 

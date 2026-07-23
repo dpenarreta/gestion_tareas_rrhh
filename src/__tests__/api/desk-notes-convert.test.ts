@@ -7,22 +7,20 @@ vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
 const deskNoteFindUnique = vi.fn();
 const deskNoteUpdate = vi.fn();
 const deskNoteCount = vi.fn();
-const taskCreate = vi.fn();
+const personalReminderCreate = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     deskNote: { findUnique: deskNoteFindUnique, update: deskNoteUpdate, count: deskNoteCount },
-    task: { create: taskCreate },
+    personalReminder: { create: personalReminderCreate },
   },
 }));
-
-vi.mock("@/lib/analytics", () => ({ invalidateAnalyticsCache: vi.fn() }));
 
 const logDeskAudit = vi.fn();
 vi.mock("@/lib/deskAudit", () => ({ logDeskAudit: (...args: unknown[]) => logDeskAudit(...args) }));
 
 const { getSession } = await import("@/lib/session");
-const { POST: convertToTask } = await import("@/app/api/desk-notes/[id]/convert-to-task/route");
+const { POST: convertToReminder } = await import("@/app/api/desk-notes/[id]/convert-to-reminder/route");
 const { GET: unreadCount } = await import("@/app/api/desk-notes/unread-count/route");
 
 function mockSession(overrides: Partial<SessionPayload> | null) {
@@ -48,62 +46,64 @@ function jsonRequest(body: unknown): NextRequest {
   return { json: async () => body } as unknown as NextRequest;
 }
 
-const CONVERT_BODY = {
-  title: "Revisar contrato",
-  type: "SEGUIMIENTO",
-  frequency: "PUNTUAL",
-  startDate: "2026-08-01",
-  endDate: "2026-08-08",
-  estimatedHours: 1,
-};
+const CONVERT_BODY = { dueAt: "2026-08-01T10:00:00Z" };
 
 function resetAll() {
   deskNoteFindUnique.mockReset();
   deskNoteUpdate.mockReset();
   deskNoteCount.mockReset();
-  taskCreate.mockReset();
+  personalReminderCreate.mockReset();
   logDeskAudit.mockReset();
   vi.mocked(getSession).mockReset();
 }
 
-describe("POST /api/desk-notes/[id]/convert-to-task", () => {
+describe("POST /api/desk-notes/[id]/convert-to-reminder", () => {
   beforeEach(resetAll);
 
   it("responde 401 si no hay sesión", async () => {
     mockSession(null);
-    const res = await convertToTask(jsonRequest(CONVERT_BODY), ctx());
+    const res = await convertToReminder(jsonRequest(CONVERT_BODY), ctx());
     expect(res.status).toBe(401);
   });
 
   it("responde 404 si la nota no existe o está eliminada", async () => {
     mockSession({});
     deskNoteFindUnique.mockResolvedValue(null);
-    const res = await convertToTask(jsonRequest(CONVERT_BODY), ctx());
+    const res = await convertToReminder(jsonRequest(CONVERT_BODY), ctx());
     expect(res.status).toBe(404);
   });
 
   it("responde 403 si quien convierte no es el destinatario", async () => {
     mockSession({ userId: "u1" });
-    deskNoteFindUnique.mockResolvedValue({ recipientId: "otro", deletedAt: null, message: "x", priority: "INFORMACION", attachmentName: null, convertedToTaskId: null });
-    const res = await convertToTask(jsonRequest(CONVERT_BODY), ctx());
+    deskNoteFindUnique.mockResolvedValue({
+      recipientId: "otro", deletedAt: null, message: "x", priority: "INFORMACION",
+      attachmentName: null, attachmentMime: null, attachmentData: null, convertedToReminderId: null,
+    });
+    const res = await convertToReminder(jsonRequest(CONVERT_BODY), ctx());
     expect(res.status).toBe(403);
   });
 
   it("responde 409 si la nota ya fue convertida antes", async () => {
     mockSession({ userId: "u1" });
-    deskNoteFindUnique.mockResolvedValue({ recipientId: "u1", deletedAt: null, message: "x", priority: "INFORMACION", attachmentName: null, convertedToTaskId: "task-old" });
-    const res = await convertToTask(jsonRequest(CONVERT_BODY), ctx());
+    deskNoteFindUnique.mockResolvedValue({
+      recipientId: "u1", deletedAt: null, message: "x", priority: "INFORMACION",
+      attachmentName: null, attachmentMime: null, attachmentData: null, convertedToReminderId: "r-old",
+    });
+    const res = await convertToReminder(jsonRequest(CONVERT_BODY), ctx());
     expect(res.status).toBe(409);
   });
 
-  it("responde 400 si faltan campos requeridos de la tarea", async () => {
+  it("responde 400 si falta dueAt", async () => {
     mockSession({ userId: "u1" });
-    deskNoteFindUnique.mockResolvedValue({ recipientId: "u1", deletedAt: null, message: "x", priority: "INFORMACION", attachmentName: null, convertedToTaskId: null });
-    const res = await convertToTask(jsonRequest({ title: "Solo título" }), ctx());
+    deskNoteFindUnique.mockResolvedValue({
+      recipientId: "u1", deletedAt: null, message: "x", priority: "INFORMACION",
+      attachmentName: null, attachmentMime: null, attachmentData: null, convertedToReminderId: null,
+    });
+    const res = await convertToReminder(jsonRequest({}), ctx());
     expect(res.status).toBe(400);
   });
 
-  it("URGENTE se traduce a ALTA, asigna la tarea a quien convierte, y marca la nota como convertida sin eliminarla", async () => {
+  it("URGENTE se traduce a URGENTE, copia el adjunto, y marca la nota como convertida sin eliminarla", async () => {
     mockSession({ userId: "u1", name: "Ana" });
     deskNoteFindUnique.mockResolvedValue({
       recipientId: "u1",
@@ -111,31 +111,36 @@ describe("POST /api/desk-notes/[id]/convert-to-task", () => {
       message: "No olvides revisar el contrato",
       priority: "URGENTE",
       attachmentName: "contrato.pdf",
-      convertedToTaskId: null,
+      attachmentMime: "application/pdf",
+      attachmentData: "data:application/pdf;base64,xxx",
+      convertedToReminderId: null,
     });
-    taskCreate.mockResolvedValue({ id: "task-1", title: CONVERT_BODY.title });
+    personalReminderCreate.mockResolvedValue({ id: "rem-1", title: "No olvides revisar el contrato" });
     deskNoteUpdate.mockResolvedValue({});
 
-    const res = await convertToTask(jsonRequest(CONVERT_BODY), ctx("n1"));
+    const res = await convertToReminder(jsonRequest(CONVERT_BODY), ctx("n1"));
     expect(res.status).toBe(201);
 
-    expect(taskCreate).toHaveBeenCalledWith(
+    expect(personalReminderCreate).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          priority: "ALTA",
-          assignedToId: "u1",
-          createdById: "u1",
-          description: expect.stringContaining("contrato.pdf"),
+          userId: "u1",
+          priority: "URGENTE",
+          attachmentName: "contrato.pdf",
+          attachmentData: "data:application/pdf;base64,xxx",
         }),
       })
     );
     // La nota original NUNCA se borra ni se edita su contenido — solo se marca.
     expect(deskNoteUpdate).toHaveBeenCalledWith({
       where: { id: "n1" },
-      data: expect.objectContaining({ convertedToTaskId: "task-1" }),
+      data: expect.objectContaining({ convertedToReminderId: "rem-1" }),
     });
     expect(logDeskAudit).toHaveBeenCalledWith(
-      expect.objectContaining({ action: "CONVERTED_TO_TASK", metadata: { taskId: "task-1" } })
+      expect.objectContaining({ entityType: "NOTE", action: "CONVERTED_TO_REMINDER", metadata: { reminderId: "rem-1" } })
+    );
+    expect(logDeskAudit).toHaveBeenCalledWith(
+      expect.objectContaining({ entityType: "REMINDER", entityId: "rem-1", action: "CREATED" })
     );
   });
 });

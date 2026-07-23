@@ -156,11 +156,13 @@ enum RecoveryOrigin {
 // ── Escritorio Digital ───────────────────────────────────────────────────────
 // Notas rápidas informales entre colaboradores (equivalente digital de un
 // Post-it dejado sobre el escritorio físico de alguien) — ver docs/DECISIONS.md.
-// Deliberadamente NO es mensajería/correo: sin hilos, sin asunto, sin
-// destinatarios múltiples. No participa en Analytics/KPIs/carga laboral (§Reglas
-// del pedido) — por eso no tiene ninguna relación con Task/TaskActivity salvo
-// `convertedToTaskId`, un puente opcional y unidireccional (§4 del sprint de
-// evolución: "Convertir en tarea").
+// Deliberadamente NO es mensajería/correo: sin hilos libres, sin asunto, sin
+// destinatarios múltiples — DeskNoteReply permite un intercambio corto (máx.
+// 2 respuestas) pero no un chat (§4/§11 del refinamiento 2026-07-23). No
+// participa en Analytics/KPIs/carga laboral. El puente hacia Trabajo ya NO es
+// directo: una nota se convierte en PersonalReminder (§5), y es el
+// recordatorio el que opcionalmente se convierte en Task (§6) — reemplaza al
+// puente directo Nota→Tarea del sprint anterior (ver docs/AUDIT_LOG.md).
 enum DeskNotePriority {
   INFORMACION
   RECORDATORIO
@@ -201,22 +203,42 @@ model DeskNote {
   attachmentName String?
   attachmentMime String?
   attachmentData String?       @db.Text
-  // Puente opcional hacia Trabajo (§4 "Convertir en tarea") — la nota
-  // permanece intacta y visible tras convertirse, nunca se elimina ni se
-  // modifica su contenido. onDelete: SetNull para que borrar la tarea nunca
-  // se lleve la nota por delante.
-  convertedToTaskId String?
-  convertedToTask   Task?      @relation("DeskNoteConvertedTask", fields: [convertedToTaskId], references: [id], onDelete: SetNull)
-  convertedAt       DateTime?
+  // Puente opcional hacia Recordatorios (§5 "Convertir en Recordatorio") — la
+  // nota permanece intacta y visible tras convertirse, nunca se elimina ni se
+  // modifica su contenido. onDelete: SetNull para que borrar el recordatorio
+  // nunca se lleve la nota por delante.
+  convertedToReminderId String?
+  convertedToReminder   PersonalReminder? @relation("DeskNoteConvertedReminder", fields: [convertedToReminderId], references: [id], onDelete: SetNull)
+  convertedAt            DateTime?
   // Bandera local de conveniencia del Centro de Recuperación (adaptador
-  // DESK_NOTE en src/lib/recoveryCenter.ts) — RecoveryItem sigue siendo la
-  // fuente de verdad de auditoría/retención, esto solo espeja su estado
-  // (mismo criterio que Project.deletedAt).
+  // DESK_NOTE en src/lib/recoveryCenter.ts) — usada por el remitente para
+  // eliminar una nota que envió (RecoveryItem sigue siendo la fuente de
+  // verdad de auditoría/retención de ESA vía). La retención de 15 días del
+  // archivo (§7/§8) es un mecanismo aparte, propio del destinatario — ver
+  // src/lib/deskNoteRetention.ts — y purga en duro sin pasar por el Centro
+  // de Recuperación (no son la misma acción ni el mismo actor).
   deletedAt   DateTime?
   createdAt   DateTime         @default(now())
 
+  replies DeskNoteReply[]
+
   @@index([recipientId, archived, deletedAt, createdAt])
   @@index([senderId, deletedAt, createdAt])
+}
+
+// Intercambio corto sobre una nota (§4) — máximo 2 filas por nota, validado
+// en la API (POST /api/desk-notes/[id]/replies), no en el schema. Autor
+// puede ser el remitente o el destinatario (los únicos dos participantes).
+model DeskNoteReply {
+  id        String   @id @default(cuid())
+  noteId    String
+  note      DeskNote @relation(fields: [noteId], references: [id], onDelete: Cascade)
+  authorId  String
+  author    User     @relation("DeskNoteReplyAuthor", fields: [authorId], references: [id])
+  message   String
+  createdAt DateTime @default(now())
+
+  @@index([noteId, createdAt])
 }
 
 // ── Escritorio Digital: Recordatorios personales ────────────────────────────
@@ -266,8 +288,23 @@ model PersonalReminder {
   // cambia (edición, posposición, reapertura, o la siguiente ocurrencia de
   // una repetición).
   notified    Boolean          @default(false)
+  // Adjunto opcional — se copia (no se referencia) desde la nota de origen al
+  // convertir Nota→Recordatorio (§5/§6), para que sobreviva aunque esa nota
+  // se archive y se purgue automáticamente a los 15 días (§8). Mismo patrón
+  // base64 que DeskNote.attachmentData.
+  attachmentName String?
+  attachmentMime String?
+  attachmentData String?       @db.Text
+  // Puente opcional hacia Trabajo (§6 "Crear tarea") — el recordatorio
+  // permanece intacto tras convertirse, nunca se elimina. onDelete: SetNull
+  // para que borrar la tarea nunca se lleve el recordatorio por delante.
+  convertedToTaskId String?
+  convertedToTask   Task?      @relation("ReminderConvertedTask", fields: [convertedToTaskId], references: [id], onDelete: SetNull)
+  convertedToTaskAt DateTime?
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
+
+  convertedFromNotes DeskNote[] @relation("DeskNoteConvertedReminder")
 
   @@index([userId, status, dueAt])
   @@index([userId, archived])
@@ -289,10 +326,12 @@ enum DeskAuditAction {
   UNARCHIVED
   DELETED
   CONVERTED_TO_TASK
+  CONVERTED_TO_REMINDER
   PRIORITY_CHANGED
   POSTPONED
   COMPLETED
   REOPENED
+  REPLIED
 }
 
 model DeskAuditLog {
@@ -373,6 +412,7 @@ model User {
 
   sentDeskNotes     DeskNote[] @relation("DeskNoteSender")
   receivedDeskNotes DeskNote[] @relation("DeskNoteRecipient")
+  deskNoteReplies   DeskNoteReply[]    @relation("DeskNoteReplyAuthor")
   personalReminders PersonalReminder[] @relation("PersonalReminderUser")
   deskAuditLogs     DeskAuditLog[]     @relation("DeskAuditUser")
 }
@@ -541,7 +581,7 @@ model Task {
   comments                Comment[]
   activities              TaskActivity[]
   commentViews            TaskCommentView[]
-  convertedFromNotes      DeskNote[]         @relation("DeskNoteConvertedTask")
+  convertedFromReminders  PersonalReminder[] @relation("ReminderConvertedTask")
   color                   String?
   archivedMonth           String?
   archivedAt              DateTime?

@@ -4,45 +4,13 @@ import { getSession } from "@/lib/session";
 import { canUseDeskNotes } from "@/lib/roles";
 import { advanceRepeat } from "@/lib/deskReminders";
 import { logDeskAudit } from "@/lib/deskAudit";
+import { reminderSelect, serializeReminder } from "@/lib/personalReminders";
 import type { ReminderPriority, ReminderRepeat } from "@/generated/prisma/client";
 
 type Ctx = { params: Promise<{ id: string }> };
 
 const VALID_PRIORITIES: ReminderPriority[] = ["BAJA", "MEDIA", "ALTA", "URGENTE"];
 const VALID_REPEATS: ReminderRepeat[] = ["UNA_VEZ", "DIARIO", "SEMANAL", "MENSUAL"];
-
-const reminderSelect = {
-  id: true,
-  title: true,
-  description: true,
-  dueAt: true,
-  priority: true,
-  status: true,
-  repeat: true,
-  completedAt: true,
-  archived: true,
-  createdAt: true,
-} as const;
-
-function serialize(r: {
-  id: string;
-  title: string;
-  description: string | null;
-  dueAt: Date;
-  priority: ReminderPriority;
-  status: string;
-  repeat: ReminderRepeat;
-  completedAt: Date | null;
-  archived: boolean;
-  createdAt: Date;
-}) {
-  return {
-    ...r,
-    dueAt: r.dueAt.toISOString(),
-    completedAt: r.completedAt ? r.completedAt.toISOString() : null,
-    createdAt: r.createdAt.toISOString(),
-  };
-}
 
 export async function PATCH(request: NextRequest, ctx: Ctx) {
   const session = await getSession();
@@ -94,7 +62,7 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
       });
     }
 
-    return NextResponse.json(serialize(updated));
+    return NextResponse.json(serializeReminder(updated));
   }
 
   // Posponer (§10) — solo mueve dueAt, mantiene estado pendiente y reabre la notificación.
@@ -115,7 +83,7 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
       action: "POSTPONED",
       metadata: { from: reminder.dueAt.toISOString(), to: dueAt.toISOString() },
     });
-    return NextResponse.json(serialize(updated));
+    return NextResponse.json(serializeReminder(updated));
   }
 
   // Reabrir (§Refinamiento ciclo de vida) — Completado ya no es definitivo.
@@ -158,7 +126,7 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
       });
     }
 
-    return NextResponse.json(serialize(updated));
+    return NextResponse.json(serializeReminder(updated));
   }
 
   // Archivar/desarchivar (§5 Historial de completados) — independiente del
@@ -176,7 +144,7 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
       userId: session.userId,
       action: archiving ? "ARCHIVED" : "UNARCHIVED",
     });
-    return NextResponse.json(serialize(updated));
+    return NextResponse.json(serializeReminder(updated));
   }
 
   // Edición directa de campos.
@@ -205,7 +173,7 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   }
 
   if (Object.keys(data).length === 0) {
-    return NextResponse.json(serialize(reminder));
+    return NextResponse.json(serializeReminder(reminder));
   }
 
   const updated = await prisma.personalReminder.update({ where: { id }, data, select: reminderSelect });
@@ -218,7 +186,7 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     metadata: newPriority ? { from: reminder.priority, to: newPriority } : undefined,
   });
 
-  return NextResponse.json(serialize(updated));
+  return NextResponse.json(serializeReminder(updated));
 }
 
 export async function DELETE(_req: NextRequest, ctx: Ctx) {

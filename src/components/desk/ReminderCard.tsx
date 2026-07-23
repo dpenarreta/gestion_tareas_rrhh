@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Check, Clock, Pencil, Trash2, Repeat, Undo2, Archive, ArchiveRestore, History } from "lucide-react";
+import { Check, Clock, Pencil, Trash2, Repeat, Undo2, Archive, ArchiveRestore, History, ListTodo } from "lucide-react";
 import {
   type PersonalReminder,
   REMINDER_PRIORITY_COLOR,
@@ -12,7 +12,8 @@ import {
   isOverdue,
 } from "./types";
 import ReopenReminderModal from "./ReopenReminderModal";
-import ReminderHistoryModal from "./ReminderHistoryModal";
+import DeskHistoryModal from "./DeskHistoryModal";
+import ConvertReminderToTaskModal from "./ConvertReminderToTaskModal";
 
 const SNOOZE_OPTIONS = [
   { label: "15 minutos", ms: 15 * 60 * 1000 },
@@ -33,13 +34,15 @@ type Props = {
   onArchive: (id: string, archived: boolean) => void;
   onEdit: (reminder: PersonalReminder) => void;
   onDelete: (id: string) => void;
+  onConvertedToTask?: (id: string, taskId: string) => void;
 };
 
-export default function ReminderCard({ reminder, onComplete, onPostpone, onReopen, onArchive, onEdit, onDelete }: Props) {
+export default function ReminderCard({ reminder, onComplete, onPostpone, onReopen, onArchive, onEdit, onDelete, onConvertedToTask }: Props) {
   const [showSnooze, setShowSnooze] = useState(false);
   const [customDate, setCustomDate] = useState("");
   const [showReopen, setShowReopen] = useState(false);
   const [showHistory, setShowHistory] = useState(false);
+  const [showConvert, setShowConvert] = useState(false);
   const overdue = isOverdue(reminder);
   const done = reminder.status === "COMPLETADO";
 
@@ -80,6 +83,16 @@ export default function ReminderCard({ reminder, onComplete, onPostpone, onReope
             {reminder.archived && (
               <span className="text-[10px] font-medium text-disabled bg-surface2 px-1.5 py-0.5 rounded-full shrink-0">Archivado</span>
             )}
+            {reminder.convertedToTaskId && (
+              <a
+                href="/tasks"
+                onClick={(e) => e.stopPropagation()}
+                className="flex items-center gap-1 text-[10px] font-medium text-primary bg-primary-surface px-1.5 py-0.5 rounded-full shrink-0 hover:brightness-95"
+              >
+                <ListTodo className="w-2.5 h-2.5" strokeWidth={2} />
+                Convertido en tarea
+              </a>
+            )}
           </div>
           {reminder.description && (
             <p className="text-xs text-secondary mt-0.5 leading-snug">{reminder.description}</p>
@@ -105,6 +118,16 @@ export default function ReminderCard({ reminder, onComplete, onPostpone, onReope
           >
             <History className="w-4 h-4" strokeWidth={1.8} />
           </button>
+
+          {!reminder.convertedToTaskId && (
+            <button
+              onClick={() => setShowConvert(true)}
+              title="Crear tarea"
+              className="p-1.5 text-disabled hover:text-primary hover:bg-primary-surface rounded-lg transition-colors"
+            >
+              <ListTodo className="w-4 h-4" strokeWidth={1.8} />
+            </button>
+          )}
 
           {!done ? (
             <>
@@ -195,7 +218,17 @@ export default function ReminderCard({ reminder, onComplete, onPostpone, onReope
         />
       )}
       {showHistory && (
-        <ReminderHistoryModal reminderId={reminder.id} title={reminder.title} onClose={() => setShowHistory(false)} />
+        <DeskHistoryModal entityType="REMINDER" entityId={reminder.id} title={reminder.title} onClose={() => setShowHistory(false)} />
+      )}
+      {showConvert && (
+        <ConvertReminderToTaskModal
+          reminder={reminder}
+          onClose={() => setShowConvert(false)}
+          onConverted={(taskId) => {
+            onConvertedToTask?.(reminder.id, taskId);
+            setShowConvert(false);
+          }}
+        />
       )}
     </motion.div>
   );

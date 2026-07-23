@@ -7,9 +7,12 @@ import type { DeskNotePriority, ReminderPriority } from "@/generated/prisma/clie
 const NOTE_PRIORITIES: DeskNotePriority[] = ["INFORMACION", "RECORDATORIO", "IMPORTANTE", "URGENTE"];
 const REMINDER_PRIORITIES: ReminderPriority[] = ["BAJA", "MEDIA", "ALTA", "URGENTE"];
 
-// Búsqueda unificada entre notas y recordatorios propios (§13). Los filtros
-// remitente/destinatario solo aplican a notas (los recordatorios no tienen
-// ninguno de los dos, son personales).
+// Buscador único del Escritorio Digital (§9 del refinamiento 2026-07-23) —
+// localiza simultáneamente notas pendientes, archivadas, recordatorios
+// activos/completados y comentarios (respuestas de notas), sin que el
+// usuario deba cambiar de sección. Los filtros remitente/destinatario solo
+// aplican a notas (los recordatorios no tienen ninguno de los dos, son
+// personales).
 export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) {
@@ -33,9 +36,13 @@ export async function GET(request: NextRequest) {
 
   const notes = await prisma.deskNote.findMany({
     where: {
-      OR: [{ senderId: session.userId }, { recipientId: session.userId }],
       deletedAt: null,
-      ...(q ? { message: { contains: q, mode: "insensitive" } } : {}),
+      AND: [
+        { OR: [{ senderId: session.userId }, { recipientId: session.userId }] },
+        ...(q
+          ? [{ OR: [{ message: { contains: q, mode: "insensitive" as const } }, { replies: { some: { message: { contains: q, mode: "insensitive" as const } } } }] }]
+          : []),
+      ],
       ...(NOTE_PRIORITIES.includes(priority as DeskNotePriority) ? { priority: priority as DeskNotePriority } : {}),
       ...(dateRange ? { createdAt: dateRange } : {}),
       ...(senderName ? { sender: { name: { contains: senderName, mode: "insensitive" } } } : {}),
@@ -56,6 +63,7 @@ export async function GET(request: NextRequest) {
       sender: { select: { name: true } },
       recipientId: true,
       recipient: { select: { name: true } },
+      _count: { select: { replies: true } },
     },
     orderBy: { createdAt: "desc" },
     take: 50,
@@ -89,6 +97,7 @@ export async function GET(request: NextRequest) {
       recipientId: n.recipientId,
       recipientName: n.recipient.name,
       isMine: n.senderId === session.userId,
+      replyCount: n._count.replies,
     })),
     reminders: reminders.map((r) => ({ ...r, dueAt: r.dueAt.toISOString() })),
   });

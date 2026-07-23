@@ -23,6 +23,102 @@
 
 ---
 
+## v1.11.0 — 2026-07-23
+
+**Tipo:** FEATURE / BREAKING CHANGE / DATABASE
+**Módulo:** Escritorio Digital (refinamiento — notas rápidas y recordatorios)
+
+**Implementado:**
+- **Lectura automática (§1):** se eliminó el botón "Marcar como leída" — abrir
+  la tarjeta de la nota (nuevo `NoteDetailModal`) es lo único que la marca
+  como leída, sin acción adicional. Sigue registrando usuario/fecha/hora
+  (`readAt`, ya existía).
+- **Confirmación de lectura (§2):** al leerse, el remitente recibe una
+  notificación in-app ("Fulano leyó tu Nota Rápida.") — únicamente en la
+  Campana, sin correos ni notas nuevas. Idempotente: reabrir una nota ya
+  leída no vuelve a notificar.
+- **Indicador visual (§3):** sin cambios de comportamiento — el punto rojo
+  del sidebar (Sprint anterior) ya desaparecía solo cuando no quedan notas
+  sin leer, que es exactamente lo que ahora dispara la lectura automática.
+- **Respuestas cortas (§4):** nuevo modelo `DeskNoteReply` — máximo 2
+  respuestas por nota entre remitente y destinatario, gestionadas desde
+  `NoteDetailModal`. Al llegar al límite, la API responde 409 con el
+  mensaje exacto pedido ("Esta conversación alcanzó el límite permitido.")
+  y la interfaz sugiere convertir la nota en Recordatorio o Tarea. Cada
+  respuesta notifica a la otra parte y queda auditada (`REPLIED`).
+- **Convertir en Recordatorio reemplaza a Convertir en Tarea (§5, BREAKING):**
+  el puente directo Nota→Tarea del sprint anterior se retiró por completo.
+  Ahora una nota se convierte en `PersonalReminder` (`convertedToReminderId`
+  en `DeskNote`, reemplaza a `convertedToTaskId`) — la nota permanece
+  intacta y visible, nunca se elimina.
+- **Crear tarea desde un Recordatorio (§6, nuevo):** `PersonalReminder` gana
+  `convertedToTaskId`/`convertedToTaskAt` — acción opcional "Crear tarea" en
+  cualquier recordatorio (completado o no), copia título/descripción/
+  prioridad y referencia el adjunto por nombre (Trabajo sigue sin campo de
+  adjunto). El recordatorio permanece disponible para auditoría.
+- **Adjunto copiado en cada conversión, no referenciado:** `PersonalReminder`
+  gana sus propios `attachmentName`/`attachmentMime`/`attachmentData` — al
+  convertir una nota con adjunto, el archivo se copia al recordatorio para
+  que sobreviva aunque la nota original se archive y se purgue a los 15
+  días (§8).
+- **Archivado con retención de 15 días (§7/§8):** nueva `purgeExpiredArchivedNotes()`
+  (barrido perezoso, sin cron dedicado) elimina en duro las notas archivadas
+  hace más de 15 días calendario. Desde Archivadas, el destinatario también
+  puede eliminar definitivamente antes de tiempo (vía directa, sin pasar
+  por el Centro de Recuperación — esa papelera sigue siendo exclusiva del
+  remitente al eliminar una nota que envió).
+- **Buscador único, sin cambiar de sección (§9):** se retiró la pestaña
+  "Buscar" — ahora es un overlay (`GlobalSearchOverlay`) accesible desde
+  cualquier pestaña del Escritorio. Extendido para localizar también el
+  contenido de las respuestas de notas, no solo el mensaje original.
+- **Auditoría ampliada (§10):** nuevas acciones `REPLIED` y
+  `CONVERTED_TO_REMINDER`; `DELETED` distingue origen manual/automático en
+  `metadata`. Nuevo endpoint `GET /api/desk-notes/[id]/history` (paralelo al
+  ya existente de recordatorios) y modal de historial compartido
+  (`DeskHistoryModal`) entre notas y recordatorios.
+
+**Archivos afectados:** `prisma/schema.prisma` (+`DeskNoteReply`,
++adjunto/`convertedToTaskId` en `PersonalReminder`,
+`DeskNote.convertedToTaskId` → `convertedToReminderId`, +`REPLIED`/
+`CONVERTED_TO_REMINDER` en `DeskAuditAction`),
+`prisma/migrations/20260723151707_desk_replies_and_reminder_task_bridge/`,
+`src/lib/deskNotes.ts` (nuevo, select/serialize compartido),
+`src/lib/personalReminders.ts` (nuevo, ídem para recordatorios),
+`src/lib/deskNoteRetention.ts` (nuevo), `src/app/api/desk-notes/[id]/route.ts`
+(+GET detalle, notificación de lectura, DELETE con dos vías),
+`src/app/api/desk-notes/[id]/replies/` (nuevo),
+`src/app/api/desk-notes/[id]/convert-to-reminder/` (nuevo, reemplaza a
+`convert-to-task`), `src/app/api/desk-notes/[id]/history/` (nuevo),
+`src/app/api/desk-reminders/[id]/convert-to-task/` (nuevo),
+`src/app/api/desk-reminders/[id]/history` (sin cambios, reutilizado),
+`src/app/api/desk/search/route.ts` (busca también respuestas),
+`src/components/desk/NoteDetailModal.tsx`,
+`NoteToReminderModal.tsx`, `ConvertReminderToTaskModal.tsx`,
+`DeskHistoryModal.tsx` (nuevos, reemplazan a `ConvertToTaskModal.tsx` y
+`ReminderHistoryModal.tsx`), `GlobalSearchOverlay.tsx` (reemplaza a
+`SearchPanel.tsx`), `DeskNotePostIt.tsx`, `NotesPanel.tsx`,
+`ReminderCard.tsx`, `RemindersPanel.tsx`, `DeskBoard.tsx`, `types.ts`.
+
+**Impacto:** `BREAKING CHANGE` sobre la conversión directa Nota→Tarea del
+sprint anterior (nunca llegó a usarse en producción — verificado antes de
+migrar: 0 notas con `convertedToTaskId`). Sin cambios en Analytics, KPIs ni
+el módulo Trabajo salvo la creación de tareas ya existente (§11
+Consistencia). Verificado en vivo con cuentas descartables sobre la base de
+datos compartida con producción (11 notas y 21 recordatorios reales
+verificados intactos antes y después): lectura automática + notificación
+idempotente, hilo de respuestas con bloqueo exacto al llegar a 2, pipeline
+completo Nota→Recordatorio→Tarea (ambas notas y recordatorios permanecen
+disponibles y marcados, nunca eliminados), archivado con bloqueo de
+eliminación definitiva hasta archivar, y búsqueda unificada encontrando una
+nota por el contenido de una respuesta. Un bug real se encontró y corrigió
+durante esta verificación: `convertedToTaskId`/adjunto faltaban en el
+`select` de listado de recordatorios (`/api/desk-reminders`), ver
+`docs/AUDIT_LOG.md`.
+
+**Autor:** Claude Code (dirigido por Anthony Jácome).
+
+---
+
 ## v1.10.0 — 2026-07-23
 
 **Tipo:** FEATURE / DATABASE

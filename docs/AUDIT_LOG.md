@@ -15,6 +15,83 @@
 
 ---
 
+## 2026-07-23 — Escritorio Digital: pipeline Nota→Recordatorio→Tarea reemplaza el puente directo Nota→Tarea, verificado sobre datos reales de producción
+
+**Problema detectado:** el refinamiento pidió lectura automática (sin
+botón), confirmación de lectura, respuestas cortas acotadas, retención de
+15 días para el archivo, y — el cambio más profundo — que "Convertir en
+tarea" deje de ser una acción directa sobre la nota: ahora una nota se
+convierte en Recordatorio (§5) y es el Recordatorio el que opcionalmente se
+convierte en Tarea (§6). Esto reemplaza por completo el puente
+`DeskNote.convertedToTaskId` construido apenas un sprint antes (ver entrada
+"Escritorio Digital: evolución a centro personal de trabajo").
+
+**Verificación de seguridad de datos antes de migrar:** dado que
+Escritorio Digital ya tenía usuarios reales activos en producción (11
+notas reales de personal real al momento de este sprint, con nombres/roles
+reconocibles), se consultó `SELECT * FROM "DeskNote" WHERE
+"convertedToTaskId" IS NOT NULL` antes de tocar el schema — **0 filas**. La
+funcionalidad de conversión directa nunca llegó a usarse en producción, así
+que eliminar la columna y su relación no perdió ningún dato real. De haber
+existido filas, la migración habría requerido un paso de preservación
+(similar a la migración de `FollowUpReminder`) antes del `DROP COLUMN`.
+
+**Alternativas evaluadas (adjunto en la cadena de conversión):** el adjunto
+de una nota debe sobrevivir hasta convertirse en tarea, pero la nota
+original puede archivarse y purgarse automáticamente a los 15 días (§8) —
+si el Recordatorio solo *referenciara* el adjunto de la nota (por id), el
+archivo se perdería en cuanto la nota se purgara, incluso si el Recordatorio
+seguía vivo.
+1. Referencia suelta (`sourceNoteId`) desde `PersonalReminder` hacia
+   `DeskNote.attachmentData` — más simple, pero el adjunto desaparece si la
+   nota se purga antes de convertirse en tarea.
+2. Copiar el adjunto (base64 completo) a `PersonalReminder` en el momento
+   de la conversión Nota→Recordatorio.
+
+**Decisión tomada:** opción 2. `PersonalReminder` gana sus propios
+`attachmentName`/`attachmentMime`/`attachmentData` (mismo patrón que
+`DeskNote`), poblados por copia en `POST
+/api/desk-notes/[id]/convert-to-reminder`. Costo: duplica el blob base64 en
+la base de datos si se convierte; beneficio: el adjunto sigue disponible
+para la conversión a Tarea (§6) sin importar qué le pase a la nota
+original después.
+
+**Decisión — eliminación definitiva desde Archivadas es una vía nueva,
+distinta de la papelera del remitente:** el Centro de Recuperación
+(`recoveryCenter.moveToTrash`) ya cubre "el remitente elimina la nota que
+envió" desde el sprint anterior. El refinamiento agrega una segunda vía —
+"el destinatario elimina definitivamente desde Archivadas" (§7) — que es
+un borrado directo, no una papelera con período de retención propio (la
+nota archivada YA tiene su propio reloj de 15 días, agregar una segunda
+capa de retención sobre la misma acción habría sido redundante). `DELETE
+/api/desk-notes/[id]` ahora bifurca según quién llama: remitente →
+`moveToTrash`; destinatario con la nota ya archivada → borrado directo
+(409 si intenta eliminar una nota activa, no archivada). Ambas vías
+auditan `DELETED` con `metadata.origin`/`metadata.actor` para distinguirlas.
+
+**Bug real encontrado y corregido durante la verificación funcional:** al
+probar el pipeline completo con cuentas descartables, `GET
+/api/desk-reminders` no devolvía `convertedToTaskId` ni los campos de
+adjunto — el `select` de Prisma de esa ruta (y de `PATCH
+/api/desk-reminders/[id]`) no se había actualizado al agregar esos campos
+al modelo. Se corrigió centralizando `reminderSelect`/`serializeReminder`
+en `src/lib/personalReminders.ts` (mismo patrón que `deskNotes.ts` para
+notas) para que ambas rutas usen la misma fuente de verdad y no puedan
+volver a desincronizarse.
+
+**Impacto:** `DeskNote.convertedToTaskId` ya no existe (renombrado
+conceptualmente a `convertedToReminderId`, apunta a `PersonalReminder`).
+`PersonalReminder` gana la mitad del puente hacia Trabajo que antes tenía
+`DeskNote`. Verificado en vivo sobre la base de datos compartida con
+producción: pipeline completo nota→recordatorio→tarea con ambos
+intermedios preservados y marcados, doble conversión bloqueada (409) en
+cada paso, y los 11 registros reales de `DeskNote` confirmados intactos
+antes y después de la migración.
+
+**Aprobado por:** Anthony Jácome (dirección de producto).
+
+---
+
 ## 2026-07-23 — Recordatorios: "Completado" deja de ser terminal, reabrir nunca crea una fila nueva
 
 **Problema detectado:** el ciclo de vida original de `PersonalReminder`

@@ -73,8 +73,10 @@ src/
       dashboard/                  # card-order, nova-message
       notifications/              # notificaciones + marcado de lectura
       desk-notes/                  # notas Post-it de Escritorio Digital + [id]/attachment,
-                                   #   [id]/convert-to-task, recipients, unread-count
-      desk-reminders/              # recordatorios personales de Escritorio Digital + [id]
+                                   #   [id]/convert-to-reminder, [id]/replies, [id]/history,
+                                   #   recipients, unread-count
+      desk-reminders/              # recordatorios personales de Escritorio Digital + [id],
+                                   #   [id]/convert-to-task, [id]/history
       desk/                        # today (Bandeja Hoy), search — agregados de solo lectura
       repository/                 # repositorio histórico por año (tareas archivadas)
       announcements/              # anuncios fijados en dashboard
@@ -223,13 +225,25 @@ El esquema completo vive en `prisma/schema.prisma`. Agrupado por dominio:
 
 ### Escritorio Digital
 - **`DeskNote`** — nota Post-it entre dos colaboradores (sin destinatarios
-  múltiples ni hilos); `priority` (franja superior) y `color` (fondo del
-  Post-it) son dimensiones independientes. `read`/`pinned`/`archived` los
-  controla únicamente el destinatario. `attachmentData` sigue el mismo
-  patrón base64 que `ImprovementIdea.attachmentData`. `convertedToTaskId`
-  es un puente opcional hacia `Task` (`onDelete: SetNull`) — la nota nunca
-  se borra al convertirse. `deletedAt` es la bandera local del Centro de
-  Recuperación (adaptador `DESK_NOTE`).
+  múltiples ni hilos libres — `DeskNoteReply` permite un intercambio corto,
+  máx. 2 respuestas, no un chat); `priority` (franja superior) y `color`
+  (fondo del Post-it) son dimensiones independientes. `read`/`pinned`/
+  `archived` los controla únicamente el destinatario — leer ya no requiere
+  un botón, abrir la tarjeta marca `read`/`readAt` automáticamente (ver
+  `docs/AUDIT_LOG.md` § 2026-07-23, refinamiento). `attachmentData` sigue
+  el mismo patrón base64 que `ImprovementIdea.attachmentData`.
+  `convertedToReminderId` es un puente opcional hacia `PersonalReminder`
+  (`onDelete: SetNull`) — reemplazó al puente directo hacia `Task` del
+  sprint anterior, que nunca llegó a usarse en producción. `deletedAt` es
+  la bandera local del Centro de Recuperación (adaptador `DESK_NOTE`,
+  exclusiva de la eliminación por el remitente) — el archivado tiene su
+  propia retención de 15 días independiente (`archivedAt` +
+  `purgeExpiredArchivedNotes()` en `src/lib/deskNoteRetention.ts`), y el
+  destinatario puede eliminar definitivamente una nota ya archivada por una
+  vía de borrado directo, sin pasar por esa papelera.
+- **`DeskNoteReply`** — respuesta corta sobre una nota; el límite de 2 se
+  valida en la API (`POST /api/desk-notes/[id]/replies`), no en el schema.
+  Autor: remitente o destinatario, los únicos dos participantes.
 - **`PersonalReminder`** — recordatorio personal independiente de
   Task/Project; reemplazó por completo a `FollowUpReminder` (ver
   `docs/AUDIT_LOG.md` § 2026-07-23, migración de datos verificada).
@@ -241,7 +255,11 @@ El esquema completo vive en `prisma/schema.prisma`. Agrupado por dominio:
   fila (`id` estable) de vuelta a `PENDIENTE`, nunca crea un registro
   nuevo (ver `docs/AUDIT_LOG.md` § 2026-07-23, refinamiento de ciclo de
   vida). `archived`/`archivedAt` son una dimensión aparte de `status`
-  (mismo criterio que `DeskNote.archived`).
+  (mismo criterio que `DeskNote.archived`). Desde el refinamiento de notas,
+  también tiene `attachmentName`/`attachmentMime`/`attachmentData` (copiados
+  desde la nota de origen al convertirse, no referenciados — sobreviven
+  aunque la nota se purgue) y `convertedToTaskId`/`convertedToTaskAt`, el
+  puente opcional hacia `Task` que reemplazó al que antes tenía `DeskNote`.
 - **`DeskAuditLog`** — auditoría central de Escritorio Digital (notas y
   recordatorios en una sola tabla, `entityType`/`entityId` como referencia
   suelta) — mismo criterio que `RecoveryAuditLog`.

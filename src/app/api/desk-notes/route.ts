@@ -4,6 +4,8 @@ import { getSession } from "@/lib/session";
 import { canUseDeskNotes } from "@/lib/roles";
 import { saveAttachment, AttachmentError } from "@/lib/storage";
 import { logDeskAudit } from "@/lib/deskAudit";
+import { purgeExpiredArchivedNotes } from "@/lib/deskNoteRetention";
+import { noteSelect, serializeNote } from "@/lib/deskNotes";
 import type { DeskNotePriority, DeskNoteColor } from "@/generated/prisma/client";
 
 const VALID_PRIORITIES: DeskNotePriority[] = ["INFORMACION", "RECORDATORIO", "IMPORTANTE", "URGENTE"];
@@ -11,70 +13,6 @@ const VALID_COLORS: DeskNoteColor[] = ["AMARILLO", "ROSADO", "CELESTE", "VERDE",
 const MAX_MESSAGE_LENGTH = 500;
 
 type View = "desk" | "archive" | "sent";
-
-const noteSelect = {
-  id: true,
-  message: true,
-  priority: true,
-  color: true,
-  read: true,
-  readAt: true,
-  pinned: true,
-  archived: true,
-  createdAt: true,
-  senderId: true,
-  sender: { select: { name: true } },
-  recipientId: true,
-  recipient: { select: { name: true } },
-  attachmentName: true,
-  attachmentMime: true,
-  convertedToTaskId: true,
-  convertedAt: true,
-} as const;
-
-type NoteRow = {
-  id: string;
-  message: string;
-  priority: DeskNotePriority;
-  color: DeskNoteColor;
-  read: boolean;
-  readAt: Date | null;
-  pinned: boolean;
-  archived: boolean;
-  createdAt: Date;
-  senderId: string;
-  sender: { name: string };
-  recipientId: string;
-  recipient: { name: string };
-  attachmentName: string | null;
-  attachmentMime: string | null;
-  convertedToTaskId: string | null;
-  convertedAt: Date | null;
-};
-
-function serialize(note: NoteRow, currentUserId: string) {
-  return {
-    id: note.id,
-    message: note.message,
-    priority: note.priority,
-    color: note.color,
-    read: note.read,
-    readAt: note.readAt ? note.readAt.toISOString() : null,
-    pinned: note.pinned,
-    archived: note.archived,
-    createdAt: note.createdAt.toISOString(),
-    senderId: note.senderId,
-    senderName: note.sender.name,
-    recipientId: note.recipientId,
-    recipientName: note.recipient.name,
-    isMine: note.senderId === currentUserId,
-    hasAttachment: Boolean(note.attachmentName),
-    attachmentName: note.attachmentName,
-    attachmentMime: note.attachmentMime,
-    convertedToTaskId: note.convertedToTaskId,
-    convertedAt: note.convertedAt ? note.convertedAt.toISOString() : null,
-  };
-}
 
 export async function GET(request: NextRequest) {
   const session = await getSession();
@@ -84,6 +22,10 @@ export async function GET(request: NextRequest) {
   if (!canUseDeskNotes(session.role)) {
     return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
   }
+
+  // Barrido perezoso de la retención de 15 días del archivo (§8) — nunca un
+  // cron dedicado, mismo criterio que purgeExpiredItems/notifyDueReminders.
+  await purgeExpiredArchivedNotes();
 
   const { searchParams } = new URL(request.url);
   const view = (searchParams.get("view") ?? "desk") as View;
@@ -104,7 +46,7 @@ export async function GET(request: NextRequest) {
     ...(limit ? { take: limit } : {}),
   });
 
-  return NextResponse.json(notes.map((n) => serialize(n, session.userId)));
+  return NextResponse.json(notes.map((n) => serializeNote(n, session.userId)));
 }
 
 export async function POST(request: NextRequest) {
@@ -171,5 +113,5 @@ export async function POST(request: NextRequest) {
 
   await logDeskAudit({ entityType: "NOTE", entityId: note.id, userId: session.userId, action: "CREATED" });
 
-  return NextResponse.json(serialize(note, session.userId), { status: 201 });
+  return NextResponse.json(serializeNote(note, session.userId), { status: 201 });
 }

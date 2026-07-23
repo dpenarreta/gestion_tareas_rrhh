@@ -1,17 +1,28 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { fmtDueDateTime, describeReminderEvent, type DeskAuditEvent } from "./types";
+import { fmtDueDateTime, describeDeskEvent, type DeskAuditEvent } from "./types";
 
-export default function ReminderHistoryModal({ reminderId, title, onClose }: { reminderId: string; title: string; onClose: () => void }) {
+type Props = {
+  entityType: "NOTE" | "REMINDER";
+  entityId: string;
+  title: string;
+  onClose: () => void;
+};
+
+// Historial visible de una nota o un recordatorio (§10/§4 Auditoría) —
+// compartido entre ambas entidades, lee DeskAuditLog vía el endpoint
+// correspondiente a cada una.
+export default function DeskHistoryModal({ entityType, entityId, title, onClose }: Props) {
   const [events, setEvents] = useState<DeskAuditEvent[] | null>(null);
 
   useEffect(() => {
-    fetch(`/api/desk-reminders/${reminderId}/history`)
+    const url = entityType === "NOTE" ? `/api/desk-notes/${entityId}/history` : `/api/desk-reminders/${entityId}/history`;
+    fetch(url)
       .then((r) => (r.ok ? r.json() : []))
       .then(setEvents)
       .catch(() => setEvents([]));
-  }, [reminderId]);
+  }, [entityType, entityId]);
 
   return (
     <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -41,7 +52,7 @@ export default function ReminderHistoryModal({ reminderId, title, onClose }: { r
                 <li key={e.id} className="pl-4">
                   <span className="absolute -left-[5px] mt-1.5 w-2 h-2 rounded-full bg-primary" />
                   <p className="text-xs text-disabled">{fmtDueDateTime(e.createdAt)}</p>
-                  <p className="text-sm text-title">{describeReminderEvent(e)}</p>
+                  <p className="text-sm text-title">{describeDeskEvent(e)}</p>
                 </li>
               ))}
             </ol>

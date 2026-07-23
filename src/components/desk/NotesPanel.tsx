@@ -4,7 +4,6 @@ import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import DeskNotePostIt from "./DeskNotePostIt";
 import NewNoteModal from "./NewNoteModal";
-import ConvertToTaskModal from "./ConvertToTaskModal";
 import type { DeskNote } from "./types";
 
 type Tab = "desk" | "pinned" | "archive" | "sent";
@@ -19,7 +18,7 @@ const TABS: { key: Tab; label: string }[] = [
 const EMPTY_COPY: Record<Tab, { icon: string; text: string }> = {
   desk: { icon: "🗒️", text: "Tu escritorio está despejado — sin notas pendientes" },
   pinned: { icon: "📌", text: "No tienes notas fijadas" },
-  archive: { icon: "🗃️", text: "El archivo está vacío" },
+  archive: { icon: "🗃️", text: "El archivo está vacío (las notas se purgan a los 15 días)" },
   sent: { icon: "✉️", text: "Aún no has dejado notas a nadie" },
 };
 
@@ -29,7 +28,6 @@ export default function NotesPanel({ onNoteCreated }: { onNoteCreated?: () => vo
   const [archiveNotes, setArchiveNotes] = useState<DeskNote[] | null>(null);
   const [sentNotes, setSentNotes] = useState<DeskNote[] | null>(null);
   const [showNewNote, setShowNewNote] = useState(false);
-  const [convertingNote, setConvertingNote] = useState<DeskNote | null>(null);
 
   const loadDesk = useCallback(() => {
     fetch("/api/desk-notes?view=desk")
@@ -61,8 +59,25 @@ export default function NotesPanel({ onNoteCreated }: { onNoteCreated?: () => vo
     if (tab === "sent" && sentNotes === null) loadSent();
   }, [tab, archiveNotes, sentNotes, loadArchive, loadSent]);
 
+  // Una nota puede estar cacheada en más de una pestaña a la vez (ej. el
+  // modal de detalle se abrió desde Escritorio) — se actualiza en todas para
+  // que no queden desincronizadas al volver a esa pestaña.
+  function patchNoteEverywhere(id: string, patch: Partial<DeskNote>) {
+    const apply = (list: DeskNote[] | null) => list?.map((n) => (n.id === id ? { ...n, ...patch } : n)) ?? list;
+    setDeskNotes(apply);
+    setArchiveNotes(apply);
+    setSentNotes(apply);
+  }
+
+  function removeNoteEverywhere(id: string) {
+    const apply = (list: DeskNote[] | null) => list?.filter((n) => n.id !== id) ?? list;
+    setDeskNotes(apply);
+    setArchiveNotes(apply);
+    setSentNotes(apply);
+  }
+
   async function markRead(id: string) {
-    setDeskNotes((prev) => prev?.map((n) => (n.id === id ? { ...n, read: true } : n)) ?? prev);
+    patchNoteEverywhere(id, { read: true });
     await fetch(`/api/desk-notes/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -71,17 +86,16 @@ export default function NotesPanel({ onNoteCreated }: { onNoteCreated?: () => vo
   }
 
   async function togglePin(id: string, pinned: boolean) {
-    setDeskNotes((prev) => prev?.map((n) => (n.id === id ? { ...n, pinned } : n)) ?? prev);
+    patchNoteEverywhere(id, { pinned });
     await fetch(`/api/desk-notes/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action: pinned ? "pin" : "unpin" }),
     });
-    loadDesk();
   }
 
   async function toggleArchive(id: string, archived: boolean) {
-    setDeskNotes((prev) => prev?.filter((n) => n.id !== id) ?? prev);
+    removeNoteEverywhere(id);
     setArchiveNotes(null);
     await fetch(`/api/desk-notes/${id}`, {
       method: "PATCH",
@@ -89,30 +103,26 @@ export default function NotesPanel({ onNoteCreated }: { onNoteCreated?: () => vo
       body: JSON.stringify({ action: archived ? "archive" : "unarchive" }),
     });
     if (tab === "archive") loadArchive();
+    if (!archived) loadDesk();
   }
 
-  async function restoreFromArchive(id: string) {
-    setArchiveNotes((prev) => prev?.filter((n) => n.id !== id) ?? prev);
-    setDeskNotes(null);
-    await fetch(`/api/desk-notes/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "unarchive" }),
-    });
-  }
-
+  // §7/§8: eliminación definitiva por el destinatario (solo desde Archivadas)
+  // o eliminación por el remitente (papelera) — mismo endpoint, la API
+  // decide cuál corresponde según quién llama.
   async function deleteNote(id: string) {
-    setSentNotes((prev) => prev?.filter((n) => n.id !== id) ?? prev);
+    removeNoteEverywhere(id);
     await fetch(`/api/desk-notes/${id}`, { method: "DELETE" });
   }
 
-  function handleConverted(taskId: string) {
-    if (convertingNote) {
-      setDeskNotes((prev) =>
-        prev?.map((n) => (n.id === convertingNote.id ? { ...n, convertedToTaskId: taskId, convertedAt: new Date().toISOString() } : n)) ?? prev
-      );
-    }
-    setConvertingNote(null);
+  function convertedToReminder(id: string, reminderId: string) {
+    patchNoteEverywhere(id, { convertedToReminderId: reminderId, convertedAt: new Date().toISOString() });
+  }
+
+  function replied(id: string) {
+    const apply = (list: DeskNote[] | null) => list?.map((n) => (n.id === id ? { ...n, replyCount: n.replyCount + 1 } : n)) ?? list;
+    setDeskNotes(apply);
+    setArchiveNotes(apply);
+    setSentNotes(apply);
   }
 
   const activeNotes: DeskNote[] | null =
@@ -163,9 +173,10 @@ export default function NotesPanel({ onNoteCreated }: { onNoteCreated?: () => vo
                 variant={variant}
                 onMarkRead={markRead}
                 onTogglePin={togglePin}
-                onToggleArchive={tab === "archive" ? () => restoreFromArchive(note.id) : toggleArchive}
+                onToggleArchive={toggleArchive}
                 onDelete={deleteNote}
-                onConvertToTask={setConvertingNote}
+                onConvertedToReminder={convertedToReminder}
+                onReplied={replied}
               />
             ))}
           </AnimatePresence>
@@ -182,10 +193,6 @@ export default function NotesPanel({ onNoteCreated }: { onNoteCreated?: () => vo
             onNoteCreated?.();
           }}
         />
-      )}
-
-      {convertingNote && (
-        <ConvertToTaskModal note={convertingNote} onClose={() => setConvertingNote(null)} onConverted={handleConverted} />
       )}
     </div>
   );

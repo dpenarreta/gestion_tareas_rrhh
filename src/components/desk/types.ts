@@ -10,6 +10,7 @@ export type DeskNote = {
   readAt: string | null;
   pinned: boolean;
   archived: boolean;
+  archivedAt: string | null;
   createdAt: string;
   senderId: string;
   senderName: string;
@@ -19,9 +20,20 @@ export type DeskNote = {
   hasAttachment: boolean;
   attachmentName: string | null;
   attachmentMime: string | null;
-  convertedToTaskId: string | null;
+  convertedToReminderId: string | null;
   convertedAt: string | null;
+  replyCount: number;
 };
+
+export type DeskNoteReply = {
+  id: string;
+  message: string;
+  authorId: string;
+  authorName: string;
+  createdAt: string;
+};
+
+export const MAX_NOTE_REPLIES = 2;
 
 export type RecipientOption = {
   id: string;
@@ -130,6 +142,10 @@ export type PersonalReminder = {
   repeat: ReminderRepeat;
   completedAt: string | null;
   archived: boolean;
+  attachmentName?: string | null;
+  attachmentMime?: string | null;
+  convertedToTaskId?: string | null;
+  convertedToTaskAt?: string | null;
   createdAt: string;
 };
 
@@ -143,10 +159,12 @@ export type DeskAuditAction =
   | "UNARCHIVED"
   | "DELETED"
   | "CONVERTED_TO_TASK"
+  | "CONVERTED_TO_REMINDER"
   | "PRIORITY_CHANGED"
   | "POSTPONED"
   | "COMPLETED"
-  | "REOPENED";
+  | "REOPENED"
+  | "REPLIED";
 
 export type DeskAuditEvent = {
   id: string;
@@ -155,13 +173,20 @@ export type DeskAuditEvent = {
   createdAt: string;
 };
 
-// Narrativa del historial de un recordatorio (§4 Auditoría) — traduce cada
-// acción a la frase que se le muestra al usuario, en el mismo tono del
-// ejemplo del pedido ("Recordatorio creado.", "Reabierto.", ...).
-export function describeReminderEvent(e: DeskAuditEvent): string {
+// Narrativa del historial (§10/§4 Auditoría) — traduce cada acción a la
+// frase que se le muestra al usuario, en el mismo tono del ejemplo del
+// pedido ("Recordatorio creado.", "Reabierto.", ...). Compartida entre notas
+// y recordatorios: casi todas las acciones aplican a ambas entidades.
+export function describeDeskEvent(e: DeskAuditEvent): string {
   switch (e.action) {
     case "CREATED":
-      return e.metadata?.nextOccurrenceOf ? "Generado automáticamente por repetición." : "Recordatorio creado.";
+      if (e.metadata?.nextOccurrenceOf) return "Generado automáticamente por repetición.";
+      if (e.metadata?.convertedFromNoteId) return "Creado a partir de una nota convertida.";
+      return "Creado.";
+    case "READ":
+      return "Leída.";
+    case "REPLIED":
+      return "Respuesta agregada.";
     case "COMPLETED":
       return "Marcado como completado.";
     case "REOPENED":
@@ -175,14 +200,22 @@ export function describeReminderEvent(e: DeskAuditEvent): string {
     case "PRIORITY_CHANGED": {
       const from = e.metadata?.from;
       const to = e.metadata?.to;
-      return from && to ? `Prioridad cambiada de ${REMINDER_PRIORITY_LABEL[from as ReminderPriority]} a ${REMINDER_PRIORITY_LABEL[to as ReminderPriority]}.` : "Prioridad cambiada.";
+      return from && to ? `Prioridad cambiada de ${String(from)} a ${String(to)}.` : "Prioridad cambiada.";
     }
+    case "PINNED":
+      return "Fijada.";
+    case "UNPINNED":
+      return "Desfijada.";
     case "ARCHIVED":
       return "Archivado.";
     case "UNARCHIVED":
       return "Restaurado del archivo.";
+    case "CONVERTED_TO_REMINDER":
+      return "Convertida en recordatorio.";
+    case "CONVERTED_TO_TASK":
+      return "Convertido en tarea.";
     case "DELETED":
-      return "Eliminado.";
+      return e.metadata?.origin === "automatic" ? "Eliminado automáticamente (venció el plazo de archivo)." : "Eliminado.";
     default:
       return e.action;
   }

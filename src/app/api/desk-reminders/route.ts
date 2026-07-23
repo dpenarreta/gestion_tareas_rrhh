@@ -4,24 +4,12 @@ import { getSession } from "@/lib/session";
 import { canUseDeskNotes } from "@/lib/roles";
 import { notifyDueReminders } from "@/lib/deskReminders";
 import { logDeskAudit } from "@/lib/deskAudit";
+import { reminderSelect, serializeReminder } from "@/lib/personalReminders";
 import type { ReminderPriority, ReminderRepeat } from "@/generated/prisma/client";
 
 const VALID_PRIORITIES: ReminderPriority[] = ["BAJA", "MEDIA", "ALTA", "URGENTE"];
 const VALID_REPEATS: ReminderRepeat[] = ["UNA_VEZ", "DIARIO", "SEMANAL", "MENSUAL"];
 const MAX_TITLE_LENGTH = 150;
-
-const reminderSelect = {
-  id: true,
-  title: true,
-  description: true,
-  dueAt: true,
-  priority: true,
-  status: true,
-  repeat: true,
-  completedAt: true,
-  archived: true,
-  createdAt: true,
-} as const;
 
 export async function GET(request: NextRequest) {
   const session = await getSession();
@@ -59,14 +47,7 @@ export async function GET(request: NextRequest) {
     ...(limit ? { take: limit } : {}),
   });
 
-  return NextResponse.json(
-    reminders.map((r) => ({
-      ...r,
-      dueAt: r.dueAt.toISOString(),
-      completedAt: r.completedAt ? r.completedAt.toISOString() : null,
-      createdAt: r.createdAt.toISOString(),
-    }))
-  );
+  return NextResponse.json(reminders.map(serializeReminder));
 }
 
 export async function POST(request: NextRequest) {
@@ -103,8 +84,5 @@ export async function POST(request: NextRequest) {
 
   await logDeskAudit({ entityType: "REMINDER", entityId: reminder.id, userId: session.userId, action: "CREATED" });
 
-  return NextResponse.json(
-    { ...reminder, dueAt: reminder.dueAt.toISOString(), completedAt: null, createdAt: reminder.createdAt.toISOString() },
-    { status: 201 }
-  );
+  return NextResponse.json(serializeReminder(reminder), { status: 201 });
 }

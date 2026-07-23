@@ -89,6 +89,10 @@ export default function RemindersPanel({ onChanged }: { onChanged?: () => void }
     onChanged?.();
   }
 
+  function convertedToTask(id: string, taskId: string) {
+    setReminders((prev) => prev?.map((r) => (r.id === id ? { ...r, convertedToTaskId: taskId, convertedToTaskAt: new Date().toISOString() } : r)) ?? prev);
+  }
+
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -135,6 +139,7 @@ export default function RemindersPanel({ onChanged }: { onChanged?: () => void }
                 onArchive={archive}
                 onEdit={setEditing}
                 onDelete={remove}
+                onConvertedToTask={convertedToTask}
               />
             ))}
           </AnimatePresence>
