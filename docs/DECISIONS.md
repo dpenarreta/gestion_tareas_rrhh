@@ -29,6 +29,9 @@
 | Centro de Recuperación: registro de adaptadores (`entityType` como `String`), no un enum de Prisma | Un enum exigiría una migración de schema por cada módulo nuevo dado de alta; un registro en código logra costo-cero real de integración. | `AUDIT_LOG.md` § 2026-07-23 |
 | Eliminación de Proyectos acotada solo al creador (no responsable/liderazgo) | El pedido (Sprint 2.1 §3) fue literal — sin excepción de liderazgo, se implementó tal cual en vez de asumir un atajo administrativo no solicitado. | `AUDIT_LOG.md` § 2026-07-23 |
 | "Participante" de un proyecto: por asignación explícita o por registrar actividad (nunca automático al crear) | Responsable y participante son conceptos distintos (Sprint 2.1 §2); auto-alta al registrar evita que la primera actividad de alguien quede huérfana de la pestaña Participantes. | `AUDIT_LOG.md` § 2026-07-23 |
+| Escritorio Digital excluye al Administrador (crear/recibir/leer/fijar/archivar) | No es un participante operativo del día a día — el pedido lo excluyó explícitamente, sin excepción. | `src/lib/roles.ts` (`canUseDeskNotes`) |
+| Escritorio Digital sin jerarquía de destinatarios (a diferencia de `VISIBLE_ROLES`) | Simula un escritorio físico compartido entre colegas, no un canal de reporte ascendente/descendente — cualquier no-Administrador puede dejarle una nota a cualquier otro no-Administrador. | `src/app/api/desk-notes/recipients/route.ts` |
+| Escritorio Digital: segundo módulo integrado al Centro de Recuperación, sin pantalla de papelera dedicada todavía | El código ya anticipaba el módulo por nombre en `ENTITY_REGISTRY`; integrar el adaptador cuesta ~10 líneas y respeta "ningún módulo construye su propia papelera", sin inflar el sprint con UI no pedida. | `AUDIT_LOG.md` § 2026-07-23 |
 
 ---
 

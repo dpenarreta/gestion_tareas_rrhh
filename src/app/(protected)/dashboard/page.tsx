@@ -1,9 +1,9 @@
 import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { ROLE_LEVEL } from "@/lib/roles";
+import { ROLE_LEVEL, canUseDeskNotes } from "@/lib/roles";
 import DashboardModule from "@/components/dashboard/DashboardModule";
 
-const DEFAULT_CARDS = ["jornada", "prioridades", "agenda", "actividad", "comunicados", "acciones", "resumen"];
+const DEFAULT_CARDS = ["jornada", "prioridades", "agenda", "actividad", "comunicados", "escritorio", "acciones", "resumen"];
 const DASHBOARD_PREFIX = "DASHBOARD_CARDS:";
 
 export default async function DashboardPage() {
@@ -34,6 +34,7 @@ export default async function DashboardPage() {
       roleLevel={ROLE_LEVEL[session.role]}
       initialCardOrder={cardOrder}
       canPost={canPost}
+      canUseDesk={canUseDeskNotes(session.role)}
     />
   );
 }

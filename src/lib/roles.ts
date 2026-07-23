@@ -180,6 +180,15 @@ export function canCreateProject(role: Role): boolean {
   return canViewTeam(role);
 }
 
+// Escritorio Digital: comunicación informal de trabajo entre colaboradores —
+// el Administrador queda excluido a propósito (no es un participante operativo
+// del día a día, ver docs/DECISIONS.md). No depende de ROLE_LEVEL/jerarquía:
+// cualquier colaborador no-Administrador puede dejar/recibir notas de
+// cualquier otro colaborador no-Administrador.
+export function canUseDeskNotes(role: Role): boolean {
+  return role !== "ADMINISTRADOR";
+}
+
 // ── Ejecutor vs. liderazgo (Sprint 0A) ───────────────────────────────────────
 //
 // El motor de Analytics históricamente trataba a TODO usuario como ejecutor

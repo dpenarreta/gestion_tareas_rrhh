@@ -10,10 +10,11 @@ import {
   Settings,
   Target,
   FolderKanban,
+  StickyNote,
   type LucideIcon,
 } from "lucide-react";
 import type { Role } from "@/generated/prisma/client";
-import { canManageUsers, canViewTeam } from "@/lib/roles";
+import { canManageUsers, canViewTeam, canUseDeskNotes } from "@/lib/roles";
 
 export type NavSection = "general" | "gestion" | "inteligencia";
 
@@ -41,6 +42,9 @@ export function getNavLinks(role: Role): NavLink[] {
     { href: "/projects", label: "Proyectos", icon: FolderKanban, section: "general" },
     { href: "/meetings", label: "Reuniones", icon: CalendarDays, section: "general" },
     { href: "/mejora-continua", label: "Mejora Continua", icon: Lightbulb, section: "general" },
+    ...(canUseDeskNotes(role)
+      ? [{ href: "/desk", label: "Escritorio Digital", icon: StickyNote, section: "general" as const }]
+      : []),
   ];
 
   if (isLevel1) {

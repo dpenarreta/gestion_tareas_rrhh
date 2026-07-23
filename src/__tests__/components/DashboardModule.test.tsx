@@ -46,6 +46,7 @@ function renderDashboard(overrides: Partial<ComponentProps<typeof DashboardModul
       roleLevel={2}
       initialCardOrder={["jornada", "prioridades", "agenda", "actividad", "comunicados", "acciones", "resumen"]}
       canPost={false}
+      canUseDesk={false}
       {...overrides}
     />
   );

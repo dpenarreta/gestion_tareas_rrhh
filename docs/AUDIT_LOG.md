@@ -15,6 +15,60 @@
 
 ---
 
+## 2026-07-23 — Escritorio Digital: segundo módulo integrado al Centro de Recuperación, sin construir su propia papelera
+
+**Problema detectado:** el Sprint 1 pidió un módulo nuevo ("Escritorio
+Digital") con una acción de eliminar notas ("Eliminar únicamente si el
+remitente es quien creó la nota"), sin pedir explícitamente una papelera o
+un flujo de restauración para ese módulo. El propio código, sin embargo, ya
+anticipaba este módulo por nombre en el registro del Centro de Recuperación
+(`ENTITY_REGISTRY`, comentario de `src/lib/recoveryCenter.ts`) como uno de
+los módulos "compatibles, no implementados todavía", y la regla explícita
+de esa arquitectura es que "ningún módulo nuevo debe implementar su propia
+papelera — debe llamar a las funciones de este archivo".
+
+**Alternativas evaluadas:**
+1. Borrado físico directo (`prisma.deskNote.delete`) en `DELETE
+   /api/desk-notes/[id]`, ignorando el Centro de Recuperación — más simple,
+   pero repite exactamente el patrón que la arquitectura de Proyectos
+   (v1.6.0) se creó para evitar, y deja Escritorio Digital fuera de la
+   auditoría central (`RecoveryAuditLog`) sin ninguna razón funcional.
+2. Registrar el adaptador `DESK_NOTE` en `ENTITY_REGISTRY` (con
+   `DeskNote.deletedAt` como bandera espejo, mismo criterio que
+   `Project.deletedAt`) y hacer que `DELETE` llame a
+   `recoveryCenter.moveToTrash()`, **sin** construir todavía una pantalla de
+   papelera/restauración/eliminación definitiva dedicada para este módulo
+   (el pedido no la pidió y el propio Roadmap ya trata esa pantalla como
+   pendiente transversal, no por módulo).
+
+**Decisión tomada:** opción 2. La nota eliminada por su remitente pasa a
+`RecoveryItem` (estado `ACTIVE`, con retención) en vez de desaparecer sin
+rastro, y queda auditada en `RecoveryAuditLog` igual que cualquier otra
+operación del Centro de Recuperación — pero no se construyó UI de
+restauración/purga específica para notas en este sprint (ninguna otra
+ruta llama a `recoveryCenter.restore()`/`deletePermanently()` con
+`entityType: "DESK_NOTE"` todavía). Es una integración parcial intencional,
+no una limitación descubierta después.
+
+**Justificación técnica:** cumple la regla arquitectónica explícita del
+Centro de Recuperación (costo marginal real: un adaptador de ~10 líneas y
+un campo `deletedAt`) sin inflar el alcance del sprint con una pantalla que
+nadie pidió. Construir la papelera/restauración de Escritorio Digital queda
+como trabajo futuro acotado (ver `docs/ROADMAP.md`), igual que para
+Trabajo, Documentos, Repositorios y Plantillas.
+
+**Impacto:** `DELETE /api/desk-notes/[id]` ya no es un borrado físico —
+mueve la nota a la papelera (soft-delete vía `deletedAt` + `RecoveryItem`).
+Ningún otro comportamiento del módulo (crear, leer, fijar, archivar) pasa
+por el Centro de Recuperación. Verificado en vivo: eliminar una nota la
+retira de todas las vistas (`desk`/`archive`/`sent`) sin lanzar error, y un
+segundo intento de eliminar la misma nota devuelve 404 ("Nota no
+encontrada"), como corresponde a una fila ya marcada `deletedAt`.
+
+**Aprobado por:** Anthony Jácome (dirección de producto).
+
+---
+
 ## 2026-07-23 — Sprint 2.1: "participante" derivado por actividad, y eliminación acotada al creador
 
 **Problema detectado:** el Sprint 2.1 pidió separar conceptualmente

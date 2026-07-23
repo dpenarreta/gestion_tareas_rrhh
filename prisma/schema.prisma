@@ -153,6 +153,43 @@ enum RecoveryOrigin {
   AUTOMATIC
 }
 
+// ── Escritorio Digital ───────────────────────────────────────────────────────
+// Notas rápidas informales entre colaboradores (equivalente digital de un
+// Post-it dejado sobre el escritorio físico de alguien) — ver docs/DECISIONS.md.
+// Deliberadamente NO es mensajería/correo: sin hilos, sin asunto, sin
+// destinatarios múltiples. No participa en Analytics/KPIs/carga laboral (§Reglas
+// del pedido) — por eso no tiene ninguna relación con Task/TaskActivity.
+enum DeskNotePriority {
+  INFORMACION
+  RECORDATORIO
+  IMPORTANTE
+  URGENTE
+}
+
+model DeskNote {
+  id          String           @id @default(cuid())
+  senderId    String
+  sender      User             @relation("DeskNoteSender", fields: [senderId], references: [id])
+  recipientId String
+  recipient   User             @relation("DeskNoteRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  message     String
+  priority    DeskNotePriority @default(INFORMACION)
+  read        Boolean          @default(false)
+  readAt      DateTime?
+  pinned      Boolean          @default(false)
+  archived    Boolean          @default(false)
+  archivedAt  DateTime?
+  // Bandera local de conveniencia del Centro de Recuperación (adaptador
+  // DESK_NOTE en src/lib/recoveryCenter.ts) — RecoveryItem sigue siendo la
+  // fuente de verdad de auditoría/retención, esto solo espeja su estado
+  // (mismo criterio que Project.deletedAt).
+  deletedAt   DateTime?
+  createdAt   DateTime         @default(now())
+
+  @@index([recipientId, archived, deletedAt, createdAt])
+  @@index([senderId, deletedAt, createdAt])
+}
+
 model User {
   id                    String          @id @default(cuid())
   email                 String          @unique
@@ -215,6 +252,9 @@ model User {
   recoveryItemsRestored RecoveryItem[]     @relation("RecoveryRestoredBy")
   recoveryItemsPurged   RecoveryItem[]     @relation("RecoveryPurgedBy")
   recoveryAuditLogs     RecoveryAuditLog[] @relation("RecoveryAuditUser")
+
+  sentDeskNotes     DeskNote[] @relation("DeskNoteSender")
+  receivedDeskNotes DeskNote[] @relation("DeskNoteRecipient")
 }
 
 model ActivityReason {

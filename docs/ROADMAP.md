@@ -40,7 +40,11 @@
   responsable/participante como conceptos distintos, eliminación acotada
   al creador, fases en tarjetas con "Ver detalle", registro de tiempo por
   hora inicio/fin, timeline cronológico con archivos, tarjeta de tiempo
-  acumulado y dashboard ejecutivo en Resumen (v1.7.0 — este sprint).
+  acumulado y dashboard ejecutivo en Resumen (v1.7.0).
+- Escritorio Digital: notas rápidas tipo Post-it entre colaboradores
+  (excluye Administrador), widget en Dashboard + página de tablero
+  completo, segundo módulo integrado al Centro de Recuperación (v1.8.0 —
+  este sprint).
 
 ## En desarrollo
 
@@ -79,9 +83,16 @@ cierre de este sprint)._
   (`RecoveryItem`/`RecoveryAuditLog`) ya es transversal a cualquier
   `entityType`; falta la pantalla.
 - Integrar módulos adicionales al Centro de Recuperación (Trabajo,
-  Escritorio Digital, Documentos, Repositorios, Plantillas, Comunicados) —
-  cada uno requiere solo una entrada nueva en `ENTITY_REGISTRY`
-  (`src/lib/recoveryCenter.ts`) más su propia bandera `deletedAt` local.
+  Documentos, Repositorios, Plantillas, Comunicados) — cada uno requiere
+  solo una entrada nueva en `ENTITY_REGISTRY` (`src/lib/recoveryCenter.ts`)
+  más su propia bandera `deletedAt` local. Proyectos y Escritorio Digital
+  ya están integrados.
+- Pantalla de papelera/restauración/eliminación definitiva dedicada para
+  Escritorio Digital (`entityType: "DESK_NOTE"`) — el adaptador y el
+  soft-delete ya existen (`DELETE /api/desk-notes/[id]` usa
+  `recoveryCenter.moveToTrash()`), falta la UI de restaurar/purgar, igual
+  que para Proyectos (ver el punto de consola administrativa unificada más
+  arriba).
 
 ## Ideas futuras
 

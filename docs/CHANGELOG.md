@@ -23,6 +23,68 @@
 
 ---
 
+## v1.8.0 — 2026-07-23
+
+**Tipo:** FEATURE / DATABASE
+**Módulo:** Escritorio Digital (nuevo, Sprint 1)
+
+**Implementado:**
+- Nuevo módulo **Escritorio Digital**: notas rápidas informales entre
+  colaboradores, equivalente digital de un Post-it dejado sobre el
+  escritorio físico de alguien cuando no está disponible — deliberadamente
+  NO es correo/chat (sin asunto, sin hilos, sin destinatarios múltiples) y
+  no participa en Analytics/KPIs/carga laboral.
+- Nuevo modelo `DeskNote` (`prisma/schema.prisma`): remitente, destinatario,
+  mensaje (máx. 500 caracteres), prioridad (`DeskNotePriority`:
+  Información/Recordatorio/Importante/Urgente), estados `read`/`pinned`/
+  `archived` controlados únicamente por el destinatario, y `deletedAt` como
+  bandera local del Centro de Recuperación.
+- **Diseño tipo Post-it ejecutivo** (`DeskNotePostIt.tsx`): rotación sutil
+  determinística (1°-3°, no aleatoria por render), franja superior pastel
+  según prioridad (el resto de la nota permanece neutro/limpio, según el
+  pedido), elevación + enderezado al pasar el mouse (framer-motion),
+  acciones (✓ marcar leída, 📌 fijar, 🗃 archivar) ocultas hasta hover.
+  Compatible con modo claro/oscuro vía tokens de diseño existentes
+  (`--surface`/`--border`/`--shadow`), sin tablas ni listas tradicionales.
+- **Widget del Dashboard** (`DeskNotesWidget.tsx`): últimas 4 notas
+  recibidas activas + botón "Ver todas" hacia la página completa (no modal).
+- **Página completa** `/desk` (`DeskBoard.tsx`): tablero en grilla
+  responsiva con pestañas Escritorio/Fijadas/Archivo/Enviadas (esta última
+  para que el remitente pueda ver el estado de lectura y eliminar sus
+  propias notas).
+- **Permisos:** todos los roles excepto Administrador pueden crear/recibir/
+  leer/fijar/archivar notas (`canUseDeskNotes()` en `src/lib/roles.ts`), sin
+  restricción de jerarquía entre colaboradores no-Administrador (a
+  diferencia de `VISIBLE_ROLES`, que sí es jerárquico). El destinatario
+  controla el estado de su copia; solo el remitente puede eliminarla.
+- **Eliminación vía Centro de Recuperación:** `DELETE
+  /api/desk-notes/[id]` llama a `recoveryCenter.moveToTrash()` (adaptador
+  `DESK_NOTE` nuevo en `ENTITY_REGISTRY`) en vez de un borrado directo —
+  Escritorio Digital es el segundo módulo integrado, después de Proyectos.
+- Notificación in-app (no de desempeño) al destinatario cuando recibe una
+  nota nueva, reutilizando el modelo `Notification` existente.
+
+**Archivos afectados:** `prisma/schema.prisma`,
+`prisma/migrations/20260723045035_add_desk_notes/`, `src/lib/roles.ts`
+(`canUseDeskNotes`), `src/lib/recoveryCenter.ts` (adaptador `DESK_NOTE`),
+`src/lib/navLinks.ts`, `src/app/api/desk-notes/**` (route.ts, `[id]`,
+`recipients`), `src/app/(protected)/desk/page.tsx`,
+`src/components/desk/**` (types.ts, DeskNotePostIt.tsx, NewNoteModal.tsx,
+DeskBoard.tsx), `src/components/dashboard/DeskNotesWidget.tsx`,
+`src/components/dashboard/DashboardModule.tsx` (card `escritorio`),
+`src/app/(protected)/dashboard/page.tsx`.
+
+**Impacto:** módulo nuevo, sin cambios de comportamiento en Trabajo,
+Proyectos ni Analytics. Verificado en vivo con cuentas descartables
+(`*@verify.local`, eliminadas al finalizar la verificación): creación,
+lectura/fijado/archivado por el destinatario, exclusión del Administrador
+(nav, widget y página), y eliminación por el remitente vía la papelera del
+Centro de Recuperación.
+
+**Autor:** Claude Code (dirigido por Anthony Jácome).
+
+---
+
 ## v1.7.0 — 2026-07-23
 
 **Tipo:** UX / UI / BREAKING CHANGE / DATABASE

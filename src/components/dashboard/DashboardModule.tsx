@@ -21,6 +21,7 @@ import { ROLE_LABEL, canCreateMeetings, isLeadershipRole } from "@/lib/roles";
 import TaskFormModal from "@/components/tasks/TaskFormModal";
 import type { AssignableUser } from "@/components/tasks/types";
 import MeetingFormModalDashboard from "@/components/meetings/MeetingFormModalDashboard";
+import DeskNotesWidget from "@/components/dashboard/DeskNotesWidget";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -78,6 +79,7 @@ type Props = {
   roleLevel: number;
   initialCardOrder: string[];
   canPost: boolean;
+  canUseDesk: boolean;
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -640,6 +642,7 @@ export default function DashboardModule({
   roleLevel,
   initialCardOrder,
   canPost,
+  canUseDesk,
 }: Props) {
   const [data, setData] = useState<DashboardData | null>(null);
   const [novaMessage, setNovaMessage] = useState("");
@@ -730,9 +733,11 @@ export default function DashboardModule({
     fetchData();
   }
 
-  // Cards visible (hide Comunicados if empty and not canPost)
+  // Cards visible (hide Comunicados if empty and not canPost; Escritorio Digital
+  // excluye al Administrador — ver canUseDeskNotes)
   const visibleCards = cardOrder.filter((id) => {
     if (id === "comunicados" && !canPost && (data?.announcements.length ?? 0) === 0) return false;
+    if (id === "escritorio" && !canUseDesk) return false;
     return true;
   });
 
@@ -770,6 +775,8 @@ export default function DashboardModule({
         );
       case "actividad":
         return <ActividadAreaCard events={data.areaActivity} lastLoginAt={data.lastLoginAt} />;
+      case "escritorio":
+        return <DeskNotesWidget />;
       case "comunicados":
         return (
           <ComunicadosCard

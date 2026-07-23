@@ -32,10 +32,10 @@ type EntityAdapter = {
 
 // Registro de módulos compatibles con el Centro de Recuperación. Agregar un
 // módulo nuevo = agregar una entrada aquí (datos, no lógica) — ver el
-// comentario de arriba. Por ahora solo Proyectos está integrado; Trabajo,
-// Escritorio Digital, Documentos, Repositorios, Plantillas y Comunicados
-// quedan como "módulos compatibles, no implementados todavía" (§14 pide
-// dejar la arquitectura preparada, no migrarlos a todos en este sprint).
+// comentario de arriba. Proyectos y Escritorio Digital están integrados;
+// Trabajo, Documentos, Repositorios y Plantillas quedan como "módulos
+// compatibles, no implementados todavía" (§14 pide dejar la arquitectura
+// preparada, no migrarlos a todos en este sprint).
 const ENTITY_REGISTRY: Record<string, EntityAdapter> = {
   PROJECT: {
     moduleLabel: "Proyectos",
@@ -48,6 +48,20 @@ const ENTITY_REGISTRY: Record<string, EntityAdapter> = {
     },
     hardDelete: async (entityId) => {
       await prisma.project.delete({ where: { id: entityId } });
+    },
+  },
+  DESK_NOTE: {
+    moduleLabel: "Escritorio Digital",
+    getDisplayName: async (entityId) => {
+      const note = await prisma.deskNote.findUnique({ where: { id: entityId }, select: { message: true } });
+      if (!note) return null;
+      return note.message.length > 60 ? `${note.message.slice(0, 60)}…` : note.message;
+    },
+    setTrashed: async (entityId, trashed) => {
+      await prisma.deskNote.update({ where: { id: entityId }, data: { deletedAt: trashed ? new Date() : null } });
+    },
+    hardDelete: async (entityId) => {
+      await prisma.deskNote.delete({ where: { id: entityId } });
     },
   },
 };
