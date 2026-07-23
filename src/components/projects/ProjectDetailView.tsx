@@ -30,10 +30,11 @@ type Props = {
   currentUserId: string;
   currentUserRole: Role;
   canManage: boolean;
+  canDelete: boolean;
   candidateUsers: ProjectUserRef[];
 };
 
-export default function ProjectDetailView({ initialProject, currentUserId, currentUserRole, canManage, candidateUsers }: Props) {
+export default function ProjectDetailView({ initialProject, currentUserId, currentUserRole, canManage, canDelete, candidateUsers }: Props) {
   const [project, setProject] = useState(initialProject);
   const [tab, setTab] = useState<TabKey>("resumen");
 
@@ -86,7 +87,7 @@ export default function ProjectDetailView({ initialProject, currentUserId, curre
 
       <div>
         {tab === "resumen" && (
-          <ProjectSummaryTab project={project} canManage={canManage} onUpdated={setProject} />
+          <ProjectSummaryTab project={project} canManage={canManage} canDelete={canDelete} onUpdated={setProject} />
         )}
         {tab === "fases" && (
           <ProjectPhasesTab
@@ -111,6 +112,7 @@ export default function ProjectDetailView({ initialProject, currentUserId, curre
           <ProjectActivitiesTab
             projectId={project.id}
             phases={project.phases}
+            targetTimeHours={project.targetTimeHours}
             currentUserId={currentUserId}
             currentUserRole={currentUserRole}
             canRegister={isParticipant}

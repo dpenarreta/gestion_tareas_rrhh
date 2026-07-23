@@ -28,10 +28,14 @@ export async function GET() {
 
   const isLeadership = ROLE_LEVEL[session.role] >= 3;
 
+  // Sprint 2.1 §3: solo el creador puede restaurar/eliminar definitivamente.
+  // Liderazgo conserva visibilidad de TODA la papelera (supervisión), pero
+  // sin acciones salvo que también sea el creador (ver `canDelete` abajo).
+  // El resto de los roles solo ve los proyectos que ellos mismos crearon.
   const projects = await prisma.project.findMany({
     where: {
       deletedAt: { not: null },
-      ...(isLeadership ? {} : { OR: [{ responsibleId: session.userId }, { createdById: session.userId }] }),
+      ...(isLeadership ? {} : { createdById: session.userId }),
     },
     select: trashSelect,
     orderBy: { deletedAt: "desc" },
@@ -49,6 +53,7 @@ export async function GET() {
         deletedAt: p.deletedAt,
         expiresAt: retention?.expiresAt ?? null,
         msRemaining: retention?.msRemaining ?? 0,
+        canDelete: p.createdBy.id === session.userId,
       };
     })
   );

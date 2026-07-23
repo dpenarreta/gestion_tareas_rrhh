@@ -35,7 +35,12 @@
   ciclo de vida propio, independiente del módulo Trabajo (v1.5.0).
 - Centro de Recuperación: servicio corporativo central de papelera/
   restauración (el usuario ve "Papelera"), con Proyectos como primer
-  módulo integrado (v1.6.0 — este sprint).
+  módulo integrado (v1.6.0).
+- Sprint 2.1 — refinamiento UX/UI de Proyectos: historial consolidado,
+  responsable/participante como conceptos distintos, eliminación acotada
+  al creador, fases en tarjetas con "Ver detalle", registro de tiempo por
+  hora inicio/fin, timeline cronológico con archivos, tarjeta de tiempo
+  acumulado y dashboard ejecutivo en Resumen (v1.7.0 — este sprint).
 
 ## En desarrollo
 

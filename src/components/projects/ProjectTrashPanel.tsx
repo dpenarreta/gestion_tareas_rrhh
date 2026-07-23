@@ -12,6 +12,8 @@ type TrashedProject = {
   deletedAt: string;
   expiresAt: string | null;
   msRemaining: number;
+  /** Sprint 2.1 §3: solo el creador puede restaurar/eliminar — liderazgo puede ver la papelera completa sin poder actuar sobre lo que no creó. */
+  canDelete: boolean;
 };
 
 function formatRemaining(ms: number): string {
@@ -117,22 +119,28 @@ export default function ProjectTrashPanel({ onClose, onRestored }: Props) {
                 {PROJECT_STATUS_LABEL[p.status]} · Responsable: {p.responsible.name}
               </p>
               <p className="text-[11px] text-warning mt-1">{formatRemaining(p.msRemaining)}</p>
-              <div className="flex gap-2 mt-2.5">
-                <button
-                  onClick={() => restoreItem(p.id, p.name)}
-                  disabled={busyId === p.id}
-                  className="flex-1 bg-primary text-white rounded-lg py-1.5 text-xs font-medium hover:bg-primary-hover disabled:opacity-40"
-                >
-                  Restaurar
-                </button>
-                <button
-                  onClick={() => deleteForever(p.id, p.name)}
-                  disabled={busyId === p.id}
-                  className="flex-1 border border-danger text-danger rounded-lg py-1.5 text-xs font-medium hover:bg-danger/[.08] disabled:opacity-40"
-                >
-                  Eliminar definitivamente
-                </button>
-              </div>
+              {p.canDelete ? (
+                <div className="flex gap-2 mt-2.5">
+                  <button
+                    onClick={() => restoreItem(p.id, p.name)}
+                    disabled={busyId === p.id}
+                    className="flex-1 bg-primary text-white rounded-lg py-1.5 text-xs font-medium hover:bg-primary-hover disabled:opacity-40"
+                  >
+                    Restaurar
+                  </button>
+                  <button
+                    onClick={() => deleteForever(p.id, p.name)}
+                    disabled={busyId === p.id}
+                    className="flex-1 border border-danger text-danger rounded-lg py-1.5 text-xs font-medium hover:bg-danger/[.08] disabled:opacity-40"
+                  >
+                    Eliminar definitivamente
+                  </button>
+                </div>
+              ) : (
+                <p className="text-[11px] text-disabled mt-2">
+                  Solo {p.createdBy.name} (creador) puede restaurar o eliminar definitivamente.
+                </p>
+              )}
             </div>
           ))}
         </div>

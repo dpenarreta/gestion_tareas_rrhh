@@ -830,6 +830,9 @@ model ProjectPhase {
 // "cada usuario registra únicamente su trabajo" (§5) que TaskActivity, con
 // ventana de registro retroactivo de 2 días hábiles reutilizando
 // src/lib/businessTime.ts sin modificarlo (§6, §Restricciones).
+// Sprint 2.1 §6: se reemplazó el campo suelto `time` (hora del día) por
+// `startTime`/`endTime` — la duración ya no se ingresa a mano, se calcula
+// siempre desde el rango horario (ver src/app/api/projects/[id]/activities/route.ts).
 model ProjectActivity {
   id            String        @id @default(cuid())
   projectId     String
@@ -840,7 +843,8 @@ model ProjectActivity {
   author        User          @relation("ProjectActivityAuthor", fields: [authorId], references: [id])
   description   String
   comments      String?
-  time          String?
+  startTime     String?
+  endTime       String?
   duration      Int
   isRetroactive Boolean       @default(false)
   activityDate  DateTime?

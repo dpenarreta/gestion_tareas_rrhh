@@ -23,6 +23,92 @@
 
 ---
 
+## v1.7.0 — 2026-07-23
+
+**Tipo:** UX / UI / BREAKING CHANGE / DATABASE
+**Módulo:** Proyectos (Sprint 2.1 — refinamiento)
+
+**Implementado:**
+- **Historial consolidado (§1):** ya no se registra un evento genérico
+  "ACTUALIZADO" por cada edición de campo, ni un evento por cada comentario
+  o por cada actividad registrada individualmente — el Historial solo
+  guarda eventos relevantes de negocio (creación, cambio de estado/
+  responsable, alta/baja de fase o participante, documento, papelera/
+  restauración). El cambio de estado de una fase sigue auditándose; los
+  ajustes de progreso/notas/fechas de una fase ya NO generan una fila por
+  cada edición (antes se disparaba en cada tick del slider de progreso).
+- **Responsable ≠ Participante (§2):** al crear un proyecto, el responsable
+  principal y el creador ya NO se agregan automáticamente como
+  participantes. Se es participante únicamente por asignación explícita o
+  por registrar una actividad (que ahora enrola automáticamente al autor si
+  todavía no figuraba, dejando constancia en el historial).
+- **Eliminación restringida al creador (§3):** mover a la papelera,
+  restaurar y eliminar definitivamente ahora requieren ser el creador del
+  proyecto — antes cualquier responsable o liderazgo (nivel ≥ 3) también
+  podía. La retención automática de 48h no cambió. La Papelera sigue
+  visible para liderazgo (supervisión) pero sin acciones si no son también
+  el creador.
+- **Fases en tarjetas (§4):** el listado de fases pasó de filas a una
+  grilla de tarjetas independientes, cada una con nombre, estado,
+  responsable, participantes (derivados de quién registró actividad ahí),
+  tiempo objetivo, tiempo registrado, % de avance, fecha objetivo y una
+  acción "Ver detalle" (nuevo modal con el desglose completo de la fase y
+  sus actividades).
+- **Fases visibles acotadas (§5):** el selector de fase al registrar una
+  actividad ahora solo muestra fases donde el usuario es responsable, ya
+  participó, o la fase no tiene responsable asignado (abierta) — el resto
+  se oculta.
+- **Registro de tiempo por rango horario (§6, BREAKING):** se eliminó el
+  campo de duración manual (horas/minutos) — se registra únicamente hora
+  inicio/hora fin y la duración se calcula siempre desde ese rango.
+  `ProjectActivity.time` (String suelto) se reemplazó por `startTime`/
+  `endTime`.
+- **Descripción obligatoria (§7):** mínimo 15 caracteres, validado en
+  cliente y servidor.
+- **Timeline cronológico por día (§8):** las actividades ahora se agrupan
+  por día calendario con encabezado, y cada registro muestra usuario, rango
+  horario, duración calculada, descripción, comentarios y archivos
+  adjuntos (con descarga inline).
+- **Tarjeta de tiempo acumulado (§9):** reemplaza el indicador simple —
+  ahora muestra horas registradas, tiempo objetivo, horas restantes, barra
+  de progreso y % ejecutado.
+- **Resumen como dashboard ejecutivo (§10):** la pestaña Resumen ahora
+  abre con 8 tarjetas KPI (Estado, Avance, Participantes, Tiempo objetivo,
+  Tiempo registrado, Fases, Última actividad, Próximo vencimiento) antes
+  del detalle/observaciones existentes. "Avance" es el promedio de
+  progreso de fases (o % de tiempo ejecutado si no hay fases) — cálculo
+  puramente derivado en el cliente, sin leer ni modificar el Analytics
+  Engine (preparado para la integración del Sprint 3, sin adelantarla).
+
+**Archivos afectados:** `prisma/schema.prisma`,
+`prisma/migrations/20260723041452_project_activity_start_end_time/`,
+`src/lib/projectAccess.ts` (`isProjectCreator`),
+`src/lib/projectPhaseStats.ts` (nuevo),
+`src/app/api/projects/**` (route.ts, activities, comments, phases,
+phases/[phaseId], restore, permanent, trash),
+`src/components/projects/ProjectSummaryTab.tsx`,
+`ProjectPhasesTab.tsx`, `PhaseDetailModal.tsx` (nuevo),
+`ProjectActivitiesTab.tsx`, `ProjectDetailView.tsx`, `ProjectTrashPanel.tsx`,
+`types.ts`.
+
+**Impacto:** Cambio de comportamiento intencional en 3 frentes (historial,
+membresía de participantes, permisos de eliminación) pedido explícitamente
+por el sprint — no afecta Task/TaskActivity ni el Analytics Engine.
+Verificado de punta a punta contra la base de datos compartida con
+usuarios `@verify.local` desechables: participantes vacíos al crear,
+auto-alta al registrar actividad, bloqueo de papelera/restaurar/eliminar
+para quien no es el creador (incluido un responsable con permisos previos),
+validación de descripción/hora inicio-fin, y ausencia de eventos de
+historial para comentarios, actividades individuales y ediciones de
+progreso repetidas. Datos de prueba eliminados al finalizar. Solo existía
+un proyecto real en producción al momento del cambio (creado hoy mismo,
+sin actividades registradas) — riesgo de migración nulo.
+
+**Autor:** Claude Code
+**Estado:** Implementado
+
+---
+
 ## v1.6.0 — 2026-07-23
 
 **Tipo:** FEATURE / DATABASE / SECURITY

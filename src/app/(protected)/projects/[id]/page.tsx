@@ -1,9 +1,10 @@
 import { redirect, notFound } from "next/navigation";
 import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
-import { canViewProject, isProjectManager } from "@/lib/projectAccess";
+import { canViewProject, isProjectManager, isProjectCreator } from "@/lib/projectAccess";
 import { canManageUsers, getVisibleRoles } from "@/lib/roles";
 import { maskEmailUnless } from "@/lib/mask-email";
+import { getPhaseStats, getLastActivity } from "@/lib/projectPhaseStats";
 import ProjectDetailView from "@/components/projects/ProjectDetailView";
 
 const projectDetailSelect = {
@@ -68,6 +69,12 @@ export default async function ProjectDetailPage({ params }: Ctx) {
   if (!canViewProject(session, project, participantUserIds)) notFound();
 
   const canManage = isProjectManager(session, project);
+  const canDelete = isProjectCreator(session, project);
+
+  const [phaseStats, lastActivity] = await Promise.all([
+    getPhaseStats(id, project.phases),
+    getLastActivity(id),
+  ]);
 
   // Solo se envía el directorio de usuarios al cliente si puede gestionar
   // participantes — y acotado a su jerarquía visible salvo que sea liderazgo
@@ -97,12 +104,15 @@ export default async function ProjectDetailPage({ params }: Ctx) {
       ...ph,
       startDate: ph.startDate?.toISOString() ?? null,
       targetDate: ph.targetDate?.toISOString() ?? null,
+      registeredMinutes: phaseStats.get(ph.id)?.registeredMinutes ?? 0,
+      participants: phaseStats.get(ph.id)?.participants ?? [],
     })),
     participants: project.participants.map((p) => ({
       ...p,
       user: { ...p.user, email: maskEmailUnless(p.user.email, canSeeRealEmails) },
       addedAt: p.addedAt.toISOString(),
     })),
+    lastActivity: lastActivity ? { authorName: lastActivity.authorName, createdAt: lastActivity.createdAt.toISOString() } : null,
   };
 
   const serializedCandidates = candidateUsers.map((u) => ({ ...u, email: maskEmailUnless(u.email, canSeeRealEmails) }));
@@ -113,6 +123,7 @@ export default async function ProjectDetailPage({ params }: Ctx) {
       currentUserId={session.userId}
       currentUserRole={session.role}
       canManage={canManage}
+      canDelete={canDelete}
       candidateUsers={serializedCandidates}
     />
   );

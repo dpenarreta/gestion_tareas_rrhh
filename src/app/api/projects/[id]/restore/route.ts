@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { isProjectManager } from "@/lib/projectAccess";
+import { isProjectCreator } from "@/lib/projectAccess";
 import { logProjectHistory } from "@/lib/projectHistory";
 import * as recoveryCenter from "@/lib/recoveryCenter";
 
@@ -24,8 +24,8 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
   if (!project.deletedAt) {
     return NextResponse.json({ error: "Este proyecto no está en la papelera" }, { status: 409 });
   }
-  if (!isProjectManager(session, project)) {
-    return NextResponse.json({ error: "No tienes permiso para restaurar este proyecto" }, { status: 403 });
+  if (!isProjectCreator(session, project)) {
+    return NextResponse.json({ error: "Solo el creador del proyecto puede restaurarlo" }, { status: 403 });
   }
 
   try {

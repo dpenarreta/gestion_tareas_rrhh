@@ -3,9 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import type { Role } from "@/generated/prisma/client";
 import type { ProjectActivity, ProjectPhase } from "./types";
+import { DOCUMENT_CATEGORY_LABEL } from "./types";
 import { businessCalendarDay, previousBusinessDays } from "@/lib/businessTime";
 
 const WEEKDAY_LABELS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+
+// Sprint 2.1 §7: descripción obligatoria, mínimo 15 caracteres (igual regla que el servidor).
+const MIN_DESCRIPTION_LENGTH = 15;
 
 function dateToValue(d: Date): string {
   const y = d.getUTCFullYear();
@@ -29,27 +33,36 @@ function formatDuration(mins: number): string {
   return `${h}h ${m}min`;
 }
 
-function clampInt(value: string, min: number, max: number): string {
-  if (value === "") return "";
-  const n = Math.trunc(Number(value));
-  if (Number.isNaN(n)) return "";
-  return String(Math.min(max, Math.max(min, n)));
+function formatDayHeader(iso: string) {
+  const d = new Date(iso);
+  return d.toLocaleDateString("es-CO", { weekday: "long", day: "2-digit", month: "long", year: "numeric" });
 }
 
-function formatWhen(iso: string) {
-  const d = new Date(iso);
-  return d.toLocaleDateString("es-CO", { day: "2-digit", month: "short" }) + " " + d.toLocaleTimeString("es-CO", { hour: "2-digit", minute: "2-digit" });
+function dayKey(a: ProjectActivity): string {
+  // El día de agrupación es activityDate (registro retroactivo) o el día calendario de createdAt.
+  return (a.activityDate ?? a.createdAt).slice(0, 10);
+}
+
+async function downloadDocument(projectId: string, documentId: string, fileName: string, mimeType: string | null) {
+  const res = await fetch(`/api/projects/${projectId}/documents/${documentId}`);
+  if (!res.ok) return;
+  const data = await res.json();
+  const link = document.createElement("a");
+  link.href = `data:${mimeType || "application/octet-stream"};base64,${data.fileData}`;
+  link.download = fileName;
+  link.click();
 }
 
 type Props = {
   projectId: string;
   phases: ProjectPhase[];
+  targetTimeHours: number;
   currentUserId: string;
   currentUserRole?: Role;
   canRegister: boolean;
 };
 
-export default function ProjectActivitiesTab({ projectId, phases, canRegister }: Props) {
+export default function ProjectActivitiesTab({ projectId, phases, targetTimeHours, currentUserId, canRegister }: Props) {
   const today = useMemo(() => businessCalendarDay(new Date()), []);
   const validDates = useMemo(() => [today, ...previousBusinessDays(today, 2)], [today]);
 
@@ -59,9 +72,8 @@ export default function ProjectActivitiesTab({ projectId, phases, canRegister }:
   const [phaseId, setPhaseId] = useState("");
   const [description, setDescription] = useState("");
   const [comments, setComments] = useState("");
-  const [time, setTime] = useState("");
-  const [hours, setHours] = useState("");
-  const [minutes, setMinutes] = useState("");
+  const [startTime, setStartTime] = useState("");
+  const [endTime, setEndTime] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -73,15 +85,49 @@ export default function ProjectActivitiesTab({ projectId, phases, canRegister }:
   }, [projectId]);
 
   const totalMinutes = activities.reduce((sum, a) => sum + a.duration, 0);
+  const totalHours = Math.round((totalMinutes / 60) * 100) / 100;
+  const remainingHours = Math.max(0, Math.round((targetTimeHours - totalHours) * 100) / 100);
+  const executedPct = targetTimeHours > 0 ? Math.min(100, Math.round((totalHours / targetTimeHours) * 100)) : 0;
+
+  // Sprint 2.1 §5: solo se muestran fases donde el usuario es responsable,
+  // ya participó (tiene alguna actividad registrada ahí), o la fase está sin
+  // responsable asignado (abierta a cualquiera) — el resto se oculta.
+  const visiblePhases = useMemo(
+    () =>
+      phases.filter(
+        (p) =>
+          p.responsible?.id === currentUserId ||
+          !p.responsible ||
+          activities.some((a) => a.phaseId === p.id && a.author.id === currentUserId)
+      ),
+    [phases, activities, currentUserId]
+  );
+
+  const previewDuration = useMemo(() => {
+    if (!startTime || !endTime) return null;
+    const [sh, sm] = startTime.split(":").map(Number);
+    const [eh, em] = endTime.split(":").map(Number);
+    if ([sh, sm, eh, em].some((n) => Number.isNaN(n))) return null;
+    const total = eh * 60 + em - (sh * 60 + sm);
+    return total > 0 ? total : null;
+  }, [startTime, endTime]);
+
+  const descriptionTooShort = description.trim().length > 0 && description.trim().length < MIN_DESCRIPTION_LENGTH;
+
+  const groupedByDay = useMemo(() => {
+    const groups = new Map<string, ProjectActivity[]>();
+    for (const a of activities) {
+      const key = dayKey(a);
+      const list = groups.get(key) ?? [];
+      list.push(a);
+      groups.set(key, list);
+    }
+    return Array.from(groups.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [activities]);
 
   async function submit() {
-    if (!description.trim() || hours === "" || minutes === "" || submitting) return;
-    const h = Number(hours) || 0;
-    const m = Number(minutes) || 0;
-    if (h * 60 + m <= 0) {
-      setError("La duración debe ser mayor a 0");
-      return;
-    }
+    const trimmedDescription = description.trim();
+    if (trimmedDescription.length < MIN_DESCRIPTION_LENGTH || !previewDuration || submitting) return;
     setSubmitting(true);
     setError("");
     try {
@@ -89,11 +135,10 @@ export default function ProjectActivitiesTab({ projectId, phases, canRegister }:
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          description: description.trim(),
+          description: trimmedDescription,
           comments: comments.trim() || undefined,
-          time: time || undefined,
-          hours: h,
-          minutes: m,
+          startTime,
+          endTime,
           phaseId: phaseId || undefined,
           activityDate,
         }),
@@ -103,9 +148,8 @@ export default function ProjectActivitiesTab({ projectId, phases, canRegister }:
         setActivities((prev) => [...prev, created]);
         setDescription("");
         setComments("");
-        setTime("");
-        setHours("");
-        setMinutes("");
+        setStartTime("");
+        setEndTime("");
       } else {
         const d = await res.json().catch(() => ({}));
         setError(d.error ?? "Error al registrar la actividad");
@@ -117,36 +161,77 @@ export default function ProjectActivitiesTab({ projectId, phases, canRegister }:
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-      <div className="lg:col-span-2 space-y-2">
+      {/* Sprint 2.1 §8: timeline cronológico por día. */}
+      <div className="lg:col-span-2 space-y-4">
         {loading && <div className="text-center text-disabled text-sm py-8">Cargando…</div>}
         {!loading && activities.length === 0 && (
           <div className="text-center text-disabled text-sm py-12 bg-surface border border-border rounded-2xl">Sin actividades registradas</div>
         )}
-        {activities.map((a) => {
-          const phase = phases.find((p) => p.id === a.phaseId);
-          return (
-            <div key={a.id} className="bg-surface border border-border rounded-2xl p-3.5">
-              <div className="flex items-start justify-between gap-2">
-                <div>
-                  <p className="text-sm text-title font-medium">{a.description}</p>
-                  <p className="text-xs text-secondary mt-0.5">
-                    {a.author.name} · {formatWhen(a.createdAt)}
-                    {phase && ` · ${phase.name}`}
-                    {a.isRetroactive && " · retroactivo"}
-                  </p>
-                  {a.comments && <p className="text-xs text-secondary mt-1">{a.comments}</p>}
-                </div>
-                <span className="text-xs font-semibold text-primary shrink-0">{formatDuration(a.duration)}</span>
-              </div>
+        {groupedByDay.map(([day, dayActivities]) => (
+          <div key={day}>
+            <p className="text-xs font-semibold text-secondary uppercase tracking-wide mb-2">{formatDayHeader(day)}</p>
+            <div className="space-y-2">
+              {dayActivities.map((a) => {
+                const phase = phases.find((p) => p.id === a.phaseId);
+                return (
+                  <div key={a.id} className="bg-surface border border-border rounded-2xl p-3.5">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-sm text-title font-medium">{a.description}</p>
+                        <p className="text-xs text-secondary mt-0.5">
+                          {a.author.name}
+                          {a.startTime && a.endTime && ` · ${a.startTime}–${a.endTime}`}
+                          {phase && ` · ${phase.name}`}
+                          {a.isRetroactive && " · retroactivo"}
+                        </p>
+                        {a.comments && <p className="text-xs text-secondary mt-1">{a.comments}</p>}
+                        {a.documents.length > 0 && (
+                          <div className="flex flex-wrap gap-1.5 mt-2">
+                            {a.documents.map((doc) => (
+                              <button
+                                key={doc.id}
+                                onClick={() => downloadDocument(projectId, doc.id, doc.fileName, doc.mimeType)}
+                                className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-primary-surface text-primary hover:bg-primary/[.18]"
+                                title={`Descargar (${DOCUMENT_CATEGORY_LABEL[doc.category]})`}
+                              >
+                                📎 {doc.fileName}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <span className="text-xs font-semibold text-primary shrink-0">{formatDuration(a.duration)}</span>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
-          );
-        })}
+          </div>
+        ))}
       </div>
 
       <div className="space-y-3">
-        <div className="bg-primary-surface rounded-2xl px-4 py-3 flex items-center justify-between">
-          <span className="text-xs font-medium text-primary">Tiempo total acumulado</span>
-          <span className="text-sm font-bold text-primary">{formatDuration(totalMinutes)}</span>
+        {/* Sprint 2.1 §9: tarjeta de tiempo acumulado con desglose completo. */}
+        <div className="bg-surface border border-border rounded-2xl p-4">
+          <h3 className="text-sm font-semibold text-title mb-3">Tiempo acumulado</h3>
+          <div className="space-y-1.5 text-sm">
+            <div className="flex items-center justify-between">
+              <span className="text-secondary">Horas registradas</span>
+              <span className="font-semibold text-title">{totalHours}h</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-secondary">Tiempo objetivo</span>
+              <span className="font-semibold text-title">{targetTimeHours}h</span>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="text-secondary">Horas restantes</span>
+              <span className="font-semibold text-title">{remainingHours}h</span>
+            </div>
+          </div>
+          <div className="h-2 rounded-full bg-surface2 overflow-hidden mt-3">
+            <div className="h-full rounded-full bg-primary" style={{ width: `${executedPct}%` }} />
+          </div>
+          <p className="text-xs text-disabled mt-1.5">{executedPct}% ejecutado</p>
         </div>
 
         {canRegister && (
@@ -166,7 +251,7 @@ export default function ProjectActivitiesTab({ projectId, phases, canRegister }:
               </select>
             </div>
 
-            {phases.length > 0 && (
+            {visiblePhases.length > 0 && (
               <div>
                 <label className="block text-[10px] font-semibold text-secondary mb-1 uppercase tracking-wide">Fase (opcional)</label>
                 <select
@@ -175,7 +260,7 @@ export default function ProjectActivitiesTab({ projectId, phases, canRegister }:
                   className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
                 >
                   <option value="">Sin fase específica</option>
-                  {phases.map((p) => (
+                  {visiblePhases.map((p) => (
                     <option key={p.id} value={p.id}>{p.name}</option>
                   ))}
                 </select>
@@ -183,7 +268,9 @@ export default function ProjectActivitiesTab({ projectId, phases, canRegister }:
             )}
 
             <div>
-              <label className="block text-[10px] font-semibold text-secondary mb-1 uppercase tracking-wide">Descripción</label>
+              <label className="block text-[10px] font-semibold text-secondary mb-1 uppercase tracking-wide">
+                Descripción <span className="normal-case font-normal">(mínimo {MIN_DESCRIPTION_LENGTH} caracteres)</span>
+              </label>
               <textarea
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
@@ -191,40 +278,38 @@ export default function ProjectActivitiesTab({ projectId, phases, canRegister }:
                 placeholder="¿Qué hiciste?"
                 className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary resize-none"
               />
+              {descriptionTooShort && (
+                <p className="text-[11px] text-warning mt-1">
+                  Faltan {MIN_DESCRIPTION_LENGTH - description.trim().length} caracteres
+                </p>
+              )}
             </div>
 
-            <div className="grid grid-cols-3 gap-2">
+            {/* Sprint 2.1 §6: solo hora inicio/hora fin — sin campo de duración manual. */}
+            <div className="grid grid-cols-2 gap-2">
               <div>
-                <label className="block text-[10px] font-semibold text-secondary mb-1 uppercase tracking-wide">Hora</label>
+                <label className="block text-[10px] font-semibold text-secondary mb-1 uppercase tracking-wide">Hora inicio</label>
                 <input
                   type="time"
-                  value={time}
-                  onChange={(e) => setTime(e.target.value)}
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
                   className="w-full border border-border rounded-xl px-2 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
                 />
               </div>
               <div>
-                <label className="block text-[10px] font-semibold text-secondary mb-1 uppercase tracking-wide">Horas</label>
+                <label className="block text-[10px] font-semibold text-secondary mb-1 uppercase tracking-wide">Hora fin</label>
                 <input
-                  type="number"
-                  min={0}
-                  max={23}
-                  value={hours}
-                  onChange={(e) => setHours(clampInt(e.target.value, 0, 23))}
+                  type="time"
+                  value={endTime}
+                  onChange={(e) => setEndTime(e.target.value)}
                   className="w-full border border-border rounded-xl px-2 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
                 />
               </div>
-              <div>
-                <label className="block text-[10px] font-semibold text-secondary mb-1 uppercase tracking-wide">Min</label>
-                <input
-                  type="number"
-                  min={0}
-                  max={59}
-                  value={minutes}
-                  onChange={(e) => setMinutes(clampInt(e.target.value, 0, 59))}
-                  className="w-full border border-border rounded-xl px-2 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
-                />
-              </div>
+            </div>
+
+            <div className={`flex items-center justify-between text-xs rounded-lg px-3 py-2 ${previewDuration ? "bg-primary-surface text-primary" : "bg-background text-disabled"}`}>
+              <span>Duración calculada</span>
+              <span className="font-semibold">{previewDuration ? formatDuration(previewDuration) : "—"}</span>
             </div>
 
             <div>
@@ -243,7 +328,7 @@ export default function ProjectActivitiesTab({ projectId, phases, canRegister }:
 
             <button
               onClick={submit}
-              disabled={!description.trim() || hours === "" || minutes === "" || submitting}
+              disabled={description.trim().length < MIN_DESCRIPTION_LENGTH || !previewDuration || submitting}
               className="w-full bg-primary text-white rounded-xl py-2 text-sm font-medium hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed"
             >
               {submitting ? "Registrando…" : "Agregar actividad"}

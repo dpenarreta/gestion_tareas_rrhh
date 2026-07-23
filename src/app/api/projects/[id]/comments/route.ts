@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canViewProject, isProjectParticipant } from "@/lib/projectAccess";
-import { logProjectHistory } from "@/lib/projectHistory";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -77,12 +76,9 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     select: { id: true, text: true, author: { select: { id: true, name: true, role: true } }, createdAt: true },
   });
 
-  await logProjectHistory({
-    projectId,
-    actorId: session.userId,
-    event: "COMENTARIO_AGREGADO",
-    description: `${session.name} comentó en "${project.name}"`,
-  });
+  // Sprint 2.1 §1: los comentarios ya no generan un evento en el historial —
+  // tienen su propia pestaña con orden cronológico; duplicarlo en Historial
+  // era ruido, no un evento relevante de negocio.
 
   return NextResponse.json(comment, { status: 201 });
 }

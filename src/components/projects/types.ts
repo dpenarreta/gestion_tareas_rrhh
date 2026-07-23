@@ -68,6 +68,9 @@ export type ProjectPhase = {
   notes: string | null;
   targetTimeHours: number | null;
   order: number;
+  // Sprint 2.1 §4 — derivados de ProjectActivity, no relaciones propias del schema.
+  registeredMinutes: number;
+  participants: { id: string; name: string }[];
 };
 
 export type ProjectDetail = Omit<ProjectListItem, "_count"> & {
@@ -75,6 +78,14 @@ export type ProjectDetail = Omit<ProjectListItem, "_count"> & {
   participants: ProjectParticipant[];
   phases: ProjectPhase[];
   _count: { comments: number; documents: number; activities: number };
+  lastActivity: { authorName: string; createdAt: string } | null;
+};
+
+export type ProjectActivityDocument = {
+  id: string;
+  fileName: string;
+  category: ProjectDocumentCategory;
+  mimeType: string | null;
 };
 
 export type ProjectActivity = {
@@ -82,12 +93,14 @@ export type ProjectActivity = {
   phaseId: string | null;
   description: string;
   comments: string | null;
-  time: string | null;
+  startTime: string | null;
+  endTime: string | null;
   duration: number;
   isRetroactive: boolean;
   activityDate: string | null;
   author: { id: string; name: string };
   createdAt: string;
+  documents: ProjectActivityDocument[];
 };
 
 export type ProjectComment = {

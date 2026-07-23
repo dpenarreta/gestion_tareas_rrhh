@@ -113,7 +113,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "El tiempo objetivo global debe ser mayor a 0" }, { status: 400 });
   }
 
-  const participantSet = new Set([responsibleId, ...(Array.isArray(participantIds) ? participantIds : [])]);
+  // Sprint 2.1 §2: el responsable (y el creador) ya NO se agregan
+  // automáticamente como participantes — son conceptos distintos. Solo se
+  // crean filas de ProjectParticipant para los IDs explícitamente elegidos
+  // en el formulario (o quien registre una actividad más adelante, ver
+  // src/app/api/projects/[id]/activities/route.ts).
+  const participantSet = new Set(Array.isArray(participantIds) ? participantIds : []);
 
   const project = await prisma.project.create({
     data: {

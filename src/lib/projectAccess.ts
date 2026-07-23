@@ -29,6 +29,17 @@ export function canManagePhases(session: SessionLike, project: ProjectLike): boo
   return isProjectManager(session, project);
 }
 
+/**
+ * Sprint 2.1 §3: eliminación (papelera/restaurar/eliminar definitivamente)
+ * queda reservada ÚNICAMENTE al creador del proyecto — a propósito más
+ * estricta que isProjectManager (que también habilita a liderazgo y al
+ * responsable). Responsable y creador son conceptos distintos desde este
+ * sprint (§2); solo el creador puede destruir/recuperar el proyecto.
+ */
+export function isProjectCreator(session: SessionLike, project: Pick<ProjectLike, "createdById">): boolean {
+  return session.userId === project.createdById;
+}
+
 /** Liderazgo ve todos los proyectos; el resto solo los propios (responsable/creador/participante). */
 export function canViewProject(
   session: SessionLike,

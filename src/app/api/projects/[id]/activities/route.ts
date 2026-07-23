@@ -2,22 +2,28 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canViewProject, isProjectParticipant } from "@/lib/projectAccess";
-import { logProjectHistory } from "@/lib/projectHistory";
 import { businessCalendarDay, businessDayRealRange, previousBusinessDays } from "@/lib/businessTime";
+import { timeToMinutes } from "@/lib/timeOverlap";
+import { logProjectHistory } from "@/lib/projectHistory";
 
 type Ctx = { params: Promise<{ id: string }> };
+
+// Sprint 2.1 §7: descripción obligatoria, mínimo 15 caracteres.
+const MIN_DESCRIPTION_LENGTH = 15;
 
 const activitySelect = {
   id: true,
   phaseId: true,
   description: true,
   comments: true,
-  time: true,
+  startTime: true,
+  endTime: true,
   duration: true,
   isRetroactive: true,
   activityDate: true,
   author: { select: { id: true, name: true } },
   createdAt: true,
+  documents: { select: { id: true, fileName: true, category: true, mimeType: true } },
 } as const;
 
 /** "YYYY-MM-DD" (del date picker) -> Date UTC-medianoche. */
@@ -98,29 +104,38 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: "Cuerpo de la solicitud inválido" }, { status: 400 });
   }
 
-  const { description, comments, time, hours, minutes, phaseId, activityDate } = body as {
+  const { description, comments, startTime, endTime, phaseId, activityDate } = body as {
     description?: string;
     comments?: string;
-    time?: string;
-    hours?: number;
-    minutes?: number;
+    startTime?: string;
+    endTime?: string;
     phaseId?: string;
     activityDate?: string;
   };
 
-  if (!description?.trim() || hours === undefined || minutes === undefined) {
-    return NextResponse.json({ error: "Faltan campos requeridos" }, { status: 400 });
+  // Sprint 2.1 §7: descripción siempre obligatoria, mínimo 15 caracteres.
+  if (!description?.trim() || description.trim().length < MIN_DESCRIPTION_LENGTH) {
+    return NextResponse.json(
+      { error: `La descripción es obligatoria y debe tener al menos ${MIN_DESCRIPTION_LENGTH} caracteres` },
+      { status: 400 }
+    );
   }
-  if (!Number.isInteger(hours) || hours < 0 || hours > 23) {
-    return NextResponse.json({ error: "Las horas deben ser un número entre 0 y 23" }, { status: 400 });
+
+  // Sprint 2.1 §6: se eliminó el campo de duración manual — se registra
+  // únicamente hora inicio/hora fin y la duración se calcula siempre desde
+  // ese rango (mismo parser que la validación de solapamiento de Tareas).
+  if (!startTime || !endTime) {
+    return NextResponse.json({ error: "La hora de inicio y de fin son obligatorias" }, { status: 400 });
   }
-  if (!Number.isInteger(minutes) || minutes < 0 || minutes > 59) {
-    return NextResponse.json({ error: "Los minutos deben ser un número entre 0 y 59" }, { status: 400 });
+  const startMins = timeToMinutes(startTime);
+  const endMins = timeToMinutes(endTime);
+  if (startMins === null || endMins === null) {
+    return NextResponse.json({ error: "Hora inválida" }, { status: 400 });
   }
-  const duration = hours * 60 + minutes;
-  if (duration <= 0) {
-    return NextResponse.json({ error: "La duración debe ser mayor a 0" }, { status: 400 });
+  if (endMins <= startMins) {
+    return NextResponse.json({ error: "La hora fin debe ser posterior a la hora inicio" }, { status: 400 });
   }
+  const duration = endMins - startMins;
 
   if (phaseId) {
     const phase = await prisma.projectPhase.findUnique({ where: { id: phaseId } });
@@ -161,7 +176,8 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       authorId: session.userId,
       description: description.trim(),
       comments: comments?.trim() || null,
-      time: time || null,
+      startTime,
+      endTime,
       duration,
       isRetroactive,
       activityDate: parsedDate,
@@ -172,13 +188,27 @@ export async function POST(request: NextRequest, ctx: Ctx) {
 
   await recalcRealHours(projectId);
 
-  await logProjectHistory({
-    projectId,
-    actorId: session.userId,
-    event: "ACTIVIDAD_REGISTRADA",
-    description: `${session.name} registró ${hours}h ${minutes}m en "${project.name}"${isRetroactive ? " (retroactivo)" : ""}`,
-    newValue: { activityId: activity.id, duration },
-  });
+  // Sprint 2.1 §2: "participante" es distinto de responsable/creador — se
+  // gana la membresía por asignación explícita O por registrar actividad
+  // (aquí). Si quien registró todavía no figura como participante, se lo
+  // agrega automáticamente (esto SÍ es un evento relevante de negocio).
+  if (!participantIds.includes(session.userId)) {
+    await prisma.projectParticipant.create({
+      data: { projectId, userId: session.userId, addedById: session.userId },
+    });
+    await logProjectHistory({
+      projectId,
+      actorId: session.userId,
+      event: "PARTICIPANTE_AGREGADO",
+      description: `${session.name} se agregó automáticamente como participante de "${project.name}" al registrar una actividad`,
+      newValue: { userId: session.userId, auto: true },
+    });
+  }
+
+  // Sprint 2.1 §1: el registro de una actividad individual ya NO genera un
+  // evento en Historial (antes inundaba el timeline con un evento por cada
+  // registro de tiempo) — la vista cronológica dedicada es la pestaña
+  // Actividades (§8), no Historial.
 
   return NextResponse.json(activity, { status: 201 });
 }

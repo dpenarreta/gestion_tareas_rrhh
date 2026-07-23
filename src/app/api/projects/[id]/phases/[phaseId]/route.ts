@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canManagePhases } from "@/lib/projectAccess";
 import { logProjectHistory } from "@/lib/projectHistory";
+import { getPhaseStats } from "@/lib/projectPhaseStats";
 import type { TaskStatus } from "@/generated/prisma/client";
 
 type Ctx = { params: Promise<{ id: string; phaseId: string }> };
@@ -85,6 +86,10 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
 
   const updated = await prisma.projectPhase.update({ where: { id: phaseId }, data, select: phaseSelect });
 
+  // Sprint 2.1 §1: el historial solo registra eventos relevantes de negocio —
+  // un cambio de ESTADO de fase lo es; progreso/notas/fechas/responsable son
+  // ediciones intermedias que ya no se auditan una por una (antes se logueaba
+  // "actualizó la fase" en CADA patch, incluido cada tick del slider de progreso).
   if (status !== undefined && status !== current.status) {
     await logProjectHistory({
       projectId,
@@ -94,16 +99,12 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
       previousValue: { status: current.status },
       newValue: { status },
     });
-  } else {
-    await logProjectHistory({
-      projectId,
-      actorId: session.userId,
-      event: "FASE_ACTUALIZADA",
-      description: `${session.name} actualizó la fase "${current.name}"`,
-    });
   }
 
-  return NextResponse.json(updated);
+  const stats = await getPhaseStats(projectId, [{ id: phaseId }]);
+  const stat = stats.get(phaseId);
+
+  return NextResponse.json({ ...updated, registeredMinutes: stat?.registeredMinutes ?? 0, participants: stat?.participants ?? [] });
 }
 
 export async function DELETE(_req: NextRequest, ctx: Ctx) {

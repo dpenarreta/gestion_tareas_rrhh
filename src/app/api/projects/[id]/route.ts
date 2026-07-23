@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { canViewProject, isProjectManager } from "@/lib/projectAccess";
+import { canViewProject, isProjectManager, isProjectCreator } from "@/lib/projectAccess";
 import { canManageUsers } from "@/lib/roles";
 import { maskEmailUnless } from "@/lib/mask-email";
 import { logProjectHistory } from "@/lib/projectHistory";
 import * as recoveryCenter from "@/lib/recoveryCenter";
-import type { ProjectStatus, TaskPriority } from "@/generated/prisma/client";
+import { getPhaseStats, getLastActivity } from "@/lib/projectPhaseStats";
+import type { ProjectStatus, TaskPriority, Prisma } from "@/generated/prisma/client";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -63,6 +64,26 @@ async function loadProjectForAccess(id: string) {
   });
 }
 
+type ProjectDetailRow = Prisma.ProjectGetPayload<{ select: typeof projectDetailSelect }>;
+
+/** Adjunta campos derivados (§4/§10): tiempo/participantes por fase, última actividad. */
+async function attachDerivedFields(project: ProjectDetailRow) {
+  const [phaseStats, lastActivity] = await Promise.all([
+    getPhaseStats(project.id, project.phases),
+    getLastActivity(project.id),
+  ]);
+
+  return {
+    ...project,
+    phases: project.phases.map((ph) => ({
+      ...ph,
+      registeredMinutes: phaseStats.get(ph.id)?.registeredMinutes ?? 0,
+      participants: phaseStats.get(ph.id)?.participants ?? [],
+    })),
+    lastActivity: lastActivity ? { authorName: lastActivity.authorName, createdAt: lastActivity.createdAt } : null,
+  };
+}
+
 export async function GET(_req: NextRequest, ctx: Ctx) {
   const session = await getSession();
   if (!session) {
@@ -86,10 +107,11 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
   }
 
   const canSeeRealEmails = canManageUsers(session.role);
+  const withDerived = await attachDerivedFields(project);
   return NextResponse.json({
-    ...project,
-    responsible: { ...project.responsible, email: maskEmailUnless(project.responsible.email, canSeeRealEmails) },
-    participants: project.participants.map((p) => ({
+    ...withDerived,
+    responsible: { ...withDerived.responsible, email: maskEmailUnless(withDerived.responsible.email, canSeeRealEmails) },
+    participants: withDerived.participants.map((p) => ({
       ...p,
       user: { ...p.user, email: maskEmailUnless(p.user.email, canSeeRealEmails) },
     })),
@@ -215,17 +237,13 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     });
   }
 
-  const otherFieldsChanged = Object.keys(data).some((k) => !["status", "completedAt", "responsibleId"].includes(k));
-  if (otherFieldsChanged) {
-    await logProjectHistory({
-      projectId: id,
-      actorId: session.userId,
-      event: "ACTUALIZADO",
-      description: `${session.name} actualizó los datos del proyecto "${current.name}"`,
-    });
-  }
+  // Sprint 2.1 §1: ediciones de campos no estratégicos (nombre, descripción,
+  // área, etiquetas, observaciones, fechas, tiempo objetivo) ya NO generan un
+  // evento genérico "ACTUALIZADO" — el historial solo registra eventos
+  // relevantes de negocio (estado, responsable, fases, participantes,
+  // documentos, papelera/restauración), no cada edición intermedia.
 
-  return NextResponse.json(updated);
+  return NextResponse.json(await attachDerivedFields(updated));
 }
 
 /** Mueve el proyecto a la papelera (Centro de Recuperación) — no es un borrado físico. */
@@ -240,8 +258,8 @@ export async function DELETE(_req: NextRequest, ctx: Ctx) {
   if (!access || access.deletedAt) {
     return NextResponse.json({ error: "Proyecto no encontrado" }, { status: 404 });
   }
-  if (!isProjectManager(session, access)) {
-    return NextResponse.json({ error: "No tienes permiso para eliminar este proyecto" }, { status: 403 });
+  if (!isProjectCreator(session, access)) {
+    return NextResponse.json({ error: "Solo el creador del proyecto puede enviarlo a la papelera" }, { status: 403 });
   }
 
   const current = await prisma.project.findUnique({ where: { id }, select: { name: true } });

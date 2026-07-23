@@ -15,6 +15,63 @@
 
 ---
 
+## 2026-07-23 — Sprint 2.1: "participante" derivado por actividad, y eliminación acotada al creador
+
+**Problema detectado:** el Sprint 2.1 pidió separar conceptualmente
+"responsable" de "participante" (antes el responsable se agregaba
+automáticamente como participante al crear el proyecto) y restringir la
+eliminación/restauración de un proyecto únicamente a su creador (antes
+cualquier responsable o liderazgo de nivel ≥ 3 también podía, vía
+`isProjectManager`).
+
+**Alternativas evaluadas (participantes):**
+1. Requerir que el creador asigne explícitamente cada participante, sin
+   ninguna vía automática — un responsable/colaborador que registra tiempo
+   sin haber sido agregado antes quedaría "huérfano" (su actividad existe,
+   pero no aparece en la pestaña Participantes).
+2. Auto-alta como participante en el momento de registrar la primera
+   actividad, además de la asignación explícita — tal como lo describe el
+   pedido ("participante... por asignación explícita o por registrar
+   actividades").
+
+**Decisión tomada (participantes):** opción 2. `POST
+/api/projects/[id]/activities` verifica si el autor ya es participante y,
+si no, crea la fila `ProjectParticipant` en el mismo request y dejando un
+evento `PARTICIPANTE_AGREGADO` en el historial (marcado `auto: true` en
+`newValue`) — no es un caso especial silencioso, queda auditado igual que
+un alta manual.
+
+**Alternativas evaluadas (eliminación):**
+1. Mantener `isProjectManager` (responsable/creador/liderazgo) para
+   papelera/restaurar/eliminar, tal como ya regía cambio de estado y
+   gestión de fases/participantes.
+2. Nueva función `isProjectCreator`, exclusiva para las 3 operaciones de
+   eliminación, dejando `isProjectManager` sin cambios para el resto.
+
+**Decisión tomada (eliminación):** opción 2 — el pedido fue literal
+("Solo el creador del proyecto puede"), sin excepción para liderazgo. La
+Papelera (`GET /api/projects/trash`) conserva visibilidad total para
+liderazgo (supervisión), pero el listado ahora devuelve `canDelete`
+(`createdBy.id === session.userId`) para que la interfaz oculte las
+acciones a quien no sea el creador, en vez de dejar botones que fallarían
+con 403.
+
+**Justificación técnica:** ambas decisiones se tomaron siguiendo el texto
+del pedido de forma literal en vez de inventar una excepción (ej. permitir
+que Administrador siempre pueda eliminar) — de necesitarse una vía de
+emergencia para liderazgo/Administrador, es una decisión de producto
+explícita pendiente, no asumida por esta implementación.
+
+**Impacto:** cambio de comportamiento intencional, sin afectar
+`isProjectManager` para status/fases/participantes (sigue vigente para
+esas 3 operaciones). Verificado en vivo: un responsable con permisos
+previos de eliminación ahora recibe 403 en las 3 rutas; el creador
+conserva acceso completo.
+
+**Aprobado por:** Anthony Jácome (dirección de producto).
+
+---
+
 ## 2026-07-23 — Centro de Recuperación: servicio central con registro de adaptadores, en vez de una papelera por módulo
 
 **Problema detectado:** se pidió una "Papelera" para Proyectos, pero con el

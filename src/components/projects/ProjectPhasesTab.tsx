@@ -3,8 +3,21 @@
 import { useState } from "react";
 import type { ProjectPhase, ProjectPhaseStatus, ProjectUserRef } from "./types";
 import { PHASE_STATUS_LABEL } from "./types";
+import PhaseDetailModal from "./PhaseDetailModal";
 
 const STATUS_OPTIONS: ProjectPhaseStatus[] = ["PENDIENTE", "EN_PROGRESO", "COMPLETADA"];
+
+function formatDuration(mins: number): string {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h === 0) return `${m}min`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}min`;
+}
+
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString("es-CO", { day: "2-digit", month: "short", year: "numeric" });
+}
 
 type Props = {
   projectId: string;
@@ -24,6 +37,10 @@ export default function ProjectPhasesTab({ projectId, phases, canManage, candida
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [detailPhase, setDetailPhase] = useState<ProjectPhase | null>(null);
+  // Progreso local mientras se arrastra el slider — solo se envía al soltar,
+  // para no disparar un PATCH por cada píxel de arrastre.
+  const [dragProgress, setDragProgress] = useState<Record<string, number>>({});
 
   async function createPhase() {
     if (!name.trim() || submitting) return;
@@ -74,6 +91,7 @@ export default function ProjectPhasesTab({ projectId, phases, canManage, candida
   }
 
   async function deletePhase(phaseId: string) {
+    if (!window.confirm("¿Eliminar esta fase? Esta acción no se puede deshacer.")) return;
     const res = await fetch(`/api/projects/${projectId}/phases/${phaseId}`, { method: "DELETE" });
     if (res.ok) {
       onPhasesChanged(phases.filter((p) => p.id !== phaseId));
@@ -154,72 +172,96 @@ export default function ProjectPhasesTab({ projectId, phases, canManage, candida
       {phases.length === 0 ? (
         <div className="text-center text-disabled text-sm py-12 bg-surface border border-border rounded-2xl">Sin fases definidas</div>
       ) : (
-        <div className="space-y-2">
-          {phases.map((phase, i) => (
-            <div key={phase.id} className="bg-surface border border-border rounded-2xl p-4">
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <span className="w-6 h-6 rounded-full bg-primary-surface text-primary text-xs font-bold flex items-center justify-center shrink-0">
-                    {i + 1}
-                  </span>
-                  <div>
-                    <p className="text-sm font-semibold text-title">{phase.name}</p>
-                    {phase.responsible && <p className="text-xs text-secondary">{phase.responsible.name}</p>}
-                  </div>
+        // Sprint 2.1 §4: tarjetas independientes en grilla, en vez de una lista tipo tabla.
+        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+          {phases.map((phase) => {
+            const progress = dragProgress[phase.id] ?? phase.progress;
+            return (
+              <div key={phase.id} className="bg-surface border border-border rounded-2xl p-4 flex flex-col">
+                <div className="flex items-start justify-between gap-2 mb-2">
+                  <p className="text-sm font-semibold text-title leading-snug">{phase.name}</p>
+                  {canManage ? (
+                    <select
+                      value={phase.status}
+                      onChange={(e) => updatePhase(phase.id, { status: e.target.value })}
+                      className="text-[11px] border border-border rounded-lg px-1.5 py-1 bg-surface text-title shrink-0"
+                    >
+                      {STATUS_OPTIONS.map((s) => (
+                        <option key={s} value={s}>{PHASE_STATUS_LABEL[s]}</option>
+                      ))}
+                    </select>
+                  ) : (
+                    <span className="text-[10px] font-bold uppercase px-2 py-1 rounded-full bg-surface2 text-secondary shrink-0">
+                      {PHASE_STATUS_LABEL[phase.status]}
+                    </span>
+                  )}
                 </div>
-                {canManage ? (
-                  <select
-                    value={phase.status}
-                    onChange={(e) => updatePhase(phase.id, { status: e.target.value })}
-                    className="text-xs border border-border rounded-lg px-2 py-1 bg-surface text-title"
-                  >
-                    {STATUS_OPTIONS.map((s) => (
-                      <option key={s} value={s}>{PHASE_STATUS_LABEL[s]}</option>
+
+                <p className="text-xs text-secondary mb-1">Responsable: {phase.responsible?.name ?? "Sin asignar"}</p>
+
+                {phase.participants.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mb-2">
+                    {phase.participants.slice(0, 3).map((p) => (
+                      <span key={p.id} className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-surface2 text-secondary">{p.name}</span>
                     ))}
-                  </select>
-                ) : (
-                  <span className="text-[10px] font-bold uppercase px-2 py-1 rounded-full bg-surface2 text-secondary">
-                    {PHASE_STATUS_LABEL[phase.status]}
-                  </span>
-                )}
-              </div>
-
-              <div className="mt-3">
-                <div className="flex items-center justify-between text-[11px] text-secondary mb-1">
-                  <span>Progreso</span>
-                  <span className="font-semibold text-title">{phase.progress}%</span>
-                </div>
-                {canManage ? (
-                  <input
-                    type="range"
-                    min={0}
-                    max={100}
-                    value={phase.progress}
-                    onChange={(e) => updatePhase(phase.id, { progress: Number(e.target.value) })}
-                    className="w-full accent-[var(--color-primary)]"
-                  />
-                ) : (
-                  <div className="h-1.5 rounded-full bg-surface2 overflow-hidden">
-                    <div className="h-full rounded-full bg-primary" style={{ width: `${phase.progress}%` }} />
+                    {phase.participants.length > 3 && (
+                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-surface2 text-disabled">+{phase.participants.length - 3}</span>
+                    )}
                   </div>
                 )}
-              </div>
 
-              {phase.notes && <p className="text-xs text-secondary mt-2">{phase.notes}</p>}
+                <div className="grid grid-cols-2 gap-2 text-[11px] text-secondary mb-2">
+                  <span>Objetivo: <span className="font-semibold text-title">{phase.targetTimeHours != null ? `${phase.targetTimeHours}h` : "—"}</span></span>
+                  <span>Registrado: <span className="font-semibold text-title">{formatDuration(phase.registeredMinutes)}</span></span>
+                </div>
 
-              <div className="flex items-center justify-between mt-2 text-[11px] text-disabled">
-                <span>
-                  {phase.targetTimeHours != null ? `Objetivo: ${phase.targetTimeHours}h` : ""}
-                </span>
-                {canManage && (
-                  <button onClick={() => deletePhase(phase.id)} className="text-danger hover:underline">
-                    Eliminar fase
+                <div className="mb-2">
+                  <div className="flex items-center justify-between text-[11px] text-secondary mb-1">
+                    <span>Progreso</span>
+                    <span className="font-semibold text-title">{progress}%</span>
+                  </div>
+                  {canManage ? (
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      value={progress}
+                      onChange={(e) => setDragProgress((prev) => ({ ...prev, [phase.id]: Number(e.target.value) }))}
+                      onMouseUp={(e) => updatePhase(phase.id, { progress: Number((e.target as HTMLInputElement).value) })}
+                      onTouchEnd={(e) => updatePhase(phase.id, { progress: Number((e.target as HTMLInputElement).value) })}
+                      onKeyUp={(e) => updatePhase(phase.id, { progress: Number((e.target as HTMLInputElement).value) })}
+                      className="w-full accent-[var(--color-primary)]"
+                    />
+                  ) : (
+                    <div className="h-1.5 rounded-full bg-surface2 overflow-hidden">
+                      <div className="h-full rounded-full bg-primary" style={{ width: `${progress}%` }} />
+                    </div>
+                  )}
+                </div>
+
+                <p className="text-[11px] text-disabled mb-3">{phase.targetDate ? `Fecha objetivo: ${formatDate(phase.targetDate)}` : "Sin fecha objetivo"}</p>
+
+                <div className="mt-auto flex items-center justify-between gap-2">
+                  <button
+                    onClick={() => setDetailPhase(phase)}
+                    className="text-xs font-medium text-primary hover:text-primary-hover"
+                  >
+                    Ver detalle
                   </button>
-                )}
+                  {canManage && (
+                    <button onClick={() => deletePhase(phase.id)} className="text-[11px] text-danger hover:underline">
+                      Eliminar
+                    </button>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
+      )}
+
+      {detailPhase && (
+        <PhaseDetailModal projectId={projectId} phase={detailPhase} onClose={() => setDetailPhase(null)} />
       )}
     </div>
   );

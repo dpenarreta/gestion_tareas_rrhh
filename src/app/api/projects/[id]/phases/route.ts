@@ -84,5 +84,6 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     newValue: { phaseId: phase.id, name: phase.name },
   });
 
-  return NextResponse.json(phase, { status: 201 });
+  // Fase recién creada: sin actividades todavía, sin participantes derivados.
+  return NextResponse.json({ ...phase, registeredMinutes: 0, participants: [] }, { status: 201 });
 }
