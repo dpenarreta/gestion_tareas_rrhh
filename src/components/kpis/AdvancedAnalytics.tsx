@@ -27,7 +27,9 @@ import {
   CONFIDENCE_TOOLTIPS,
   CONSISTENCY_FALLBACK_NOTE,
   SCORE_CLASSIFICATION_REFERENCE,
+  INDICATOR_HELP,
   type ConfidenceIndicators,
+  type IndicatorHelp,
 } from "@/lib/analyticsExplain";
 
 function formatDateTime(iso: string): string {
@@ -100,6 +102,73 @@ export function InfoTooltip({ text }: { text: string }) {
     >
       i
     </span>
+  );
+}
+
+// ── Ayuda contextual de 4 partes (§Sprint A §6) ──────────────────────────────
+// A diferencia de InfoTooltip (hover, una línea), esto abre al click un
+// modal con las 4 secciones (qué significa/cómo se calcula/por qué importa/
+// buenas prácticas) — necesario para contenido más largo. Solo texto estático
+// de `INDICATOR_HELP` (analyticsExplain.ts), sin cálculo ni fetch.
+
+function HelpModal({ title, help, onClose }: { title: string; help: IndicatorHelp; onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+      <div className="relative w-full max-w-sm bg-surface border border-border rounded-[14px] shadow-2xl p-5 max-h-[80vh] overflow-y-auto">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-semibold text-title uppercase tracking-wider">{title}</h3>
+          <button onClick={onClose} className="text-disabled hover:text-main transition-colors" aria-label="Cerrar">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+        </div>
+        <div className="space-y-3 text-sm">
+          <div>
+            <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider mb-1">Qué significa</p>
+            <p className="text-title">{help.meaning}</p>
+          </div>
+          <div>
+            <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider mb-1">Cómo se calcula</p>
+            <p className="text-title">{help.howCalculated}</p>
+          </div>
+          <div>
+            <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider mb-1">Por qué importa</p>
+            <p className="text-title">{help.whyItMatters}</p>
+          </div>
+          <div>
+            <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider mb-1">Buenas prácticas</p>
+            <ul className="space-y-1">
+              {help.bestPractices.map((b, i) => (
+                <li key={i} className="text-title flex items-start gap-1.5">
+                  <span className="text-primary shrink-0">•</span>
+                  <span>{b}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Botón "?" que abre `HelpModal` — mismo estilo visual que `InfoTooltip`, pero interactivo (click, no solo hover) para contenido de 4 secciones. */
+export function HelpPopover({ title, help }: { title: string; help: IndicatorHelp }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        aria-label={`Ayuda: ${title}`}
+        className="inline-flex items-center justify-center w-3.5 h-3.5 rounded-full bg-surface2 text-disabled text-[9px] font-bold leading-none cursor-help shrink-0 hover:bg-primary-surface hover:text-primary transition-colors"
+      >
+        ?
+      </button>
+      {open && <HelpModal title={title} help={help} onClose={() => setOpen(false)} />}
+    </>
   );
 }
 
@@ -367,7 +436,9 @@ export function HealthScoreCard({ result, onExplain }: { result: HealthScoreResu
   return (
     <div className="bg-surface rounded-[14px] border border-border shadow-[var(--shadow)] p-5">
       <div className="flex items-center justify-between mb-1">
-        <h3 className="text-sm font-semibold text-main uppercase tracking-wider">Score de Salud Laboral</h3>
+        <h3 className="text-sm font-semibold text-main uppercase tracking-wider flex items-center gap-1.5">
+          Score de Salud Laboral <HelpPopover title="Score de Salud Laboral" help={INDICATOR_HELP.scoreSalud} />
+        </h3>
         <button onClick={onExplain} className="text-xs font-medium text-primary hover:text-primary-hover">¿Cómo se obtuvo este resultado?</button>
       </div>
       <p className="text-[10px] font-semibold text-disabled bg-surface2 inline-block px-2 py-0.5 rounded-full mb-3">
@@ -404,7 +475,7 @@ export function PerformanceScoreCard({ result, onExplain, confidence }: { result
     <div className="bg-surface rounded-[14px] border border-border shadow-[var(--shadow)] p-5">
       <div className="flex items-center justify-between mb-1">
         <h3 className="text-sm font-semibold text-main uppercase tracking-wider flex items-center gap-1.5">
-          Performance Score <InfoTooltip text={CONFIDENCE_TOOLTIPS.performanceScore} />
+          Performance Score <HelpPopover title="Performance Score" help={INDICATOR_HELP.performanceScore} />
         </h3>
         <button onClick={onExplain} className="text-xs font-medium text-primary hover:text-primary-hover">¿Cómo se obtuvo este resultado?</button>
       </div>
@@ -426,7 +497,7 @@ export function PerformanceScoreCard({ result, onExplain, confidence }: { result
           <div key={f.name} className="flex items-center justify-between text-xs">
             <span className="text-secondary flex items-center gap-1">
               {f.name} <span className="text-disabled">({f.rawLabel})</span>
-              {f.name === "Índice de Trazabilidad" && <InfoTooltip text={CONFIDENCE_TOOLTIPS.trazabilidad} />}
+              {f.name === "Índice de Trazabilidad" && <HelpPopover title="Índice de Trazabilidad" help={INDICATOR_HELP.trazabilidad} />}
             </span>
             <span className="font-semibold text-main">{f.points} pts</span>
           </div>
@@ -551,7 +622,7 @@ export function ConsistencyCard({ result, dataQualityPct }: { result: Consistenc
     <div className="rounded-[14px] border border-border bg-surface shadow-[var(--shadow)] p-5">
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-sm font-semibold text-main uppercase tracking-wider flex items-center gap-1.5">
-          Consistencia <InfoTooltip text={CONFIDENCE_TOOLTIPS.consistencia} />
+          Consistencia <HelpPopover title="Consistencia" help={INDICATOR_HELP.consistencia} />
         </h3>
         {result.available && (
           <button onClick={() => setExplainOpen(true)} className="text-xs font-medium text-primary hover:text-primary-hover">

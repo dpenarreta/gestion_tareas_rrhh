@@ -9,12 +9,16 @@ import {
   type MonthlyHistoryPoint,
   type OperationalRiskResult,
   type RiskFactor,
+  type PerformanceScoreResult,
+  type PerformanceFactor,
   type ConsistencyResult,
   type EngineAlert,
   type KpiTrends,
   type DataQualityResult,
 } from "@/lib/analytics";
 import type { CapacityForecast } from "@/lib/capacityForecast";
+import { scoreLevel } from "@/lib/analyticsExplain";
+import { getFactorAuditHistory, closestFactorPoint, type AuditKind, type AuditFactorSnapshot } from "@/lib/analyticsAuditHistory";
 
 /**
  * Motor de Insights (Sprint 6 — Decision Intelligence Engine) — construye
@@ -140,6 +144,146 @@ const FACTOR_ACTION: Record<string, (f: RiskFactor) => Omit<SuggestedAction, "im
   }),
 };
 
+// ── Sprint A: Insights de Performance Score (fortalezas + oportunidades) ────
+// Mismo patrón que FACTOR_EXPLANATION/FACTOR_ACTION arriba, pero bidireccional
+// (a diferencia de Riesgo Operativo, donde todo factor activo es negativo por
+// diseño): un factor normalizado alto es una fortaleza (`tone: "positive"`),
+// uno bajo es una oportunidad de mejora (`tone: "risk"`, con acción). Nunca
+// recalcula PerformanceScoreResult — solo traduce `factors[]` ya calculados.
+
+const PERFORMANCE_FACTOR_EXPLANATION: Record<string, { high: string; low: string }> = {
+  Cumplimiento: {
+    high: "El porcentaje de tareas completadas este mes está por encima del rango esperado.",
+    low: "El porcentaje de tareas completadas este mes está por debajo del rango esperado.",
+  },
+  "Tareas vencidas": {
+    high: "No hay una acumulación relevante de tareas vencidas este mes.",
+    low: "Hay una acumulación de tareas vencidas — pesa más cuando son de prioridad Alta.",
+  },
+  Consistencia: {
+    high: "El ritmo de trabajo (horas, tareas completadas, cumplimiento) es estable semana a semana.",
+    low: "El ritmo de trabajo varía fuertemente semana a semana (coeficiente de variación alto).",
+  },
+  "Índice de Trazabilidad": {
+    high: "El trabajo realizado queda bien documentado (registro diario, comentarios, actividades).",
+    low: "El trabajo realizado queda poco documentado (registro diario, comentarios, actividades).",
+  },
+};
+
+const PERFORMANCE_FACTOR_MAINTAIN: Record<string, string> = {
+  Cumplimiento: "Mantener el ritmo actual de cierre de tareas dentro del plazo comprometido.",
+  "Tareas vencidas": "Mantener el control de plazos — seguir cerrando tareas antes de su vencimiento.",
+  Consistencia: "Mantener el ritmo de trabajo estable semana a semana.",
+  "Índice de Trazabilidad": "Mantener el registro diario y la documentación del trabajo realizado.",
+};
+
+const PERFORMANCE_FACTOR_ACTION: Record<string, (f: PerformanceFactor) => Omit<SuggestedAction, "impact" | "impactNote">> = {
+  Cumplimiento: (f) => ({
+    what: "Completar las tareas pendientes de este mes, priorizando las más próximas a vencer.",
+    who: "El colaborador.",
+    howMuch: f.rawLabel,
+    when: "Antes de fin de mes.",
+  }),
+  "Tareas vencidas": (f) => ({
+    what: "Priorizar el cierre de las tareas vencidas, especialmente las de prioridad Alta.",
+    who: "El colaborador.",
+    howMuch: f.rawLabel,
+    when: "Esta semana.",
+  }),
+  Consistencia: (f) => ({
+    what: "Mantener un registro y un cumplimiento más parejo entre semanas, evitando picos y caídas fuertes.",
+    who: "El colaborador.",
+    howMuch: f.rawLabel,
+    when: "Las próximas semanas.",
+  }),
+  "Índice de Trazabilidad": (f) => ({
+    what: "Registrar a diario el avance del trabajo: comentarios y actividades que documenten lo realizado.",
+    who: "El colaborador.",
+    howMuch: f.rawLabel,
+    when: "A diario.",
+  }),
+};
+
+const PERFORMANCE_FACTOR_HALLAZGO: Record<string, (f: PerformanceFactor, high: boolean) => string> = {
+  Cumplimiento: (f, high) =>
+    high ? `Buen cumplimiento de tareas: ${f.rawLabel} completadas este mes.` : `Cumplimiento por debajo del objetivo: ${f.rawLabel} completadas este mes.`,
+  "Tareas vencidas": (f, high) => (high ? `Buen control de plazos: ${f.rawLabel} vencidas.` : `Acumulación de tareas vencidas: ${f.rawLabel}.`),
+  Consistencia: (f, high) =>
+    high ? `Ritmo de trabajo estable: consistencia ${f.rawLabel}.` : `Ritmo de trabajo irregular semana a semana: consistencia ${f.rawLabel}.`,
+  "Índice de Trazabilidad": (f, high) =>
+    high ? `Buen registro de evidencia del trabajo: ${f.rawLabel}.` : `Poca evidencia documentada del trabajo: ${f.rawLabel}.`,
+};
+
+/**
+ * Sprint A — traduce `PerformanceScoreResult.factors[]` YA CALCULADOS a
+ * Insights de 4 bloques, en ambas direcciones: `normalizedValue` en "Alto"/
+ * "Muy alto" (`scoreLevel`, `analyticsExplain.ts`) → fortaleza; "Bajo" →
+ * oportunidad de mejora con acción concreta. "Medio" no genera insight (evita
+ * ruido, mismo criterio que `FACTOR_INSIGHT_THRESHOLD_PTS` para Riesgo
+ * Operativo). El impacto de la acción es el máximo puntaje que ESE factor
+ * podría aportar si llegara al tope de su curva (`weight - points`, ambos ya
+ * calculados por el motor) — nunca un número inventado; se etiqueta como
+ * potencial, no como el efecto exacto de la acción sugerida.
+ */
+export function computePerformanceInsights(performanceScore: PerformanceScoreResult, baseConfidence: Confidence): Insight[] {
+  const insights: Insight[] = [];
+  for (const factor of performanceScore.factors) {
+    const level = scoreLevel(factor.normalizedValue);
+    if (level === "Medio") continue;
+    const high = level === "Alto" || level === "Muy alto";
+
+    const explanationPair = PERFORMANCE_FACTOR_EXPLANATION[factor.name];
+    const explicacion = explanationPair ? (high ? explanationPair.high : explanationPair.low) : "Relación observada entre este factor y el Performance Score actual.";
+    const hallazgoBuilder = PERFORMANCE_FACTOR_HALLAZGO[factor.name];
+    const hallazgo = hallazgoBuilder ? hallazgoBuilder(factor, high) : factor.detail;
+    const evidencia: EvidenceItem[] = [
+      { label: factor.name, before: "—", after: factor.rawLabel },
+      { label: "Aporte al Performance Score", before: `${factor.weight}% de peso`, after: `${factor.points} pts` },
+    ];
+
+    if (high) {
+      insights.push({
+        id: `perf-factor:${factor.name}:fortaleza`,
+        tone: "positive",
+        hallazgo,
+        explicacion,
+        evidencia,
+        accion: {
+          what: PERFORMANCE_FACTOR_MAINTAIN[factor.name] ?? "Mantener las prácticas actuales.",
+          who: "El colaborador.",
+          howMuch: "Sin cambios necesarios.",
+          when: "Continuo.",
+          impact: null,
+          impactNote: "Impacto no estimable con los datos actuales.",
+        },
+        confidence: baseConfidence,
+      });
+      continue;
+    }
+
+    const maxUpsidePts = Math.round((factor.weight - factor.points) * 100) / 100;
+    const actionBuilder = PERFORMANCE_FACTOR_ACTION[factor.name];
+    const accion: SuggestedAction | null = actionBuilder
+      ? {
+          ...actionBuilder(factor),
+          impact: maxUpsidePts > 0 ? [{ metric: "Performance Score", delta: maxUpsidePts, unit: "pts" }] : null,
+          impactNote: maxUpsidePts > 0 ? "" : "Impacto no estimable con los datos actuales.",
+        }
+      : null;
+
+    insights.push({
+      id: `perf-factor:${factor.name}:oportunidad`,
+      tone: "risk",
+      hallazgo,
+      explicacion,
+      evidencia,
+      accion,
+      confidence: baseConfidence,
+    });
+  }
+  return insights;
+}
+
 const FACTOR_INSIGHT_THRESHOLD_PTS = 2;
 
 /**
@@ -155,7 +299,7 @@ const FACTOR_INSIGHT_THRESHOLD_PTS = 2;
 export async function computeInsights(
   userId: string,
   now: Date,
-  pipeline: { consistency: ConsistencyResult; dataQuality: DataQualityResult; trends: KpiTrends },
+  pipeline: { consistency: ConsistencyResult; dataQuality: DataQualityResult; trends: KpiTrends; performanceScore: PerformanceScoreResult },
   operationalRisk: OperationalRiskResult
 ): Promise<Insight[]> {
   const insights: Insight[] = [];
@@ -164,6 +308,8 @@ export async function computeInsights(
     dataQualityPct: pipeline.dataQuality.pct,
     consistent: pipeline.consistency.available ? pipeline.consistency.level === "muy-consistente" || pipeline.consistency.level === "consistente" : null,
   });
+
+  insights.push(...computePerformanceInsights(pipeline.performanceScore, baseConfidence));
 
   const relevantFactors = operationalRisk.factors.filter((f) => f.points >= FACTOR_INSIGHT_THRESHOLD_PTS).sort((a, b) => b.points - a.points);
 
@@ -262,6 +408,79 @@ export async function computeInsights(
   }
 
   return insights;
+}
+
+// ── Sprint A: Explicación de tendencias (Performance Score / Score de Salud) ─
+// Nunca recalcula un score: compara `factors[]` YA CALCULADOS de dos
+// instantes en el tiempo (el actual vs. un snapshot histórico de
+// `AnalyticsAuditLog`, leído a través de `analyticsAuditHistory.ts` — capa de
+// solo lectura, no del motor) y narra qué factores subieron/bajaron más.
+// Mismo principio "cero números inventados" que el resto de este archivo.
+
+export type ScoreTrendExplanation = {
+  available: boolean;
+  direction: "mejora" | "empeoro" | "estable";
+  scoreDelta: number;
+  bullets: string[];
+  reason?: string;
+};
+
+const TREND_STABLE_EPSILON = 0.5;
+const FACTOR_DELTA_EPSILON = 0.5;
+const MAX_TREND_BULLETS = 3;
+
+/** Pura — compara dos snapshots de factores (misma forma que `PerformanceFactor`/`HealthFactor`) sin volver a calcular nada. */
+export function explainScoreTrend(
+  currentScore: number,
+  currentFactors: AuditFactorSnapshot[],
+  previousScore: number | null,
+  previousFactors: AuditFactorSnapshot[] | null
+): ScoreTrendExplanation {
+  if (previousScore === null || previousFactors === null) {
+    return { available: false, direction: "estable", scoreDelta: 0, bullets: [], reason: "Sin historial suficiente para explicar la tendencia." };
+  }
+  const scoreDelta = Math.round((currentScore - previousScore) * 100) / 100;
+  const direction: ScoreTrendExplanation["direction"] = scoreDelta > TREND_STABLE_EPSILON ? "mejora" : scoreDelta < -TREND_STABLE_EPSILON ? "empeoro" : "estable";
+
+  const prevByName = new Map(previousFactors.map((f) => [f.name, f]));
+  const deltas = currentFactors
+    .map((f) => {
+      const prev = prevByName.get(f.name);
+      if (!prev) return null;
+      const delta = Math.round((f.points - prev.points) * 100) / 100;
+      return { name: f.name, delta, prevLabel: prev.rawLabel ?? prev.detail ?? "", curLabel: f.rawLabel ?? f.detail ?? "" };
+    })
+    .filter((d): d is { name: string; delta: number; prevLabel: string; curLabel: string } => d !== null && Math.abs(d.delta) >= FACTOR_DELTA_EPSILON)
+    .sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
+    .slice(0, MAX_TREND_BULLETS);
+
+  const bullets = deltas.map((d) => {
+    const verb = d.delta > 0 ? "aportó" : "restó";
+    const labelChange = d.prevLabel && d.curLabel && d.prevLabel !== d.curLabel ? ` (${d.prevLabel} → ${d.curLabel})` : "";
+    return `${d.name} ${verb} ${Math.abs(d.delta)}pts${labelChange}`;
+  });
+
+  return { available: true, direction, scoreDelta, bullets, reason: bullets.length === 0 ? "No hay un factor individual con variación relevante." : undefined };
+}
+
+/**
+ * Envoltorio async: resuelve el punto histórico más cercano a `daysAgo` vía
+ * `getFactorAuditHistory`/`closestFactorPoint` (`analyticsAuditHistory.ts`) y
+ * delega la comparación a `explainScoreTrend` (pura). `kind` acepta
+ * `"health_score"` porque esa lectura vive en la capa complementaria nueva,
+ * no en `getScoredAuditHistory` del motor (que no se modifica).
+ */
+export async function getScoreTrendExplanation(
+  userId: string,
+  kind: AuditKind,
+  currentScore: number,
+  currentFactors: AuditFactorSnapshot[],
+  now: Date,
+  daysAgo = 30
+): Promise<ScoreTrendExplanation> {
+  const history = await getFactorAuditHistory(userId, kind, now, Math.max(daysAgo + 10, 40));
+  const point = closestFactorPoint(history, now, daysAgo);
+  return explainScoreTrend(currentScore, currentFactors, point?.score ?? null, point?.factors ?? null);
 }
 
 // ── S6-C: Relaciones entre indicadores (reglas determinísticas) ─────────────

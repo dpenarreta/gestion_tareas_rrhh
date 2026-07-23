@@ -36,7 +36,7 @@ export const REASON_LABEL: Record<string, string> = {
 // Recharts palette (Parte 2 del sistema de diseño): morado, azul, verde, amarillo, naranja
 const CHART_COLORS = ["#6366f1", "#3b82f6", "#34d399", "#fbbf24", "#f59e0b"];
 
-function useChartTheme() {
+export function useChartTheme() {
   const { resolvedTheme } = useTheme();
   const dark = resolvedTheme === "dark";
   return {

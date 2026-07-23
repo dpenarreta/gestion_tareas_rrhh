@@ -8,9 +8,9 @@
 
 | Componente | Versión | Notas |
 |---|---|---|
-| **NEXO** (producto) | **v1.11.0** | Ver `docs/CHANGELOG.md` para el detalle de qué introdujo cada versión |
-| **Analytics Engine** | v1.5.0 | `ANALYTICS_ENGINE_VERSION` en `src/lib/analytics.ts` |
-| **Formulas Set** | v4.2 | `FORMULA_SET_VERSION` en `src/lib/analytics.ts` — paquete de fórmulas vigente dentro del motor |
+| **NEXO** (producto) | **v1.12.0** | Ver `docs/CHANGELOG.md` para el detalle de qué introdujo cada versión |
+| **Analytics Engine** | v1.5.0 | `ANALYTICS_ENGINE_VERSION` en `src/lib/analytics.ts` — sin cambios en Sprint A (capa de explicabilidad, no de cálculo) |
+| **Formulas Set** | v4.2 | `FORMULA_SET_VERSION` en `src/lib/analytics.ts` — paquete de fórmulas vigente dentro del motor, sin cambios en Sprint A |
 | **API** | Sin versionado explícito (rutas internas de Next.js, no una API pública versionada) | Ver `docs/ARCHITECTURE.md` |
 | **Prisma Schema** | Sin campo de versión propio — el historial de migraciones en `prisma/migrations/` es la fuente de verdad de su evolución | — |
 
@@ -72,7 +72,8 @@ hacia adelante):
 | v1.8.0 | 2026-07-23 | Escritorio Digital — notas rápidas tipo Post-it entre colaboradores (excluye Administrador), widget en Dashboard + tablero completo, segundo módulo integrado al Centro de Recuperación |
 | v1.9.0 | 2026-07-23 | Escritorio Digital — centro personal de trabajo: color de Post-it, adjuntos, confirmación de lectura, convertir nota en tarea, recordatorios personales (reemplazan `FollowUpReminder`, migración de datos verificada), repetición/posposición, calendario, búsqueda unificada, Bandeja Hoy |
 | v1.10.0 | 2026-07-23 | Recordatorios — refinamiento de ciclo de vida: "Completado" ya no es definitivo, reabrir (misma fila, sin crear registro nuevo) con opción de mantener o reprogramar fecha/hora, historial de auditoría visible, pestaña "Archivados" |
-| **v1.11.0** | 2026-07-23 | **Escritorio Digital — refinamiento notas/recordatorios**: lectura automática con confirmación al remitente, respuestas cortas (máx. 2), pipeline Nota→Recordatorio→Tarea (reemplaza la conversión directa del sprint anterior), archivado de notas con retención de 15 días, buscador único como overlay |
+| v1.11.0 | 2026-07-23 | Escritorio Digital — refinamiento notas/recordatorios: lectura automática con confirmación al remitente, respuestas cortas (máx. 2), pipeline Nota→Recordatorio→Tarea (reemplaza la conversión directa del sprint anterior), archivado de notas con retención de 15 días, buscador único como overlay |
+| **v1.12.0** | 2026-07-23 | **Sprint A — Analytics Explicativo**: capa de interpretación sobre el Analytics Engine existente (insights de Performance Score en ambas direcciones, fortalezas/oportunidades, explicación de tendencias, ayuda contextual de 4 partes, histórico con selector de período, simulador "¿qué pasaría si...?" personal) — cero cambios de fórmula/peso/curva/umbral |
 
 Ver `docs/CHANGELOG.md` para el detalle completo de cada versión (tipo de
 cambio, módulo, archivos afectados, impacto).

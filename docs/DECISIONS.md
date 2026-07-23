@@ -45,6 +45,9 @@
 | Eliminación definitiva desde Archivadas es un borrado directo, no una segunda papelera | La nota archivada ya tiene su propio reloj de 15 días (§8); envolverla en el Centro de Recuperación además sería una retención duplicada sobre la misma acción. | `AUDIT_LOG.md` § 2026-07-23 |
 | Respuestas de nota acotadas a 2, entre remitente y destinatario únicamente | El pedido es explícito: no es un chat. Al límite, la API devuelve el mensaje exacto pedido en vez de una genérica. | `src/app/api/desk-notes/[id]/replies/route.ts` |
 | Buscador de Escritorio Digital como overlay, no como pestaña | El pedido exige que buscar no obligue a cambiar de sección; una pestaña "Buscar" contradice eso literalmente. | `src/components/desk/GlobalSearchOverlay.tsx` |
+| Analytics Explicativo funciona como una capa superior de interpretación y no modifica el motor oficial de cálculo | Regla de arquitectura explícita del pedido (Sprint A): `analytics.ts`/`capacityForecast.ts`/`workload.ts`/`targetTime.ts`/`normalizationEngine.ts` deben mantenerse como fuente oficial de cálculo. | `docs/ANALYTICS_FORMULAS.md` §14 |
+| Historial de auditoría para la capa explicativa vive en `analyticsAuditHistory.ts` (nuevo), no se ampliaron las funciones de lectura de `analytics.ts` | La única alternativa sin este archivo nuevo exigía ampliar la firma de `getScoredAuditHistory()` dentro del motor — se prefirió un adaptador nuevo por la misma regla de no tocar los 5 archivos protegidos. | — |
+| Simulador "¿qué pasaría si...?" personal como componente nuevo (`WhatIfSimulator.tsx`), sin tocar `TeamWorkloadCards.tsx` | El simulador de equipo ya está en producción; extender el endpoint (`simulate/[userId]`) con escenarios nuevos y crear un componente aparte evita arriesgar ese flujo existente. | `docs/CHANGELOG.md` § v1.12.0 |
 
 ---
 

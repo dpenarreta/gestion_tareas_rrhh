@@ -11,6 +11,7 @@ import {
   computePersonalBenchmark,
   computeRecommendationReevaluation,
   prioritizeInsights,
+  getScoreTrendExplanation,
   INSIGHTS_ENGINE_VERSION,
 } from "@/lib/insightsEngine";
 
@@ -46,10 +47,11 @@ export async function GET(request: Request, ctx: Ctx) {
     computeMonthlyHistory(userId, 6, now),
   ]);
 
-  const [insights, personalBenchmark, reevaluations] = await Promise.all([
+  const [insights, personalBenchmark, reevaluations, performanceTrendExplained] = await Promise.all([
     computeInsights(userId, now, pipeline, operationalRisk),
     computePersonalBenchmark(userId, pipeline.performanceScore.score, pipeline.dataQuality.pct, now),
     computeRecommendationReevaluation(userId, pipeline.alerts, operationalRisk.score, now),
+    getScoreTrendExplanation(userId, "performance_score", pipeline.performanceScore.score, pipeline.performanceScore.factors, now, 30),
   ]);
   const relations = computeIndicatorRelations(monthly, pipeline.consistency, operationalRisk, capacity);
   const prioritized = prioritizeInsights(insights);
@@ -60,6 +62,7 @@ export async function GET(request: Request, ctx: Ctx) {
     relations,
     personalBenchmark,
     reevaluations,
+    performanceTrendExplained,
     engineVersion: ANALYTICS_ENGINE_VERSION,
     insightsEngineVersion: INSIGHTS_ENGINE_VERSION,
     lastUpdated: now.toISOString(),

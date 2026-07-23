@@ -1006,6 +1006,15 @@ stars: 0.8983 >= 0.85 → 5 ("Muy alta")
 - Capa de explicabilidad relacionada (`src/lib/analyticsExplain.ts`, Sprint 6.5) sigue el mismo principio: funciones puras de presentación (`scoreLevel`, `reliabilityPctFromStars`, `cumplimientoColor`, `maturityFromCount`/`maturityFromWeeks`) que traducen valores ya calculados a niveles/etiquetas ejecutivas — nunca recalculan. Documentado como consolidación D10 en el registro de auditoría (antes disperso en 3-4 componentes de UI).
 - Las 3 heurísticas de "confianza según historial" que coexisten en el sistema (`consistencyReliabilityFromWeeks` en `analytics.ts`, `computeConfidence` aquí, `maturityFromCount`/`maturityFromWeeks` en `analyticsExplain.ts`) son **conceptualmente distintas** (Confiabilidad de Consistencia vs. Confianza compuesta de Insights vs. madurez visual de una tarjeta) y se documentaron a propósito **sin fusionar** — forzarlas a una sola fórmula cambiaría el resultado de al menos 2 de las 3 (Registro de auditoría, D10).
 
+### Ampliación — Sprint A: Analytics Explicativo (2026-07-23)
+
+**No es una fórmula nueva ni un cambio de versión** (`INSIGHTS_ENGINE_VERSION` se mantiene en `"1.0.0"`, `ANALYTICS_ENGINE_VERSION`/`FORMULA_SET_VERSION` sin cambios) — es una ampliación de la capa de composición que ya describe esta sección, aplicando el mismo patrón que ya existía para Riesgo Operativo a un segundo indicador:
+
+- `computePerformanceInsights` (`insightsEngine.ts`) traduce `PerformanceScoreResult.factors[]` a `Insight[]`, pero **en ambas direcciones** (a diferencia de los factores de Riesgo Operativo, siempre negativos por diseño): `normalizedValue` en "Alto"/"Muy alto" (`scoreLevel`, umbrales ya existentes) → fortaleza (`tone: "positive"`); "Bajo" → oportunidad de mejora con acción e impacto (`weight - points`, el máximo puntaje que ese factor podría aportar — nunca inventado). "Medio" no genera insight, mismo criterio anti-ruido que `FACTOR_INSIGHT_THRESHOLD_PTS`.
+- `explainScoreTrend`/`getScoreTrendExplanation` (`insightsEngine.ts`) comparan `factors[]` actuales contra un snapshot histórico de `AnalyticsAuditLog` (leído vía la capa nueva `src/lib/analyticsAuditHistory.ts`, de solo lectura, fuera del motor) y narran qué factor cambió más — nunca recalculan un score.
+- El simulador de escenarios (§ya documentado arriba en esta sección para `carga`/`capacidad`) se amplía con 4 escenarios sobre factores de Performance Score (`complete_task`, `reduce_overdue`, `increase_consistency`) y uno sobre Carga Laboral (`register_hours`) — cada uno recalcula un único factor con `normalize()`/`weightedPoints()` reales y lo recombina con los demás, sin tocar `computePerformanceScore`.
+- Ningún archivo del motor central (`analytics.ts`, `capacityForecast.ts`, `workload.ts`, `targetTime.ts`, `normalizationEngine.ts`) fue modificado para esta ampliación.
+
 ---
 
-_Generado a partir de src/lib/analytics.ts (ANALYTICS_ENGINE_VERSION 1.5.0 / FORMULA_SET_VERSION 4.2) el 2026-07-22._
+_Generado a partir de src/lib/analytics.ts (ANALYTICS_ENGINE_VERSION 1.5.0 / FORMULA_SET_VERSION 4.2) el 2026-07-22. Ampliado el 2026-07-23 (Sprint A)._

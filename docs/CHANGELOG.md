@@ -23,6 +23,90 @@
 
 ---
 
+## v1.12.0 — 2026-07-23
+
+**Tipo:** FEATURE / ANALYTICS
+**Módulo:** Analytics — capa de explicabilidad (Sprint A: Analytics Explicativo)
+
+**Implementado:** capa de interpretación/visualización ENCIMA del Analytics
+Engine existente — **cero cambios de fórmula, peso, curva o umbral**;
+`analytics.ts`, `capacityForecast.ts`, `workload.ts`, `targetTime.ts` y
+`normalizationEngine.ts` permanecen intactos.
+
+- **Insights de Performance Score (fortalezas/oportunidades):**
+  `computePerformanceInsights` (nuevo, `insightsEngine.ts`) traduce
+  `PerformanceScoreResult.factors[]` YA calculados a `Insight[]` en ambas
+  direcciones — factor con `normalizedValue` Alto/Muy alto → fortaleza
+  (`tone: "positive"`); Bajo → oportunidad con acción concreta e impacto
+  (`weight - points`, nunca inventado). Antes `insightsEngine.ts` solo
+  traducía factores de Riesgo Operativo (siempre negativos por diseño).
+- **Bloques "Fortalezas detectadas" / "Oportunidades de mejora"**
+  (`InsightsPanel.tsx`): subconjuntos del mismo `insights[]` ya calculado,
+  filtrados por `tone` — oportunidades ordenadas por impacto, máx. 5.
+- **Explicación de tendencias:** `explainScoreTrend`/`getScoreTrendExplanation`
+  (nuevo, `insightsEngine.ts`) comparan `factors[]` actuales vs. un snapshot
+  histórico de `AnalyticsAuditLog` y narran qué factor subió/bajó más — nunca
+  recalcula el score. Se muestra junto al Performance Score
+  (`InsightsPanel`) y al Riesgo Operativo (`OperationalRiskCard`), donde el
+  ▲/▼/= ya existente ahora viene acompañado de texto, no solo el número.
+- **Ayuda contextual de 4 partes:** `INDICATOR_HELP` (nuevo,
+  `analyticsExplain.ts`) + componente `HelpPopover` (click, no solo hover)
+  para 6 indicadores principales (Performance Score, Score de Salud, Riesgo
+  Operativo, Consistencia, Trazabilidad, Tiempo Objetivo) — qué significa/
+  cómo se calcula/por qué importa/buenas prácticas, redactado desde
+  `docs/ANALYTICS_FORMULAS.md`.
+- **Histórico de evolución con selector de período:** nuevo endpoint
+  `GET /api/analytics/history/[userId]?kind=&months=1|3|6|12` sobre
+  `src/lib/analyticsAuditHistory.ts` (capa de solo lectura NUEVA sobre
+  `AnalyticsAuditLog`, no forma parte del motor) + componente
+  `ScoreHistoryChart.tsx` (recharts), montado en `MyKpisModule`,
+  `KpisModule` y `OperationalRiskCard`.
+- **Simulador "¿Qué pasaría si...?" personal:** `simulate/[userId]/route.ts`
+  gana 4 escenarios nuevos (completar tareas, reducir vencidas, subir
+  consistencia, registrar horas adicionales) que recalculan UN factor de
+  Performance Score o Carga/Score de Salud con las MISMAS funciones puras
+  del motor (`normalize`, `weightedPoints`, `classifyPerformanceScore`,
+  `cargaHealthScore`) — nunca persiste nada. Nuevo componente standalone
+  `WhatIfSimulator.tsx`, montado en `MyKpisModule` (el simulador de equipo
+  existente en `TeamWorkloadCards.tsx` no se tocó). Respuesta incluye
+  `diff` explícito (actual → simulado → diferencia).
+
+**Archivos creados:** `src/lib/analyticsAuditHistory.ts`,
+`src/app/api/analytics/history/[userId]/route.ts`,
+`src/components/kpis/ScoreHistoryChart.tsx`,
+`src/components/kpis/WhatIfSimulator.tsx`.
+
+**Archivos modificados:** `src/lib/insightsEngine.ts` (+insights de
+Performance Score, +explicación de tendencia),
+`src/lib/analyticsExplain.ts` (+`INDICATOR_HELP`),
+`src/components/kpis/AdvancedAnalytics.tsx` (+`HelpPopover`),
+`src/components/kpis/InsightsPanel.tsx`,
+`src/components/kpis/OperationalRiskCard.tsx`,
+`src/components/kpis/TargetTimePrecisionCard.tsx`,
+`src/components/kpis/KpiCharts.tsx` (`useChartTheme` exportado, sin cambio
+de comportamiento), `src/components/kpis/MyKpisModule.tsx`,
+`src/components/kpis/KpisModule.tsx`,
+`src/app/api/analytics/insights/[userId]/route.ts`,
+`src/app/api/analytics/operational-risk/[userId]/route.ts`,
+`src/app/api/analytics/simulate/[userId]/route.ts`.
+
+**Impacto:** ningún cambio en `ANALYTICS_ENGINE_VERSION` (1.5.0) ni
+`FORMULA_SET_VERSION` (4.2) — se confirmó explícitamente que ningún archivo
+del motor central (`analytics.ts`, `capacityForecast.ts`, `workload.ts`,
+`targetTime.ts`, `normalizationEngine.ts`) fue modificado; los KPIs, scores y
+clasificaciones existentes no cambian de valor para ningún usuario. Todo el
+código nuevo es de solo lectura/composición sobre resultados ya calculados
+(`PerformanceScoreResult.factors`, `AnalyticsAuditLog`) o recombinación con
+las mismas funciones puras ya exportadas por el motor. Verificado con
+`npm run build`, `npx tsc --noEmit` y `npx vitest run` (897 tests, sin
+regresiones) tras cada bloque. `TeamWorkloadCards.tsx` (simulador de equipo
+existente) no se modificó, por decisión explícita de minimizar riesgo sobre
+un flujo ya en producción.
+
+**Autor:** Claude Code (dirigido por Anthony Jácome).
+
+---
+
 ## v1.11.0 — 2026-07-23
 
 **Tipo:** FEATURE / BREAKING CHANGE / DATABASE

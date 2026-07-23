@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { InfoTooltip } from "./AdvancedAnalytics";
-import { CONFIDENCE_TOOLTIPS } from "@/lib/analyticsExplain";
+import { HelpPopover } from "./AdvancedAnalytics";
+import { INDICATOR_HELP } from "@/lib/analyticsExplain";
 import { PRECISION_CLASS_COLOR, type PrecisionClassification } from "@/lib/targetTime";
 
 type TargetTimePrecisionResponse =
@@ -62,7 +62,7 @@ export default function TargetTimePrecisionCard({ userId }: { userId: string }) 
     <div className="rounded-[14px] border border-border bg-surface shadow-[var(--shadow)] p-5">
       <div className="flex items-center justify-between mb-1">
         <h3 className="text-sm font-semibold text-main uppercase tracking-wider flex items-center gap-1.5">
-          Precisión del Tiempo Objetivo <InfoTooltip text={CONFIDENCE_TOOLTIPS.targetTimePrecision} />
+          Precisión del Tiempo Objetivo <HelpPopover title="Precisión del Tiempo Objetivo" help={INDICATOR_HELP.tiempoObjetivo} />
         </h3>
       </div>
       <p className="text-[10px] font-semibold text-primary bg-primary-surface inline-block px-2 py-0.5 rounded-full mb-3">

@@ -33,12 +33,21 @@ type PersonalBenchmark = {
 };
 type Reevaluation = { rule: string; message: string; status: "mejorada" | "valida" | "prioritaria" | "sin-datos"; referenceDaysAgo: number };
 
+type ScoreTrendExplanation = {
+  available: boolean;
+  direction: "mejora" | "empeoro" | "estable";
+  scoreDelta: number;
+  bullets: string[];
+  reason?: string;
+};
+
 type InsightsResponse = {
   insights: Insight[];
   prioritized: { top: Insight[]; additional: Insight[] };
   relations: IndicatorRelation[];
   personalBenchmark: PersonalBenchmark;
   reevaluations: Reevaluation[];
+  performanceTrendExplained: ScoreTrendExplanation;
   engineVersion: string;
   insightsEngineVersion: string;
   lastUpdated: string;
@@ -199,6 +208,81 @@ function ReevaluationSection({ reevaluations }: { reevaluations: Reevaluation[] 
   );
 }
 
+/** §8 Sprint A — "Fortalezas detectadas": subconjunto de los mismos Insights ya calculados (tone="positive"), sin volver a consultar nada. */
+function StrengthsSection({ insights }: { insights: Insight[] }) {
+  const strengths = insights.filter((i) => i.tone === "positive");
+  if (strengths.length === 0) return null;
+  return (
+    <div className="rounded-[14px] border border-success/25 bg-success/[.05] shadow-[var(--shadow)] p-5">
+      <h3 className="text-sm font-semibold text-success uppercase tracking-wider mb-3">✓ Fortalezas detectadas</h3>
+      <ul className="space-y-1.5">
+        {strengths.map((i) => (
+          <li key={i.id} className="text-sm text-title flex items-start gap-2">
+            <span className="text-success shrink-0">✓</span>
+            <span>{i.hallazgo}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function impactMagnitude(i: Insight): number {
+  if (!i.accion?.impact) return 0;
+  return i.accion.impact.reduce((s, imp) => s + Math.abs(imp.delta), 0);
+}
+
+/** §9 Sprint A — "Oportunidades de mejora": subconjunto tone="risk", ordenado por impacto y acotado a 5 — resumen liviano; el detalle completo con acción sigue disponible más abajo en "Recomendaciones prioritarias". */
+function OpportunitiesSection({ insights }: { insights: Insight[] }) {
+  const opportunities = insights
+    .filter((i) => i.tone === "risk")
+    .sort((a, b) => impactMagnitude(b) - impactMagnitude(a))
+    .slice(0, 5);
+  if (opportunities.length === 0) return null;
+  return (
+    <div className="rounded-[14px] border border-warning/25 bg-warning/[.05] shadow-[var(--shadow)] p-5">
+      <h3 className="text-sm font-semibold text-warning uppercase tracking-wider mb-3">Oportunidades de mejora</h3>
+      <ul className="space-y-1.5">
+        {opportunities.map((i) => (
+          <li key={i.id} className="text-sm text-title flex items-start gap-2">
+            <span className="text-warning shrink-0">•</span>
+            <span>{i.hallazgo}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+const TREND_DIRECTION_STYLE: Record<ScoreTrendExplanation["direction"], { arrow: string; color: string }> = {
+  mejora: { arrow: "▲", color: "text-success" },
+  empeoro: { arrow: "▼", color: "text-danger" },
+  estable: { arrow: "=", color: "text-disabled" },
+};
+
+/** §4/§10 Sprint A — nunca solo el número: acompaña el ▲/▼/= con el por qué, a partir de los mismos factores ya calculados (nunca recalcula el score). */
+function TrendExplanationBanner({ trend }: { trend: ScoreTrendExplanation }) {
+  if (!trend.available) return null;
+  const style = TREND_DIRECTION_STYLE[trend.direction];
+  return (
+    <div className="rounded-[14px] border border-border bg-surface shadow-[var(--shadow)] p-5">
+      <p className={`text-sm font-semibold ${style.color} mb-1`}>
+        {style.arrow} Performance Score {trend.direction === "mejora" ? "mejoró" : trend.direction === "empeoro" ? "disminuyó" : "se mantuvo estable"}{" "}
+        {trend.scoreDelta !== 0 && `${trend.scoreDelta > 0 ? "+" : ""}${trend.scoreDelta}pts`} respecto al mes anterior.
+      </p>
+      {trend.bullets.length > 0 ? (
+        <ul className="text-xs text-secondary space-y-0.5 mt-1.5">
+          {trend.bullets.map((b, i) => (
+            <li key={i}>• {b}</li>
+          ))}
+        </ul>
+      ) : (
+        trend.reason && <p className="text-xs text-disabled italic mt-1">{trend.reason}</p>
+      )}
+    </div>
+  );
+}
+
 function PrioritizedSection({ prioritized }: { prioritized: { top: Insight[]; additional: Insight[] } }) {
   const [showAdditional, setShowAdditional] = useState(false);
   if (prioritized.top.length === 0) return null;
@@ -279,6 +363,11 @@ export function InsightsPanel({ userId }: { userId: string }) {
 
   return (
     <div className="space-y-5">
+      <TrendExplanationBanner trend={data.performanceTrendExplained} />
+
+      <StrengthsSection insights={data.insights} />
+      <OpportunitiesSection insights={data.insights} />
+
       <div className="rounded-[14px] border border-border bg-surface shadow-[var(--shadow)] p-5 space-y-4">
         <h3 className="text-sm font-semibold text-main uppercase tracking-wider">Motor de Insights</h3>
         {data.insights.length === 0 ? (

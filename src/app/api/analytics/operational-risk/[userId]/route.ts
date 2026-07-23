@@ -5,6 +5,7 @@ import { getVisibleRoles, canViewOperationalRisk } from "@/lib/roles";
 import { getEffectiveAnalyticsConfig } from "@/lib/systemConfig";
 import { cached, computeOperationalRisk, computeConsistency, computeDataQuality, ANALYTICS_ENGINE_VERSION } from "@/lib/analytics";
 import { reliabilityPctFromStars } from "@/lib/analyticsExplain";
+import { getScoreTrendExplanation } from "@/lib/insightsEngine";
 
 type Ctx = { params: Promise<{ userId: string }> };
 
@@ -30,6 +31,7 @@ export async function GET(request: Request, ctx: Ctx) {
   }
 
   const config = await getEffectiveAnalyticsConfig();
+  const now = new Date();
   const [{ value, computedAt }, consistency, dataQuality] = await Promise.all([
     cached(`risk:${userId}`, config.cacheTtlMinutes, () => computeOperationalRisk(userId)),
     computeConsistency(userId),
@@ -41,5 +43,7 @@ export async function GET(request: Request, ctx: Ctx) {
     reliabilityPct: consistency.available ? reliabilityPctFromStars(consistency.reliability.stars) : 50,
   };
 
-  return NextResponse.json({ ...value, confidence, engineVersion: ANALYTICS_ENGINE_VERSION, lastUpdated: new Date(computedAt).toISOString() });
+  const trendExplained = await getScoreTrendExplanation(userId, "operational_risk", value.score, value.factors, now, 30);
+
+  return NextResponse.json({ ...value, confidence, trendExplained, engineVersion: ANALYTICS_ENGINE_VERSION, lastUpdated: new Date(computedAt).toISOString() });
 }

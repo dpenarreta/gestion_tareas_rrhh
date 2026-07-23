@@ -19,6 +19,7 @@ import { AdvancedAnalyticsPanel, ExplainModal, KpiSectionNav, MaturityStars } fr
 import { maturityFromCount } from "@/lib/analyticsExplain";
 import OperationalRiskCard, { TeamOperationalRiskCard } from "./OperationalRiskCard";
 import { InsightsPanel } from "./InsightsPanel";
+import ScoreHistoryChart from "./ScoreHistoryChart";
 import { openReportWindow, fetchAnalyticsExportMeta } from "./reportWindow";
 import * as XLSX from "xlsx";
 import { formatDate } from "@/lib/utils";
@@ -836,6 +837,9 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
 
               {/* ── Sprint 6: Decision Intelligence Engine ──────────────────── */}
               <InsightsPanel userId={kpi.user.id} />
+
+              {/* ── Sprint A: histórico de evolución con selector de período ── */}
+              <ScoreHistoryChart userId={kpi.user.id} kind="performance_score" title="Performance Score" />
 
               {/* ── 5. Tendencias ──────────────────────────────────────────── */}
               <Section title="Evolución del cumplimiento – últimos 6 meses">

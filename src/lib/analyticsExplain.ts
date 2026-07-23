@@ -122,6 +122,70 @@ export const CONSISTENCY_FALLBACK_NOTE =
 /** Umbrales de clasificación compartidos por Performance Score y Score de Salud Laboral — mismo texto usado como "Referencia utilizada" en ambos audit summaries. */
 export const SCORE_CLASSIFICATION_REFERENCE = "Clasificación por umbrales configurados: Excelente ≥90 · Bueno ≥75 · Riesgo ≥60 · Crítico <60";
 
+// ── Sprint A: Ayuda contextual de 4 partes por indicador ─────────────────────
+// Texto estático (sin cálculo, sin BD) redactado a partir de la sección
+// "Objetivo" de cada indicador en docs/ANALYTICS_FORMULAS.md, en lenguaje
+// simple — no describe nada que no sea ya el comportamiento real del motor.
+
+export type IndicatorHelp = { meaning: string; howCalculated: string; whyItMatters: string; bestPractices: string[] };
+
+export const INDICATOR_HELP: Record<string, IndicatorHelp> = {
+  performanceScore: {
+    meaning: "Qué tan bien se está ejecutando el trabajo este mes: combina cumplimiento, tareas vencidas, consistencia y evidencia documentada.",
+    howCalculated: "Cada uno de esos 4 factores se convierte en un puntaje de 0 a 100 y se pondera según su peso configurado; la suma de los 4 aportes es el Performance Score.",
+    whyItMatters: "Es el indicador principal de ejecución individual — a diferencia del Riesgo Operativo, nunca incluye carga de trabajo ni capacidad futura.",
+    bestPractices: ["Cerrar las tareas dentro del plazo comprometido.", "Evitar acumular tareas vencidas, sobre todo de prioridad Alta.", "Mantener un ritmo de trabajo parejo semana a semana.", "Documentar el avance con comentarios y actividades a diario."],
+  },
+  riesgoOperativo: {
+    meaning: "Qué tan riesgoso es seguir asignando trabajo nuevo a esta persona en este momento.",
+    howCalculated: "Combina 8 señales independientes (sobrecarga proyectada, tareas críticas vencidas, tendencia de cumplimiento, horas extra, capacidad futura, variabilidad, concentración de actividades y falta de planificación), cada una ponderada.",
+    whyItMatters: "Cuando sube a Alto o Crítico, se notifica automáticamente a los superiores — ayuda a decidir si conviene redistribuir trabajo antes de que se convierta en un problema.",
+    bestPractices: ["Evitar acumular tareas de prioridad Alta vencidas.", "Definir el Tiempo Objetivo de las tareas antes de iniciarlas.", "Evitar horas extra sostenidas en fines de semana.", "Mantener un ritmo de trabajo estable."],
+  },
+  scoreSalud: {
+    meaning: "Puntaje general de bienestar/desempeño que combina cumplimiento, carga laboral, tareas vencidas, consistencia y capacidad futura en un solo número.",
+    howCalculated: "5 factores, cada uno convertido a un puntaje 0-100 y ponderado — a diferencia del Performance Score, sí incluye carga laboral y capacidad futura.",
+    whyItMatters: "Es un indicador legado, mantenido porque pantallas y reportes existentes ya lo muestran — para ejecución pura, el Performance Score es más específico.",
+    bestPractices: ["Mantener la carga laboral dentro del rango óptimo.", "Cerrar tareas dentro del plazo.", "Conservar margen de capacidad para asumir trabajo nuevo."],
+  },
+  cargaLaboral: {
+    meaning: "Cuánto se está trabajando realmente (horas reales registradas) frente a la base laboral esperada del período.",
+    howCalculated: "Se ubica en una de 5 zonas — Subutilización, Moderado, Óptimo, Carga elevada o Sobrecarga — según cómo se compara con los límites configurados.",
+    whyItMatters: "Tanto muy por debajo como muy por encima del rango óptimo son señales de atención — carga insuficiente y sobrecarga comparten el mismo color en el semáforo, hay que mirar la etiqueta, no solo el color.",
+    bestPractices: ["Registrar las horas trabajadas de forma consistente.", "Avisar si la carga se siente sostenidamente alta o baja.", "Evitar que el trabajo se concentre en fines de semana."],
+  },
+  capacidadDisponible: {
+    meaning: "Cuánta capacidad libre queda, proyectada hacia adelante (desde hoy hasta fin de mes), para asumir tareas nuevas.",
+    howCalculated: "Resta el trabajo ya comprometido (tareas en progreso y pendientes con Tiempo Objetivo) de las horas laborales que quedan en el mes.",
+    whyItMatters: "A diferencia de la Carga Laboral (que mira el mes ya transcurrido), esto ayuda a decidir si conviene o no asignar trabajo nuevo ahora mismo.",
+    bestPractices: ["Definir el Tiempo Objetivo de las tareas pendientes.", "Registrar permisos o vacaciones planificadas con anticipación.", "Evitar comprometer más trabajo del que queda tiempo disponible."],
+  },
+  consistencia: {
+    meaning: "Qué tan estable es el ritmo de trabajo semana a semana (horas, tareas completadas, cumplimiento).",
+    howCalculated: "Se mide la variabilidad (coeficiente de variación) de esas 3 señales en las últimas semanas con datos válidos, y se convierte en un puntaje 0-100.",
+    whyItMatters: "Un promedio bueno puede esconder semanas muy irregulares — este indicador detecta eso específicamente.",
+    bestPractices: ["Evitar concentrar todo el trabajo en pocos días.", "Mantener un ritmo de registro diario.", "Planificar la semana para evitar picos y caídas fuertes."],
+  },
+  trazabilidad: {
+    meaning: "Qué tan bien queda documentado el trabajo realizado — NO mide la calidad del trabajo en sí, solo su evidencia.",
+    howCalculated: "Combina el % de días con registro (mitad del puntaje), comentarios del período y actividades documentadas (un cuarto cada uno).",
+    whyItMatters: "Un buen trabajo sin evidencia registrada es difícil de auditar o de usar como referencia — este indicador incentiva dejar rastro del avance.",
+    bestPractices: ["Registrar avance todos los días hábiles.", "Dejar comentarios en las tareas relevantes.", "Documentar actividades de seguimiento, no solo tareas."],
+  },
+  cumplimiento: {
+    meaning: "Qué porcentaje de las tareas del período se completaron.",
+    howCalculated: "Tareas completadas dividido por el total de tareas del período — puede verse en dos versiones según la pantalla: \"completado en cualquier momento\" o \"completado a tiempo\".",
+    whyItMatters: "Es el factor con más peso dentro del Performance Score — refleja directamente cuánto del trabajo asignado se está terminando.",
+    bestPractices: ["Priorizar el cierre de tareas próximas a vencer.", "Marcar como completada una tarea apenas se termine, no después.", "Revisar semanalmente las tareas pendientes."],
+  },
+  tiempoObjetivo: {
+    meaning: "Qué tan cerca estuvo la ejecución real de una tarea del estándar operativo esperado (Tiempo Objetivo), no de una estimación subjetiva propia.",
+    howCalculated: "Compara las horas reales trabajadas contra el Tiempo Objetivo validado (o el inicial, si no fue validado) y expresa el resultado como % de precisión.",
+    whyItMatters: "Es un indicador adicional, no reemplaza al Performance Score ni al Riesgo Operativo — ayuda a calibrar qué tan realistas son los tiempos objetivo definidos.",
+    bestPractices: ["Solicitar validación del Tiempo Objetivo antes de iniciar una tarea grande.", "Registrar las horas reales trabajadas con precisión.", "Avisar si un Tiempo Objetivo resulta sistemáticamente muy corto o muy largo."],
+  },
+};
+
 export const CONFIDENCE_TOOLTIPS = {
   dataQuality: "Calidad del dato: qué tan completos y consistentes están los datos usados en este cálculo (registros, fechas, horas configuradas).",
   reliability: "Confiabilidad del cálculo: qué tan sólido es el resultado desde el punto de vista estadístico (tamaño de la muestra o del historial usado).",

@@ -5,10 +5,13 @@ import type { Role } from "@/generated/prisma/client";
 import { canViewOperationalRisk } from "@/lib/roles";
 import { isFeatureEnabled } from "@/lib/featureFlags";
 import type { OperationalRiskResult } from "./types";
-import { ExplainModal, InfoTooltip, ConfidenceBadges } from "./AdvancedAnalytics";
-import { CONFIDENCE_TOOLTIPS, derivedNormalizedValue, type ConfidenceIndicators } from "@/lib/analyticsExplain";
+import { ExplainModal, HelpPopover, ConfidenceBadges } from "./AdvancedAnalytics";
+import { INDICATOR_HELP, derivedNormalizedValue, type ConfidenceIndicators } from "@/lib/analyticsExplain";
+import ScoreHistoryChart from "./ScoreHistoryChart";
 
-type RiskResponse = OperationalRiskResult & { confidence: ConfidenceIndicators; engineVersion: string; lastUpdated: string };
+type ScoreTrendExplanation = { available: boolean; direction: "mejora" | "empeoro" | "estable"; scoreDelta: number; bullets: string[]; reason?: string };
+
+type RiskResponse = OperationalRiskResult & { confidence: ConfidenceIndicators; trendExplained: ScoreTrendExplanation; engineVersion: string; lastUpdated: string };
 
 const CLASS_TEXT: Record<string, string> = { Bajo: "text-success", Medio: "text-warning", Alto: "text-orange-500", Crítico: "text-danger" };
 const CLASS_RING: Record<string, string> = { Bajo: "ring-success/25", Medio: "ring-warning/25", Alto: "ring-orange-500/25", Crítico: "ring-danger/25" };
@@ -24,6 +27,7 @@ export default function OperationalRiskCard({ userId, currentUserRole }: { userI
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [explainOpen, setExplainOpen] = useState(false);
+  const [showHistory, setShowHistory] = useState(false);
 
   const canView = canViewOperationalRisk(currentUserRole) && isFeatureEnabled("enableOperationalRisk");
 
@@ -66,7 +70,7 @@ export default function OperationalRiskCard({ userId, currentUserRole }: { userI
     <div className="bg-surface rounded-[14px] border border-border shadow-[var(--shadow)] p-5">
       <div className="flex items-center justify-between mb-1">
         <h3 className="text-sm font-semibold text-main uppercase tracking-wider flex items-center gap-1.5">
-          Índice de Riesgo Operativo <InfoTooltip text={CONFIDENCE_TOOLTIPS.operationalRisk} />
+          Índice de Riesgo Operativo <HelpPopover title="Índice de Riesgo Operativo" help={INDICATOR_HELP.riesgoOperativo} />
         </h3>
         <button onClick={() => setExplainOpen(true)} className="text-xs font-medium text-primary hover:text-primary-hover">¿Cómo se obtuvo este resultado?</button>
       </div>
@@ -87,6 +91,13 @@ export default function OperationalRiskCard({ userId, currentUserRole }: { userI
             </p>
           ) : (
             <p className="text-xs text-disabled italic mt-1">Sin historial suficiente para tendencia</p>
+          )}
+          {data.trendExplained.available && data.trendExplained.bullets.length > 0 && (
+            <ul className="text-[11px] text-secondary space-y-0.5 mt-1">
+              {data.trendExplained.bullets.map((b, i) => (
+                <li key={i}>• {b}</li>
+              ))}
+            </ul>
           )}
         </div>
       </div>
@@ -118,9 +129,18 @@ export default function OperationalRiskCard({ userId, currentUserRole }: { userI
         ))}
       </ul>
 
-      <div className="pt-2 border-t border-border">
+      <div className="pt-2 border-t border-border flex items-center justify-between">
         <ConfidenceBadges {...data.confidence} compact />
+        <button onClick={() => setShowHistory((v) => !v)} className="text-xs font-medium text-primary hover:text-primary-hover shrink-0">
+          {showHistory ? "Ocultar histórico" : "Ver histórico"}
+        </button>
       </div>
+
+      {showHistory && (
+        <div className="mt-3">
+          <ScoreHistoryChart userId={userId} kind="operational_risk" title="Índice de Riesgo Operativo" />
+        </div>
+      )}
 
       {explainOpen && (
         <ExplainModal

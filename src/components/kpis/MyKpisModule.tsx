@@ -15,6 +15,8 @@ import { TaskBreakdownCard, PriorityComplianceCard, NovaInsightsCard } from "./I
 import { AdvancedAnalyticsPanel, ExplainModal, KpiSectionNav, MaturityStars } from "./AdvancedAnalytics";
 import { maturityFromCount } from "@/lib/analyticsExplain";
 import { InsightsPanel } from "./InsightsPanel";
+import ScoreHistoryChart from "./ScoreHistoryChart";
+import WhatIfSimulator from "./WhatIfSimulator";
 import { formatDate } from "@/lib/utils";
 import { hoursToDisplay } from "@/lib/timeFormat";
 import { openReportWindow, fetchAnalyticsExportMeta } from "./reportWindow";
@@ -703,6 +705,7 @@ export default function MyKpisModule({ currentUserId, currentUserName, currentUs
                   </svg>
                   PDF
                 </button>
+                <WhatIfSimulator userId={currentUserId} />
               </>
             )}
           </div>
@@ -880,6 +883,9 @@ export default function MyKpisModule({ currentUserId, currentUserName, currentUs
 
               {/* ── Sprint 6: Decision Intelligence Engine ──────────────────── */}
               <InsightsPanel userId={currentUserId} />
+
+              {/* ── Sprint A: histórico de evolución con selector de período ── */}
+              <ScoreHistoryChart userId={currentUserId} kind="performance_score" title="Performance Score" />
 
               {/* ── 5. Tendencias ─────────────────────────────────────────── */}
               {kpi.cumplimientoHistory.length > 0 && (
