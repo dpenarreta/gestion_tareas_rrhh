@@ -331,6 +331,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-24: perf(dashboard,kpis,users): reduce esperas secuenciales y renders innecesarios
 - 2026-07-24: fix(security): cierra IDOR en subrecursos de tareas + refactor(consistency): consolida deuda técnica segura
 - 2026-07-24: fix(tasks): cierra condición de carrera en migrateFijaHistoryIfNeeded
 - 2026-07-24: fix(tasks): migración histórica única de completedAt (33 tareas) + previene el gap hacia adelante

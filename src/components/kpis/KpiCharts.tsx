@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useTheme } from "next-themes";
 import {
   BarChart,
@@ -247,13 +247,17 @@ export function HistorySparklineList({ data }: { data: Array<{ month: string; la
 
 export function ConsultasBarChart({ data }: { data: KpiData["seguimiento"]["byReason"] }) {
   const ct = useChartTheme();
-  const chartData = data
-    .sort((a, b) => b.count - a.count)
-    .map((r) => ({
-      name: REASON_LABEL[r.reason] ?? r.reason,
-      consultas: r.count,
-      minutos: r.totalMinutes,
-    }));
+  const chartData = useMemo(
+    () =>
+      [...data]
+        .sort((a, b) => b.count - a.count)
+        .map((r) => ({
+          name: REASON_LABEL[r.reason] ?? r.reason,
+          consultas: r.count,
+          minutos: r.totalMinutes,
+        })),
+    [data]
+  );
 
   return (
     <ResponsiveContainer width="100%" height={Math.max(180, chartData.length * 38)}>
@@ -446,6 +450,8 @@ export function DailyCargaBarChart({
     if (scrollRef.current) scrollRef.current.scrollLeft = scrollRef.current.scrollWidth;
   }, [points.length]);
 
+  const chartData = useMemo(() => points.map((p) => ({ ...p, barValue: dayBarValue(p) })), [points]);
+
   if (points.length === 0) {
     return (
       <div className="flex items-center justify-center h-40 text-secondary text-sm">
@@ -454,7 +460,6 @@ export function DailyCargaBarChart({
     );
   }
 
-  const chartData = points.map((p) => ({ ...p, barValue: dayBarValue(p) }));
   const chartWidth = Math.max(points.length * DAY_SLOT_WIDTH, MIN_CHART_WIDTH);
   const hasSpecialKinds = points.some((p) => p.kind !== "normal" && p.kind !== "empty");
 

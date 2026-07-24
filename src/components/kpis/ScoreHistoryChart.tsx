@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { useChartTheme } from "./KpiCharts";
 
@@ -48,10 +48,14 @@ export default function ScoreHistoryChart({ userId, kind, title }: { userId: str
     };
   }, [userId, kind, months]);
 
-  const chartData = (points ?? []).map((p) => ({
-    label: new Date(p.date).toLocaleDateString("es-CL", { day: "2-digit", month: "2-digit" }),
-    score: p.score,
-  }));
+  const chartData = useMemo(
+    () =>
+      (points ?? []).map((p) => ({
+        label: new Date(p.date).toLocaleDateString("es-CL", { day: "2-digit", month: "2-digit" }),
+        score: p.score,
+      })),
+    [points]
+  );
 
   return (
     <div className="rounded-[14px] border border-border bg-surface shadow-[var(--shadow)] p-5">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { Role } from "@/generated/prisma/client";
 import { ROLE_LABEL } from "@/lib/roles";
 import type { ExecutiveDashboardData, KpiColor, CapacityMember, CapacitySummary } from "./types";
@@ -313,6 +313,14 @@ export default function ExecutiveDashboard() {
     };
   }, []);
 
+  // Sprint D (Bloque 2): antes se reconstruía este array literal en cada
+  // render dentro del JSX, invalidando cualquier memoización del propio
+  // gráfico (prop identity nueva siempre).
+  const trendChartData = useMemo(
+    () => (data?.trend ?? []).map((t) => ({ month: t.month, label: t.label, completedPct: t.avgCumplimiento })),
+    [data]
+  );
+
   if (loading) {
     return (
       <div className="flex justify-center items-center py-32">
@@ -447,7 +455,7 @@ export default function ExecutiveDashboard() {
               </span>
             }
           >
-            <CumplimientoLineChart data={data.trend.map((t) => ({ month: t.month, label: t.label, completedPct: t.avgCumplimiento }))} />
+            <CumplimientoLineChart data={trendChartData} />
           </Section>
         </div>
 

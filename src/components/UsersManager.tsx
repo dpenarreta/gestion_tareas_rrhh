@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { ROLE_LABEL, ALL_ROLES, ROLE_LEVEL } from "@/lib/roles";
 import type { Role } from "@/generated/prisma/client";
 import { Button } from "@/components/ui/Button";
 import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
 import { SkeletonRow } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { SearchInput } from "@/components/ui/SearchInput";
 import { useToast } from "@/components/ui/Toast";
 import { X } from "lucide-react";
 
@@ -40,6 +41,7 @@ export default function UsersManager({ currentUserRole }: Props) {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
+  const [search, setSearch] = useState("");
 
   // Create form
   const [form, setForm] = useState({ name: "", email: "", role: "" as Role | "" });
@@ -84,6 +86,17 @@ export default function UsersManager({ currentUserRole }: Props) {
   useEffect(() => {
     queueMicrotask(loadUsers);
   }, [loadUsers]);
+
+  // Sprint D (Bloque 2): la lista no tenía buscador ni límite — sin techo a
+  // medida que crece la plantilla. Filtro client-side sobre lo ya cargado
+  // (mismo patrón que TasksModule), sin nueva paginación en el servidor.
+  const filteredUsers = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return users;
+    return users.filter(
+      (u) => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q) || ROLE_LABEL[u.role].toLowerCase().includes(q)
+    );
+  }, [users, search]);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -207,10 +220,10 @@ export default function UsersManager({ currentUserRole }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
         <p className="text-sm text-main">
-          {users.length} usuario{users.length !== 1 ? "s" : ""} registrado
-          {users.length !== 1 ? "s" : ""}
+          {filteredUsers.length} usuario{filteredUsers.length !== 1 ? "s" : ""}
+          {search ? ` de ${users.length}` : " registrado" + (users.length !== 1 ? "s" : "")}
         </p>
         <div className="flex items-center gap-2">
           <Button
@@ -224,6 +237,8 @@ export default function UsersManager({ currentUserRole }: Props) {
           </Button>
         </div>
       </div>
+
+      <SearchInput value={search} onChange={setSearch} placeholder="Buscar por nombre, correo o rol…" className="max-w-sm" />
 
       {showCreate && (
         <div className="bg-surface rounded-xl border border-border p-5">
@@ -327,14 +342,14 @@ export default function UsersManager({ currentUserRole }: Props) {
                 ))}
               </>
             )}
-            {!loading && users.length === 0 && (
+            {!loading && filteredUsers.length === 0 && (
               <TableRow>
                 <Td colSpan={5} className="p-0">
-                  <EmptyState title="No hay usuarios registrados" />
+                  <EmptyState title={search ? "Sin resultados para tu búsqueda" : "No hay usuarios registrados"} />
                 </Td>
               </TableRow>
             )}
-            {!loading && users.map((user) => (
+            {!loading && filteredUsers.map((user) => (
                 <TableRow key={user.id}>
                   <Td className="font-medium text-title">
                     {user.name}

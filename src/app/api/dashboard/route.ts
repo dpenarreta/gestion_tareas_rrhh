@@ -35,16 +35,89 @@ export async function GET() {
   const dayAfterTomorrow = new Date(tomorrow); dayAfterTomorrow.setDate(tomorrow.getDate() + 1);
   const nextSunday = weekEnd;
 
-  const user = await prisma.user.findUnique({
-    where: { id: session.userId },
-    select: { lastLoginAt: true, badges: true },
-  });
+  const visibleRoles = getVisibleRoles(session.role);
 
-  const allMyTasks = await prisma.task.findMany({
-    where: { assignedToId: session.userId, archivedMonth: null },
-    select: { id: true, title: true, status: true, endDate: true, estimatedHours: true, realHours: true },
-    orderBy: { endDate: "asc" },
-  });
+  // Sprint D (Bloque 2): las consultas de abajo son independientes entre sí
+  // (ninguna depende del resultado de otra) — antes se esperaban una por una
+  // en serie, agregando ~9 idas y vueltas secuenciales a Postgres en cada
+  // carga del Dashboard. Agrupadas en un solo Promise.all.
+  const [
+    user,
+    allMyTasks,
+    cargaTiempo,
+    monthlyHistory,
+    visibleUsers,
+    announcements,
+    upcomingMeetings,
+    welcomeMessage,
+    welcomeMessageActive,
+    myProjects,
+    ideaVisibleIdsRaw,
+  ] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: session.userId },
+      select: { lastLoginAt: true, badges: true },
+    }),
+    prisma.task.findMany({
+      where: { assignedToId: session.userId, archivedMonth: null },
+      select: { id: true, title: true, status: true, endDate: true, estimatedHours: true, realHours: true },
+      orderBy: { endDate: "asc" },
+    }),
+    computeCargaTiempo(session.userId, now),
+    computeMonthlyHistory(session.userId, 1, now),
+    prisma.user.findMany({
+      where: { role: { in: visibleRoles }, id: { not: session.userId } },
+      select: { id: true, name: true, role: true },
+    }),
+    prisma.announcement.findMany({
+      where: { expiresAt: { gt: now } },
+      include: { author: { select: { name: true, role: true } } },
+      orderBy: [{ pinned: "desc" }, { createdAt: "desc" }],
+    }),
+    prisma.meeting.findMany({
+      where: {
+        meetingDate: { gte: now },
+        OR: [
+          { hostId: session.userId },
+          { invitees: { some: { userId: session.userId } } },
+        ],
+      },
+      orderBy: { meetingDate: "asc" },
+      take: 5,
+      select: {
+        id: true,
+        title: true,
+        meetingDate: true,
+        duration: true,
+        status: true,
+        host: { select: { name: true } },
+      },
+    }),
+    getEffectiveWelcomeMessage(),
+    getEffectiveWelcomeMessageActive(),
+    // Sprint C §11: "Proyectos" no aparecía en el Dashboard en absoluto —
+    // misma regla de "mis proyectos" (responsable/creador/participante) que
+    // ya usa GET /api/projects para roles no-liderazgo, aplicada aquí
+    // siempre (un widget personal debe mostrar los proyectos propios de
+    // cualquier rol, no "todos los proyectos visibles" — eso ya existe en
+    // /projects). Sin cambios al modelo de datos ni a las reglas de acceso
+    // existentes.
+    prisma.project.findMany({
+      where: {
+        deletedAt: null,
+        status: { notIn: ["COMPLETADO", "CANCELADO"] },
+        OR: [
+          { responsibleId: session.userId },
+          { createdById: session.userId },
+          { participants: { some: { userId: session.userId } } },
+        ],
+      },
+      select: { id: true, name: true, status: true, priority: true, targetDate: true },
+      orderBy: { targetDate: "asc" },
+      take: 5,
+    }),
+    getVisibleIdeaAuthorIds(session),
+  ]);
 
   // Priority tasks: top 5 by urgency
   const now_ = new Date();
@@ -80,10 +153,6 @@ export async function GET() {
   // "workloadPct" medía horas estimadas vs. reales de las tareas (un concepto
   // distinto, sin relación con la base laboral) aunque el frontend lo trata
   // como el semáforo de carga laboral real (workloadLabel en DashboardModule.tsx).
-  const [cargaTiempo, monthlyHistory] = await Promise.all([
-    computeCargaTiempo(session.userId, now),
-    computeMonthlyHistory(session.userId, 1, now),
-  ]);
   const workloadPct = cargaTiempo.mensual.pct;
   const completedPct = monthlyHistory[monthlyHistory.length - 1].completedPct;
 
@@ -92,11 +161,6 @@ export async function GET() {
 
   // Area activity since lastLoginAt
   const since = user?.lastLoginAt ?? new Date(now_.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const visibleRoles = getVisibleRoles(session.role);
-  const visibleUsers = await prisma.user.findMany({
-    where: { role: { in: visibleRoles }, id: { not: session.userId } },
-    select: { id: true, name: true, role: true },
-  });
   const visibleIds = visibleUsers.map((u) => u.id);
   const nameMap = Object.fromEntries(visibleUsers.map((u) => [u.id, u.name]));
   // Roles de liderazgo excluidos de "quién requiere atención" — su carga
@@ -150,7 +214,7 @@ export async function GET() {
     }
   }
 
-  const ideaVisibleIds = (await getVisibleIdeaAuthorIds(session)).filter((id) => id !== session.userId);
+  const ideaVisibleIds = ideaVisibleIdsRaw.filter((id) => id !== session.userId);
 
   if (ideaVisibleIds.length > 0) {
     const [recentIdeas, recentImplemented] = await Promise.all([
@@ -211,60 +275,6 @@ export async function GET() {
       if (range.label === "Carga elevada" || range.label === "Sobrecarga") teamAlerts++;
     }
   }
-
-  // Active announcements
-  const announcements = await prisma.announcement.findMany({
-    where: { expiresAt: { gt: now_ } },
-    include: { author: { select: { name: true, role: true } } },
-    orderBy: [{ pinned: "desc" }, { createdAt: "desc" }],
-  });
-
-  // Upcoming meetings (next 5)
-  const upcomingMeetings = await prisma.meeting.findMany({
-    where: {
-      meetingDate: { gte: now_ },
-      OR: [
-        { hostId: session.userId },
-        { invitees: { some: { userId: session.userId } } },
-      ],
-    },
-    orderBy: { meetingDate: "asc" },
-    take: 5,
-    select: {
-      id: true,
-      title: true,
-      meetingDate: true,
-      duration: true,
-      status: true,
-      host: { select: { name: true } },
-    },
-  });
-
-  const [welcomeMessage, welcomeMessageActive] = await Promise.all([
-    getEffectiveWelcomeMessage(),
-    getEffectiveWelcomeMessageActive(),
-  ]);
-
-  // Sprint C §11: "Proyectos" no aparecía en el Dashboard en absoluto — misma
-  // regla de "mis proyectos" (responsable/creador/participante) que ya usa
-  // GET /api/projects para roles no-liderazgo, aplicada aquí siempre (un
-  // widget personal debe mostrar los proyectos propios de cualquier rol, no
-  // "todos los proyectos visibles" — eso ya existe en /projects). Sin
-  // cambios al modelo de datos ni a las reglas de acceso existentes.
-  const myProjects = await prisma.project.findMany({
-    where: {
-      deletedAt: null,
-      status: { notIn: ["COMPLETADO", "CANCELADO"] },
-      OR: [
-        { responsibleId: session.userId },
-        { createdById: session.userId },
-        { participants: { some: { userId: session.userId } } },
-      ],
-    },
-    select: { id: true, name: true, status: true, priority: true, targetDate: true },
-    orderBy: { targetDate: "asc" },
-    take: 5,
-  });
 
   return NextResponse.json({
     workloadPct,
