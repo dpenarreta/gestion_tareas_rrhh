@@ -8,6 +8,7 @@ import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/T
 import { SkeletonRow } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useToast } from "@/components/ui/Toast";
+import { X } from "lucide-react";
 
 type User = {
   id: string;
@@ -411,9 +412,7 @@ export default function UsersManager({ currentUserRole }: Props) {
                   onClick={closeEdit}
                   className="p-1.5 text-disabled hover:text-main rounded-lg hover:bg-black/5 dark:hover:bg-white/5"
                 >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
+                  <X className="w-4 h-4" strokeWidth={2} />
                 </button>
               </div>
 

@@ -6,6 +6,8 @@ import { hoursToDisplay, displayToHours, validateDisplayHours, INVALID_HOURS_MES
 import { TARGET_TIME_TOOLTIP } from "@/lib/targetTime";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
+import { Modal, ModalHeader } from "@/components/ui/Modal";
+import { Clipboard, Clock } from "lucide-react";
 
 const STATUS_OPTIONS = [
   { value: "PENDIENTE", label: "Pendiente" },
@@ -120,19 +122,8 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative bg-surface rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="p-6 border-b border-border flex items-center justify-between">
-          <h2 className="text-lg font-bold text-title">
-            {task ? "Editar tarea" : "Nueva tarea"}
-          </h2>
-          <button onClick={onClose} className="p-2 text-disabled hover:text-main rounded-lg hover:bg-black/5 dark:hover:bg-white/5">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
+    <Modal open onClose={onClose} size="md">
+      <ModalHeader title={task ? "Editar tarea" : "Nueva tarea"} onClose={onClose} />
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && (
@@ -179,13 +170,9 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
                   }`}
                 >
                   {t === "FIJA" ? (
-                    <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-                    </svg>
+                    <Clipboard className="w-4 h-4 shrink-0" strokeWidth={2} />
                   ) : (
-                    <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
+                    <Clock className="w-4 h-4 shrink-0" strokeWidth={2} />
                   )}
                   {t === "FIJA" ? "Fija" : "Seguimiento"}
                 </button>
@@ -298,7 +285,6 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
             </Button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }

@@ -5,6 +5,7 @@ import type { Task, TaskStatus } from "./types";
 import { hoursToDisplay, displayToHours, validateDisplayHours, INVALID_HOURS_MESSAGE } from "@/lib/timeFormat";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
+import { Modal, ModalHeader } from "@/components/ui/Modal";
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
   { value: "PENDIENTE", label: "Pendiente" },
@@ -54,17 +55,8 @@ export default function CorrectArchivedTaskModal({ task, onClose, onSaved }: Pro
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative bg-surface rounded-2xl shadow-2xl w-full max-w-sm">
-        <div className="p-6 border-b border-border flex items-center justify-between">
-          <h2 className="text-base font-bold text-title">✏️ Corregir tarea archivada</h2>
-          <button onClick={onClose} className="p-2 text-disabled hover:text-main rounded-lg hover:bg-black/5 dark:hover:bg-white/5">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
+    <Modal open onClose={onClose} size="sm">
+      <ModalHeader title="✏️ Corregir tarea archivada" onClose={onClose} />
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           <p className="text-sm text-main truncate">{task.title}</p>
@@ -111,7 +103,6 @@ export default function CorrectArchivedTaskModal({ task, onClose, onSaved }: Pro
             </Button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }

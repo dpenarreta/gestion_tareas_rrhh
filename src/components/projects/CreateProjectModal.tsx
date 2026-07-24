@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { ProjectListItem, ProjectPriority, ProjectStatus, ProjectUserRef } from "./types";
 import { PROJECT_STATUS_LABEL, PROJECT_PRIORITY_LABEL } from "./types";
+import { Modal, ModalHeader } from "@/components/ui/Modal";
 
 type Props = {
   currentUserId: string;
@@ -81,18 +82,8 @@ export default function CreateProjectModal({ currentUserId, candidateUsers, onCl
   }
 
   return (
-    <>
-      <div className="fixed inset-0 z-40 bg-black/40" onClick={onClose} />
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-        <div className="bg-surface border border-border rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-          <div className="p-4 border-b border-border flex items-center justify-between">
-            <h3 className="font-semibold text-title text-sm">Nuevo proyecto</h3>
-            <button onClick={onClose} className="p-1.5 text-disabled hover:text-main rounded-lg hover:bg-black/5 dark:hover:bg-white/5">
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
+    <Modal open onClose={onClose} size="md">
+      <ModalHeader title="Nuevo proyecto" onClose={onClose} />
 
           <div className="p-4 space-y-3">
             <div>
@@ -259,8 +250,6 @@ export default function CreateProjectModal({ currentUserId, candidateUsers, onCl
               {submitting ? "Creando…" : "Crear proyecto"}
             </button>
           </div>
-        </div>
-      </div>
-    </>
+    </Modal>
   );
 }

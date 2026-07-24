@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { SkeletonText } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useToast } from "@/components/ui/Toast";
-import { ListX } from "lucide-react";
+import { ListX, ChevronRight } from "lucide-react";
 
 type Reason = {
   id: string;
@@ -325,14 +325,10 @@ export default function ActivityReasonsSection() {
             onClick={() => setArchiveOpen((v) => !v)}
             className="w-full flex items-center gap-1.5 text-sm font-medium text-main hover:text-primary transition-colors"
           >
-            <svg
+            <ChevronRight
               className={`w-3.5 h-3.5 shrink-0 transition-transform duration-200 ${archiveOpen ? "rotate-90" : ""}`}
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
-            </svg>
+              strokeWidth={2.5}
+            />
             Archivo ({archivedReasons.length})
           </button>
           {archiveOpen && (

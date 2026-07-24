@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
+import { Modal, ModalHeader } from "@/components/ui/Modal";
 import {
   REMINDER_PRIORITY_LABEL,
   REMINDER_PRIORITY_COLOR,
@@ -77,16 +78,8 @@ export default function NewReminderModal({
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-surface rounded-2xl shadow-xl w-full max-w-md max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-          <h2 className="text-base font-semibold text-title">{reminder ? "Editar recordatorio" : "Nuevo recordatorio"}</h2>
-          <button onClick={onClose} className="p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-colors">
-            <svg className="w-4 h-4 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
+    <Modal open onClose={onClose} size="md">
+      <ModalHeader title={reminder ? "Editar recordatorio" : "Nuevo recordatorio"} onClose={onClose} />
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-4">
           <div>
             <label className="block text-xs font-semibold text-main mb-1.5">Título *</label>
@@ -173,7 +166,6 @@ export default function NewReminderModal({
             </Button>
           </div>
         </form>
-      </div>
-    </div>
+    </Modal>
   );
 }
