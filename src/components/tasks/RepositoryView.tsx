@@ -9,6 +9,7 @@ import { hoursToDisplay } from "@/lib/timeFormat";
 import { getOfficialTargetTime, isTargetTimeValidated } from "@/lib/targetTime";
 import CorrectArchivedTaskModal from "./CorrectArchivedTaskModal";
 import { Button } from "@/components/ui/Button";
+import { BackLink } from "@/components/ui/BackLink";
 import { StatusChip, PriorityChip } from "@/components/ui/Chip";
 import { TASK_STATUS_CONFIG, TASK_PRIORITY_CONFIG } from "@/lib/chipConfig";
 import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
@@ -88,17 +89,7 @@ export default function RepositoryView({ currentUserRole }: Props) {
     const pct = selected.totalTasks > 0 ? Math.round((selected.completedTasks / selected.totalTasks) * 100) : 0;
     return (
       <div className="flex flex-col gap-4">
-        <Button
-          variant="tertiary"
-          size="sm"
-          onClick={() => { setSelected(null); setTasks(null); }}
-          className="w-fit"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-          </svg>
-          Volver al repositorio
-        </Button>
+        <BackLink label="Volver al repositorio" onClick={() => { setSelected(null); setTasks(null); }} />
 
         <div className="rounded-2xl border border-border bg-surface p-4 flex flex-wrap items-center gap-6">
           <div>

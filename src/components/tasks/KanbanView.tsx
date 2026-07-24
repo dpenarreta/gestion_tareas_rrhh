@@ -41,6 +41,7 @@ function DroppableColumn({
   onActivityClick,
   onRetroactiveClick,
   onColorChange,
+  onStatusChange,
 }: {
   column: (typeof COLUMNS)[0];
   tasks: Task[];
@@ -54,6 +55,7 @@ function DroppableColumn({
   onActivityClick: (task: Task) => void;
   onRetroactiveClick: (task: Task) => void;
   onColorChange: (id: string, color: string | null) => void;
+  onStatusChange: (id: string, status: TaskStatus) => void;
 }) {
   const { setNodeRef, isOver } = useDroppable({ id: column.id });
 
@@ -115,6 +117,7 @@ function DroppableColumn({
                   onActivityClick={onActivityClick}
                   onRetroactiveClick={onRetroactiveClick}
                   onColorChange={onColorChange}
+                  onStatusChange={onStatusChange}
                 />
               ))}
               {tasks.length === 0 && (
@@ -139,6 +142,7 @@ function DraggableCard({
   onActivityClick,
   onRetroactiveClick,
   onColorChange,
+  onStatusChange,
 }: {
   task: Task;
   currentUserId: string;
@@ -148,6 +152,7 @@ function DraggableCard({
   onActivityClick: (task: Task) => void;
   onRetroactiveClick: (task: Task) => void;
   onColorChange: (id: string, color: string | null) => void;
+  onStatusChange: (id: string, status: TaskStatus) => void;
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
     id: task.id,
@@ -171,6 +176,7 @@ function DraggableCard({
         onActivityClick={onActivityClick}
         onRetroactiveClick={onRetroactiveClick}
         onColorChange={onColorChange}
+        onStatusChange={onStatusChange}
       />
     </div>
   );
@@ -274,6 +280,7 @@ export default function KanbanView({
               onActivityClick={setActivityTask}
               onRetroactiveClick={setRetroactiveTask}
               onColorChange={onColorChange}
+              onStatusChange={(id, status) => { onStatusChange(id, status); }}
             />
           ))}
         </div>

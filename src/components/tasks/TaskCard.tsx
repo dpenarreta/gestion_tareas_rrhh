@@ -6,7 +6,9 @@ import { TASK_COLORS, taskColorHex } from "./colors";
 import { formatDate, isTaskOverdue } from "@/lib/utils";
 import { Badge } from "@/components/ui/Badge";
 import { PriorityChip } from "@/components/ui/Chip";
-import { TASK_PRIORITY_CONFIG } from "@/lib/chipConfig";
+import { TASK_PRIORITY_CONFIG, TASK_STATUS_CONFIG } from "@/lib/chipConfig";
+
+const STATUS_ORDER: Task["status"][] = ["PENDIENTE", "EN_PROGRESO", "COMPLETADA"];
 
 const FREQUENCY_LABELS: Record<Task["frequency"], string> = {
   MENSUAL: "Mensual",
@@ -59,9 +61,10 @@ type Props = {
   onActivityClick?: (task: Task) => void;
   onRetroactiveClick?: (task: Task) => void;
   onColorChange?: (id: string, color: string | null) => void;
+  onStatusChange?: (id: string, status: Task["status"]) => void;
 };
 
-export default function TaskCard({ task, currentUserId, isDragging, onEdit, onDelete, onCommentClick, onActivityClick, onRetroactiveClick, onColorChange }: Props) {
+export default function TaskCard({ task, currentUserId, isDragging, onEdit, onDelete, onCommentClick, onActivityClick, onRetroactiveClick, onColorChange, onStatusChange }: Props) {
   const [showColorPicker, setShowColorPicker] = useState(false);
   const isOwner = task.assignedTo.id === currentUserId;
   const hex = taskColorHex(task.color);
@@ -125,7 +128,7 @@ export default function TaskCard({ task, currentUserId, isDragging, onEdit, onDe
         </span>
       </div>
 
-      <div className="mb-2.5">
+      <div className="mb-2.5 flex items-center gap-1.5">
         {task.type === "SEGUIMIENTO" ? (
           <Badge variant="info">
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -135,6 +138,23 @@ export default function TaskCard({ task, currentUserId, isDragging, onEdit, onDe
           </Badge>
         ) : (
           <Badge variant="neutral">Fija</Badge>
+        )}
+        {/* Sprint C §5: afordancia mínima de cambio de estado — complementa el
+            drag-and-drop entre columnas (no lo reemplaza) para quien prefiera
+            un clic en vez de arrastrar. */}
+        {onStatusChange && (
+          <select
+            value={task.status}
+            onChange={(e) => onStatusChange(task.id, e.target.value as Task["status"])}
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            aria-label="Cambiar estado"
+            className="text-[10px] font-medium text-secondary bg-surface2 border border-border rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
+          >
+            {STATUS_ORDER.map((s) => (
+              <option key={s} value={s}>{TASK_STATUS_CONFIG[s].label}</option>
+            ))}
+          </select>
         )}
       </div>
 

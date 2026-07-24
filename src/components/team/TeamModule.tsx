@@ -13,6 +13,7 @@ import { formatDate, isTaskOverdue } from "@/lib/utils";
 import { hoursToDisplay } from "@/lib/timeFormat";
 import { getOfficialTargetTime, isTargetTimeValidated } from "@/lib/targetTime";
 import { Button } from "@/components/ui/Button";
+import { BackLink } from "@/components/ui/BackLink";
 import { StatusChip, PriorityChip } from "@/components/ui/Chip";
 import { TASK_STATUS_CONFIG, TASK_PRIORITY_CONFIG } from "@/lib/chipConfig";
 import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
@@ -490,20 +491,10 @@ export default function TeamModule({ currentUserId, currentUserRole }: Props) {
       {/* ── Member detail ─────────────────────────────────────────────────── */}
       {selectedMember && (
         <div>
+          <BackLink label="Equipo" onClick={goBack} className="mb-3" />
           {/* Header */}
           <div className="flex items-start justify-between gap-4 mb-6">
             <div className="flex items-center gap-3">
-              <Button
-                variant="ghost"
-                onClick={goBack}
-                className="rounded-xl"
-                title="Volver al equipo"
-                aria-label="Volver al equipo"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
-                </svg>
-              </Button>
               <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${avatarGradient(selectedMember.name)} flex items-center justify-center`}>
                 <span className="text-lg font-bold text-white">{initials(selectedMember.name)}</span>
               </div>
