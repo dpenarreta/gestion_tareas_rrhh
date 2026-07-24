@@ -23,6 +23,60 @@
 
 ---
 
+## v1.13.0 — 2026-07-24
+
+**Tipo:** UI / UX
+**Módulo:** Design System — Sprint B (UX Consistente + Design System Foundation)
+
+**Implementado:** unificación de la experiencia visual de la plataforma sin
+tocar lógica de negocio, Analytics Engine, KPIs, permisos, autenticación ni
+el esquema de base de datos. Ver `docs/DESIGN_SYSTEM.md` para la referencia
+completa de cada primitivo y el informe de Design Review (§25 del sprint).
+
+- **Fase 0 — Primitivos:** `Button` ampliado de 4 a 6 variantes
+  (`tertiary`/`success` nuevas, más `size`/`loading`); `PriorityChip`/
+  `StatusChip` (un único componente visual sobre `Badge`, parametrizado por
+  `src/lib/chipConfig.ts` — un `ChipConfig` por enum real de
+  `prisma/schema.prisma`, nunca valores inventados); `Table`/`TableHead`/
+  `TableBody`/`TableRow`/`Th`/`Td` (chrome compartido, sin lógica de
+  orden/filtro propia); `ToastProvider`/`useToast` (mensajes estandarizados,
+  montado en `src/app/layout.tsx`); `Skeleton`/`SkeletonText`/`SkeletonRow`/
+  `Spinner`; `EmptyState`; `SearchInput`; `formatTime()` en `src/lib/utils.ts`.
+- **Fase 1 — Botones:** 102 `<button>` ad-hoc → `Button` en 45 archivos
+  (Tareas, Dashboard, Escritorio Digital, Equipo, KPIs, Ajustes, Usuarios).
+- **Fase 2 — Chips:** mapas locales de color/label de prioridad y estado
+  duplicados (`PRIORITY_VARIANT`, `STATUS_STYLES`, `REMINDER_PRIORITY_COLOR`,
+  etc.) → `PriorityChip`/`StatusChip` en 10 archivos.
+- **Fase 3 — Tablas, loading, empty states:** 15 `<table>` hand-rolled →
+  `Table`; texto suelto "Cargando..."/spinners ad-hoc → `Skeleton`/`Spinner`;
+  mensajes "sin resultados" sueltos → `EmptyState`, en 28 archivos.
+- **Fase 4 — Toasts:** banners inline de guardado/error por componente
+  ("Guardado correctamente", "Error al guardar") → `useToast()`, en 14
+  archivos. Se preservaron inline los errores de validación de formulario
+  que deben permanecer visibles mientras el formulario sigue abierto.
+- **Fase 5 — Modales e iconografía:** 5 overlays hand-rolled (`TaskFormModal`,
+  `CorrectArchivedTaskModal`, `NewReminderModal`, `NoteToReminderModal`,
+  `CreateProjectModal`) → `Modal`/`ModalHeader`; `<svg>` inline ad-hoc →
+  `lucide-react` en 8 archivos.
+- **Fase 6 — Documentación:** `docs/DESIGN_SYSTEM.md` oficial (nuevo),
+  incluyendo el informe de Design Review con backlog explícito para
+  Sprint C — NEXO Experience (Ideas, Reuniones, Proyectos parcial,
+  Repositorio, Nova, Login, Perfil quedan sin tocar).
+
+**Impacto:** puramente visual/estructural — 100% de los commits de este
+sprint pasan `npx tsc --noEmit` y `npx eslint` limpios (solo persisten 2
+errores preexistentes no relacionados en `src/__tests__/**`). No se modificó
+`src/lib/analytics.ts`, `src/lib/roles.ts`, `src/lib/session.ts`,
+`src/proxy.ts` ni `prisma/schema.prisma` en ningún commit de este sprint.
+
+**Archivos:** ver los 6 commits de este sprint (`feat(design-system):
+primitivos...` y 5 `refactor(ui): ...`) para el detalle archivo por archivo
+de cada fase — no se repiten aquí para no duplicar `git log`.
+
+**Autor:** Claude Code
+
+---
+
 ## v1.12.0 — 2026-07-23
 
 **Tipo:** FEATURE / ANALYTICS
