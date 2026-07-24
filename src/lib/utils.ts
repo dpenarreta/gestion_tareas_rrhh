@@ -18,6 +18,17 @@ export function formatDate(date: string | Date): string {
   return `${year}-${month}-${day}`;
 }
 
+/**
+ * Formats the time-of-day portion of a Date/ISO string as HH:mm, 24h (Sprint
+ * B §5 — formato único de hora en toda la plataforma, sin AM/PM). Centraliza
+ * el patrón `toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit",
+ * hour12: false })` que hoy se repite suelto en varios componentes.
+ */
+export function formatTime(date: string | Date, locale = "es-CL"): string {
+  const d = typeof date === "string" ? new Date(date) : date;
+  return d.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", hour12: false });
+}
+
 function utcCalendarDay(date: Date): number {
   return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
 }
