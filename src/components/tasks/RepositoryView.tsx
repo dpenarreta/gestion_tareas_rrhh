@@ -9,26 +9,10 @@ import { hoursToDisplay } from "@/lib/timeFormat";
 import { getOfficialTargetTime, isTargetTimeValidated } from "@/lib/targetTime";
 import CorrectArchivedTaskModal from "./CorrectArchivedTaskModal";
 import { Button } from "@/components/ui/Button";
+import { StatusChip, PriorityChip } from "@/components/ui/Chip";
+import { TASK_STATUS_CONFIG, TASK_PRIORITY_CONFIG } from "@/lib/chipConfig";
 
 type RepositoryMonth = { year: number; month: number; totalTasks: number; completedTasks: number; totalHours: number };
-
-const STATUS_STYLES: Record<Task["status"], string> = {
-  PENDIENTE: "bg-surface2 text-secondary",
-  EN_PROGRESO: "bg-primary-surface text-primary",
-  COMPLETADA: "bg-success/[.13] text-success",
-};
-
-const STATUS_LABELS: Record<Task["status"], string> = {
-  PENDIENTE: "Pendiente",
-  EN_PROGRESO: "En Progreso",
-  COMPLETADA: "Completada",
-};
-
-const PRIORITY_STYLES: Record<Task["priority"], string> = {
-  ALTA: "bg-danger/[.13] text-danger",
-  MEDIA: "bg-warning/[.15] text-warning",
-  BAJA: "bg-success/[.13] text-success",
-};
 
 const FREQUENCY_LABELS: Record<Task["frequency"], string> = {
   MENSUAL: "Mensual",
@@ -175,14 +159,10 @@ export default function RepositoryView({ currentUserRole }: Props) {
                       <td className="px-3 py-3 text-main">{task.assignedTo.name}</td>
                       <td className="px-3 py-3 text-main">{FREQUENCY_LABELS[task.frequency]}</td>
                       <td className="px-3 py-3">
-                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${STATUS_STYLES[task.status]}`}>
-                          {STATUS_LABELS[task.status]}
-                        </span>
+                        <StatusChip value={task.status} config={TASK_STATUS_CONFIG} />
                       </td>
                       <td className="px-3 py-3">
-                        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${PRIORITY_STYLES[task.priority]}`}>
-                          {task.priority}
-                        </span>
+                        <PriorityChip value={task.priority} config={TASK_PRIORITY_CONFIG} />
                       </td>
                       <td className="px-3 py-3 whitespace-nowrap text-main">{formatDate(task.endDate)}</td>
                       <td className="px-3 py-3 text-right text-main">

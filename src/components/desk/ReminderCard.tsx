@@ -3,9 +3,10 @@
 import { useState } from "react";
 import { motion } from "framer-motion";
 import { Check, Clock, Pencil, Trash2, Repeat, Undo2, Archive, ArchiveRestore, History, ListTodo } from "lucide-react";
+import { PriorityChip } from "@/components/ui/Chip";
+import { REMINDER_PRIORITY_CONFIG } from "@/lib/chipConfig";
 import {
   type PersonalReminder,
-  REMINDER_PRIORITY_COLOR,
   REMINDER_REPEAT_LABEL,
   fmtDueRelative,
   fmtDueDateTime,
@@ -78,7 +79,7 @@ export default function ReminderCard({ reminder, onComplete, onPostpone, onReope
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="w-2 h-2 rounded-full shrink-0" style={{ background: REMINDER_PRIORITY_COLOR[reminder.priority] }} />
+            <PriorityChip value={reminder.priority} config={REMINDER_PRIORITY_CONFIG} className="shrink-0" />
             <p className={`text-sm font-medium truncate ${done ? "text-secondary line-through" : "text-title"}`}>{reminder.title}</p>
             {reminder.archived && (
               <span className="text-[10px] font-medium text-disabled bg-surface2 px-1.5 py-0.5 rounded-full shrink-0">Archivado</span>

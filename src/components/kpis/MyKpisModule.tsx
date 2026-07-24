@@ -21,6 +21,8 @@ import { formatDate } from "@/lib/utils";
 import { hoursToDisplay } from "@/lib/timeFormat";
 import { openReportWindow, fetchAnalyticsExportMeta } from "./reportWindow";
 import { Button } from "@/components/ui/Button";
+import { StatusChip } from "@/components/ui/Chip";
+import { TASK_STATUS_CONFIG } from "@/lib/chipConfig";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -115,13 +117,6 @@ const STATUS_LABEL: Record<string, string> = {
   EN_PROGRESO: "En progreso",
   COMPLETADA: "Completada",
   CANCELADA: "Cancelada",
-};
-
-const STATUS_BADGE: Record<string, string> = {
-  PENDIENTE: "bg-surface2 text-secondary",
-  EN_PROGRESO: "bg-primary-surface text-primary",
-  COMPLETADA: "bg-success/[.13] text-success",
-  CANCELADA: "bg-surface2 text-disabled line-through",
 };
 
 const TYPE_LABEL: Record<string, string> = {
@@ -971,9 +966,7 @@ export default function MyKpisModule({ currentUserId, currentUserName, currentUs
                                 </span>
                               </td>
                               <td className="py-2.5 pr-4">
-                                <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${STATUS_BADGE[t.status] ?? "bg-surface2 text-secondary"}`}>
-                                  {STATUS_LABEL[t.status] ?? t.status}
-                                </span>
+                                <StatusChip value={t.status} config={TASK_STATUS_CONFIG} />
                               </td>
                               <td className="py-2.5 pr-4 text-xs text-secondary">
                                 {formatDate(t.endDate)}

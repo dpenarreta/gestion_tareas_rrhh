@@ -4,6 +4,8 @@ import { useState } from "react";
 import type { ProjectPhase, ProjectPhaseStatus, ProjectUserRef } from "./types";
 import { PHASE_STATUS_LABEL } from "./types";
 import PhaseDetailModal from "./PhaseDetailModal";
+import { StatusChip } from "@/components/ui/Chip";
+import { TASK_STATUS_CONFIG } from "@/lib/chipConfig";
 
 const STATUS_OPTIONS: ProjectPhaseStatus[] = ["PENDIENTE", "EN_PROGRESO", "COMPLETADA"];
 
@@ -191,9 +193,7 @@ export default function ProjectPhasesTab({ projectId, phases, canManage, candida
                       ))}
                     </select>
                   ) : (
-                    <span className="text-[10px] font-bold uppercase px-2 py-1 rounded-full bg-surface2 text-secondary shrink-0">
-                      {PHASE_STATUS_LABEL[phase.status]}
-                    </span>
+                    <StatusChip value={phase.status} config={TASK_STATUS_CONFIG} className="shrink-0" />
                   )}
                 </div>
 

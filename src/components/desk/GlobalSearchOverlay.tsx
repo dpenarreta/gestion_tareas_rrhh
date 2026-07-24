@@ -3,11 +3,10 @@
 import { useEffect, useState } from "react";
 import { Search, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { PriorityChip } from "@/components/ui/Chip";
+import { DESK_NOTE_PRIORITY_CONFIG, REMINDER_PRIORITY_CONFIG } from "@/lib/chipConfig";
 import {
   PRIORITY_LABEL,
-  PRIORITY_STRIPE,
-  REMINDER_PRIORITY_LABEL,
-  REMINDER_PRIORITY_COLOR,
   fmtRelative,
   fmtDueDateTime,
   type DeskNotePriority,
@@ -147,7 +146,7 @@ export default function GlobalSearchOverlay({ onClose }: { onClose: () => void }
                     {results.notes.map((n) => (
                       <li key={n.id} className="bg-background border border-border rounded-xl p-2.5 text-xs">
                         <div className="flex items-center gap-1.5 mb-1 flex-wrap">
-                          <span className="w-2 h-2 rounded-full shrink-0" style={{ background: PRIORITY_STRIPE[n.priority] }} />
+                          <PriorityChip value={n.priority} config={DESK_NOTE_PRIORITY_CONFIG} className="shrink-0" />
                           <span className="font-medium text-title">{n.isMine ? `Para ${n.recipientName}` : `De ${n.senderName}`}</span>
                           <span className="text-disabled">· {fmtRelative(n.createdAt)}</span>
                           {n.archived && <span className="text-disabled">· Archivada</span>}
@@ -172,9 +171,8 @@ export default function GlobalSearchOverlay({ onClose }: { onClose: () => void }
                     {results.reminders.map((r) => (
                       <li key={r.id} className="bg-background border border-border rounded-xl p-2.5 text-xs">
                         <div className="flex items-center gap-1.5 mb-1">
-                          <span className="w-2 h-2 rounded-full shrink-0" style={{ background: REMINDER_PRIORITY_COLOR[r.priority] }} />
+                          <PriorityChip value={r.priority} config={REMINDER_PRIORITY_CONFIG} className="shrink-0" />
                           <span className="font-medium text-title">{r.title}</span>
-                          <span className="text-disabled">· {REMINDER_PRIORITY_LABEL[r.priority]}</span>
                         </div>
                         <p className="text-secondary">{fmtDueDateTime(r.dueAt)} {r.status === "COMPLETADO" ? "· Completado" : ""}</p>
                       </li>

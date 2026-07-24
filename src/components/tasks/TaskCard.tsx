@@ -5,12 +5,8 @@ import type { Task } from "./types";
 import { TASK_COLORS, taskColorHex } from "./colors";
 import { formatDate, isTaskOverdue } from "@/lib/utils";
 import { Badge } from "@/components/ui/Badge";
-
-const PRIORITY_VARIANT: Record<Task["priority"], "danger" | "warning" | "success"> = {
-  ALTA: "danger",
-  MEDIA: "warning",
-  BAJA: "success",
-};
+import { PriorityChip } from "@/components/ui/Chip";
+import { TASK_PRIORITY_CONFIG } from "@/lib/chipConfig";
 
 const FREQUENCY_LABELS: Record<Task["frequency"], string> = {
   MENSUAL: "Mensual",
@@ -123,9 +119,7 @@ export default function TaskCard({ task, currentUserId, isDragging, onEdit, onDe
       </div>
 
       <div className="flex flex-wrap gap-1.5 mb-2.5">
-        <Badge variant={PRIORITY_VARIANT[task.priority]} className="rounded normal-case">
-          {task.priority}
-        </Badge>
+        <PriorityChip value={task.priority} config={TASK_PRIORITY_CONFIG} />
         <span className="text-[10px] text-secondary bg-surface2 px-1.5 py-0.5 rounded border border-border">
           {FREQUENCY_LABELS[task.frequency]}
         </span>

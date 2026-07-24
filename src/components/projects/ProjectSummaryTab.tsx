@@ -4,6 +4,8 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ProjectDetail, ProjectStatus } from "./types";
 import { PROJECT_STATUS_LABEL } from "./types";
+import { StatusChip } from "@/components/ui/Chip";
+import { PROJECT_STATUS_CONFIG } from "@/lib/chipConfig";
 
 const STATUS_OPTIONS: ProjectStatus[] = [
   "PENDIENTE",
@@ -120,7 +122,7 @@ export default function ProjectSummaryTab({ project, canManage, canDelete, onUpd
     <div className="space-y-4">
       {/* Sprint 2.1 §10: dashboard ejecutivo con tarjetas KPI. */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <KpiCard label="Estado" value={PROJECT_STATUS_LABEL[project.status]} />
+        <KpiCard label="Estado" value={<StatusChip value={project.status} config={PROJECT_STATUS_CONFIG} />} />
         <KpiCard label="Avance" value={`${advancePct}%`} sub={project.phases.length > 0 ? "Promedio de fases" : "Por tiempo ejecutado"} />
         <KpiCard label="Participantes" value={project.participants.length} />
         <KpiCard label="Tiempo objetivo" value={`${project.targetTimeHours}h`} />

@@ -12,6 +12,8 @@ import { formatDate, isTaskOverdue } from "@/lib/utils";
 import { hoursToDisplay } from "@/lib/timeFormat";
 import { getOfficialTargetTime, isTargetTimeValidated } from "@/lib/targetTime";
 import { Button } from "@/components/ui/Button";
+import { StatusChip, PriorityChip } from "@/components/ui/Chip";
+import { TASK_STATUS_CONFIG, TASK_PRIORITY_CONFIG } from "@/lib/chipConfig";
 
 type SortKey = "title" | "frequency" | "status" | "priority" | "startDate" | "endDate" | "estimatedHours" | "realHours";
 import CommentPanel from "./CommentPanel";
@@ -22,18 +24,6 @@ const STATUS_LABELS: Record<Task["status"], string> = {
   PENDIENTE: "Pendiente",
   EN_PROGRESO: "En Progreso",
   COMPLETADA: "Completada",
-};
-
-const STATUS_STYLES: Record<Task["status"], string> = {
-  PENDIENTE: "bg-warning/[.15] text-warning",
-  EN_PROGRESO: "bg-primary-surface text-primary",
-  COMPLETADA: "bg-success/[.13] text-success",
-};
-
-const PRIORITY_STYLES: Record<Task["priority"], string> = {
-  ALTA: "bg-danger/[.13] text-danger",
-  MEDIA: "bg-warning/[.15] text-warning",
-  BAJA: "bg-success/[.13] text-success",
 };
 
 const FREQUENCY_LABELS: Record<Task["frequency"], string> = {
@@ -226,17 +216,11 @@ function TaskRow({
             { value: "COMPLETADA", label: "Completada" },
           ]}
           onSave={handleStatusSave}
-          renderDisplay={(v) => (
-            <span className={`inline-block text-xs font-semibold px-2.5 py-1 rounded-full ${STATUS_STYLES[v as TaskStatus]}`}>
-              {STATUS_LABELS[v as TaskStatus]}
-            </span>
-          )}
+          renderDisplay={(v) => <StatusChip value={v} config={TASK_STATUS_CONFIG} />}
         />
       </td>
       <td className="border border-border px-4 py-3.5">
-        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${PRIORITY_STYLES[task.priority]}`}>
-          {task.priority}
-        </span>
+        <PriorityChip value={task.priority} config={TASK_PRIORITY_CONFIG} />
       </td>
       <td className="border border-border px-4 py-3.5 whitespace-nowrap text-main">{formatDate(task.startDate)}</td>
       <td className={`border border-border px-4 py-3.5 whitespace-nowrap ${isTaskOverdue(task.endDate, task.status) ? "text-danger font-semibold" : "text-main"}`}>{formatDate(task.endDate)}</td>

@@ -25,6 +25,8 @@ import * as XLSX from "xlsx";
 import { formatDate } from "@/lib/utils";
 import { hoursToDisplay } from "@/lib/timeFormat";
 import { Button } from "@/components/ui/Button";
+import { StatusChip } from "@/components/ui/Chip";
+import { TASK_STATUS_CONFIG } from "@/lib/chipConfig";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -97,12 +99,6 @@ const STATUS_LABEL: Record<string, string> = {
   PENDIENTE: "Pendiente",
   EN_PROGRESO: "En progreso",
   COMPLETADA: "Completada",
-};
-
-const STATUS_STYLE: Record<string, string> = {
-  PENDIENTE: "bg-surface2 text-secondary",
-  EN_PROGRESO: "bg-primary-surface text-primary",
-  COMPLETADA: "bg-success/[.13] text-success",
 };
 
 const TYPE_LABEL: Record<string, string> = {
@@ -933,11 +929,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
                               </span>
                             </td>
                             <td className="py-2.5 pr-4">
-                              <span
-                                className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${STATUS_STYLE[t.status] ?? "bg-surface2 text-secondary"}`}
-                              >
-                                {STATUS_LABEL[t.status] ?? t.status}
-                              </span>
+                              <StatusChip value={t.status} config={TASK_STATUS_CONFIG} />
                             </td>
                             <td className="py-2.5 pr-4 text-sm text-main whitespace-nowrap">
                               {formatDate(t.endDate)}
