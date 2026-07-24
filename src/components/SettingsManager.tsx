@@ -16,6 +16,7 @@ import NormalizationCurvesSection from "@/components/settings/NormalizationCurve
 import RoleTargetsSection from "@/components/settings/RoleTargetsSection";
 import WelcomeMessageSection from "@/components/settings/WelcomeMessageSection";
 import EngineDiagnosticsSection from "@/components/settings/EngineDiagnosticsSection";
+import DataQualitySection from "@/components/settings/DataQualitySection";
 import DocumentationSection from "@/components/settings/DocumentationSection";
 import { Button } from "@/components/ui/Button";
 import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
@@ -703,6 +704,8 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
       </SectionCard>
 
       <EngineDiagnosticsSection />
+
+      <DataQualitySection />
 
       <SectionCard title="Configuración de Carga Laboral">
         {hoursLoading || hoursPerDay === null ? (
