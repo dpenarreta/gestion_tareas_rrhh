@@ -29,7 +29,13 @@ export function formatTime(date: string | Date, locale = "es-CL"): string {
   return d.toLocaleTimeString(locale, { hour: "2-digit", minute: "2-digit", hour12: false });
 }
 
-function utcCalendarDay(date: Date): number {
+/**
+ * UTC-midnight timestamp (ms) for the calendar day of a UTC-midnight date
+ * field (e.g. Task.endDate). Exported so any comparison against a pure
+ * calendar-day field reuses this instead of reimplementing it — see
+ * `isCompletedOnTime` (`src/lib/priorityCompliance.ts`) for a second caller.
+ */
+export function utcCalendarDay(date: Date): number {
   return Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate());
 }
 

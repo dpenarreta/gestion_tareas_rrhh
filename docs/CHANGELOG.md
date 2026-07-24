@@ -23,6 +23,59 @@
 
 ---
 
+## v1.14.1 — 2026-07-24
+
+**Tipo:** FIX / ANALYTICS
+**Módulo:** Analytics — Cumplimiento por prioridad / personal (`isCompletedOnTime`)
+
+**Implementado:** corrección de un bug real de clasificación en "completado
+A TIEMPO" (Definición B de Cumplimiento, `src/lib/priorityCompliance.ts`,
+usada en `/api/kpis/[userId]` y `/api/kpis/me` — la vista personal). Se
+ejecutó primero una auditoría de solo lectura (sin tocar fórmulas) que
+confirmó el diagnóstico con datos reales de producción antes de corregir
+nada, a pedido explícito.
+
+- **Bug:** la comparación `completedAt.getTime() <= endDate.getTime()`
+  (instante UTC crudo) clasificaba como tardía cualquier tarea cerrada
+  durante el horario laboral real del propio día de vencimiento, porque
+  medianoche UTC del día de vencimiento equivale a las 7pm del día ANTERIOR
+  en huso de negocio (Ecuador/Colombia, UTC-5).
+- **Verificación empírica:** de 65 tareas clasificadas como "fuera de
+  tiempo" en producción, 33 (51%) se habían completado el mismo día
+  calendario — mal clasificadas por el bug, no genuinamente tardías. El
+  cumplimiento a tiempo real pasaba de 26% a 64% sobre esas tareas con la
+  clasificación correcta.
+- **Corrección:** `isCompletedOnTime` ahora compara por día calendario en
+  huso de negocio (`businessCalendarDay(completedAt) <= utcCalendarDay(endDate)`),
+  reutilizando el mismo patrón que ya usa `isTaskOverdue` para "vencida".
+  `utcCalendarDay` (`src/lib/utils.ts`) se exportó (antes era privada) en
+  vez de reimplementarse.
+- **Versionado:** `FORMULA_VERSIONS.completadoATiempo = "1.0"` (nueva
+  entrada — primera vez que esta fórmula se versiona formalmente).
+  `FORMULA_SET_VERSION` 4.2 → 4.3.
+- **Tests:** 3 casos nuevos en `src/__tests__/analytics-formulas.test.ts`
+  cubren explícitamente el escenario del bug (mismo día calendario con
+  timestamp posterior a medianoche UTC) para prevenir una regresión.
+- **Hallazgo aparte, documentado pero no corregido:** 33 tareas
+  `COMPLETADA` adicionales tienen `completedAt = NULL` (anteriores a la
+  migración que agregó la columna, sin backfill) — es un problema de datos
+  históricos faltantes, no de fórmula; backfillear un timestamp que nunca
+  se registró requeriría inventar un valor.
+
+**Impacto:** el "Cumplimiento" (Definición B) en `/api/kpis/[userId]`/`/api/kpis/me`
+sube para la mayoría de los colaboradores, reflejando correctamente las
+tareas cerradas el mismo día de vencimiento. **No afecta** la Definición A
+(Health Score, Performance Score, panel ejecutivo/equipo, informes) — nunca
+usó `completedAt`/`endDate`. No se modificó ningún otro cálculo, permiso,
+regla de negocio ajena a esta fórmula, ni el schema de base de datos.
+
+**Archivos:** `src/lib/priorityCompliance.ts`, `src/lib/utils.ts`,
+`src/lib/analytics.ts` (versionado), `src/__tests__/analytics-formulas.test.ts`.
+
+**Autor:** Claude Code
+
+---
+
 ## v1.14.0 — 2026-07-24
 
 **Tipo:** UX / FEATURE

@@ -168,6 +168,30 @@ describe("computePriorityCompliance + isCompletedOnTime (Cumplimiento)", () => {
   it("caso extremo: tarea no completada nunca cuenta como a tiempo aunque completedAt esté seteado", () => {
     expect(isCompletedOnTime({ status: "PENDIENTE", completedAt: new Date("2026-06-01"), endDate })).toBe(false);
   });
+
+  // Corrección 2026-07-24 (ver docs/AUDIT_LOG.md): comparación por día
+  // calendario en huso de negocio (UTC-5), no por instante UTC crudo.
+  it("bug corregido: completada el mismo día calendario (huso de negocio) cuenta como a tiempo aunque completedAt.getTime() > endDate.getTime()", () => {
+    // endDate = 2026-06-10T00:00Z (medianoche UTC del día de vencimiento).
+    // completedAt = 2026-06-10T15:30Z — mismo día calendario en UTC-5
+    // (10:30am hora de negocio), pero un timestamp UTC crudo posterior a
+    // medianoche → antes de la corrección esto daba `false`.
+    const completedAt = new Date("2026-06-10T15:30:00.000Z");
+    expect(isCompletedOnTime({ status: "COMPLETADA", completedAt, endDate })).toBe(true);
+  });
+
+  it("bug corregido: completada pasada la medianoche UTC pero aún dentro del día de negocio cuenta como a tiempo", () => {
+    // completedAt cae en la madrugada UTC del día SIGUIENTE, pero al
+    // restarle el huso de negocio (UTC-5) sigue siendo el mismo día
+    // calendario que endDate.
+    const completedAt = new Date("2026-06-11T03:58:00.000Z");
+    expect(isCompletedOnTime({ status: "COMPLETADA", completedAt, endDate })).toBe(true);
+  });
+
+  it("sigue clasificando correctamente como tardía una tarea completada un día calendario después (huso de negocio)", () => {
+    const completedAt = new Date("2026-06-11T17:26:00.000Z"); // claramente el día siguiente en UTC-5
+    expect(isCompletedOnTime({ status: "COMPLETADA", completedAt, endDate })).toBe(false);
+  });
 });
 
 describe("consistencyLevelFromCv / consistencyPctFromCv (Consistencia — Sprint 1 S1-B)", () => {

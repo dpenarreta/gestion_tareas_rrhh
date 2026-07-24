@@ -410,8 +410,16 @@ completedPct = tasks.length === 0
 
 **Definición B — "completado A TIEMPO"** (`isCompletedOnTime`, `src/lib/priorityCompliance.ts`, §7):
 ```
-isCompletedOnTime(t) = t.status === "COMPLETADA" && t.completedAt != null && t.completedAt <= t.endDate
+isCompletedOnTime(t) = t.status === "COMPLETADA" && t.completedAt != null
+  && businessCalendarDay(t.completedAt) <= utcCalendarDay(t.endDate)
 ```
+Comparación por **día calendario en huso de negocio (UTC-5)**, no por
+instante UTC crudo — corregido 2026-07-24 (ver "Casos borde" y
+`docs/AUDIT_LOG.md` § 2026-07-24). `endDate` es fecha pura (UTC-medianoche
+por convención, se lee sin desplazar con `utcCalendarDay`); `completedAt` es
+un instante real (`new Date()` al momento del PATCH) y por eso se desplaza a
+huso de negocio con `businessCalendarDay` antes de comparar — mismo patrón
+que usa `isTaskOverdue` para "vencida".
 
 ### Variables
 - `tasks`: array de `{ status }` (Definición A) o `{ status, completedAt, endDate }` (Definición B) del período.
@@ -436,7 +444,8 @@ completedPct (Definición B, "a tiempo") = round(13/20 × 100) = 65%
 
 ### Casos borde
 - `tasks.length === 0` → devuelve `emptyValue` directamente (`0` o `100` según el caller), nunca `NaN` por división 0/0.
-- Definición B: `completedAt === null` (tarea completada pero sin fecha de cierre registrada, no debería ocurrir en datos consistentes) → `isCompletedOnTime` devuelve `false` explícitamente (`completedAt != null` es parte de la condición).
+- Definición B: `completedAt === null` (tarea completada pero sin fecha de cierre registrada, no debería ocurrir en datos consistentes) → `isCompletedOnTime` devuelve `false` explícitamente (`completedAt != null` es parte de la condición). Auditoría del 2026-07-24 encontró 33 de 121 tareas `COMPLETADA` con `completedAt = NULL` en producción — anteriores a la migración `20260707004617` que agregó la columna, sin backfill.
+- **Bug corregido 2026-07-24** (ver `docs/AUDIT_LOG.md`): la comparación anterior (`completedAt.getTime() <= endDate.getTime()`, instante UTC crudo) clasificaba como "tardía" cualquier tarea cerrada durante el horario laboral real del propio día de vencimiento, porque medianoche UTC del día de vencimiento equivale a las 7pm del día ANTERIOR en huso de negocio (UTC-5). Auditoría empírica sobre datos reales: de 65 tareas clasificadas como "fuera de tiempo", 33 (51%) se habían completado el mismo día calendario en huso de negocio. Corregido para comparar por día calendario, igual que `isTaskOverdue`.
 
 ### Reglas de negocio
 - **Consolidación de fórmula ya resuelta** (2026-07-21, Registro de auditoría §D1): las 4 reimplementaciones inline dentro de `analytics.ts` (`computeMonthlyHistory`, `computeWeeklyHistory`, `computeHealthScore`, `computePerformanceScore`) y 5 rutas externas (`kpis/team`, `kpis/executive`, `kpis/me/range`, `reports/generate`, `reports/range`) ahora llaman a esta única función.
@@ -444,7 +453,7 @@ completedPct (Definición B, "a tiempo") = round(13/20 × 100) = 65%
 - `validateCumplimientoConsistency` (§S3-C) solo compara cumplimiento general vs. por prioridad (ambos Definición B) — **no detecta** el desacuerdo entre A y B porque nunca los cruza.
 
 ### Versión
-`FORMULA_VERSIONS.cumplimiento = "2.0"` — aplica solo a la Definición A dentro del motor central.
+`FORMULA_VERSIONS.cumplimiento = "2.0"` — aplica solo a la Definición A dentro del motor central. La Definición B tiene su propia entrada desde esta corrección: `FORMULA_VERSIONS.completadoATiempo = "1.0"` (§7).
 
 ### Notas
 - Riesgo de regresión (registro de auditoría): **Alto** a nivel sistema — cualquier cambio a una definición no se propaga a la otra; eran 8 implementaciones divergentes antes de la consolidación de fórmula (que resolvió la duplicación de código, no la duplicación de definición de negocio).
@@ -467,7 +476,7 @@ para cada priority en [ALTA, MEDIA, BAJA]:
   total           = forPriority.length
   pct             = total>0 ? round(completedOnTime/total × 100) : 0
 ```
-`isCompletedOnTime(t) = t.status === "COMPLETADA" && t.completedAt != null && t.completedAt <= t.endDate` — **la misma función** que usa `/api/kpis/[userId]`/`/api/kpis/me` para el cumplimiento general (garantiza coherencia entre el desglose y el total, dentro de la Definición B).
+`isCompletedOnTime(t) = t.status === "COMPLETADA" && t.completedAt != null && businessCalendarDay(t.completedAt) <= utcCalendarDay(t.endDate)` (corregido 2026-07-24, comparación por día calendario en huso de negocio) — **la misma función** que usa `/api/kpis/[userId]`/`/api/kpis/me` para el cumplimiento general (garantiza coherencia entre el desglose y el total, dentro de la Definición B).
 
 ### Variables
 - `tasks`: `{ priority, status, completedAt, endDate }[]` del período.
@@ -494,10 +503,11 @@ Resultado: `[{ALTA,5,4,80}, {MEDIA,10,6,60}, {BAJA,5,3,60}]`.
 - `validateCumplimientoConsistency` cruza la suma de `total` por prioridad contra el total general, y compara el promedio ponderado por prioridad contra el % general con tolerancia de 15 puntos porcentuales — si difiere más, registra `cumplimiento_incoherente` como fallo de validación.
 
 ### Versión
-No tiene entrada propia en `FORMULA_VERSIONS` (es pura, sin cambios de fórmula reportados desde su creación en Sprint 1 §S1-A, cuando se corrigió la inconsistencia entre cumplimiento general y por prioridad usando la misma función `isCompletedOnTime` en ambos).
+`FORMULA_VERSIONS.completadoATiempo = "1.0"` (nueva, 2026-07-24) — primera vez que `isCompletedOnTime` se versiona; v1.0 es ya la forma corregida (comparación por día calendario), no la comparación cruda por instante que tenía antes de esta fecha.
 
 ### Notas
 - Confirmado sin duplicación fuera de `priorityCompliance.ts` (Registro de auditoría, D5).
+- **Corrección 2026-07-24**: `isCompletedOnTime` comparaba `completedAt.getTime() <= endDate.getTime()` (instante UTC crudo) en vez de por día calendario — ver §6 "Casos borde" para el detalle completo y `docs/AUDIT_LOG.md` para la auditoría empírica sobre datos de producción que motivó la corrección.
 
 ---
 

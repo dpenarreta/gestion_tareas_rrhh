@@ -83,6 +83,13 @@ Alcance: solo lectura/documentación. No se modificó Prisma, APIs públicas, co
 
 **Lo que NO se resolvió, a propósito:** la Definición A y la Definición B siguen siendo dos fórmulas distintas bajo el mismo nombre `completedPct` — decidir cuál debería ser la única oficial (o si ambas deben coexistir con nombres de campo distintos, p. ej. `completedAnyPct` vs. `completedOnTimePct`) sigue siendo una decisión de negocio pendiente, no técnica, y sigue fuera del alcance de esta corrección. `kpis/[userId]`/`kpis/me` (Definición B) no se tocaron.
 
+**Nota 2026-07-24 — corrección posterior, distinta de D1:** la Definición B
+(`isCompletedOnTime`) sí se corrigió después, pero por un bug de
+comparación de fechas (instante UTC crudo vs. día calendario en huso de
+negocio), no por la duplicación de definiciones que documenta este D1 —
+ver `docs/AUDIT_LOG.md` § 2026-07-24 y `docs/ANALYTICS_FORMULAS.md` §6/§7. La
+coexistencia de Definición A/B en sí sigue sin resolverse.
+
 **Bonus (mismo archivo, mismo commit):** al editar `kpis/team/route.ts` se encontró un umbral de color 80/60 (`completedPct >= 80 ? "green" : ...`) que el fix de **D10** no había capturado — se corrigió para usar `cumplimientoColor` (`analyticsExplain.ts`) igual que el resto. Quedan 2 instancias más del mismo patrón, inline en JSX (no en una función nombrada), en `MonthlyReports.tsx` y `MyKpisModule.tsx` — no se tocaron por estar fuera del archivo/alcance de este fix; quedan como remanente de D10 para una futura pasada si se desea.
 
 **Verificación:** `tsc --noEmit`/`eslint` limpios en los 6 archivos tocados (`analytics.ts` + 5 rutas); suite completa 840/842 (mismos 2 fallos preexistentes de `kpis-executive.test.ts`, no relacionados) — los tests que sí verifican valores numéricos de `completedPct`/`score`/alertas (`reports.test.ts`, `kpis-executive.test.ts`) pasan sin modificación, confirmando que no hubo cambio de comportamiento.

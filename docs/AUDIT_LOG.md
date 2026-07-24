@@ -15,6 +15,85 @@
 
 ---
 
+## 2026-07-24 — Corrección de `isCompletedOnTime`: comparación por día calendario en huso de negocio, no por instante UTC crudo
+
+**Problema detectado:** auditoría solicitada explícitamente (sin tocar
+fórmulas hasta confirmar el diagnóstico) sobre la clasificación "completada
+a tiempo" (`isCompletedOnTime`, `src/lib/priorityCompliance.ts`), usada por
+`/api/kpis/[userId]` y `/api/kpis/me` (vista personal de Cumplimiento —
+Definición B, distinta de la Definición A del motor central, ya documentada
+en §D1 del Registro de Auditoría). La función comparaba
+`t.completedAt.getTime() <= t.endDate.getTime()` directamente. `endDate` se
+guarda como medianoche UTC del día objetivo (fecha pura, sin hora);
+`completedAt` es un instante real (`new Date()` al momento del PATCH que
+cierra la tarea). Como medianoche UTC del día de vencimiento equivale a las
+7pm del día ANTERIOR en huso de negocio (Ecuador/Colombia, UTC-5), cualquier
+tarea cerrada durante el horario laboral real del propio día de vencimiento
+quedaba mal clasificada como tardía.
+
+**Verificación empírica sobre datos de producción antes de corregir**
+(consulta de solo lectura, sin escrituras): de 121 tareas `COMPLETADA`, 88
+tenían `completedAt` poblado; de esas, 65 estaban clasificadas como "fuera
+de tiempo" bajo la lógica anterior. **33 de esas 65 (51%) se habían
+completado el mismo día calendario** en huso de negocio — mal clasificadas
+por el bug, no genuinamente tardías. El "cumplimiento a tiempo" real sobre
+esas 88 tareas pasaba de 26% (23/88, cifra reportada antes de la corrección)
+a 64% (56/88) con la clasificación correcta — una diferencia material, no
+cosmética. (Hallazgo aparte, no corregido aquí: 33 tareas `COMPLETADA`
+adicionales tienen `completedAt = NULL` — anteriores a la migración
+`20260707004617_add_administrador_role_and_task_completed_at`, que agregó la
+columna sin backfill; quedan fuera de este cambio porque no es un problema
+de fórmula sino de datos históricos faltantes, y backfillear un timestamp de
+completado que nunca se registró requeriría inventar un valor.)
+
+**Alternativas evaluadas:**
+1. Dejar la comparación por instante exacto, documentando la limitación —
+   descartada: el propio código ya resuelve este mismo problema
+   correctamente en otro lugar (`isTaskOverdue`, `src/lib/utils.ts`, usa
+   `businessCalendarDay`/`utcCalendarDay`) para la clasificación "vencida" —
+   mantener una comparación cruda en `isCompletedOnTime` sería una
+   inconsistencia interna conocida y evitable, no una limitación real del
+   dominio.
+2. Normalizar `completedAt` a medianoche UTC del mismo modo que `endDate` —
+   descartada: `completedAt` es y debe seguir siendo un instante real (se
+   usa también, sin este problema, en otros lugares que sí necesitan la hora
+   exacta); normalizarlo perdería esa información para todo el sistema, no
+   solo para esta comparación.
+3. **(Elegida)** Comparar por día calendario sin modificar el dato
+   almacenado: `businessCalendarDay(completedAt) <= utcCalendarDay(endDate)`
+   — mismo patrón que `isTaskOverdue`, reutilizando `businessCalendarDay`
+   (`src/lib/businessTime.ts`, ya existente) y exportando `utcCalendarDay`
+   (`src/lib/utils.ts`, antes privado) para que ambas funciones compartan una
+   sola fuente de la lógica de "día calendario en huso de negocio".
+
+**Decisión tomada:** opción 3. `isCompletedOnTime` corregida; `completadoATiempo`
+agregado a `FORMULA_VERSIONS` (`src/lib/analytics.ts`) como `"1.0"` — primera
+vez que esta fórmula se versiona, la v1.0 es ya la forma corregida.
+`FORMULA_SET_VERSION` 4.2 → 4.3. 3 tests nuevos en
+`src/__tests__/analytics-formulas.test.ts` cubren explícitamente el
+escenario del bug (completado el mismo día calendario con timestamp
+posterior a medianoche UTC) para evitar una regresión futura.
+
+**Justificación:** el cálculo debe reflejar cómo un humano razona sobre
+"a tiempo" (día calendario, huso de negocio), no un artefacto de cómo se
+almacena `endDate` en UTC. Reutilizar el patrón ya validado de
+`isTaskOverdue` (en vez de inventar uno nuevo) mantiene una sola forma de
+razonar sobre "qué día es esto" en toda la base de código.
+
+**Impacto:** cambia el resultado real de `isCompletedOnTime` /
+`computePriorityCompliance` — el "Cumplimiento" (Definición B) mostrado en
+`/api/kpis/[userId]` y `/api/kpis/me` sube para la mayoría de los
+colaboradores, reflejando ahora correctamente las tareas cerradas el mismo
+día de vencimiento. No afecta la Definición A (Health Score, Performance
+Score, panel ejecutivo/equipo, informes) — esa función nunca usó
+`completedAt`/`endDate`. No se tocó ningún otro cálculo, permiso, ni el
+schema de base de datos.
+
+**Aprobado por:** Anthony Jácome (confirmó explícitamente proceder con la
+corrección tras revisar el informe de auditoría).
+
+---
+
 ## 2026-07-23 — Escritorio Digital: pipeline Nota→Recordatorio→Tarea reemplaza el puente directo Nota→Tarea, verificado sobre datos reales de producción
 
 **Problema detectado:** el refinamiento pidió lectura automática (sin

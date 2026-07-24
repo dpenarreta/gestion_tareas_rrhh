@@ -50,7 +50,7 @@ export const ANALYTICS_ENGINE_VERSION = "1.5.0";
  * Administrador reconoce como paquete (ANALYTICS_ENGINE_VERSION=motor,
  * FORMULA_SET_VERSION=paquete de fórmulas vigente dentro de ese motor).
  */
-export const FORMULA_SET_VERSION = "4.2";
+export const FORMULA_SET_VERSION = "4.3";
 
 export { PREDICTION_MAX_DAYS };
 
@@ -80,6 +80,11 @@ export const FORMULA_VERSIONS = {
   trazabilidad: "4.0",
   // Sprint 7 — motor de decisión de 3 niveles (cargo/cargo-limitado/personal).
   benchmarkInteligente: "1.0",
+  // "Completado a tiempo" (Definición B, isCompletedOnTime,
+  // src/lib/priorityCompliance.ts) — primera vez que se versiona; v1.0 es ya
+  // la forma corregida (comparación por día calendario en huso de negocio,
+  // 2026-07-24), no la comparación cruda por instante que tenía antes.
+  completadoATiempo: "1.0",
 } as const;
 export type FormulaName = keyof typeof FORMULA_VERSIONS;
 
