@@ -15,6 +15,156 @@
 
 ---
 
+## 2026-07-24 — Sprint D (continuación): UX, Calidad del Dato ampliada, validación de efectos secundarios
+
+Versión más detallada del mismo Sprint D (entrada siguiente, v1.15.0) —
+cubre bloques que esa primera pasada dejó acotados o pendientes: un
+Bloque 7 (UX) con hallazgos reales (la primera pasada lo había dejado
+fuera "por falta de hallazgos concretos"), un Bloque 5 ampliado con 2
+verificaciones nuevas de Calidad del Dato, y un Bloque 11 nuevo
+(validación de efectos secundarios) que no existía en el pedido original.
+Mismas restricciones de siempre, ahora explícitas por escrito: sin módulos
+nuevos, sin tocar fórmulas/KPIs/pesos, sin cambiar reglas de negocio sin
+aprobación (documentar en su lugar), y sin commit/push hasta aprobación
+expresa.
+
+### Bloque 7 — UX
+
+Auditoría dedicada (agente de solo lectura) sobre spacing/iconografía/
+loaders/skeletons/mensajes/formularios/accesibilidad/responsive, con cita
+archivo:línea. 10 hallazgos calificados como "solo markup, cero cambio de
+comportamiento" se implementaron:
+
+1. 18 spinners `animate-spin` sueltos → componente `Spinner` compartido
+   (`src/components/ui/Skeleton.tsx`), en Reuniones, Perfil, Nova, y 13
+   archivos de KPIs/Desk/Ajustes que Sprint B había dejado sin migrar pese
+   a listarse como "módulo adoptado".
+2. `aria-label="Cerrar"` en ~19 modales sin `Modal`/`ModalHeader`
+   compartido (Ideas, Reuniones, Desk, Proyectos, Tareas) — el shell
+   compartido ya lo incluye gratis, estos lo habían perdido al no usarlo.
+3. `aria-label="Enviar"` + `aria-label` en el textarea del chat de Nova
+   (`AssistantModule.tsx`), espejo de `NovaFab.tsx` que ya lo tenía bien.
+4. `ProjectActivitiesTab.tsx` y `AssistantModule.tsx` migrados a
+   `EmptyState` — en ambos casos existía una copia idéntica en otro
+   archivo ya usando el componente compartido (`ActivityPanel.tsx`,
+   `SettingsManager.tsx`), confirmando la intención.
+5. Tabla LOPDP de `profile/page.tsx` (única tabla cruda de la app fuera
+   de plantillas de exportación) envuelta en `overflow-x-auto`.
+6. Migración a `Button` compartido en Ideas (`IdeasModule.tsx`,
+   `NewIdeaFormModal.tsx`, `IdeaDetailModal.tsx` — 8 botones), Reuniones
+   (`MeetingsModule.tsx` — 5 botones), Proyectos
+   (`CreateProjectModal.tsx`, `ProjectCommentsTab.tsx`,
+   `ProjectDocumentsTab.tsx`, `ProjectActivitiesTab.tsx`).
+7. Normalización de radio de banners de error a `rounded-lg` (mayoría) en
+   Login (antes `rounded-[10px]`, un tercer valor que no coincidía con
+   ninguno de los dos documentados) y en los `rounded-xl` sueltos de
+   Ideas/Desk/Tareas/Reuniones.
+8. Normalización de ícono de cierre a `w-4 h-4` (mayoría) en modales de
+   Ideas/KPIs/Tareas que usaban `w-5 h-5`; normalización de padding de
+   tarjeta a `p-4` en `IdeaCard`/`MeetingCard` (antes `p-3`/`p-5`).
+
+**Diferido a `docs/ROADMAP.md` (toca comportamiento, no solo markup):**
+primitivo `Input`/`FormField` compartido para Login/Perfil (no existe hoy,
+crearlo es una decisión de alcance mayor); unificar el color de los
+banners "info/confirmación" (dos colores usados hoy para el mismo tipo de
+mensaje); manejo de tecla Espacio en `IdeaCard.tsx` (toca interacción de
+teclado).
+
+### Bloque 5 (ampliado) — Calidad del Dato
+
+Se agregaron 2 verificaciones reales nuevas (no defensivas) a
+`src/app/api/settings/data-quality/route.ts`:
+
+- **Motivo huérfano**: `TaskActivity.reason` es un `String` libre
+  resuelto por convención contra `ActivityReason.key` — no es una FK
+  real. Un motivo eliminado o mal escrito puede quedar "colgado" sin que
+  el schema lo impida; este chequeo lo detecta (`ProjectActivity` no
+  tiene campo de motivo, no aplica ahí).
+- **Registros retroactivos inconsistentes**: dos chequeos de consistencia
+  interna, deliberadamente no relativos a "hoy" (para no generar falsos
+  positivos con datos históricos legítimos): `isRetroactive=true` sin
+  `activityDate` (contradicción), y `isRetroactive=false` con
+  `activityDate` en un día calendario distinto al de `createdAt`
+  (sugiere un backdateo manual sin marcar el flag).
+- Se extendió el chequeo ya existente "sin propietario" para incluir
+  `ProjectParticipant.userId` vacío (mismo criterio defensivo que ya
+  cubría `Task.assignedToId`/`Project.responsibleId` — ambos con FK
+  real, se espera 0).
+
+Las consultas de actividades se acotaron a los últimos 90 días
+(`ACTIVITY_LOOKBACK_DAYS`, mismo valor que ya usaba el chequeo de
+solapamiento) para mantener acotado un click bajo demanda de
+Administrador — las tablas de Tarea/Proyecto/Fase sí se consultan
+completas, dado su volumen mucho menor.
+
+### Bloque 11 (nuevo) — Validación de efectos secundarios
+
+No es código nuevo — es una revisión escrita de los cambios ya pusheados
+en v1.15.0 más los de este mismo día, verificando cada categoría pedida:
+
+- **Duplicación de horas**: `git diff` confirma que `recalcTaskRealHours`/
+  `recalcProjectRealHours` (`src/lib/recalcHours.ts`) son una extracción
+  literal (mismas líneas, mismo `reduce`/`Math.round`) de las funciones
+  locales que reemplazaron — cero cambio de fórmula.
+- **Cambios históricos en KPIs / alteraciones en Analytics**:
+  `git diff dabac92 -- src/lib/analytics.ts src/lib/capacityForecast.ts
+  src/lib/workload.ts src/lib/priorityCompliance.ts
+  src/lib/normalizationEngine.ts prisma/schema.prisma` (dabac92 = último
+  commit antes de Sprint D) devuelve **diff vacío** — ninguno de estos
+  archivos protegidos se tocó, ni en la primera pasada ni en esta.
+- **Modificación del Timeline**: `git diff dabac92 -- src/lib/projectHistory.ts`
+  igualmente vacío; el único archivo que invoca `logProjectHistory`
+  (`projects/[id]/activities/route.ts`) tiene un diff acotado a los
+  imports de `parseDateOnly`/`recalcProjectRealHours` — la línea que
+  llama a `logProjectHistory` no cambió.
+- **Recálculos automáticos no previstos**: diff de `dashboard/route.ts`
+  confirma que cada consulta agrupada en el nuevo `Promise.all` mantiene
+  el mismo `where`/`select`/`orderBy`/`take` que tenía antes — solo se
+  reordenaron y agruparon. Única diferencia real: `announcements`/
+  `upcomingMeetings` pasaron de filtrar contra `now_` a `now` (dos
+  `new Date()` separados por microsegundos en el código original) —
+  diferencia de submilisegundos, sin efecto práctico.
+- **Registros retroactivos inesperados / recreación de actividades**:
+  Fase 1 (IDOR) solo agrega un chequeo de autorización (`canAccessTask`)
+  antes de las rutas de creación existentes — no toca la lógica de
+  creación en sí. Los 919 tests actuales (incluidos los de
+  `tasks-activities-comments.test.ts`/`activities-retroactive-overlap.test.ts`)
+  siguen en verde sin haber sido relajados para pasar.
+- **Pérdida de trazabilidad**: se listaron y compararon uno a uno los 22
+  call sites de `invalidateAnalyticsCache()` en `src/app/api/**` de antes
+  de Sprint D contra los 24 de ahora — los 22 originales están todos
+  presentes sin cambios; los 2 nuevos son los agregados deliberadamente en
+  `activity-reasons` (Fase 2). Cero remociones.
+
+**Conclusión:** ninguno de los riesgos listados en el Bloque 11 se
+materializó. No se encontró ningún caso que requiriera documentarse como
+riesgo residual.
+
+### Informe final (Bloque 12, de esta continuación)
+
+**Bugs corregidos:** ninguno nuevo en esta pasada (los de seguridad/
+consistencia ya se corrigieron en v1.15.0) — esta pasada es refinamiento
+UX + ampliación de un panel + validación, no corrección de bugs.
+
+**Mejoras de UX:** 10 categorías, ~40 archivos (spinners, aria-labels,
+EmptyState, tabla responsive, botones compartidos, radios/íconos/padding
+normalizados).
+
+**Calidad del dato:** 2 verificaciones nuevas + 1 extendida.
+
+**Backlog generado:** 3 ítems UX que tocan comportamiento (Input/FormField
+compartido, color de banner info/confirmación, tecla Espacio en
+`IdeaCard`) — ver `docs/ROADMAP.md`.
+
+**Verificación:** `tsc --noEmit` (2 errores preexistentes, sin relación),
+`eslint` (0 errores, 3 warnings preexistentes), `vitest run` (919/919, +6
+nuevas), `next build` exitoso.
+
+**Aprobado por:** Anthony Jácome. Pendiente de aprobación expresa para
+commit/push (instrucción explícita de este pedido).
+
+---
+
 ## 2026-07-24 — Sprint D: Auditoría integral y refinamiento
 
 **Objetivo del sprint:** consolidar NEXO como plataforma estable — sin

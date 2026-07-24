@@ -23,6 +23,53 @@
 
 ---
 
+## v1.15.1 — 2026-07-24
+
+**Tipo:** UX / ANALYTICS (calidad del dato) / DOCUMENTATION
+**Módulo:** Sprint D (continuación) — UX, Calidad del Dato ampliada, validación de efectos secundarios
+
+Versión más detallada del mismo Sprint D (v1.15.0, entrada siguiente) —
+cubre Bloque 7 (UX, con hallazgos reales de una auditoría dedicada),
+Bloque 5 ampliado (2 verificaciones nuevas), y un Bloque 11 nuevo
+(validación de efectos secundarios). Ver `docs/AUDIT_LOG.md` § Sprint D
+(continuación) para el detalle completo.
+
+- **UX (10 fixes, solo markup, cero cambio de comportamiento):** `Spinner`
+  compartido en 18 archivos (Reuniones/Perfil/Nova/KPIs/Desk/Ajustes);
+  `aria-label` en ~19 modales sin `Modal`/`ModalHeader`; `EmptyState`
+  deduplicado en Proyectos y Nova (copias idénticas ya existentes en otros
+  archivos); tabla LOPDP de Perfil envuelta en `overflow-x-auto`; `Button`
+  compartido migrado en Ideas/Reuniones/Proyectos (17 botones); radio de
+  banners de error normalizado a `rounded-lg`; ícono de cierre normalizado
+  a `w-4 h-4`; padding de tarjeta normalizado a `p-4` en Ideas/Reuniones.
+- **Calidad del Dato — 2 verificaciones nuevas:** actividades con
+  `TaskActivity.reason` que no existe en el catálogo de `ActivityReason`
+  (motivo huérfano — `reason` es un String libre, no una FK real);
+  registros con `isRetroactive`/`activityDate` internamente inconsistentes.
+  Se extendió también el chequeo "sin propietario" a
+  `ProjectParticipant.userId`.
+- **Validación de efectos secundarios (nuevo, informe en AUDIT_LOG):**
+  confirmado por `git diff` que ningún cambio de v1.15.0 ni de esta
+  versión tocó `analytics.ts`/`capacityForecast.ts`/`workload.ts`/
+  `priorityCompliance.ts`/`normalizationEngine.ts`/`prisma/schema.prisma`
+  ni `projectHistory.ts`; los 22 call sites de `invalidateAnalyticsCache()`
+  previos siguen intactos (+2 nuevos, cero remociones); las funciones de
+  recálculo de horas son extracciones literales, sin cambio de fórmula.
+- **No modifica** ninguna fórmula, KPI, permiso existente ni regla de
+  negocio — 3 hallazgos UX que sí tocaban comportamiento (primitivo
+  `Input`/`FormField`, color de banner info/confirmación, tecla Espacio en
+  `IdeaCard`) quedaron documentados en `docs/ROADMAP.md`, sin implementar.
+
+**Pruebas:** 919/919 pasando (+6 nuevas para las 2 verificaciones de
+Calidad del Dato). `tsc`/`eslint` en la misma baseline previa. `next build`
+exitoso.
+
+**Archivos:** ~40 archivos de UI en `src/components/{ideas,meetings,projects,tasks,desk,kpis,assistant,settings}/**`
+y `src/app/login/page.tsx`/`src/app/(protected)/profile/page.tsx` (solo
+markup); `src/app/api/settings/data-quality/route.ts` (2 chequeos nuevos).
+
+---
+
 ## v1.15.0 — 2026-07-24
 
 **Tipo:** SECURITY / REFACTOR / PERFORMANCE / FEATURE / DOCUMENTATION

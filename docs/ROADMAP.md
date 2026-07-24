@@ -141,6 +141,18 @@ cierre de este sprint)._
   mirando el patrón ya existente de `computeTeamCapacityForecast` — diferido
   en Sprint D por el riesgo de tocar funciones de cálculo frágiles fuera del
   apetito de riesgo de ese sprint (`AUDIT_LOG.md` § Sprint D).
+- Primitivo `Input`/`FormField` compartido para Login/Perfil — hoy son los
+  únicos módulos con inputs 100% hand-styled, sin el sistema de diseño; no
+  existe un primitivo así todavía, crearlo es alcance mayor que un ajuste
+  de markup (`AUDIT_LOG.md` § Sprint D — continuación, Bloque 7).
+- Unificar el color de los banners "info/confirmación" — hoy `login/page.tsx`
+  usa `bg-primary-surface` para el mensaje de confirmación de
+  recuperar-contraseña mientras el resto de la plataforma usa
+  `bg-success/[.13]` para mensajes equivalentes; requiere elegir un color,
+  no es un dedup de markup (`AUDIT_LOG.md` § Sprint D — continuación).
+- `IdeaCard.tsx`: agregar activación por tecla Espacio (además de Enter) al
+  `role="button"` de la tarjeta — toca manejo de teclado, no es un cambio
+  de markup puro (`AUDIT_LOG.md` § Sprint D — continuación, Bloque 7).
 
 ## Ideas futuras
 
