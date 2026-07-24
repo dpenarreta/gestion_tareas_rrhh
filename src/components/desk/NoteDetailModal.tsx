@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Spinner } from "@/components/ui/Skeleton";
 import { Paperclip, ListTodo, History, Send } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import {
@@ -99,7 +100,7 @@ export default function NoteDetailModal({ note, variant, onClose, onRead, onConv
               <button onClick={() => setShowHistory(true)} title="Ver historial" className="p-1.5 text-secondary hover:text-title hover:bg-surface2 rounded-lg transition-colors">
                 <History className="w-4 h-4" strokeWidth={1.8} />
               </button>
-              <button onClick={onClose} className="p-1.5 text-secondary hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-colors">
+              <button onClick={onClose} aria-label="Cerrar" className="p-1.5 text-secondary hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-colors">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -138,7 +139,7 @@ export default function NoteDetailModal({ note, variant, onClose, onRead, onConv
               <h3 className="text-xs font-semibold text-secondary uppercase tracking-wide mb-2">Respuestas</h3>
               {replies === null ? (
                 <div className="flex items-center justify-center py-4">
-                  <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                  <Spinner className="w-4 h-4 text-primary" />
                 </div>
               ) : (
                 <div className="space-y-2.5">
@@ -176,7 +177,7 @@ export default function NoteDetailModal({ note, variant, onClose, onRead, onConv
                       </Button>
                     </form>
                   )}
-                  {error && <p className="text-xs text-danger bg-danger/[.09] px-3 py-2 rounded-xl">{error}</p>}
+                  {error && <p className="text-xs text-danger bg-danger/[.09] px-3 py-2 rounded-lg">{error}</p>}
                 </div>
               )}
             </div>

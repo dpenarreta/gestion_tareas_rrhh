@@ -155,7 +155,7 @@ export default function NewReminderModal({
             </select>
           </div>
 
-          {error && <p className="text-sm text-danger bg-danger/[.09] px-3 py-2 rounded-xl">{error}</p>}
+          {error && <p className="text-sm text-danger bg-danger/[.09] px-3 py-2 rounded-lg">{error}</p>}
 
           <div className="flex gap-3 pt-1">
             <Button type="submit" variant="primary" disabled={saving} className="flex-1">

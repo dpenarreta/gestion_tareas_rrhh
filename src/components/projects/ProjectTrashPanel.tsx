@@ -104,7 +104,7 @@ export default function ProjectTrashPanel({ onClose, onRestored }: Props) {
             <h3 className="font-semibold text-title text-sm">Papelera</h3>
             <p className="text-xs text-secondary">Proyectos eliminados, pendientes de purga automática</p>
           </div>
-          <button onClick={onClose} className="p-1.5 text-disabled hover:text-main rounded-lg hover:bg-black/5 dark:hover:bg-white/5 shrink-0">
+          <button onClick={onClose} aria-label="Cerrar" className="p-1.5 text-disabled hover:text-main rounded-lg hover:bg-black/5 dark:hover:bg-white/5 shrink-0">
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>

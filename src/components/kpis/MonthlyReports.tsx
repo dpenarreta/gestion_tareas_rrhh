@@ -931,7 +931,7 @@ export default function MonthlyReports({ currentUserRole }: Props) {
           <Button variant="primary" size="sm" onClick={handleGenerate} disabled={generating}>
             {generating ? (
               <>
-                <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                <Spinner className="w-3.5 h-3.5 text-white" />
                 Generando...
               </>
             ) : (

@@ -7,6 +7,7 @@ import IdeasBoard from "./IdeasBoard";
 import MyIdeasList from "./MyIdeasList";
 import IdeaDetailModal from "./IdeaDetailModal";
 import NewIdeaFormModal from "./NewIdeaFormModal";
+import { Button } from "@/components/ui/Button";
 
 type Tab = "TABLERO" | "MIS_IDEAS";
 
@@ -53,15 +54,12 @@ export default function IdeasModule({ initialIdeas, currentUserId, currentUserRo
             </button>
           ))}
         </div>
-        <button
-          onClick={() => setShowNewForm(true)}
-          className="mb-1.5 flex items-center gap-1.5 px-4 py-2 bg-primary text-white text-sm font-medium rounded-xl hover:bg-primary-hover transition-colors"
-        >
+        <Button onClick={() => setShowNewForm(true)} className="mb-1.5">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
           Nueva idea
-        </button>
+        </Button>
       </div>
 
       {tab === "TABLERO" && (

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { Spinner } from "@/components/ui/Skeleton";
 import { MaturityStars } from "./AdvancedAnalytics";
 import { Button } from "@/components/ui/Button";
 
@@ -351,7 +352,7 @@ export function InsightsPanel({ userId }: { userId: string }) {
   if (loading) {
     return (
       <div className="flex justify-center py-12">
-        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        <Spinner className="w-6 h-6 text-primary" />
       </div>
     );
   }

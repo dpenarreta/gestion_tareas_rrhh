@@ -69,7 +69,7 @@ export default function ValidateTargetTimeModal({ taskId, taskTitle, currentValu
         <div className="flex items-center justify-between mb-1">
           <h3 className="text-sm font-semibold text-title uppercase tracking-wider">Validar tiempo objetivo</h3>
           <button onClick={onClose} className="text-disabled hover:text-main transition-colors" aria-label="Cerrar">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>

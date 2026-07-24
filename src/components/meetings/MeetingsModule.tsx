@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { Spinner } from "@/components/ui/Skeleton";
+import { Button } from "@/components/ui/Button";
 import type { Role } from "@/generated/prisma/client";
 import { ROLE_LABEL } from "@/lib/roles";
 import { formatDate } from "@/lib/utils";
@@ -156,7 +158,7 @@ function MeetingFormModal({
       <div className="bg-surface rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <h2 className="text-base font-semibold text-title">Nueva reunión</h2>
-          <button onClick={onClose} className="p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-colors">
+          <button onClick={onClose} aria-label="Cerrar" className="p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-colors">
             <svg className="w-4 h-4 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -229,17 +231,15 @@ function MeetingFormModal({
             </div>
           </div>
 
-          {error && <p className="text-sm text-danger bg-danger/[.09] px-3 py-2 rounded-xl">{error}</p>}
+          {error && <p className="text-sm text-danger bg-danger/[.09] px-3 py-2 rounded-lg">{error}</p>}
 
           <div className="flex gap-3 pt-1">
-            <button type="submit" disabled={saving}
-              className="flex-1 py-2.5 bg-primary hover:bg-primary-hover disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-colors">
+            <Button type="submit" loading={saving} className="flex-1">
               {saving ? "Creando…" : "Crear reunión"}
-            </button>
-            <button type="button" onClick={onClose}
-              className="px-4 py-2.5 text-sm font-medium text-main hover:bg-black/5 dark:hover:bg-white/5 rounded-xl transition-colors">
+            </Button>
+            <Button type="button" variant="secondary" onClick={onClose}>
               Cancelar
-            </button>
+            </Button>
           </div>
         </form>
       </div>
@@ -342,13 +342,13 @@ function MeetingDetailModal({
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {isHost && (
-              <button onClick={handleDelete} className="p-1.5 text-disabled hover:text-danger hover:bg-danger/[.09] rounded-lg transition-colors">
+              <button onClick={handleDelete} aria-label="Eliminar reunión" className="p-1.5 text-disabled hover:text-danger hover:bg-danger/[.09] rounded-lg transition-colors">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                 </svg>
               </button>
             )}
-            <button onClick={onClose} className="p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-colors">
+            <button onClick={onClose} aria-label="Cerrar" className="p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-colors">
               <svg className="w-4 h-4 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
@@ -481,14 +481,12 @@ function MeetingDetailModal({
                   placeholder="Link a transcripción completa (opcional)"
                   className="w-full px-3 py-2 text-sm text-title bg-surface border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary" />
                 <div className="flex gap-2">
-                  <button onClick={handleSaveSummary} disabled={saving}
-                    className="px-4 py-2 bg-primary hover:bg-primary-hover disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-colors">
+                  <Button onClick={handleSaveSummary} loading={saving}>
                     {saving ? "Guardando…" : "Guardar notas"}
-                  </button>
-                  <button onClick={() => setEditSummary(false)}
-                    className="px-4 py-2 text-sm font-medium text-main hover:bg-black/5 dark:hover:bg-white/5 rounded-xl transition-colors">
+                  </Button>
+                  <Button variant="secondary" onClick={() => setEditSummary(false)}>
                     Cancelar
-                  </button>
+                  </Button>
                 </div>
               </div>
             ) : meeting.otterSummary ? (
@@ -532,7 +530,7 @@ function InfoRow({ label, value }: { label: string; value: string }) {
 function MeetingCard({ meeting, currentUserId, onClick }: { meeting: Meeting; currentUserId: string; onClick: () => void }) {
   const isHost = meeting.hostId === currentUserId;
   return (
-    <button onClick={onClick} className="w-full text-left bg-surface border border-border rounded-2xl p-5 hover:border-primary/30 hover:shadow-sm transition-all group">
+    <button onClick={onClick} className="w-full text-left bg-surface border border-border rounded-2xl p-4 hover:border-primary/30 hover:shadow-sm transition-all group">
       <div className="flex items-start justify-between gap-3 mb-3">
         <div className="flex items-center gap-2 flex-wrap">
           <StatusBadge status={meeting.status} />
@@ -634,19 +632,18 @@ export default function MeetingsModule({
       <div className="flex items-center justify-between mb-6">
         <p className="text-sm text-secondary">Zoom + notas automáticas con Otter.ai</p>
         {canCreate && (
-          <button onClick={() => setShowForm(true)}
-            className="flex items-center gap-2 px-4 py-2 bg-primary hover:bg-primary-hover text-white text-sm font-medium rounded-xl transition-colors">
+          <Button onClick={() => setShowForm(true)}>
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
             </svg>
             Nueva reunión
-          </button>
+          </Button>
         )}
       </div>
 
       {loading ? (
         <div className="flex justify-center py-20">
-          <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <Spinner className="w-6 h-6 text-primary" />
         </div>
       ) : meetings.length === 0 ? (
         <div className="text-center py-20">

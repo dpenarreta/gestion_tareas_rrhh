@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { Spinner } from "@/components/ui/Skeleton";
 import { marked } from "marked";
 import SectionCard from "./SectionCard";
 
@@ -79,7 +80,7 @@ export default function DocumentationSection() {
 
       {loading && (
         <div className="flex justify-center items-center py-8">
-          <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <Spinner className="w-5 h-5 text-primary" />
         </div>
       )}
 

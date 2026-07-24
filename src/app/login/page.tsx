@@ -91,7 +91,7 @@ function LoginForm() {
                 Bienvenido a Nexo
               </h2>
               {rejectedNotice && (
-                <p className="text-sm text-danger bg-danger/[.09] px-3 py-2 rounded-[10px] mb-4">
+                <p className="text-sm text-danger bg-danger/[.09] px-3 py-2 rounded-lg mb-4">
                   {rejectedNotice}
                 </p>
               )}
@@ -134,7 +134,7 @@ function LoginForm() {
                 </label>
 
                 {error && (
-                  <p className="text-sm text-danger bg-danger/[.09] px-3 py-2 rounded-[10px]">
+                  <p className="text-sm text-danger bg-danger/[.09] px-3 py-2 rounded-lg">
                     {error}
                   </p>
                 )}
@@ -190,7 +190,7 @@ function LoginForm() {
                   </div>
 
                   {error && (
-                    <p className="text-sm text-danger bg-danger/[.09] px-3 py-2 rounded-[10px]">
+                    <p className="text-sm text-danger bg-danger/[.09] px-3 py-2 rounded-lg">
                       {error}
                     </p>
                   )}

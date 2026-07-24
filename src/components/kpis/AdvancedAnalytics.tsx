@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { Spinner } from "@/components/ui/Skeleton";
 import type {
   AnalyticsBundle,
   TrendResult,
@@ -120,7 +121,7 @@ function HelpModal({ title, help, onClose }: { title: string; help: IndicatorHel
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold text-title uppercase tracking-wider">{title}</h3>
           <button onClick={onClose} className="text-disabled hover:text-main transition-colors" aria-label="Cerrar">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
@@ -294,7 +295,7 @@ export function ExplainModal({
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-sm font-semibold text-title uppercase tracking-wider">¿Cómo se obtuvo este resultado? — {title}</h3>
           <button onClick={onClose} className="text-disabled hover:text-main transition-colors" aria-label="Cerrar">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
@@ -657,7 +658,7 @@ export function ConsistencyCard({ result, dataQualityPct }: { result: Consistenc
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-title uppercase tracking-wider">¿Cómo se obtuvo este resultado? — Consistencia</h3>
               <button onClick={() => setExplainOpen(false)} className="text-disabled hover:text-main transition-colors" aria-label="Cerrar">
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>
@@ -853,7 +854,7 @@ export function AdvancedAnalyticsPanel({ userId }: { userId: string }) {
   if (loading) {
     return (
       <div className="flex justify-center py-16">
-        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        <Spinner className="w-6 h-6 text-primary" />
       </div>
     );
   }

@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import type { IdeaImpact } from "./types";
 import { IMPACT_LABELS } from "./constants";
 import { useToast } from "@/components/ui/Toast";
+import { Button } from "@/components/ui/Button";
 
 type Props = {
   onClose: () => void;
@@ -59,8 +60,8 @@ export default function NewIdeaFormModal({ onClose, onCreated }: Props) {
       <div className="relative bg-surface rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="p-6 border-b border-border flex items-center justify-between">
           <h2 className="text-lg font-bold text-title">💡 Nueva idea</h2>
-          <button onClick={onClose} className="p-2 text-disabled hover:text-main rounded-lg hover:bg-black/5 dark:hover:bg-white/5">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <button onClick={onClose} aria-label="Cerrar" className="p-2 text-disabled hover:text-main rounded-lg hover:bg-black/5 dark:hover:bg-white/5">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
@@ -68,7 +69,7 @@ export default function NewIdeaFormModal({ onClose, onCreated }: Props) {
 
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
           {error && (
-            <div className="text-sm text-danger bg-danger/[.09] rounded-xl px-4 py-2.5">
+            <div className="text-sm text-danger bg-danger/[.09] rounded-lg px-4 py-2.5">
               {error}
             </div>
           )}
@@ -136,20 +137,12 @@ export default function NewIdeaFormModal({ onClose, onCreated }: Props) {
           </div>
 
           <div className="flex justify-end gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-main hover:bg-black/5 dark:hover:bg-white/5 rounded-xl transition-colors"
-            >
+            <Button type="button" variant="secondary" onClick={onClose}>
               Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="px-5 py-2 text-sm font-medium bg-primary text-white rounded-xl hover:bg-primary-hover disabled:opacity-50 transition-colors"
-            >
+            </Button>
+            <Button type="submit" loading={saving}>
               {saving ? "Enviando..." : "Proponer idea"}
-            </button>
+            </Button>
           </div>
         </form>
       </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { Spinner } from "@/components/ui/Skeleton";
 import type { TeamMemberKpi, WorkloadColor, WorkloadLabel, CapacityMember, CapacitySummary } from "./types";
 import { hoursToDisplay, displayToHours, validateDisplayHours } from "@/lib/timeFormat";
 import { canViewOperationalRisk } from "@/lib/roles";
@@ -322,7 +323,7 @@ function SimulatorPanel({ member, onClose }: { member: CapacityMember; onClose: 
 
         {loading && (
           <div className="flex justify-center py-6">
-            <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            <Spinner className="w-5 h-5 text-primary" />
           </div>
         )}
 
@@ -432,7 +433,7 @@ export function TeamRecommendationsCard({ currentUserRole }: { currentUserRole: 
       <h3 className="text-sm font-semibold text-main uppercase tracking-wider mb-3">Recomendaciones — motor determinista</h3>
       {loading ? (
         <div className="flex justify-center py-6">
-          <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <Spinner className="w-5 h-5 text-primary" />
         </div>
       ) : !recommendations || recommendations.length === 0 ? (
         <p className="text-sm text-disabled py-4 text-center">Sin redistribuciones sugeridas — equipo balanceado.</p>

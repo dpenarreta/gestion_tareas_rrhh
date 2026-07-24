@@ -6,6 +6,7 @@ import { ROLE_LABEL } from "@/lib/roles";
 import type { Role } from "@/generated/prisma/client";
 import { useToast } from "@/components/ui/Toast";
 import { formatRelative } from "@/lib/utils";
+import { Button } from "@/components/ui/Button";
 
 export default function ProjectCommentsTab({ projectId, canComment }: { projectId: string; canComment: boolean }) {
   const { showToast } = useToast();
@@ -77,13 +78,9 @@ export default function ProjectCommentsTab({ projectId, canComment }: { projectI
             placeholder="Escribe un comentario… (Ctrl+Enter para enviar)"
             className="w-full border border-border rounded-xl p-3 text-sm text-title bg-surface placeholder:text-disabled resize-none focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
           />
-          <button
-            onClick={submit}
-            disabled={!text.trim() || submitting}
-            className="mt-2 bg-primary text-white rounded-xl px-4 py-2 text-sm font-medium hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed"
-          >
+          <Button onClick={submit} disabled={!text.trim()} loading={submitting} className="mt-2">
             {submitting ? "Enviando…" : "Comentar"}
-          </button>
+          </Button>
         </div>
       )}
     </div>

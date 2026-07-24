@@ -1,6 +1,9 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { Spinner } from "@/components/ui/Skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { FileX } from "lucide-react";
 import { useNovaChat, type NovaMode, type NovaSource } from "./useNovaChat";
 
 type Mode = NovaMode;
@@ -221,12 +224,10 @@ export default function AssistantModule() {
 
               {docsLoading ? (
                 <div className="flex justify-center py-4">
-                  <div className="w-5 h-5 border-2 border-success border-t-transparent rounded-full animate-spin" />
+                  <Spinner className="w-5 h-5 text-success" />
                 </div>
               ) : docs.length === 0 ? (
-                <p className="text-sm text-disabled text-center py-4">
-                  No hay documentos en la base de conocimiento.
-                </p>
+                <EmptyState icon={FileX} title="Sin documentos en la base de conocimiento" description="No hay documentos en la base de conocimiento." />
               ) : (
                 <div className="space-y-2">
                   {docs.map((doc) => (
@@ -352,6 +353,7 @@ export default function AssistantModule() {
           <div className="flex gap-3 items-end">
             <textarea
               ref={inputRef}
+              aria-label="Mensaje para Nova"
               rows={1}
               value={input}
               onChange={(e) => {
@@ -373,6 +375,7 @@ export default function AssistantModule() {
             <button
               onClick={() => handleSend()}
               disabled={!input.trim() || loading}
+              aria-label="Enviar"
               className={`p-2.5 rounded-xl text-white transition-colors disabled:opacity-40 disabled:cursor-not-allowed shrink-0 ${
                 mode === "hr" ? "bg-success hover:brightness-110" : mode === "tasks" ? "bg-nova hover:brightness-110" : "bg-primary hover:bg-primary-hover"
               }`}

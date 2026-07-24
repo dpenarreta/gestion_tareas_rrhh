@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { Spinner } from "@/components/ui/Skeleton";
 import type { SmartBenchmarkResult, MetricBenchmark, PersonalEvolution } from "./types";
 import { InfoTooltip, ConfidenceBadges } from "./AdvancedAnalytics";
 import { CONFIDENCE_TOOLTIPS, MIN_PEER_SAMPLE, type ConfidenceIndicators } from "@/lib/analyticsExplain";
@@ -363,7 +364,7 @@ export function SmartBenchmarkPanel({ userId }: { userId: string }) {
   if (loading) {
     return (
       <div className="rounded-[14px] border border-border bg-surface shadow-[var(--shadow)] p-5 flex justify-center py-8">
-        <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        <Spinner className="w-5 h-5 text-primary" />
       </div>
     );
   }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { Spinner } from "@/components/ui/Skeleton";
 import type { Role } from "@/generated/prisma/client";
 import { canViewOperationalRisk } from "@/lib/roles";
 import { isFeatureEnabled } from "@/lib/featureFlags";
@@ -59,7 +60,7 @@ export default function OperationalRiskCard({ userId, currentUserRole }: { userI
   if (loading) {
     return (
       <div className="bg-surface rounded-[14px] border border-border shadow-[var(--shadow)] p-5 flex justify-center py-10">
-        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        <Spinner className="w-6 h-6 text-primary" />
       </div>
     );
   }
@@ -203,7 +204,7 @@ export function TeamOperationalRiskCard({ currentUserRole }: { currentUserRole: 
   if (loading || !data) {
     return (
       <div className="bg-surface rounded-[14px] border border-border shadow-[var(--shadow)] p-5 flex justify-center py-8">
-        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        <Spinner className="w-6 h-6 text-primary" />
       </div>
     );
   }

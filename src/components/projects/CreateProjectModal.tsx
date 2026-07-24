@@ -5,6 +5,7 @@ import type { ProjectListItem, ProjectPriority, ProjectStatus, ProjectUserRef } 
 import { PROJECT_STATUS_LABEL, PROJECT_PRIORITY_LABEL } from "./types";
 import { Modal, ModalHeader } from "@/components/ui/Modal";
 import { InfoTooltip } from "@/components/ui/InfoTooltip";
+import { Button } from "@/components/ui/Button";
 
 type Props = {
   currentUserId: string;
@@ -246,13 +247,9 @@ export default function CreateProjectModal({ currentUserId, candidateUsers, onCl
 
             {error && <p className="text-xs text-danger bg-danger/[.09] rounded-lg px-3 py-2">{error}</p>}
 
-            <button
-              onClick={submit}
-              disabled={submitting}
-              className="w-full bg-primary text-white rounded-xl py-2 text-sm font-medium hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-            >
+            <Button onClick={submit} loading={submitting} className="w-full">
               {submitting ? "Creando…" : "Crear proyecto"}
-            </button>
+            </Button>
           </div>
     </Modal>
   );

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { Spinner } from "@/components/ui/Skeleton";
 import { useTheme } from "next-themes";
 import { ROLE_LABEL } from "@/lib/roles";
 import { useHasMounted } from "@/hooks/useHasMounted";
@@ -344,7 +345,7 @@ export default function ProfilePage() {
   if (!user) {
     return (
       <div className="flex justify-center items-center py-20">
-        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        <Spinner className="w-6 h-6 text-primary" />
       </div>
     );
   }
@@ -576,7 +577,7 @@ export default function ProfilePage() {
         </div>
 
         {myRequests.length > 0 && (
-          <div className="mt-5 rounded-lg border border-border overflow-hidden">
+          <div className="mt-5 rounded-lg border border-border overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border bg-background">

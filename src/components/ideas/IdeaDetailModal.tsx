@@ -7,6 +7,7 @@ import type { IdeaDetail, Idea } from "./types";
 import { IMPACT_LABELS, IMPACT_STYLES, STATUS_INFO } from "./constants";
 import { formatDate } from "@/lib/utils";
 import { useToast } from "@/components/ui/Toast";
+import { Button } from "@/components/ui/Button";
 
 type Props = {
   ideaId: string;
@@ -117,8 +118,8 @@ export default function IdeaDetailModal({ ideaId, currentUserRole, onClose, onUp
       <div className="relative bg-surface rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="p-6 border-b border-border flex items-center justify-between">
           <h2 className="text-lg font-bold text-title">Detalle de la idea</h2>
-          <button onClick={onClose} className="p-2 text-disabled hover:text-main rounded-lg hover:bg-black/5 dark:hover:bg-white/5">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <button onClick={onClose} aria-label="Cerrar" className="p-2 text-disabled hover:text-main rounded-lg hover:bg-black/5 dark:hover:bg-white/5">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
@@ -129,7 +130,7 @@ export default function IdeaDetailModal({ ideaId, currentUserRole, onClose, onUp
         {!loading && idea && (
           <div className="p-6 space-y-5">
             {error && (
-              <div className="text-sm text-danger bg-danger/[.09] rounded-xl px-4 py-2.5">
+              <div className="text-sm text-danger bg-danger/[.09] rounded-lg px-4 py-2.5">
                 {error}
               </div>
             )}
@@ -178,13 +179,14 @@ export default function IdeaDetailModal({ ideaId, currentUserRole, onClose, onUp
                       onChange={(e) => setProgressDraft(Math.min(100, Math.max(0, Number(e.target.value))))}
                       className="w-20 border border-border2 rounded-[10px] px-2.5 py-1.5 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary-surface"
                     />
-                    <button
+                    <Button
+                      size="sm"
                       onClick={handleSaveProgress}
-                      disabled={savingProgress || progressDraft === idea.progress}
-                      className="px-3 py-1.5 text-xs font-semibold text-white bg-primary rounded-[9px] hover:brightness-110 disabled:opacity-50 transition-all"
+                      loading={savingProgress}
+                      disabled={progressDraft === idea.progress}
                     >
                       {savingProgress ? "Guardando..." : "Actualizar progreso"}
-                    </button>
+                    </Button>
                   </div>
                 )}
               </div>
@@ -233,40 +235,39 @@ export default function IdeaDetailModal({ ideaId, currentUserRole, onClose, onUp
                     />
                     <div className="flex flex-wrap gap-2">
                       {idea.status !== "RECHAZADA" && idea.status !== "PROPUESTA" && (
-                        <button
+                        <Button
+                          variant="secondary"
                           disabled={acting}
                           onClick={() => runAction("RETREAT", comment.trim() || undefined)}
-                          className="px-4 py-2 text-sm font-medium text-main border border-border rounded-xl hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-50"
                         >
                           ← Retroceder
-                        </button>
+                        </Button>
                       )}
                       {idea.status !== "RECHAZADA" && (
-                        <button
+                        <Button
                           disabled={acting}
                           onClick={() => runAction("ADVANCE", comment.trim() || undefined)}
-                          className="px-4 py-2 text-sm font-medium text-white bg-primary rounded-xl hover:bg-primary-hover disabled:opacity-50"
                         >
                           Avanzar →
-                        </button>
+                        </Button>
                       )}
                       {idea.status !== "RECHAZADA" && (
-                        <button
+                        <Button
+                          variant="ghost"
+                          className="text-danger hover:bg-danger/[.09]"
                           disabled={acting}
                           onClick={() => setRejectMode(true)}
-                          className="px-4 py-2 text-sm font-medium text-danger border border-transparent rounded-xl hover:bg-danger/[.09] disabled:opacity-50"
                         >
                           ❌ Rechazar
-                        </button>
+                        </Button>
                       )}
                       {idea.status === "RECHAZADA" && (
-                        <button
+                        <Button
                           disabled={acting}
                           onClick={() => runAction("REOPEN", comment.trim() || undefined)}
-                          className="px-4 py-2 text-sm font-medium text-white bg-primary rounded-xl hover:bg-primary-hover disabled:opacity-50"
                         >
                           Reabrir
-                        </button>
+                        </Button>
                       )}
                     </div>
                   </>
@@ -280,20 +281,16 @@ export default function IdeaDetailModal({ ideaId, currentUserRole, onClose, onUp
                       className="w-full border border-danger/40 rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-danger/30 resize-none"
                     />
                     <div className="flex gap-2">
-                      <button
-                        disabled={acting}
-                        onClick={handleReject}
-                        className="px-4 py-2 text-sm font-medium text-white bg-danger rounded-xl hover:brightness-110 disabled:opacity-50"
-                      >
+                      <Button variant="destructive" disabled={acting} onClick={handleReject}>
                         Confirmar rechazo
-                      </button>
-                      <button
+                      </Button>
+                      <Button
+                        variant="secondary"
                         disabled={acting}
                         onClick={() => { setRejectMode(false); setRejectReason(""); }}
-                        className="px-4 py-2 text-sm font-medium text-main hover:bg-black/5 dark:hover:bg-white/5 rounded-xl"
                       >
                         Cancelar
-                      </button>
+                      </Button>
                     </div>
                   </div>
                 )}

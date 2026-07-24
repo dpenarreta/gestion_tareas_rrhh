@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { Spinner } from "@/components/ui/Skeleton";
 import type { Role } from "@/generated/prisma/client";
 import { ROLE_LABEL } from "@/lib/roles";
 import type { ExecutiveDashboardData, KpiColor, CapacityMember, CapacitySummary } from "./types";
@@ -54,7 +55,7 @@ function ExecutiveModeView({ data }: { data: ExecutiveDashboardData }) {
   if (loading) {
     return (
       <div className="flex justify-center py-24">
-        <div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        <Spinner className="w-7 h-7 text-primary" />
       </div>
     );
   }
@@ -324,7 +325,7 @@ export default function ExecutiveDashboard() {
   if (loading) {
     return (
       <div className="flex justify-center items-center py-32">
-        <div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        <Spinner className="w-7 h-7 text-primary" />
       </div>
     );
   }

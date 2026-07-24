@@ -7,6 +7,9 @@ import { DOCUMENT_CATEGORY_LABEL } from "./types";
 import { businessCalendarDay, previousBusinessDays } from "@/lib/businessTime";
 import { useToast } from "@/components/ui/Toast";
 import { formatDuration } from "@/lib/utils";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Clock } from "lucide-react";
+import { Button } from "@/components/ui/Button";
 
 const WEEKDAY_LABELS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 
@@ -163,9 +166,7 @@ export default function ProjectActivitiesTab({ projectId, phases, targetTimeHour
       {/* Sprint 2.1 §8: timeline cronológico por día. */}
       <div className="lg:col-span-2 space-y-4">
         {loading && <div className="text-center text-disabled text-sm py-8">Cargando…</div>}
-        {!loading && activities.length === 0 && (
-          <div className="text-center text-disabled text-sm py-12 bg-surface border border-border rounded-2xl">Sin actividades registradas</div>
-        )}
+        {!loading && activities.length === 0 && <EmptyState icon={Clock} title="Sin actividades registradas" />}
         {groupedByDay.map(([day, dayActivities]) => (
           <div key={day}>
             <p className="text-xs font-semibold text-secondary uppercase tracking-wide mb-2">{formatDayHeader(day)}</p>
@@ -327,13 +328,14 @@ export default function ProjectActivitiesTab({ projectId, phases, targetTimeHour
               />
             </div>
 
-            <button
+            <Button
               onClick={submit}
-              disabled={description.trim().length < MIN_DESCRIPTION_LENGTH || !previewDuration || submitting}
-              className="w-full bg-primary text-white rounded-xl py-2 text-sm font-medium hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed"
+              disabled={description.trim().length < MIN_DESCRIPTION_LENGTH || !previewDuration}
+              loading={submitting}
+              className="w-full"
             >
               {submitting ? "Registrando…" : "Agregar actividad"}
-            </button>
+            </Button>
           </div>
         )}
       </div>

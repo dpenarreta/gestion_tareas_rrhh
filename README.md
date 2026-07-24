@@ -331,6 +331,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-24: refactor(ux): unifica spinners, aria-labels, EmptyState y Button en modulos no migrados
 - 2026-07-24: feat(quality): agrega verificaciones automáticas de calidad del dato en Ajustes
 - 2026-07-24: perf(dashboard,kpis,users): reduce esperas secuenciales y renders innecesarios
 - 2026-07-24: fix(security): cierra IDOR en subrecursos de tareas + refactor(consistency): consolida deuda técnica segura

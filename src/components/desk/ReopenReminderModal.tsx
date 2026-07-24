@@ -36,7 +36,7 @@ export default function ReopenReminderModal({ reminder, onClose, onReopen }: Pro
       <div className="bg-surface rounded-2xl shadow-xl w-full max-w-sm">
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
           <h2 className="text-base font-semibold text-title">Reabrir recordatorio</h2>
-          <button onClick={onClose} className="p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-colors">
+          <button onClick={onClose} aria-label="Cerrar" className="p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg transition-colors">
             <svg className="w-4 h-4 text-secondary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>

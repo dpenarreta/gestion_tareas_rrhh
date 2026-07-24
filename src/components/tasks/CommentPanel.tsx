@@ -93,6 +93,7 @@ export default function CommentPanel({ task, currentUserId: _cu, onClose, onComm
           </div>
           <button
             onClick={onClose}
+            aria-label="Cerrar"
             className="p-1.5 text-disabled hover:text-main rounded-lg hover:bg-black/5 dark:hover:bg-white/5 shrink-0"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { Spinner } from "@/components/ui/Skeleton";
 import { validateDisplayHours, displayToHours } from "@/lib/timeFormat";
 import type { WorkloadColor, WorkloadLabel } from "./types";
 import { Button } from "@/components/ui/Button";
@@ -167,7 +168,7 @@ export default function WhatIfSimulator({ userId }: { userId: string }) {
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-sm font-semibold text-title uppercase tracking-wider">¿Qué pasaría si...?</h3>
           <button onClick={() => setOpen(false)} className="text-disabled hover:text-main transition-colors" aria-label="Cerrar">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>
           </button>
@@ -219,7 +220,7 @@ export default function WhatIfSimulator({ userId }: { userId: string }) {
 
         {loading && (
           <div className="flex justify-center py-6">
-            <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            <Spinner className="w-5 h-5 text-primary" />
           </div>
         )}
 

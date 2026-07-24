@@ -39,7 +39,7 @@ export default function IdeaCard({ idea, currentUserId, onClick, onVoteChange }:
       onKeyDown={(e) => {
         if (e.key === "Enter") onClick(idea);
       }}
-      className="w-full text-left bg-surface rounded-xl border border-border p-3 shadow-[var(--shadow)] hover:border-border2 transition-all cursor-pointer"
+      className="w-full text-left bg-surface rounded-xl border border-border p-4 shadow-[var(--shadow)] hover:border-border2 transition-all cursor-pointer"
     >
       <div className="flex items-start justify-between gap-2 mb-2">
         <p className="text-sm font-medium text-title leading-snug line-clamp-2 flex-1">{idea.title}</p>

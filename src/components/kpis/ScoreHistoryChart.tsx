@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
+import { Spinner } from "@/components/ui/Skeleton";
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { useChartTheme } from "./KpiCharts";
 
@@ -78,7 +79,7 @@ export default function ScoreHistoryChart({ userId, kind, title }: { userId: str
 
       {loading ? (
         <div className="flex justify-center py-10">
-          <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <Spinner className="w-5 h-5 text-primary" />
         </div>
       ) : error ? (
         <p className="text-sm text-disabled text-center py-8">No se pudo cargar el histórico.</p>

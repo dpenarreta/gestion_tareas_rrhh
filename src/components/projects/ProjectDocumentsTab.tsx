@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { ProjectDocument, ProjectDocumentCategory } from "./types";
 import { DOCUMENT_CATEGORY_LABEL } from "./types";
 import { useToast } from "@/components/ui/Toast";
+import { Button } from "@/components/ui/Button";
 
 const CATEGORY_OPTIONS: ProjectDocumentCategory[] = ["PDF", "EXCEL", "WORD", "IMAGEN", "CORREO", "ACTA", "OTRO"];
 
@@ -109,13 +110,9 @@ export default function ProjectDocumentsTab({ projectId, canUpload }: { projectI
               className="w-full text-sm text-title file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-primary-surface file:text-primary file:text-xs file:font-medium"
             />
           </div>
-          <button
-            onClick={upload}
-            disabled={!file || submitting}
-            className="bg-primary text-white rounded-xl px-4 py-2 text-sm font-medium hover:bg-primary-hover disabled:opacity-40"
-          >
+          <Button onClick={upload} disabled={!file} loading={submitting}>
             {submitting ? "Subiendo…" : "Subir"}
-          </button>
+          </Button>
         </div>
       )}
 
