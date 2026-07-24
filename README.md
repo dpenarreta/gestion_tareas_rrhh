@@ -331,6 +331,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-24: refactor(ux): dashboard más completo y jerarquía visual (Sprint C fase 4)
 - 2026-07-24: refactor(ux): unifica experiencia de error y éxito, agrega reintentar (Sprint C fase 3)
 - 2026-07-24: refactor(ux): unifica navegación de "volver" y afordancia de cambio de estado en Kanban (Sprint C fase 2)
 - 2026-07-24: refactor(ux): reduce clics en flujos de alta frecuencia (Sprint C fase 1)

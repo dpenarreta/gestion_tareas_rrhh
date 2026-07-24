@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { ROLE_LEVEL, canUseDeskNotes } from "@/lib/roles";
 import DashboardModule from "@/components/dashboard/DashboardModule";
 
-const DEFAULT_CARDS = ["jornada", "prioridades", "agenda", "actividad", "comunicados", "escritorio", "acciones", "resumen"];
+const DEFAULT_CARDS = ["jornada", "prioridades", "proyectos", "agenda", "actividad", "comunicados", "escritorio", "acciones", "resumen"];
 const DASHBOARD_PREFIX = "DASHBOARD_CARDS:";
 
 export default async function DashboardPage() {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import {
   DndContext,
   closestCenter,
@@ -21,11 +22,13 @@ import { ROLE_LABEL, canCreateMeetings, isLeadershipRole } from "@/lib/roles";
 import { Button } from "@/components/ui/Button";
 import { SkeletonText } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { CheckCircle2, Calendar, CheckCheck, Megaphone } from "lucide-react";
+import { CheckCircle2, Calendar, CheckCheck, Megaphone, AlertTriangle, FolderKanban, X } from "lucide-react";
 import TaskFormModal from "@/components/tasks/TaskFormModal";
 import type { AssignableUser } from "@/components/tasks/types";
 import MeetingFormModalDashboard from "@/components/meetings/MeetingFormModalDashboard";
 import RemindersWidget from "@/components/dashboard/RemindersWidget";
+import { StatusChip, PriorityChip } from "@/components/ui/Chip";
+import { PROJECT_STATUS_CONFIG, TASK_PRIORITY_CONFIG } from "@/lib/chipConfig";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -60,6 +63,14 @@ type UpcomingMeeting = {
   hostName: string;
 };
 
+type DashboardProject = {
+  id: string;
+  name: string;
+  status: string;
+  priority: string;
+  targetDate: string;
+};
+
 type DashboardData = {
   workloadPct: number;
   completedPct: number;
@@ -72,6 +83,7 @@ type DashboardData = {
   lastLoginAt: string | null;
   badges: string[];
   upcomingMeetings: UpcomingMeeting[];
+  myProjects: DashboardProject[];
   welcomeMessage: string;
   welcomeMessageActive: boolean;
 };
@@ -217,19 +229,40 @@ function JornadaCard({
   // asignar nuevas tareas") equivale a una recomendación de redistribución
   // de trabajo dirigida a ellos, algo explícitamente vetado. Ver isLeadershipRole.
   const showWorkload = !isLeadershipRole(userRole);
+  const urgentCount = data.priorityTasks.length;
+  const overdueCount = data.overdue;
   return (
     <Card focal>
       <CardTitle>Mi jornada</CardTitle>
       <h1 className="text-[36px] leading-tight font-bold text-title mb-1">{greeting(userName)}</h1>
       <p className="text-[13px] text-secondary mb-5">{ROLE_LABEL[userRole]}</p>
 
-      {/* Nova message */}
-      <div className={`bg-primary-surface border border-primary/15 rounded-xl px-4 py-3 flex items-start gap-3 ${showWorkload ? "mb-5" : ""}`}>
-        <span className="text-xl shrink-0">🤖</span>
+      {/* Sprint C §4/§11: el espacio más prominente del Dashboard priorizaba un
+          saludo decorativo — ahora abre con lo que requiere atención. */}
+      {(overdueCount > 0 || urgentCount > 0) && (
+        <a
+          href="/tasks"
+          className={`mb-3 flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors ${
+            overdueCount > 0 ? "bg-danger/[.13] text-danger hover:bg-danger/[.18]" : "bg-warning/[.15] text-warning hover:bg-warning/[.2]"
+          }`}
+        >
+          <AlertTriangle className="w-4 h-4 shrink-0" strokeWidth={2} />
+          <span className="flex-1">
+            {overdueCount > 0
+              ? `${overdueCount} tarea${overdueCount !== 1 ? "s" : ""} vencida${overdueCount !== 1 ? "s" : ""}`
+              : `${urgentCount} tarea${urgentCount !== 1 ? "s" : ""} prioritaria${urgentCount !== 1 ? "s" : ""}`}
+          </span>
+          <span aria-hidden="true">→</span>
+        </a>
+      )}
+
+      {/* Nova message — ahora un apunte secundario, no el foco de la tarjeta */}
+      <div className={`bg-primary-surface/60 border border-primary/10 rounded-lg px-3 py-2 flex items-center gap-2 ${showWorkload ? "mb-5" : ""}`}>
+        <span className="text-sm shrink-0">🤖</span>
         {novaLoading ? (
-          <div className="h-4 w-full bg-primary/15 animate-pulse rounded" />
+          <div className="h-3 w-full bg-primary/15 animate-pulse rounded" />
         ) : (
-          <p className="text-sm text-title">{novaMessage}</p>
+          <p className="text-xs text-secondary truncate">{novaMessage}</p>
         )}
       </div>
 
@@ -283,6 +316,43 @@ function PrioridadesCard({ tasks }: { tasks: PriorityTask[] }) {
       >
         Ver todas las tareas →
       </a>
+    </Card>
+  );
+}
+
+// Sprint C §11: "Proyectos" faltaba por completo en el Dashboard — reutiliza
+// /api/dashboard's myProjects (misma regla de "mis proyectos" que ya usa
+// /api/projects), sin cálculo nuevo.
+function ProyectosCard({ projects }: { projects: DashboardProject[] }) {
+  return (
+    <Card>
+      <CardTitle>Mis proyectos</CardTitle>
+      {projects.length === 0 ? (
+        <EmptyState icon={FolderKanban} title="Sin proyectos activos" className="py-6" />
+      ) : (
+        <ul className="space-y-2">
+          {projects.map((p) => (
+            <li key={p.id}>
+              <Link
+                href={`/projects/${p.id}`}
+                className="flex items-center justify-between gap-2 p-2 rounded-xl hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
+              >
+                <span className="text-sm text-title truncate flex-1">{p.name}</span>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <PriorityChip value={p.priority} config={TASK_PRIORITY_CONFIG} />
+                  <StatusChip value={p.status} config={PROJECT_STATUS_CONFIG} />
+                </div>
+              </Link>
+            </li>
+          ))}
+        </ul>
+      )}
+      <Link
+        href="/projects"
+        className="mt-4 block text-center text-xs font-medium text-primary hover:text-primary-hover py-2 rounded-xl hover:bg-primary-surface transition-colors"
+      >
+        Ver todos los proyectos →
+      </Link>
     </Card>
   );
 }
@@ -636,6 +706,16 @@ export default function DashboardModule({
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [showMeetingModal, setShowMeetingModal] = useState(false);
   const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
+  // Sprint C §11/§13: el mensaje de bienvenida no tenía forma de cerrarse —
+  // se guarda el texto ya visto (no un booleano) para que si el Administrador
+  // cambia el mensaje, vuelva a mostrarse una vez.
+  const [dismissedWelcome, setDismissedWelcome] = useState<string | null>(null);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      setDismissedWelcome(window.localStorage.getItem("nexo-dashboard-welcome-dismissed"));
+    });
+  }, []);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
@@ -649,7 +729,7 @@ export default function DashboardModule({
       month: { pending: 0, inProgress: 0, completed: 0 },
     },
     areaActivity: [], teamAlerts: 0, announcements: [],
-    lastLoginAt: null, badges: [], upcomingMeetings: [],
+    lastLoginAt: null, badges: [], upcomingMeetings: [], myProjects: [],
     welcomeMessage: "", welcomeMessageActive: false,
   };
 
@@ -748,6 +828,8 @@ export default function DashboardModule({
         );
       case "prioridades":
         return <PrioridadesCard tasks={data.priorityTasks} />;
+      case "proyectos":
+        return <ProyectosCard projects={data.myProjects} />;
       case "agenda":
         return (
           <AgendaCard
@@ -800,10 +882,20 @@ export default function DashboardModule({
 
   return (
     <div>
-      {data?.welcomeMessageActive && data.welcomeMessage.trim() !== "" && (
+      {data?.welcomeMessageActive && data.welcomeMessage.trim() !== "" && data.welcomeMessage !== dismissedWelcome && (
         <div className="mb-5 rounded-2xl border border-primary/20 bg-primary-surface px-5 py-4 flex items-start gap-3">
           <span className="text-xl shrink-0">👋</span>
-          <p className="text-sm text-title leading-relaxed whitespace-pre-wrap">{data.welcomeMessage}</p>
+          <p className="text-sm text-title leading-relaxed whitespace-pre-wrap flex-1">{data.welcomeMessage}</p>
+          <button
+            onClick={() => {
+              window.localStorage.setItem("nexo-dashboard-welcome-dismissed", data.welcomeMessage);
+              setDismissedWelcome(data.welcomeMessage);
+            }}
+            aria-label="Cerrar mensaje de bienvenida"
+            className="shrink-0 p-1 text-secondary hover:text-title rounded-lg hover:bg-black/5 dark:hover:bg-white/5"
+          >
+            <X className="w-4 h-4" strokeWidth={2} />
+          </button>
         </div>
       )}
       <DndContext id="dashboard-cards" sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>

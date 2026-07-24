@@ -245,6 +245,27 @@ export async function GET() {
     getEffectiveWelcomeMessageActive(),
   ]);
 
+  // Sprint C §11: "Proyectos" no aparecía en el Dashboard en absoluto — misma
+  // regla de "mis proyectos" (responsable/creador/participante) que ya usa
+  // GET /api/projects para roles no-liderazgo, aplicada aquí siempre (un
+  // widget personal debe mostrar los proyectos propios de cualquier rol, no
+  // "todos los proyectos visibles" — eso ya existe en /projects). Sin
+  // cambios al modelo de datos ni a las reglas de acceso existentes.
+  const myProjects = await prisma.project.findMany({
+    where: {
+      deletedAt: null,
+      status: { notIn: ["COMPLETADO", "CANCELADO"] },
+      OR: [
+        { responsibleId: session.userId },
+        { createdById: session.userId },
+        { participants: { some: { userId: session.userId } } },
+      ],
+    },
+    select: { id: true, name: true, status: true, priority: true, targetDate: true },
+    orderBy: { targetDate: "asc" },
+    take: 5,
+  });
+
   return NextResponse.json({
     workloadPct,
     completedPct,
@@ -273,6 +294,13 @@ export async function GET() {
       duration: m.duration,
       status: m.status,
       hostName: m.host.name,
+    })),
+    myProjects: myProjects.map((p) => ({
+      id: p.id,
+      name: p.name,
+      status: p.status,
+      priority: p.priority,
+      targetDate: p.targetDate.toISOString(),
     })),
   });
   } catch (err) {
