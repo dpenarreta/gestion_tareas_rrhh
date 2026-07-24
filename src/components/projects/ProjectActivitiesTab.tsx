@@ -6,6 +6,7 @@ import type { ProjectActivity, ProjectPhase } from "./types";
 import { DOCUMENT_CATEGORY_LABEL } from "./types";
 import { businessCalendarDay, previousBusinessDays } from "@/lib/businessTime";
 import { useToast } from "@/components/ui/Toast";
+import { formatDuration } from "@/lib/utils";
 
 const WEEKDAY_LABELS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 
@@ -24,14 +25,6 @@ function formatDateOption(d: Date, isToday: boolean): string {
   const day = String(d.getUTCDate()).padStart(2, "0");
   const month = String(d.getUTCMonth() + 1).padStart(2, "0");
   return `${isToday ? "Hoy — " : ""}${weekday} ${day}/${month}`;
-}
-
-function formatDuration(mins: number): string {
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (h === 0) return `${m}min`;
-  if (m === 0) return `${h}h`;
-  return `${h}h ${m}min`;
 }
 
 function formatDayHeader(iso: string) {

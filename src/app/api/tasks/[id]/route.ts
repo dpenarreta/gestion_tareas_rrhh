@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { getVisibleRoles } from "@/lib/roles";
+import { canAccessTask } from "@/lib/taskAccess";
+import { canManageUsers } from "@/lib/roles";
 import { attachUnreadComments } from "@/lib/commentViews";
 import { invalidateAnalyticsCache } from "@/lib/analytics";
 import type { TaskStatus, TaskPriority, TaskFrequency, TaskType } from "@/generated/prisma/client";
@@ -46,11 +47,7 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
   }
 
-  const canEdit =
-    task.assignedToId === session.userId ||
-    task.createdById === session.userId ||
-    getVisibleRoles(session.role).includes(task.assignedTo.role);
-  if (!canEdit) {
+  if (!canAccessTask(session, task)) {
     return NextResponse.json({ error: "Sin permisos para editar esta tarea" }, { status: 403 });
   }
 
@@ -130,8 +127,7 @@ export async function DELETE(_req: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: "Tarea archivada, de solo lectura" }, { status: 403 });
   }
 
-  const isAdmin = ["ADMINISTRADOR", "JEFE_NACIONAL", "COORDINADOR_NACIONAL"].includes(session.role);
-  if (task.createdById !== session.userId && !isAdmin) {
+  if (task.createdById !== session.userId && !canManageUsers(session.role)) {
     return NextResponse.json({ error: "Sin permisos para eliminar" }, { status: 403 });
   }
 

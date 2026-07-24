@@ -218,6 +218,15 @@ describe("DELETE /api/users/[id]", () => {
     expect(res.status).toBe(200);
     expect(deleteUser).toHaveBeenCalledWith({ where: { id: "target-1" } });
   });
+
+  it("responde 409 (no 500 crudo) si el usuario tiene registros asociados (violación de FK)", async () => {
+    mockSession({ role: "JEFE_NACIONAL" });
+    findUnique.mockResolvedValue({ role: "ASISTENTE_GH" });
+    deleteUser.mockRejectedValue({ code: "P2003" });
+    const res = await userDELETE(jsonRequest(), ctx());
+    expect(res.status).toBe(409);
+    expect((await res.json()).error).toContain("registros asociados");
+  });
 });
 
 describe("POST /api/users/[id]/reset-password", () => {

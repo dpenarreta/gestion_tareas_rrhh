@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { ROLE_LABEL } from "@/lib/roles";
+import { canAccessTask } from "@/lib/taskAccess";
 
 type Ctx = { params: Promise<{ id: string; activityId: string }> };
 
@@ -22,6 +23,14 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
     const { id: taskId, activityId } = await ctx.params;
     const activity = await prisma.taskActivity.findUnique({ where: { id: activityId } });
     if (!activity || activity.taskId !== taskId) {
+      return NextResponse.json({ error: "Actividad no encontrada" }, { status: 404 });
+    }
+
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      include: { assignedTo: { select: { role: true } } },
+    });
+    if (!task || !canAccessTask(session, task)) {
       return NextResponse.json({ error: "Actividad no encontrada" }, { status: 404 });
     }
 
@@ -64,8 +73,11 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       return NextResponse.json({ error: "Actividad no encontrada" }, { status: 404 });
     }
 
-    const task = await prisma.task.findUnique({ where: { id: taskId }, select: { title: true } });
-    if (!task) {
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      include: { assignedTo: { select: { role: true } } },
+    });
+    if (!task || !canAccessTask(session, task)) {
       return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
     }
 

@@ -52,3 +52,16 @@ export function previousBusinessDays(today: Date, count: number): Date[] {
   }
   return days;
 }
+
+/**
+ * "YYYY-MM-DD" (de un `<input type="date">`, sin componente horario) -> Date
+ * UTC-medianoche. Antes de Sprint D estaba duplicado idéntico en el registro
+ * retroactivo de Tareas y en las actividades de Proyectos — ver
+ * docs/AUDIT_LOG.md § Sprint D.
+ */
+export function parseDateOnly(value: string): Date | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
+  const [y, m, d] = value.split("-").map(Number);
+  const parsed = new Date(Date.UTC(y, m - 1, d));
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}

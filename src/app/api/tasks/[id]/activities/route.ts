@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { Prisma } from "@/generated/prisma/client";
 import { getSession } from "@/lib/session";
+import { canAccessTask } from "@/lib/taskAccess";
 import { businessCalendarDay } from "@/lib/businessTime";
 import { findOverlappingActivity, overlapMessage } from "@/lib/activityOverlap";
 import { timeToMinutes } from "@/lib/timeOverlap";
 import { invalidateAnalyticsCache } from "@/lib/analytics";
+import { recalcTaskRealHours } from "@/lib/recalcHours";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -25,18 +27,6 @@ const activitySelect = {
   createdAt: true,
   _count: { select: { comments: true } },
 } as const;
-
-async function recalcRealHours(taskId: string) {
-  const activities = await prisma.taskActivity.findMany({
-    where: { taskId },
-    select: { duration: true },
-  });
-  const totalMins = activities.reduce((sum, a) => sum + a.duration, 0);
-  await prisma.task.update({
-    where: { id: taskId },
-    data: { realHours: Math.round((totalMins / 60) * 100) / 100 },
-  });
-}
 
 // Máximo de registros permitidos para una tarea Fija — ver
 // MIGRATION_REASON_KEY más abajo para el registro migrado que ocupa el
@@ -146,9 +136,21 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
 
     const task = await prisma.task.findUnique({
       where: { id },
-      select: { id: true, type: true, realHours: true, assignedToId: true, completedAt: true, updatedAt: true },
+      select: {
+        id: true,
+        type: true,
+        realHours: true,
+        assignedToId: true,
+        createdById: true,
+        completedAt: true,
+        updatedAt: true,
+        assignedTo: { select: { role: true } },
+      },
     });
-    if (task) await migrateFijaHistoryIfNeeded(task);
+    if (!task || !canAccessTask(session, task)) {
+      return NextResponse.json([], { status: 200 });
+    }
+    await migrateFijaHistoryIfNeeded(task);
 
     const activities = await prisma.taskActivity.findMany({
       where: { taskId: id },
@@ -214,8 +216,11 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       );
     }
 
-    const task = await prisma.task.findUnique({ where: { id: taskId } });
-    if (!task) {
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      include: { assignedTo: { select: { role: true } } },
+    });
+    if (!task || !canAccessTask(session, task)) {
       return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
     }
 
@@ -259,7 +264,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       select: activitySelect,
     });
 
-    await recalcRealHours(taskId);
+    await recalcTaskRealHours(taskId);
     invalidateAnalyticsCache(task.assignedToId);
 
     return NextResponse.json(activity, { status: 201 });

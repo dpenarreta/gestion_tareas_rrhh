@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { canManageUsers, getVisibleRoles } from "@/lib/roles";
+import { canManageUsers, canManageTargetUser } from "@/lib/roles";
 
 export async function PATCH(_req: NextRequest, ctx: { params: Promise<{ id: string }> }) {
   const session = await getSession();
@@ -17,9 +17,7 @@ export async function PATCH(_req: NextRequest, ctx: { params: Promise<{ id: stri
   if (!user) {
     return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
   }
-  // Solo se puede restablecer el consentimiento de usuarios dentro de la propia jerarquía visible
-  // (esto también excluye siempre al Administrador para el resto de roles).
-  if (session.role !== "ADMINISTRADOR" && !getVisibleRoles(session.role).includes(user.role)) {
+  if (!canManageTargetUser(session, user.role)) {
     return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
   }
 

@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canViewProject, isProjectParticipant } from "@/lib/projectAccess";
-import { businessCalendarDay, businessDayRealRange, previousBusinessDays } from "@/lib/businessTime";
+import { businessCalendarDay, businessDayRealRange, previousBusinessDays, parseDateOnly } from "@/lib/businessTime";
 import { timeToMinutes } from "@/lib/timeOverlap";
 import { logProjectHistory } from "@/lib/projectHistory";
+import { recalcProjectRealHours } from "@/lib/recalcHours";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -25,23 +26,6 @@ const activitySelect = {
   createdAt: true,
   documents: { select: { id: true, fileName: true, category: true, mimeType: true } },
 } as const;
-
-/** "YYYY-MM-DD" (del date picker) -> Date UTC-medianoche. */
-function parseDateOnly(value: string): Date | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const [y, m, d] = value.split("-").map(Number);
-  const parsed = new Date(Date.UTC(y, m - 1, d));
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
-
-async function recalcRealHours(projectId: string) {
-  const activities = await prisma.projectActivity.findMany({ where: { projectId }, select: { duration: true } });
-  const totalMins = activities.reduce((sum, a) => sum + a.duration, 0);
-  await prisma.project.update({
-    where: { id: projectId },
-    data: { realHours: Math.round((totalMins / 60) * 100) / 100 },
-  });
-}
 
 async function loadProjectForAccess(id: string) {
   return prisma.project.findUnique({
@@ -186,7 +170,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     select: activitySelect,
   });
 
-  await recalcRealHours(projectId);
+  await recalcProjectRealHours(projectId);
 
   // Sprint 2.1 §2: "participante" es distinto de responsable/creador — se
   // gana la membresía por asignación explícita O por registrar actividad

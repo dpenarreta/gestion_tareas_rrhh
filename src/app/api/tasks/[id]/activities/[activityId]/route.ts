@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { invalidateAnalyticsCache } from "@/lib/analytics";
+import { recalcTaskRealHours } from "@/lib/recalcHours";
 
 type Ctx = { params: Promise<{ id: string; activityId: string }> };
 
@@ -21,18 +22,6 @@ const activitySelect = {
   createdAt: true,
   _count: { select: { comments: true } },
 } as const;
-
-async function recalcRealHours(taskId: string) {
-  const activities = await prisma.taskActivity.findMany({
-    where: { taskId },
-    select: { duration: true },
-  });
-  const totalMins = activities.reduce((sum, a) => sum + a.duration, 0);
-  await prisma.task.update({
-    where: { id: taskId },
-    data: { realHours: Math.round((totalMins / 60) * 100) / 100 },
-  });
-}
 
 export async function PATCH(request: NextRequest, ctx: Ctx) {
   try {
@@ -104,7 +93,7 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
       select: activitySelect,
     });
 
-    await recalcRealHours(taskId);
+    await recalcTaskRealHours(taskId);
     invalidateAnalyticsCache(task.assignedToId);
 
     await prisma.activityAuditLog.create({
@@ -156,7 +145,7 @@ export async function DELETE(_req: NextRequest, ctx: Ctx) {
     }
 
     await prisma.taskActivity.delete({ where: { id: activityId } });
-    await recalcRealHours(taskId);
+    await recalcTaskRealHours(taskId);
     // El autor de la actividad puede ser distinto del responsable de la
     // tarea (tareas SEGUIMIENTO compartidas) — las horas reales se atribuyen
     // al responsable, así que hay que invalidar su caché, no el del autor.

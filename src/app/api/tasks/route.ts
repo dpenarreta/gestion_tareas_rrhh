@@ -5,7 +5,7 @@ import { attachUnreadComments } from "@/lib/commentViews";
 import { invalidateAnalyticsCache } from "@/lib/analytics";
 import type { TaskStatus, TaskPriority, TaskFrequency, TaskType } from "@/generated/prisma/client";
 
-const taskSelect = {
+export const taskSelect = {
   id: true,
   title: true,
   description: true,

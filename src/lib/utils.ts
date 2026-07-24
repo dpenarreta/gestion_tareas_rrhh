@@ -56,6 +56,36 @@ export function utcCalendarDay(date: Date): number {
  * `referenceDate` defaults to the real current time (for live views); pass a
  * capped reference (e.g. a past month's end) when computing historical KPIs.
  */
+/**
+ * "hace N min/h/d" para timestamps de comentarios — antes de Sprint D estaba
+ * duplicado idéntico en `CommentPanel.tsx` (Tareas) y `ProjectCommentsTab.tsx`
+ * (Proyectos). Ver docs/AUDIT_LOG.md § Sprint D.
+ */
+export function formatRelative(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "Ahora mismo";
+  if (mins < 60) return `hace ${mins} min`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `hace ${hrs} h`;
+  const days = Math.floor(hrs / 24);
+  return `hace ${days} d`;
+}
+
+/**
+ * "6h 30min" (omite la unidad en cero, ej. "30min" o "6h") — formato
+ * consolidado en Sprint D: antes había 4 copias, una de ellas (Tareas) nunca
+ * omitía unidades en cero ("0h 30min"). Se estandarizó al formato que ya
+ * usaban las otras 3 copias (Proyectos). Ver docs/AUDIT_LOG.md § Sprint D.
+ */
+export function formatDuration(mins: number): string {
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h === 0) return `${m}min`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}min`;
+}
+
 export function isTaskOverdue(
   endDate: string | Date,
   status: string,

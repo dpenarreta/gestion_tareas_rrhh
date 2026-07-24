@@ -3,14 +3,7 @@
 import { useEffect, useState } from "react";
 import type { ProjectActivity, ProjectPhase } from "./types";
 import { PHASE_STATUS_LABEL } from "./types";
-
-function formatDuration(mins: number): string {
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (h === 0) return `${m}min`;
-  if (m === 0) return `${h}h`;
-  return `${h}h ${m}min`;
-}
+import { formatDuration } from "@/lib/utils";
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("es-CO", { day: "2-digit", month: "short", year: "numeric" });

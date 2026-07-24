@@ -5,17 +5,8 @@ import type { Task, TaskComment } from "./types";
 import { ROLE_LABEL } from "@/lib/roles";
 import type { Role } from "@/generated/prisma/client";
 import { Button } from "@/components/ui/Button";
-
-function formatRelative(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "Ahora mismo";
-  if (mins < 60) return `hace ${mins} min`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `hace ${hrs} h`;
-  const days = Math.floor(hrs / 24);
-  return `hace ${days} d`;
-}
+import { formatRelative } from "@/lib/utils";
+import { useToast } from "@/components/ui/Toast";
 
 function initials(name: string) {
   const parts = name.trim().split(/\s+/);
@@ -46,6 +37,7 @@ type Props = {
 };
 
 export default function CommentPanel({ task, currentUserId: _cu, onClose, onCommentAdded }: Props) {
+  const { showToast } = useToast();
   const [comments, setComments] = useState<TaskComment[]>([]);
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(true);
@@ -77,7 +69,14 @@ export default function CommentPanel({ task, currentUserId: _cu, onClose, onComm
         setComments((prev) => [...prev, comment]);
         setText("");
         onCommentAdded();
+      } else {
+        // Sprint D (backport de Sprint C §7, aplicado en su momento solo a
+        // Proyectos): antes fallaba en silencio, el comentario se perdía sin
+        // avisar. "Reintentar" repite la misma llamada — recuperación segura.
+        showToast("No se pudo publicar el comentario.", "error", { label: "Reintentar", onClick: submit });
       }
+    } catch {
+      showToast("Error de conexión.", "error", { label: "Reintentar", onClick: submit });
     } finally {
       setSubmitting(false);
     }

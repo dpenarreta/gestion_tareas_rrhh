@@ -60,7 +60,9 @@ function getRequest(url: string) {
 }
 
 function resetAll() {
-  taskFindUnique.mockReset().mockResolvedValue({ id: "task-1", title: "Tarea seguimiento", type: "SEGUIMIENTO" });
+  taskFindUnique
+    .mockReset()
+    .mockResolvedValue({ id: "task-1", title: "Tarea seguimiento", type: "SEGUIMIENTO", assignedToId: "u1" });
   taskUpdate.mockReset().mockResolvedValue({});
   taskActivityFindMany.mockReset().mockResolvedValue([]);
   taskActivityCreate.mockReset().mockImplementation(({ data }: { data: Record<string, unknown> }) =>
@@ -185,6 +187,30 @@ describe("POST /api/tasks/[id]/activities/retroactive — hora inicio/fin y sola
       ctx()
     );
     expect(res.status).toBe(201);
+  });
+
+  it("responde 404 si la tarea existe pero no es visible para el solicitante", async () => {
+    mockSession({ userId: "u2", role: "ASISTENTE_GH" });
+    taskFindUnique.mockResolvedValue({
+      id: "task-1",
+      title: "Tarea seguimiento",
+      type: "SEGUIMIENTO",
+      assignedToId: "owner-x",
+      createdById: "owner-y",
+      assignedTo: { role: "ASISTENTE_SELECCION" },
+    });
+    const res = await retroactivePOST(
+      jsonRequest({
+        reason: "REUNION",
+        hours: 1,
+        minutes: 0,
+        description: "Descripción obligatoria",
+        activityDate: VALID_RETROACTIVE_DATE,
+      }),
+      ctx()
+    );
+    expect(res.status).toBe(404);
+    expect(taskActivityCreate).not.toHaveBeenCalled();
   });
 });
 

@@ -6,16 +6,9 @@ import { PHASE_STATUS_LABEL } from "./types";
 import PhaseDetailModal from "./PhaseDetailModal";
 import { StatusChip } from "@/components/ui/Chip";
 import { TASK_STATUS_CONFIG } from "@/lib/chipConfig";
+import { formatDuration } from "@/lib/utils";
 
 const STATUS_OPTIONS: ProjectPhaseStatus[] = ["PENDIENTE", "EN_PROGRESO", "COMPLETADA"];
-
-function formatDuration(mins: number): string {
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  if (h === 0) return `${m}min`;
-  if (m === 0) return `${h}h`;
-  return `${h}h ${m}min`;
-}
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString("es-CO", { day: "2-digit", month: "short", year: "numeric" });

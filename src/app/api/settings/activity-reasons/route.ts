@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { ALL_ROLES } from "@/lib/roles";
+import { invalidateAnalyticsCache } from "@/lib/analytics";
 import type { Role } from "@/generated/prisma/client";
 
 const DIACRITICS_RE = /[̀-ͯ]/g;
@@ -66,6 +67,11 @@ export async function POST(request: NextRequest) {
       assignedRoles: roles,
     },
   });
+
+  // assignedRoles determina qué actividades puede seleccionar cada rol —
+  // afecta el índice de trazabilidad/consistencia de Analytics (Sprint D,
+  // antes faltaba en este endpoint; ver docs/AUDIT_LOG.md § Sprint D).
+  invalidateAnalyticsCache();
 
   return NextResponse.json(reason, { status: 201 });
 }

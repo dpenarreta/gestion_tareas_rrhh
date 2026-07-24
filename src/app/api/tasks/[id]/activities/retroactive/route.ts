@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { canAccessTask } from "@/lib/taskAccess";
 import { formatDate } from "@/lib/utils";
-import { businessCalendarDay, businessDayRealRange, previousBusinessDays } from "@/lib/businessTime";
+import { businessCalendarDay, businessDayRealRange, previousBusinessDays, parseDateOnly } from "@/lib/businessTime";
 import { getNotificationRules } from "@/lib/notificationRules";
 import { findOverlappingActivity, overlapMessage } from "@/lib/activityOverlap";
 import { timeToMinutes } from "@/lib/timeOverlap";
 import { invalidateAnalyticsCache } from "@/lib/analytics";
+import { recalcTaskRealHours } from "@/lib/recalcHours";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -26,27 +28,6 @@ const activitySelect = {
   createdAt: true,
   _count: { select: { comments: true } },
 } as const;
-
-async function recalcRealHours(taskId: string) {
-  const activities = await prisma.taskActivity.findMany({
-    where: { taskId },
-    select: { duration: true },
-  });
-  const totalMins = activities.reduce((sum, a) => sum + a.duration, 0);
-  await prisma.task.update({
-    where: { id: taskId },
-    data: { realHours: Math.round((totalMins / 60) * 100) / 100 },
-  });
-}
-
-/** "YYYY-MM-DD" (del date picker, sin componente horario) -> Date UTC-medianoche. */
-function parseDateOnly(value: string): Date | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const [y, m, d] = value.split("-").map(Number);
-  const parsed = new Date(Date.UTC(y, m - 1, d));
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed;
-}
 
 export async function POST(request: NextRequest, ctx: Ctx) {
   try {
@@ -116,8 +97,11 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       );
     }
 
-    const task = await prisma.task.findUnique({ where: { id: taskId } });
-    if (!task) {
+    const task = await prisma.task.findUnique({
+      where: { id: taskId },
+      include: { assignedTo: { select: { role: true } } },
+    });
+    if (!task || !canAccessTask(session, task)) {
       return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
     }
     if (task.type !== "SEGUIMIENTO") {
@@ -163,7 +147,7 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       select: activitySelect,
     });
 
-    await recalcRealHours(taskId);
+    await recalcTaskRealHours(taskId);
     invalidateAnalyticsCache(task.assignedToId);
 
     const rules = await getNotificationRules();

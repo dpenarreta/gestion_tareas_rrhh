@@ -118,6 +118,7 @@ describe("GET /api/tasks/[id]/activities", () => {
 
   it("devuelve las actividades ordenadas ascendentemente", async () => {
     mockSession({});
+    taskFindUnique.mockResolvedValue({ id: "task-1", assignedToId: "u1" });
     taskActivityFindMany.mockResolvedValue([{ id: "a1" }]);
     const res = await activitiesGET(jsonRequest(undefined), ctx());
     expect(res.status).toBe(200);
@@ -126,8 +127,23 @@ describe("GET /api/tasks/[id]/activities", () => {
     );
   });
 
+  it("responde lista vacía (sin consultar actividades) si la tarea no existe o no es visible para el solicitante", async () => {
+    mockSession({ userId: "u2", role: "ASISTENTE_GH" });
+    taskFindUnique.mockResolvedValue({
+      id: "task-1",
+      assignedToId: "owner-x",
+      createdById: "owner-y",
+      assignedTo: { role: "ASISTENTE_SELECCION" },
+    });
+    const res = await activitiesGET(jsonRequest(undefined), ctx());
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([]);
+    expect(taskActivityFindMany).not.toHaveBeenCalled();
+  });
+
   it("ante un error inesperado, responde 200 con lista vacía en vez de propagar el error", async () => {
     mockSession({});
+    taskFindUnique.mockResolvedValue({ id: "task-1", assignedToId: "u1" });
     taskActivityFindMany.mockRejectedValue(new Error("db down"));
     vi.spyOn(console, "error").mockImplementation(() => {});
     const res = await activitiesGET(jsonRequest(undefined), ctx());
@@ -136,7 +152,7 @@ describe("GET /api/tasks/[id]/activities", () => {
   });
 
   it("migra automáticamente el historial de una tarea Fija con horas reales y cero actividades", async () => {
-    mockSession({});
+    mockSession({ userId: "owner-1" });
     const completedAt = new Date("2026-06-15T10:00:00.000Z");
     taskFindUnique.mockResolvedValue({
       id: "task-1",
@@ -179,7 +195,7 @@ describe("GET /api/tasks/[id]/activities", () => {
   });
 
   it("no migra una tarea Fija que ya tiene actividades registradas", async () => {
-    mockSession({});
+    mockSession({ userId: "owner-1" });
     taskFindUnique.mockResolvedValue({
       id: "task-1",
       type: "FIJA",
@@ -198,7 +214,7 @@ describe("GET /api/tasks/[id]/activities", () => {
   });
 
   it("no migra una tarea Seguimiento (la migración es exclusiva de Fija)", async () => {
-    mockSession({});
+    mockSession({ userId: "owner-1" });
     taskFindUnique.mockResolvedValue({
       id: "task-1",
       type: "SEGUIMIENTO",
@@ -216,7 +232,7 @@ describe("GET /api/tasks/[id]/activities", () => {
   });
 
   it("no migra una tarea Fija con realHours en 0", async () => {
-    mockSession({});
+    mockSession({ userId: "owner-1" });
     taskFindUnique.mockResolvedValue({
       id: "task-1",
       type: "FIJA",
@@ -280,9 +296,22 @@ describe("POST /api/tasks/[id]/activities", () => {
     expect(res.status).toBe(404);
   });
 
+  it("responde 404 si la tarea existe pero no es visible para el solicitante", async () => {
+    mockSession({ userId: "u2", role: "ASISTENTE_GH" });
+    taskFindUnique.mockResolvedValue({
+      id: "task-1",
+      assignedToId: "owner-x",
+      createdById: "owner-y",
+      assignedTo: { role: "ASISTENTE_SELECCION" },
+    });
+    const res = await activitiesPOST(jsonRequest({ reason: "REUNION", hours: 1, minutes: 30 }), ctx());
+    expect(res.status).toBe(404);
+    expect(taskActivityCreate).not.toHaveBeenCalled();
+  });
+
   it("crea la actividad y recalcula realHours de la tarea a partir de la suma de duraciones", async () => {
     mockSession({ userId: "u1" });
-    taskFindUnique.mockResolvedValue({ id: "task-1" });
+    taskFindUnique.mockResolvedValue({ id: "task-1", assignedToId: "u1" });
     taskActivityCreate.mockResolvedValue({ id: "a1", duration: 90 });
     taskActivityFindMany.mockResolvedValue([{ duration: 90 }, { duration: 30 }]);
 
@@ -297,7 +326,7 @@ describe("POST /api/tasks/[id]/activities", () => {
 
   it("responde 409 si el horario se solapa con una actividad existente (de cualquier tarea) ese mismo día", async () => {
     mockSession({ userId: "u1" });
-    taskFindUnique.mockResolvedValue({ id: "task-1" });
+    taskFindUnique.mockResolvedValue({ id: "task-1", assignedToId: "u1" });
     taskActivityFindMany.mockResolvedValue([
       { startTime: "08:40", endTime: "10:30", duration: 110, task: { title: "Otra tarea" } },
     ]);
@@ -313,7 +342,7 @@ describe("POST /api/tasks/[id]/activities", () => {
 
   it("permite guardar cuando el horario no se solapa con nada ese día", async () => {
     mockSession({ userId: "u1" });
-    taskFindUnique.mockResolvedValue({ id: "task-1" });
+    taskFindUnique.mockResolvedValue({ id: "task-1", assignedToId: "u1" });
     taskActivityCreate.mockResolvedValue({ id: "a1", duration: 45, startTime: "11:00", endTime: "11:45" });
     taskActivityFindMany.mockResolvedValue([
       { startTime: "08:40", endTime: "10:30", duration: 110, task: { title: "Otra tarea" } },
@@ -328,7 +357,7 @@ describe("POST /api/tasks/[id]/activities", () => {
 
   it("responde 400 si la hora fin no es posterior a la hora inicio", async () => {
     mockSession({});
-    taskFindUnique.mockResolvedValue({ id: "task-1" });
+    taskFindUnique.mockResolvedValue({ id: "task-1", assignedToId: "u1" });
     const res = await activitiesPOST(
       jsonRequest({ reason: "REUNION", hours: 0, minutes: 30, startTime: "10:00", endTime: "09:30" }),
       ctx()
@@ -338,7 +367,7 @@ describe("POST /api/tasks/[id]/activities", () => {
 
   it("no ejecuta el validador de solapamiento si no se usa el formato hora inicio/fin", async () => {
     mockSession({ userId: "u1" });
-    taskFindUnique.mockResolvedValue({ id: "task-1" });
+    taskFindUnique.mockResolvedValue({ id: "task-1", assignedToId: "u1" });
     taskActivityCreate.mockResolvedValue({ id: "a1", duration: 90 });
     taskActivityFindMany.mockResolvedValue([]);
     const res = await activitiesPOST(jsonRequest({ reason: "REUNION", hours: 1, minutes: 30 }), ctx());
@@ -357,7 +386,7 @@ describe("POST /api/tasks/[id]/activities", () => {
 
   it("responde 409 si una tarea Fija ya tiene 2 registros", async () => {
     mockSession({ userId: "u1" });
-    taskFindUnique.mockResolvedValue({ id: "task-1", type: "FIJA" });
+    taskFindUnique.mockResolvedValue({ id: "task-1", type: "FIJA", assignedToId: "u1" });
     taskActivityCount.mockResolvedValue(2);
     const res = await activitiesPOST(jsonRequest({ reason: "REUNION", hours: 1, minutes: 0 }), ctx());
     expect(res.status).toBe(409);
@@ -367,7 +396,7 @@ describe("POST /api/tasks/[id]/activities", () => {
 
   it("permite el segundo registro de una tarea Fija (aún no llegó al máximo)", async () => {
     mockSession({ userId: "u1" });
-    taskFindUnique.mockResolvedValue({ id: "task-1", type: "FIJA" });
+    taskFindUnique.mockResolvedValue({ id: "task-1", type: "FIJA", assignedToId: "u1" });
     taskActivityCount.mockResolvedValue(1);
     taskActivityCreate.mockResolvedValue({ id: "a2", duration: 60 });
     taskActivityFindMany.mockResolvedValue([{ duration: 60 }]);
@@ -378,7 +407,7 @@ describe("POST /api/tasks/[id]/activities", () => {
 
   it("una tarea Seguimiento no está sujeta al límite de 2 registros", async () => {
     mockSession({ userId: "u1" });
-    taskFindUnique.mockResolvedValue({ id: "task-1", type: "SEGUIMIENTO" });
+    taskFindUnique.mockResolvedValue({ id: "task-1", type: "SEGUIMIENTO", assignedToId: "u1" });
     taskActivityCount.mockResolvedValue(5);
     taskActivityCreate.mockResolvedValue({ id: "a6", duration: 60 });
     taskActivityFindMany.mockResolvedValue([{ duration: 60 }]);
@@ -449,6 +478,7 @@ describe("GET /api/tasks/[id]/comments", () => {
 
   it("devuelve los comentarios y marca la tarea como vista (upsert)", async () => {
     mockSession({ userId: "u1" });
+    taskFindUnique.mockResolvedValue({ id: "task-1", assignedToId: "u1" });
     commentFindMany.mockResolvedValue([{ id: "c1" }]);
     const res = await commentsGET(jsonRequest(undefined), ctx());
     expect(res.status).toBe(200);
@@ -457,6 +487,19 @@ describe("GET /api/tasks/[id]/comments", () => {
       update: { viewedAt: expect.any(Date) },
       create: { taskId: "task-1", userId: "u1" },
     });
+  });
+
+  it("responde 404 si la tarea existe pero no es visible para el solicitante", async () => {
+    mockSession({ userId: "u2", role: "ASISTENTE_GH" });
+    taskFindUnique.mockResolvedValue({
+      id: "task-1",
+      assignedToId: "owner-x",
+      createdById: "owner-y",
+      assignedTo: { role: "ASISTENTE_SELECCION" },
+    });
+    const res = await commentsGET(jsonRequest(undefined), ctx());
+    expect(res.status).toBe(404);
+    expect(commentFindMany).not.toHaveBeenCalled();
   });
 });
 
@@ -482,9 +525,22 @@ describe("POST /api/tasks/[id]/comments", () => {
     expect(res.status).toBe(404);
   });
 
+  it("responde 404 si la tarea existe pero no es visible para el solicitante", async () => {
+    mockSession({ userId: "u2", role: "ASISTENTE_GH" });
+    taskFindUnique.mockResolvedValue({
+      id: "task-1",
+      assignedToId: "owner-x",
+      createdById: "owner-y",
+      assignedTo: { role: "ASISTENTE_SELECCION" },
+    });
+    const res = await commentsPOST(jsonRequest({ text: "hola" }), ctx());
+    expect(res.status).toBe(404);
+    expect(commentCreate).not.toHaveBeenCalled();
+  });
+
   it("no notifica a nadie si el rol no tiene objetivos de notificación (ej. JEFE_NACIONAL)", async () => {
     mockSession({ role: "JEFE_NACIONAL", name: "Jefe" });
-    taskFindUnique.mockResolvedValue({ id: "task-1", title: "Tarea" });
+    taskFindUnique.mockResolvedValue({ id: "task-1", title: "Tarea", assignedToId: "u1" });
     commentCreate.mockResolvedValue({ id: "c1" });
 
     await commentsPOST(jsonRequest({ text: "comentario" }), ctx());
@@ -494,7 +550,7 @@ describe("POST /api/tasks/[id]/comments", () => {
 
   it("notifica a los roles objetivo (hacia arriba en la jerarquía), con el texto recortado a 60 caracteres", async () => {
     mockSession({ role: "ASISTENTE_GH", name: "Ana" });
-    taskFindUnique.mockResolvedValue({ id: "task-1", title: "Tarea importante" });
+    taskFindUnique.mockResolvedValue({ id: "task-1", title: "Tarea importante", assignedToId: "u1" });
     commentCreate.mockResolvedValue({ id: "c1" });
     userFindMany.mockResolvedValue([{ id: "analista-1" }, { id: "analista-2" }]);
 
@@ -514,7 +570,7 @@ describe("POST /api/tasks/[id]/comments", () => {
 
   it("no crea notificaciones si no hay usuarios con los roles objetivo", async () => {
     mockSession({ role: "ASISTENTE_GH" });
-    taskFindUnique.mockResolvedValue({ id: "task-1", title: "Tarea" });
+    taskFindUnique.mockResolvedValue({ id: "task-1", title: "Tarea", assignedToId: "u1" });
     commentCreate.mockResolvedValue({ id: "c1" });
     userFindMany.mockResolvedValue([]);
 

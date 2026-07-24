@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { canManageUsers, getVisibleRoles } from "@/lib/roles";
+import { canManageUsers, canManageTargetUser } from "@/lib/roles";
 
 export async function POST(
   _req: NextRequest,
@@ -21,9 +21,7 @@ export async function POST(
   if (!user) {
     return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
   }
-  // Solo se puede resetear la contraseña de usuarios dentro de la propia jerarquía visible
-  // (esto también excluye siempre al Administrador para el resto de roles).
-  if (session.role !== "ADMINISTRADOR" && !getVisibleRoles(session.role).includes(user.role)) {
+  if (!canManageTargetUser(session, user.role)) {
     return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
   }
 

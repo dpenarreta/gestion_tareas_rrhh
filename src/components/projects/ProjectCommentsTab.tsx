@@ -5,17 +5,7 @@ import type { ProjectComment } from "./types";
 import { ROLE_LABEL } from "@/lib/roles";
 import type { Role } from "@/generated/prisma/client";
 import { useToast } from "@/components/ui/Toast";
-
-function formatRelative(iso: string) {
-  const diff = Date.now() - new Date(iso).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 1) return "Ahora mismo";
-  if (mins < 60) return `hace ${mins} min`;
-  const hrs = Math.floor(mins / 60);
-  if (hrs < 24) return `hace ${hrs} h`;
-  const days = Math.floor(hrs / 24);
-  return `hace ${days} d`;
-}
+import { formatRelative } from "@/lib/utils";
 
 export default function ProjectCommentsTab({ projectId, canComment }: { projectId: string; canComment: boolean }) {
   const { showToast } = useToast();

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { ALL_ROLES } from "@/lib/roles";
+import { invalidateAnalyticsCache } from "@/lib/analytics";
 import type { Role } from "@/generated/prisma/client";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -79,5 +80,8 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   }
 
   const updated = await prisma.activityReason.update({ where: { id }, data });
+  // Mismo motivo que en el POST: assignedRoles/isActive/isArchived afectan
+  // qué actividades puede registrar cada rol (Sprint D, ver docs/AUDIT_LOG.md).
+  invalidateAnalyticsCache();
   return NextResponse.json(updated);
 }

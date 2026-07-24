@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { getSubordinateRoles, canViewOperationalRisk, getNotificationTargets, isExecutorRole } from "@/lib/roles";
+import { getSubordinateRoles, canViewOperationalRisk, isExecutorRole } from "@/lib/roles";
+import { getNotificationRules } from "@/lib/notificationRules";
 import { getEffectiveAnalyticsConfig } from "@/lib/systemConfig";
 import { cached, computeOperationalRisk, ANALYTICS_ENGINE_VERSION, type OperationalRiskResult } from "@/lib/analytics";
+import type { Role } from "@/generated/prisma/client";
 
 function monthKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
@@ -11,18 +13,23 @@ function monthKey(d: Date): string {
 
 /**
  * Cuando el riesgo de un colaborador supera "Alto", se notifica automáticamente
- * a su(s) superior(es) directos (getNotificationTargets, mismo criterio que las
- * notificaciones de comentarios de tarea) — una sola vez por persona/mes,
- * deduplicado reutilizando `taskId` como marcador sintético (no hay FK real a
- * una tarea aquí) en vez de agregar una columna nueva solo para esto.
+ * a su(s) superior(es) directos — mismo criterio configurable que las
+ * notificaciones de comentarios de tarea (`getNotificationRules().commentTargets`,
+ * Ajustes → Reglas de Notificación; antes de Sprint D usaba la tabla estática
+ * `NOTIFICATION_TARGETS`, desincronizándose si un admin reconfiguraba los
+ * destinos de comentarios — ver docs/AUDIT_LOG.md § Sprint D). Notifica una
+ * sola vez por persona/mes, deduplicado reutilizando `taskId` como marcador
+ * sintético (no hay FK real a una tarea aquí) en vez de agregar una columna
+ * nueva solo para esto.
  */
-async function notifyIfHighRisk(userId: string, userRole: string, userName: string, risk: OperationalRiskResult, now: Date): Promise<void> {
+async function notifyIfHighRisk(userId: string, userRole: Role, userName: string, risk: OperationalRiskResult, now: Date): Promise<void> {
   if (risk.classification !== "Alto" && risk.classification !== "Crítico") return;
   const marker = `analytics-risk:${userId}:${monthKey(now)}`;
   const already = await prisma.notification.findFirst({ where: { taskId: marker } });
   if (already) return;
 
-  const targetRoles = getNotificationTargets(userRole as Parameters<typeof getNotificationTargets>[0]);
+  const rules = await getNotificationRules();
+  const targetRoles = rules.commentTargets[userRole] ?? [];
   if (targetRoles.length === 0) return;
   const targets = await prisma.user.findMany({ where: { role: { in: targetRoles } }, select: { id: true } });
   if (targets.length === 0) return;

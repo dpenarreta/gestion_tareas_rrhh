@@ -2,31 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { getSubordinateRoles, canViewTeam } from "@/lib/roles";
+import { taskSelect } from "@/app/api/tasks/route";
 
 type Ctx = { params: Promise<{ userId: string }> };
-
-const taskSelect = {
-  id: true,
-  title: true,
-  description: true,
-  type: true,
-  status: true,
-  priority: true,
-  frequency: true,
-  startDate: true,
-  endDate: true,
-  estimatedHours: true,
-  realHours: true,
-  targetTimeValidated: true,
-  progress: true,
-  color: true,
-  corrected: true,
-  assignedTo: { select: { id: true, name: true, email: true, role: true } },
-  createdBy: { select: { id: true, name: true } },
-  _count: { select: { comments: true } },
-  createdAt: true,
-  updatedAt: true,
-} as const;
 
 export async function GET(_req: NextRequest, ctx: Ctx) {
   const session = await getSession();

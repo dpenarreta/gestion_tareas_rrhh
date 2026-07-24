@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { canAccessTask } from "@/lib/taskAccess";
 import { getNotificationRules } from "@/lib/notificationRules";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -12,6 +13,14 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
   }
 
   const { id } = await ctx.params;
+  const task = await prisma.task.findUnique({
+    where: { id },
+    include: { assignedTo: { select: { role: true } } },
+  });
+  if (!task || !canAccessTask(session, task)) {
+    return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
+  }
+
   const comments = await prisma.comment.findMany({
     where: { taskId: id },
     include: { author: { select: { id: true, name: true, role: true } } },
@@ -40,8 +49,11 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: "El comentario no puede estar vacío" }, { status: 400 });
   }
 
-  const task = await prisma.task.findUnique({ where: { id: taskId } });
-  if (!task) {
+  const task = await prisma.task.findUnique({
+    where: { id: taskId },
+    include: { assignedTo: { select: { role: true } } },
+  });
+  if (!task || !canAccessTask(session, task)) {
     return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
   }
 

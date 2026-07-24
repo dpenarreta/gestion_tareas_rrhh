@@ -113,6 +113,17 @@ export function canManageUsers(role: Role): boolean {
   return CAN_MANAGE_USERS.includes(role);
 }
 
+/**
+ * El solicitante puede gestionar (ver/editar/eliminar) un usuario del rol
+ * dado — el Administrador ve toda la jerarquía; el resto solo la propia
+ * jerarquía visible (`VISIBLE_ROLES`), lo que también excluye siempre al
+ * Administrador. Antes de Sprint D este mismo chequeo estaba copiado 4-5
+ * veces en `src/app/api/users/**` — ver docs/AUDIT_LOG.md § Sprint D.
+ */
+export function canManageTargetUser(session: { role: Role }, targetRole: Role): boolean {
+  return session.role === "ADMINISTRADOR" || getVisibleRoles(session.role).includes(targetRole);
+}
+
 export function canCreateMeetings(role: Role): boolean {
   return CAN_CREATE_MEETINGS.includes(role);
 }

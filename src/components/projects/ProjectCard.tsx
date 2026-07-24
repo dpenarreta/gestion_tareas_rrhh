@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import type { ProjectListItem } from "./types";
-import { PROJECT_STATUS_LABEL, PROJECT_STATUS_COLOR, PROJECT_PRIORITY_LABEL } from "./types";
+import { StatusChip, PriorityChip } from "@/components/ui/Chip";
+import { PROJECT_STATUS_CONFIG, TASK_PRIORITY_CONFIG } from "@/lib/chipConfig";
 
 function formatDate(iso: string) {
   const d = new Date(iso);
@@ -19,9 +20,7 @@ export default function ProjectCard({ project }: { project: ProjectListItem }) {
     >
       <div className="flex items-start justify-between gap-2 mb-2">
         <h3 className="font-semibold text-title text-sm leading-snug line-clamp-2">{project.name}</h3>
-        <span className={`shrink-0 text-[10px] font-bold uppercase tracking-wide px-2 py-1 rounded-full ${PROJECT_STATUS_COLOR[project.status]}`}>
-          {PROJECT_STATUS_LABEL[project.status]}
-        </span>
+        <StatusChip value={project.status} config={PROJECT_STATUS_CONFIG} className="shrink-0" />
       </div>
 
       {project.description && (
@@ -32,9 +31,7 @@ export default function ProjectCard({ project }: { project: ProjectListItem }) {
         {project.area && (
           <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-surface2 text-secondary">{project.area}</span>
         )}
-        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-surface2 text-secondary">
-          Prioridad {PROJECT_PRIORITY_LABEL[project.priority]}
-        </span>
+        <PriorityChip value={project.priority} config={TASK_PRIORITY_CONFIG} />
         {project.tags.slice(0, 2).map((t) => (
           <span key={t} className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-primary-surface text-primary">
             #{t}

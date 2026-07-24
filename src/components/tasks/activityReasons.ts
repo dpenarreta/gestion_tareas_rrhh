@@ -1,3 +1,5 @@
+export { formatDuration } from "@/lib/utils";
+
 export type ActivityReasonConfig = {
   id: string;
   key: string;
@@ -58,11 +60,4 @@ export function reasonColorClass(key: string): string {
   let hash = 0;
   for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
   return COLOR_PALETTE[hash % COLOR_PALETTE.length];
-}
-
-/** "6.30" → "6h 30min" (para mostrar duraciones en minutos como texto legible). */
-export function formatDuration(mins: number): string {
-  const h = Math.floor(mins / 60);
-  const m = mins % 60;
-  return `${h}h ${m}min`;
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { getVisibleIdeaAuthorIds } from "@/lib/ideas";
+import { CAN_REVIEW_IDEAS } from "@/lib/roles";
 import { saveAttachment, AttachmentError } from "@/lib/storage";
 import type { IdeaImpact } from "@/generated/prisma/client";
 
@@ -105,7 +106,7 @@ export async function POST(request: NextRequest) {
   const ideaResult = { ...idea, voteCount: _count.votes, votedByMe: votes.length > 0 };
 
   const reviewers = await prisma.user.findMany({
-    where: { role: { in: ["ADMINISTRADOR", "JEFE_NACIONAL", "COORDINADOR_NACIONAL"] } },
+    where: { role: { in: CAN_REVIEW_IDEAS } },
     select: { id: true },
   });
   if (reviewers.length > 0) {
