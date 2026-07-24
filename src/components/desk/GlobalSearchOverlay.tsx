@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Search, MessageCircle } from "lucide-react";
+import { Search, MessageCircle, Clock } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -36,6 +36,12 @@ type ReminderResult = {
   status: "PENDIENTE" | "COMPLETADO";
 };
 
+// Sprint C §10 — "acciones inteligentes": última instancia acotada de este
+// sprint (solo búsquedas recientes, sin IA, basado en el propio uso). Mismo
+// patrón de localStorage que SectionCard.tsx.
+const RECENT_SEARCHES_KEY = "nexo-desk-recent-searches";
+const MAX_RECENT_SEARCHES = 5;
+
 const STATUS_OPTIONS = [
   { value: "", label: "Cualquier estado" },
   { value: "PENDIENTE", label: "Nota pendiente" },
@@ -60,6 +66,7 @@ export default function GlobalSearchOverlay({ onClose }: { onClose: () => void }
   const [status, setStatus] = useState("");
   const [results, setResults] = useState<{ notes: NoteResult[]; reminders: ReminderResult[] } | null>(null);
   const [loading, setLoading] = useState(false);
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -69,12 +76,35 @@ export default function GlobalSearchOverlay({ onClose }: { onClose: () => void }
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
-  async function runSearch(e?: React.FormEvent) {
+  useEffect(() => {
+    queueMicrotask(() => {
+      try {
+        const raw = window.localStorage.getItem(RECENT_SEARCHES_KEY);
+        if (raw) setRecentSearches(JSON.parse(raw));
+      } catch {
+        // localStorage inaccesible o valor corrupto — no bloquea la búsqueda
+      }
+    });
+  }, []);
+
+  function rememberSearch(term: string) {
+    const trimmed = term.trim();
+    if (!trimmed) return;
+    setRecentSearches((prev) => {
+      const next = [trimmed, ...prev.filter((s) => s !== trimmed)].slice(0, MAX_RECENT_SEARCHES);
+      window.localStorage.setItem(RECENT_SEARCHES_KEY, JSON.stringify(next));
+      return next;
+    });
+  }
+
+  async function runSearch(e?: React.FormEvent, override?: string) {
     e?.preventDefault();
+    const term = override ?? q;
+    if (override !== undefined) setQ(override);
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (q) params.set("q", q);
+      if (term) params.set("q", term);
       if (priority) params.set("priority", priority);
       if (date) params.set("date", date);
       if (sender) params.set("sender", sender);
@@ -82,6 +112,7 @@ export default function GlobalSearchOverlay({ onClose }: { onClose: () => void }
       if (status) params.set("status", status);
       const res = await fetch(`/api/desk/search?${params.toString()}`);
       setResults(res.ok ? await res.json() : { notes: [], reminders: [] });
+      rememberSearch(term);
     } finally {
       setLoading(false);
     }
@@ -111,6 +142,21 @@ export default function GlobalSearchOverlay({ onClose }: { onClose: () => void }
               className="w-full pl-9 pr-3 py-2 text-sm text-title bg-background border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary"
             />
           </div>
+          {q.trim() === "" && recentSearches.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <Clock className="w-3 h-3 text-disabled shrink-0" strokeWidth={2} />
+              {recentSearches.map((term) => (
+                <button
+                  key={term}
+                  type="button"
+                  onClick={() => runSearch(undefined, term)}
+                  className="text-[11px] text-secondary bg-surface2 hover:bg-primary-surface hover:text-primary px-2 py-0.5 rounded-full transition-colors"
+                >
+                  {term}
+                </button>
+              ))}
+            </div>
+          )}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
             <select value={priority} onChange={(e) => setPriority(e.target.value)} className="px-2.5 py-1.5 text-xs text-title bg-background border border-border rounded-lg">
               <option value="">Cualquier prioridad</option>

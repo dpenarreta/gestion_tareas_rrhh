@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { ProjectListItem, ProjectPriority, ProjectStatus, ProjectUserRef } from "./types";
 import { PROJECT_STATUS_LABEL, PROJECT_PRIORITY_LABEL } from "./types";
 import { Modal, ModalHeader } from "@/components/ui/Modal";
+import { InfoTooltip } from "@/components/ui/InfoTooltip";
 
 type Props = {
   currentUserId: string;
@@ -203,7 +204,10 @@ export default function CreateProjectModal({ currentUserId, candidateUsers, onCl
                 </select>
               </div>
               <div>
-                <label className="block text-[10px] font-semibold text-secondary mb-1 uppercase tracking-wide">Tiempo objetivo (h)</label>
+                <label className="block text-[10px] font-semibold text-secondary mb-1 uppercase tracking-wide flex items-center gap-1.5">
+                  Tiempo objetivo (h)
+                  <InfoTooltip text="Estimación global de horas para todo el proyecto — nunca se ajusta sola con las horas reales registradas. Puedes afinarla más adelante por fase en la pestaña Fases." />
+                </label>
                 <input
                   type="number"
                   min={0}

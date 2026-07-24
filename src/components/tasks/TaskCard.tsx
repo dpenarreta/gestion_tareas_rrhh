@@ -149,6 +149,7 @@ export default function TaskCard({ task, currentUserId, isDragging, onEdit, onDe
             onClick={(e) => e.stopPropagation()}
             onPointerDown={(e) => e.stopPropagation()}
             aria-label="Cambiar estado"
+            title="Cambiar estado sin arrastrar la tarjeta"
             className="text-[10px] font-medium text-secondary bg-surface2 border border-border rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-primary cursor-pointer"
           >
             {STATUS_ORDER.map((s) => (
