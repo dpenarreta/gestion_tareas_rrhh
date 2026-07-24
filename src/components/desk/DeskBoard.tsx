@@ -8,6 +8,7 @@ import NotesPanel from "./NotesPanel";
 import RemindersPanel from "./RemindersPanel";
 import CalendarPanel from "./CalendarPanel";
 import GlobalSearchOverlay from "./GlobalSearchOverlay";
+import NewNoteModal from "./NewNoteModal";
 
 type Tab = "hoy" | "notas" | "recordatorios" | "calendario";
 
@@ -21,6 +22,7 @@ const TABS: { key: Tab; label: string }[] = [
 export default function DeskBoard() {
   const [tab, setTab] = useState<Tab>("hoy");
   const [showSearch, setShowSearch] = useState(false);
+  const [showNewNote, setShowNewNote] = useState(false);
 
   return (
     <div className="p-4 md:p-6 space-y-5">
@@ -29,11 +31,17 @@ export default function DeskBoard() {
           <h1 className="text-xl font-bold text-title">Escritorio Digital</h1>
           <p className="text-sm text-secondary">Tu centro personal de trabajo — notas, recordatorios y lo que importa hoy.</p>
         </div>
-        {/* §9: buscador único, disponible desde cualquier pestaña sin cambiar de sección. */}
-        <Button variant="ghost" onClick={() => setShowSearch(true)} className="shrink-0">
-          <Search className="w-4 h-4" strokeWidth={2} />
-          Buscar
-        </Button>
+        {/* Sprint C §2: "+ Nueva nota" disponible desde cualquier pestaña, no solo desde
+            "Notas" — antes requería cambiar de pestaña primero (4 clics en total). */}
+        <div className="flex items-center gap-2 shrink-0">
+          <Button variant="primary" onClick={() => setShowNewNote(true)}>
+            + Nueva nota
+          </Button>
+          <Button variant="ghost" onClick={() => setShowSearch(true)}>
+            <Search className="w-4 h-4" strokeWidth={2} />
+            Buscar
+          </Button>
+        </div>
       </div>
 
       <div className="flex items-center gap-1 border-b border-border overflow-x-auto">
@@ -56,6 +64,16 @@ export default function DeskBoard() {
       {tab === "calendario" && <CalendarPanel />}
 
       {showSearch && <GlobalSearchOverlay onClose={() => setShowSearch(false)} />}
+
+      {showNewNote && (
+        <NewNoteModal
+          onClose={() => setShowNewNote(false)}
+          onCreated={() => {
+            setShowNewNote(false);
+            setTab("notas");
+          }}
+        />
+      )}
     </div>
   );
 }

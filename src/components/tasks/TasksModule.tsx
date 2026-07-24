@@ -49,7 +49,14 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
   const filteredTasks = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return tasks;
-    return tasks.filter((t) => t.title.toLowerCase().includes(q));
+    // Sprint C §2: antes solo comparaba el título — una tarea con el término
+    // en la descripción o el nombre de la persona asignada no aparecía.
+    return tasks.filter(
+      (t) =>
+        t.title.toLowerCase().includes(q) ||
+        t.description?.toLowerCase().includes(q) ||
+        t.assignedTo.name.toLowerCase().includes(q)
+    );
   }, [tasks, search]);
 
   const searchActive = search.trim() !== "";

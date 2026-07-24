@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import Link from "next/link";
 import type { Role } from "@/generated/prisma/client";
-import { ROLE_LABEL } from "@/lib/roles";
+import { ROLE_LABEL, isLeadershipRole } from "@/lib/roles";
 import type { KpiData, KpiColor, TeamMemberKpi, CapacityMember, CapacitySummary } from "./types";
 import {
   DonutChart,
@@ -30,7 +31,7 @@ import { TASK_STATUS_CONFIG } from "@/lib/chipConfig";
 import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
 import { Spinner } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { Users } from "lucide-react";
+import { Users, BarChart3 } from "lucide-react";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -540,30 +541,46 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
   return (
     <div className="flex flex-col gap-4">
       {/* ── Tab bar ───────────────────────────────────────────────────────── */}
-      {canSeeReports && (
-        <div className="flex gap-0.5 bg-surface2 rounded-[10px] p-1 w-fit">
-          <button
-            onClick={() => setActiveTab("kpis")}
-            className={`px-3.5 py-1.5 rounded-[8px] text-[13px] transition-all ${
-              activeTab === "kpis"
-                ? "bg-surface text-title font-semibold shadow-[var(--shadow)]"
-                : "text-secondary hover:text-title font-medium"
-            }`}
-          >
-            KPIs Individuales
-          </button>
-          <button
-            onClick={() => setActiveTab("informes")}
-            className={`px-3.5 py-1.5 rounded-[8px] text-[13px] transition-all ${
-              activeTab === "informes"
-                ? "bg-surface text-title font-semibold shadow-[var(--shadow)]"
-                : "text-secondary hover:text-title font-medium"
-            }`}
-          >
-            Informes Mensuales
-          </button>
-        </div>
-      )}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        {canSeeReports ? (
+          <div className="flex gap-0.5 bg-surface2 rounded-[10px] p-1 w-fit">
+            <button
+              onClick={() => setActiveTab("kpis")}
+              className={`px-3.5 py-1.5 rounded-[8px] text-[13px] transition-all ${
+                activeTab === "kpis"
+                  ? "bg-surface text-title font-semibold shadow-[var(--shadow)]"
+                  : "text-secondary hover:text-title font-medium"
+              }`}
+            >
+              KPIs Individuales
+            </button>
+            <button
+              onClick={() => setActiveTab("informes")}
+              className={`px-3.5 py-1.5 rounded-[8px] text-[13px] transition-all ${
+                activeTab === "informes"
+                  ? "bg-surface text-title font-semibold shadow-[var(--shadow)]"
+                  : "text-secondary hover:text-title font-medium"
+              }`}
+            >
+              Informes Mensuales
+            </button>
+          </div>
+        ) : (
+          <div />
+        )}
+        {/* Sprint C §2: acceso directo al propio desempeño desde la vista de equipo —
+            antes había que salir a "Mi actividad" en la navegación lateral. Solo para
+            roles que sí tienen KPIs individuales de ejecución (isLeadershipRole ya
+            excluye JEFE_NACIONAL/ADMINISTRADOR de esta noción, sin lógica nueva). */}
+        {!isLeadershipRole(currentUserRole) && (
+          <Link href="/my-kpis">
+            <Button variant="tertiary" size="sm">
+              <BarChart3 className="w-3.5 h-3.5" strokeWidth={2} />
+              Ver mi desempeño
+            </Button>
+          </Link>
+        )}
+      </div>
 
       {/* ── Monthly Reports tab ───────────────────────────────────────────── */}
       {activeTab === "informes" && canSeeReports && (
