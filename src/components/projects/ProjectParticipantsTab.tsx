@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { ProjectParticipant, ProjectUserRef } from "./types";
 import { ROLE_LABEL } from "@/lib/roles";
 import type { Role } from "@/generated/prisma/client";
+import { useToast } from "@/components/ui/Toast";
 
 type Props = {
   projectId: string;
@@ -22,9 +23,9 @@ export default function ProjectParticipantsTab({
   candidateUsers,
   onParticipantsChanged,
 }: Props) {
+  const { showToast } = useToast();
   const [selectedUserId, setSelectedUserId] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
   const [removingId, setRemovingId] = useState<string | null>(null);
 
   const availableCandidates = candidateUsers.filter((u) => !participants.some((p) => p.userId === u.id));
@@ -32,7 +33,6 @@ export default function ProjectParticipantsTab({
   async function addParticipant() {
     if (!selectedUserId || submitting) return;
     setSubmitting(true);
-    setError("");
     try {
       const res = await fetch(`/api/projects/${projectId}/participants`, {
         method: "POST",
@@ -43,10 +43,13 @@ export default function ProjectParticipantsTab({
         const created = await res.json();
         onParticipantsChanged([...participants, created]);
         setSelectedUserId("");
+        showToast("Participante agregado.", "success");
       } else {
         const d = await res.json().catch(() => ({}));
-        setError(d.error ?? "Error al agregar participante");
+        showToast(d.error ?? "No se pudo agregar el participante.", "error", { label: "Reintentar", onClick: addParticipant });
       }
+    } catch {
+      showToast("Error de conexión.", "error", { label: "Reintentar", onClick: addParticipant });
     } finally {
       setSubmitting(false);
     }
@@ -58,7 +61,16 @@ export default function ProjectParticipantsTab({
       const res = await fetch(`/api/projects/${projectId}/participants/${participantId}`, { method: "DELETE" });
       if (res.ok) {
         onParticipantsChanged(participants.filter((p) => p.id !== participantId));
+        showToast("Participante eliminado.", "success");
+      } else {
+        const d = await res.json().catch(() => ({}));
+        showToast(d.error ?? "No se pudo quitar el participante.", "error", {
+          label: "Reintentar",
+          onClick: () => removeParticipant(participantId),
+        });
       }
+    } catch {
+      showToast("Error de conexión.", "error", { label: "Reintentar", onClick: () => removeParticipant(participantId) });
     } finally {
       setRemovingId(null);
     }
@@ -90,7 +102,6 @@ export default function ProjectParticipantsTab({
           </button>
         </div>
       )}
-      {error && <p className="text-xs text-danger bg-danger/[.09] rounded-lg px-3 py-2">{error}</p>}
 
       <div className="bg-surface border border-border rounded-2xl divide-y divide-border">
         {participants.map((p) => (

@@ -267,7 +267,7 @@ export async function DELETE(_req: NextRequest, ctx: Ctx) {
   try {
     await recoveryCenter.moveToTrash({ entityType: "PROJECT", entityId: id, userId: session.userId });
   } catch (err) {
-    return NextResponse.json({ error: err instanceof Error ? err.message : "Error al mover a la papelera" }, { status: 409 });
+    return NextResponse.json({ error: err instanceof recoveryCenter.RecoveryError ? err.message : "Error al mover a la papelera" }, { status: 409 });
   }
 
   await logProjectHistory({

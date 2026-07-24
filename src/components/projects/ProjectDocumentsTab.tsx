@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { ProjectDocument, ProjectDocumentCategory } from "./types";
 import { DOCUMENT_CATEGORY_LABEL } from "./types";
+import { useToast } from "@/components/ui/Toast";
 
 const CATEGORY_OPTIONS: ProjectDocumentCategory[] = ["PDF", "EXCEL", "WORD", "IMAGEN", "CORREO", "ACTA", "OTRO"];
 
@@ -23,12 +24,12 @@ function fileToBase64(file: File): Promise<string> {
 }
 
 export default function ProjectDocumentsTab({ projectId, canUpload }: { projectId: string; canUpload: boolean }) {
+  const { showToast } = useToast();
   const [documents, setDocuments] = useState<ProjectDocument[]>([]);
   const [loading, setLoading] = useState(true);
   const [category, setCategory] = useState<ProjectDocumentCategory>("OTRO");
   const [file, setFile] = useState<File | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -41,7 +42,6 @@ export default function ProjectDocumentsTab({ projectId, canUpload }: { projectI
   async function upload() {
     if (!file || submitting) return;
     setSubmitting(true);
-    setError("");
     try {
       const fileData = await fileToBase64(file);
       const res = await fetch(`/api/projects/${projectId}/documents`, {
@@ -53,10 +53,13 @@ export default function ProjectDocumentsTab({ projectId, canUpload }: { projectI
         const created = await res.json();
         setDocuments((prev) => [created, ...prev]);
         setFile(null);
+        showToast("Documento subido.", "success");
       } else {
         const d = await res.json().catch(() => ({}));
-        setError(d.error ?? "Error al subir el documento");
+        showToast(d.error ?? "No se pudo subir el documento.", "error", { label: "Reintentar", onClick: upload });
       }
+    } catch {
+      showToast("Error de conexión.", "error", { label: "Reintentar", onClick: upload });
     } finally {
       setSubmitting(false);
     }
@@ -66,12 +69,17 @@ export default function ProjectDocumentsTab({ projectId, canUpload }: { projectI
     setDownloadingId(doc.id);
     try {
       const res = await fetch(`/api/projects/${projectId}/documents/${doc.id}`);
-      if (!res.ok) return;
+      if (!res.ok) {
+        showToast("No se pudo descargar el documento.", "error");
+        return;
+      }
       const data = await res.json();
       const link = document.createElement("a");
       link.href = `data:${data.mimeType || "application/octet-stream"};base64,${data.fileData}`;
       link.download = data.fileName;
       link.click();
+    } catch {
+      showToast("No se pudo descargar el documento.", "error");
     } finally {
       setDownloadingId(null);
     }
@@ -110,7 +118,6 @@ export default function ProjectDocumentsTab({ projectId, canUpload }: { projectI
           </button>
         </div>
       )}
-      {error && <p className="text-xs text-danger bg-danger/[.09] rounded-lg px-3 py-2">{error}</p>}
 
       {loading && <div className="text-center text-disabled text-sm py-8">Cargando…</div>}
       {!loading && documents.length === 0 && (

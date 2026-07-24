@@ -6,6 +6,7 @@ import { canReviewIdeas, ROLE_LABEL } from "@/lib/roles";
 import type { IdeaDetail, Idea } from "./types";
 import { IMPACT_LABELS, IMPACT_STYLES, STATUS_INFO } from "./constants";
 import { formatDate } from "@/lib/utils";
+import { useToast } from "@/components/ui/Toast";
 
 type Props = {
   ideaId: string;
@@ -29,6 +30,7 @@ export default function IdeaDetailModal({ ideaId, currentUserRole, onClose, onUp
   const [error, setError] = useState("");
   const [progressDraft, setProgressDraft] = useState(0);
   const [savingProgress, setSavingProgress] = useState(false);
+  const { showToast } = useToast();
 
   const canReview = canReviewIdeas(currentUserRole);
 
@@ -45,7 +47,6 @@ export default function IdeaDetailModal({ ideaId, currentUserRole, onClose, onUp
 
   async function handleSaveProgress() {
     setSavingProgress(true);
-    setError("");
     try {
       const res = await fetch(`/api/ideas/${ideaId}`, {
         method: "PATCH",
@@ -54,9 +55,10 @@ export default function IdeaDetailModal({ ideaId, currentUserRole, onClose, onUp
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "Error al actualizar el progreso");
+        showToast(data.error ?? "Error al actualizar el progreso.", "error");
         return;
       }
+      showToast("Progreso actualizado.", "success");
       onUpdated(data);
       await load();
     } finally {
@@ -69,6 +71,13 @@ export default function IdeaDetailModal({ ideaId, currentUserRole, onClose, onUp
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ideaId]);
 
+  const ACTION_SUCCESS_MESSAGE: Record<"ADVANCE" | "RETREAT" | "REJECT" | "REOPEN", string> = {
+    ADVANCE: "Idea avanzada de etapa.",
+    RETREAT: "Idea retrocedida de etapa.",
+    REJECT: "Idea rechazada.",
+    REOPEN: "Idea reabierta.",
+  };
+
   async function runAction(action: "ADVANCE" | "RETREAT" | "REJECT" | "REOPEN", actionComment?: string) {
     setActing(true);
     setError("");
@@ -80,9 +89,10 @@ export default function IdeaDetailModal({ ideaId, currentUserRole, onClose, onUp
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "Error al actualizar la idea");
+        showToast(data.error ?? "Error al actualizar la idea.", "error");
         return;
       }
+      showToast(ACTION_SUCCESS_MESSAGE[action], "success");
       onUpdated(data);
       setComment("");
       setRejectMode(false);

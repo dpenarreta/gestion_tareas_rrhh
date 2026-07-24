@@ -5,6 +5,7 @@ import { useTheme } from "next-themes";
 import { ROLE_LABEL } from "@/lib/roles";
 import { useHasMounted } from "@/hooks/useHasMounted";
 import { Modal, ModalHeader } from "@/components/ui/Modal";
+import { useToast } from "@/components/ui/Toast";
 import type { Role, DataRequestType, DataRequestStatus } from "@/generated/prisma/client";
 import type { ActivityFormat } from "@/lib/activityFormat";
 
@@ -113,6 +114,7 @@ function getManualForRole(role: Role): ManualInfo {
 }
 
 export default function ProfilePage() {
+  const { showToast } = useToast();
   const [user, setUser] = useState<UserInfo | null>(null);
   const [badges, setBadges] = useState<Badge[]>([]);
   const [badgeStats, setBadgeStats] = useState<BadgeStats | null>(null);
@@ -125,20 +127,17 @@ export default function ProfilePage() {
   const [emailInput, setEmailInput] = useState("");
   const [infoLoading, setInfoLoading] = useState(false);
   const [infoError, setInfoError] = useState("");
-  const [infoSuccess, setInfoSuccess] = useState("");
 
   // Password state
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [pwError, setPwError] = useState("");
-  const [pwSuccess, setPwSuccess] = useState("");
   const [pwLoading, setPwLoading] = useState(false);
 
   // Derechos sobre mis datos (LOPDP)
   const [myRequests, setMyRequests] = useState<DataRequest[]>([]);
   const [exportLoading, setExportLoading] = useState(false);
-  const [rightsMsg, setRightsMsg] = useState("");
   const [rightsError, setRightsError] = useState("");
   const [requestModal, setRequestModal] = useState<"RECTIFICACION" | "ELIMINACION" | null>(null);
   const [requestReason, setRequestReason] = useState("");
@@ -174,7 +173,6 @@ export default function ProfilePage() {
 
   async function handleExportData() {
     setRightsError("");
-    setRightsMsg("");
     setExportLoading(true);
     try {
       const res = await fetch("/api/data-requests/my-data");
@@ -189,7 +187,7 @@ export default function ProfilePage() {
       a.download = "nexo-mis-datos.json";
       a.click();
       URL.revokeObjectURL(url);
-      setRightsMsg("Se descargó un archivo con todos tus datos almacenados en Nexo.");
+      showToast("Se descargó un archivo con todos tus datos almacenados en Nexo.", "success");
       loadMyRequests();
     } catch {
       setRightsError("Error de conexión al generar la exportación.");
@@ -222,10 +220,11 @@ export default function ProfilePage() {
       if (!res.ok) {
         setRightsError(data.error ?? "Error al enviar la solicitud");
       } else {
-        setRightsMsg(
+        showToast(
           requestModal === "RECTIFICACION"
             ? "Tu solicitud de rectificación fue enviada al Administrador."
-            : "Tu solicitud de eliminación de cuenta fue enviada al Administrador."
+            : "Tu solicitud de eliminación de cuenta fue enviada al Administrador.",
+          "success"
         );
         setRequestModal(null);
         loadMyRequests();
@@ -242,7 +241,6 @@ export default function ProfilePage() {
     setNameInput(user.name);
     setEmailInput(user.email);
     setInfoError("");
-    setInfoSuccess("");
     setEditing(true);
   }
 
@@ -254,7 +252,6 @@ export default function ProfilePage() {
   async function handleSaveInfo(e: React.FormEvent) {
     e.preventDefault();
     setInfoError("");
-    setInfoSuccess("");
     if (!nameInput.trim()) { setInfoError("El nombre no puede estar vacío"); return; }
     if (!emailInput.trim()) { setInfoError("El correo no puede estar vacío"); return; }
 
@@ -267,14 +264,14 @@ export default function ProfilePage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setInfoError(data.error ?? "Error al guardar");
+        showToast(data.error ?? "Error al guardar", "error");
       } else {
         setUser(data);
         setEditing(false);
-        setInfoSuccess("Perfil actualizado correctamente");
+        showToast("Perfil actualizado correctamente.", "success");
       }
     } catch {
-      setInfoError("Error de conexión");
+      showToast("Error de conexión", "error");
     } finally {
       setInfoLoading(false);
     }
@@ -311,7 +308,6 @@ export default function ProfilePage() {
   async function handleChangePassword(e: React.FormEvent) {
     e.preventDefault();
     setPwError("");
-    setPwSuccess("");
 
     if (newPassword !== confirmPassword) {
       setPwError("Las contraseñas nuevas no coinciden");
@@ -331,15 +327,15 @@ export default function ProfilePage() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setPwError(data.error ?? "Error al cambiar contraseña");
+        showToast(data.error ?? "Error al cambiar contraseña", "error");
       } else {
-        setPwSuccess("Contraseña actualizada correctamente");
+        showToast("Contraseña actualizada correctamente.", "success");
         setCurrentPassword("");
         setNewPassword("");
         setConfirmPassword("");
       }
     } catch {
-      setPwError("Error de conexión");
+      showToast("Error de conexión", "error");
     } finally {
       setPwLoading(false);
     }
@@ -387,18 +383,11 @@ export default function ProfilePage() {
         </div>
 
         {!editing ? (
-          <>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-              <ReadField label="Nombre completo" value={user.name} />
-              <ReadField label="Correo electrónico" value={user.email} />
-              <ReadField label="Rol" value={ROLE_LABEL[user.role]} />
-            </div>
-            {infoSuccess && (
-              <p className="mt-4 text-sm text-success bg-success/[.13] px-3 py-2 rounded-lg">
-                {infoSuccess}
-              </p>
-            )}
-          </>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+            <ReadField label="Nombre completo" value={user.name} />
+            <ReadField label="Correo electrónico" value={user.email} />
+            <ReadField label="Rol" value={ROLE_LABEL[user.role]} />
+          </div>
         ) : (
           <form onSubmit={handleSaveInfo} className="space-y-4">
             <div>
@@ -557,9 +546,6 @@ export default function ProfilePage() {
           Solicita acceso, rectificación o eliminación de tus datos personales almacenados en Nexo.
         </p>
 
-        {rightsMsg && (
-          <p className="mb-4 text-sm text-success bg-success/[.13] px-3 py-2 rounded-lg">{rightsMsg}</p>
-        )}
         {rightsError && !requestModal && (
           <p className="mb-4 text-sm text-danger bg-danger/[.09] px-3 py-2 rounded-lg">{rightsError}</p>
         )}
@@ -758,12 +744,6 @@ export default function ProfilePage() {
               {pwError}
             </p>
           )}
-          {pwSuccess && (
-            <p className="text-sm text-success bg-success/[.13] px-3 py-2 rounded-lg">
-              {pwSuccess}
-            </p>
-          )}
-
           <button
             type="submit"
             disabled={pwLoading}

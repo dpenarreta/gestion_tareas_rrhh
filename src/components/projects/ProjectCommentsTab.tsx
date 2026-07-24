@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { ProjectComment } from "./types";
 import { ROLE_LABEL } from "@/lib/roles";
 import type { Role } from "@/generated/prisma/client";
+import { useToast } from "@/components/ui/Toast";
 
 function formatRelative(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
@@ -17,6 +18,7 @@ function formatRelative(iso: string) {
 }
 
 export default function ProjectCommentsTab({ projectId, canComment }: { projectId: string; canComment: boolean }) {
+  const { showToast } = useToast();
   const [comments, setComments] = useState<ProjectComment[]>([]);
   const [loading, setLoading] = useState(true);
   const [text, setText] = useState("");
@@ -42,7 +44,13 @@ export default function ProjectCommentsTab({ projectId, canComment }: { projectI
         const comment = await res.json();
         setComments((prev) => [...prev, comment]);
         setText("");
+      } else {
+        // Sprint C §7: antes fallaba en silencio (el comentario se perdía sin
+        // avisar). "Reintentar" repite la misma llamada — recuperación segura.
+        showToast("No se pudo publicar el comentario.", "error", { label: "Reintentar", onClick: submit });
       }
+    } catch {
+      showToast("Error de conexión.", "error", { label: "Reintentar", onClick: submit });
     } finally {
       setSubmitting(false);
     }

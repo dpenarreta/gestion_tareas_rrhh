@@ -37,7 +37,7 @@ export async function DELETE(_req: NextRequest, ctx: Ctx) {
   try {
     await recoveryCenter.deletePermanently({ entityType: "PROJECT", entityId: id, userId: session.userId });
   } catch (err) {
-    return NextResponse.json({ error: err instanceof Error ? err.message : "Error al eliminar definitivamente" }, { status: 409 });
+    return NextResponse.json({ error: err instanceof recoveryCenter.RecoveryError ? err.message : "Error al eliminar definitivamente" }, { status: 409 });
   }
 
   return NextResponse.json({ success: true });

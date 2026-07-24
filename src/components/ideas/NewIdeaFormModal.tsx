@@ -3,6 +3,7 @@
 import { useRef, useState } from "react";
 import type { IdeaImpact } from "./types";
 import { IMPACT_LABELS } from "./constants";
+import { useToast } from "@/components/ui/Toast";
 
 type Props = {
   onClose: () => void;
@@ -17,6 +18,7 @@ export default function NewIdeaFormModal({ onClose, onCreated }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const { showToast } = useToast();
 
   function clearFile() {
     setFile(null);
@@ -41,9 +43,10 @@ export default function NewIdeaFormModal({ onClose, onCreated }: Props) {
       const res = await fetch("/api/ideas", { method: "POST", body: formData });
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        setError(data.error ?? "Error al proponer la idea");
+        showToast(data.error ?? "Error al proponer la idea.", "error");
         return;
       }
+      showToast("Idea creada.", "success");
       onCreated();
     } finally {
       setSaving(false);

@@ -30,13 +30,22 @@ type Props = {
 export default function PhaseDetailModal({ projectId, phase, onClose }: Props) {
   const [activities, setActivities] = useState<ProjectActivity[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
-  useEffect(() => {
+  function loadActivities() {
+    setLoading(true);
+    setError(false);
     fetch(`/api/projects/${projectId}/activities`)
-      .then((r) => (r.ok ? r.json() : []))
+      .then((r) => {
+        if (!r.ok) throw new Error();
+        return r.json();
+      })
       .then((data: ProjectActivity[]) => setActivities(Array.isArray(data) ? data.filter((a) => a.phaseId === phase.id) : []))
+      .catch(() => setError(true))
       .finally(() => setLoading(false));
-  }, [projectId, phase.id]);
+  }
+
+  useEffect(() => { queueMicrotask(loadActivities); }, [projectId, phase.id]);
 
   return (
     <>
@@ -101,7 +110,13 @@ export default function PhaseDetailModal({ projectId, phase, onClose }: Props) {
             <div>
               <p className="text-xs text-disabled uppercase tracking-wide mb-2">Actividades de esta fase</p>
               {loading && <p className="text-sm text-disabled">Cargando…</p>}
-              {!loading && activities.length === 0 && <p className="text-sm text-disabled">Sin actividades registradas en esta fase</p>}
+              {!loading && error && (
+                <p className="text-sm text-danger">
+                  No se pudieron cargar las actividades.{" "}
+                  <button onClick={loadActivities} className="font-medium hover:text-danger/80">Reintentar</button>
+                </p>
+              )}
+              {!loading && !error && activities.length === 0 && <p className="text-sm text-disabled">Sin actividades registradas en esta fase</p>}
               <div className="space-y-2">
                 {activities.map((a) => (
                   <div key={a.id} className="bg-background border border-border rounded-xl p-3">

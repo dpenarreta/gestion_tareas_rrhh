@@ -5,6 +5,7 @@ import type { Role } from "@/generated/prisma/client";
 import { ROLE_LABEL } from "@/lib/roles";
 import { formatDate } from "@/lib/utils";
 import TimeInput24 from "@/components/ui/TimeInput24";
+import { useToast } from "@/components/ui/Toast";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -115,6 +116,7 @@ function MeetingFormModal({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const { showToast } = useToast();
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -143,9 +145,9 @@ function MeetingFormModal({
         body: JSON.stringify({ title: title.trim(), description: description.trim() || null, meetingDate, duration, inviteeIds: selectedIds }),
       });
       const data = await res.json();
-      if (!res.ok) { setError(data.error ?? "Error al crear reunión"); }
-      else { onSaved(data); }
-    } catch { setError("Error de conexión"); }
+      if (!res.ok) { showToast(data.error ?? "Error al crear reunión.", "error"); }
+      else { showToast("Reunión creada.", "success"); onSaved(data); }
+    } catch { showToast("Error de conexión.", "error"); }
     finally { setSaving(false); }
   }
 
@@ -266,32 +268,50 @@ function MeetingDetailModal({
   const [transcriptUrl, setTranscriptUrl] = useState(initial.otterTranscriptUrl ?? "");
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+  const { showToast } = useToast();
 
   const isHost = meeting.hostId === currentUserId;
 
-  async function patch(data: Record<string, unknown>) {
+  async function patch(data: Record<string, unknown>, successMessage?: string) {
     setSaving(true);
-    const res = await fetch(`/api/meetings/${meeting.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
-    if (res.ok) {
-      const updated: Meeting = await res.json();
-      setMeeting(updated);
-      onUpdated(updated);
+    try {
+      const res = await fetch(`/api/meetings/${meeting.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (res.ok) {
+        const updated: Meeting = await res.json();
+        setMeeting(updated);
+        onUpdated(updated);
+        if (successMessage) showToast(successMessage, "success");
+        return true;
+      }
+      const errData = await res.json().catch(() => ({}));
+      showToast(errData.error ?? "Error al actualizar la reunión.", "error");
+      return false;
+    } finally {
+      setSaving(false);
     }
-    setSaving(false);
   }
 
   async function handleSaveSummary() {
-    await patch({ otterSummary: summaryText.trim() || null, otterTranscriptUrl: transcriptUrl.trim() || null });
-    setEditSummary(false);
+    const ok = await patch(
+      { otterSummary: summaryText.trim() || null, otterTranscriptUrl: transcriptUrl.trim() || null },
+      "Notas guardadas."
+    );
+    if (ok) setEditSummary(false);
   }
 
   async function handleDelete() {
     if (!confirm(`¿Eliminar la reunión "${meeting.title}"?`)) return;
-    await fetch(`/api/meetings/${meeting.id}`, { method: "DELETE" });
+    const res = await fetch(`/api/meetings/${meeting.id}`, { method: "DELETE" });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      showToast(data.error ?? "Error al eliminar la reunión.", "error");
+      return;
+    }
+    showToast("Reunión eliminada.", "success");
     onDeleted(meeting.id);
     onClose();
   }
@@ -375,7 +395,7 @@ function MeetingDetailModal({
               <p className="text-xs font-semibold text-disabled uppercase tracking-wider mb-2">Estado</p>
               <div className="flex gap-2">
                 {STATUS_OPTIONS.map((s) => (
-                  <button key={s} onClick={() => patch({ status: s })} disabled={saving}
+                  <button key={s} onClick={() => patch({ status: s }, `Estado actualizado a "${STATUS_CFG[s].label}".`)} disabled={saving}
                     className={`px-3 py-1.5 text-xs font-medium rounded-xl border transition-colors disabled:opacity-50 ${meeting.status === s ? "bg-primary text-white border-primary" : "text-main border-border hover:border-primary/40"}`}>
                     {STATUS_CFG[s].label}
                   </button>

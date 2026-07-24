@@ -4,6 +4,14 @@ import { getEffectiveRecoveryRetentionHours } from "@/lib/systemConfig";
 import type { RecoveryItem, RecoveryOperation, RecoveryOrigin } from "@/generated/prisma/client";
 
 /**
+ * Sprint C §7: distingue los errores curados de este módulo (mensaje ya
+ * pensado para mostrarse al usuario) de cualquier excepción inesperada
+ * (ej. un error de Prisma) que también sea `instanceof Error` — las rutas
+ * API solo deben mostrar `err.message` crudo cuando es un RecoveryError.
+ */
+export class RecoveryError extends Error {}
+
+/**
  * Centro de Recuperación (§14 del pedido — arquitectura corporativa interna,
  * el usuario solo ve "Papelera" en cada módulo). Único mecanismo oficial de
  * eliminación temporal/restauración de NEXO: ningún módulo nuevo debe
@@ -71,7 +79,7 @@ export type RecoveryEntityType = keyof typeof ENTITY_REGISTRY;
 function getAdapter(entityType: string): EntityAdapter {
   const adapter = ENTITY_REGISTRY[entityType];
   if (!adapter) {
-    throw new Error(`Tipo de entidad no registrada en el Centro de Recuperación: ${entityType}`);
+    throw new RecoveryError(`Tipo de entidad no registrada en el Centro de Recuperación: ${entityType}`);
   }
   return adapter;
 }
@@ -109,7 +117,7 @@ export async function moveToTrash(params: {
     where: { entityType: params.entityType, entityId: params.entityId, status: "ACTIVE" },
   });
   if (existingActive) {
-    throw new Error("Este elemento ya está en la papelera");
+    throw new RecoveryError("Este elemento ya está en la papelera");
   }
 
   const retentionHours = await getEffectiveRecoveryRetentionHours();
@@ -157,10 +165,10 @@ export async function restore(params: {
     orderBy: { deletedAt: "desc" },
   });
   if (!item) {
-    throw new Error("Este elemento no está en la papelera");
+    throw new RecoveryError("Este elemento no está en la papelera");
   }
   if (item.expiresAt.getTime() <= Date.now()) {
-    throw new Error("El período de retención de este elemento ya expiró");
+    throw new RecoveryError("El período de retención de este elemento ya expiró");
   }
 
   const updated = await prisma.recoveryItem.update({
@@ -194,7 +202,7 @@ export async function deletePermanently(params: {
     orderBy: { deletedAt: "desc" },
   });
   if (!item) {
-    throw new Error("Este elemento no está en la papelera");
+    throw new RecoveryError("Este elemento no está en la papelera");
   }
 
   await adapter.hardDelete(params.entityId);

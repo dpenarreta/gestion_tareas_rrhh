@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { PROJECT_STATUS_LABEL, type ProjectStatus } from "./types";
+import { useToast } from "@/components/ui/Toast";
 
 type TrashedProject = {
   id: string;
@@ -35,9 +36,9 @@ type Props = {
 };
 
 export default function ProjectTrashPanel({ onClose, onRestored }: Props) {
+  const { showToast } = useToast();
   const [items, setItems] = useState<TrashedProject[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
   const [busyId, setBusyId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -51,16 +52,21 @@ export default function ProjectTrashPanel({ onClose, onRestored }: Props) {
     if (busyId) return;
     if (!window.confirm(`¿Restaurar "${name}"?`)) return;
     setBusyId(id);
-    setError("");
     try {
       const res = await fetch(`/api/projects/${id}/restore`, { method: "POST" });
       if (res.ok) {
         setItems((prev) => prev.filter((p) => p.id !== id));
         onRestored?.();
+        showToast("Proyecto restaurado.", "success");
       } else {
         const d = await res.json().catch(() => ({}));
-        setError(d.error ?? "Error al restaurar");
+        showToast(d.error ?? "No se pudo restaurar el proyecto.", "error", {
+          label: "Reintentar",
+          onClick: () => restoreItem(id, name),
+        });
       }
+    } catch {
+      showToast("Error de conexión.", "error", { label: "Reintentar", onClick: () => restoreItem(id, name) });
     } finally {
       setBusyId(null);
     }
@@ -70,15 +76,20 @@ export default function ProjectTrashPanel({ onClose, onRestored }: Props) {
     if (busyId) return;
     if (!window.confirm(`¿Eliminar "${name}" definitivamente? Esta acción no se puede deshacer.`)) return;
     setBusyId(id);
-    setError("");
     try {
       const res = await fetch(`/api/projects/${id}/permanent`, { method: "DELETE" });
       if (res.ok) {
         setItems((prev) => prev.filter((p) => p.id !== id));
+        showToast("Proyecto eliminado definitivamente.", "success");
       } else {
         const d = await res.json().catch(() => ({}));
-        setError(d.error ?? "Error al eliminar definitivamente");
+        showToast(d.error ?? "No se pudo eliminar el proyecto.", "error", {
+          label: "Reintentar",
+          onClick: () => deleteForever(id, name),
+        });
       }
+    } catch {
+      showToast("Error de conexión.", "error", { label: "Reintentar", onClick: () => deleteForever(id, name) });
     } finally {
       setBusyId(null);
     }
@@ -99,8 +110,6 @@ export default function ProjectTrashPanel({ onClose, onRestored }: Props) {
             </svg>
           </button>
         </div>
-
-        {error && <p className="mx-4 mt-3 text-xs text-danger bg-danger/[.09] rounded-lg px-3 py-2">{error}</p>}
 
         <div className="flex-1 overflow-y-auto p-4 space-y-2">
           {loading && <div className="text-center text-disabled text-sm py-8">Cargando…</div>}

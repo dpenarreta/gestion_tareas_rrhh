@@ -4,10 +4,14 @@ import { createContext, useCallback, useContext, useState, type ReactNode } from
 import { CheckCircle2, XCircle, Info, AlertTriangle, X, type LucideIcon } from "lucide-react";
 
 export type ToastVariant = "success" | "error" | "info" | "warning";
-type ToastItem = { id: string; variant: ToastVariant; message: string };
+export type ToastAction = { label: string; onClick: () => void };
+type ToastItem = { id: string; variant: ToastVariant; message: string; action?: ToastAction };
 
 type ToastContextValue = {
-  showToast: (message: string, variant?: ToastVariant) => void;
+  // `action` (Sprint C §7) es opcional y deliberadamente acotado: solo tiene
+  // sentido cuando repetir la MISMA llamada es una recuperación segura (ej.
+  // reintentar un POST que falló) — no se agrega a todos los toasts.
+  showToast: (message: string, variant?: ToastVariant, action?: ToastAction) => void;
 };
 
 const ToastContext = createContext<ToastContextValue | null>(null);
@@ -47,10 +51,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const showToast = useCallback(
-    (message: string, variant: ToastVariant = "success") => {
+    (message: string, variant: ToastVariant = "success", action?: ToastAction) => {
       const id = crypto.randomUUID();
-      setToasts((prev) => [...prev, { id, variant, message }]);
-      setTimeout(() => dismiss(id), 4000);
+      setToasts((prev) => [...prev, { id, variant, message, action }]);
+      // Con acción (ej. "Reintentar") se deja más tiempo para que el usuario
+      // pueda leerla y decidir antes de que desaparezca.
+      setTimeout(() => dismiss(id), action ? 7000 : 4000);
     },
     [dismiss]
   );
@@ -73,6 +79,17 @@ export function ToastProvider({ children }: { children: ReactNode }) {
             >
               <Icon className="w-4.5 h-4.5 shrink-0 mt-0.5" strokeWidth={2} />
               <p className="text-sm font-medium text-title flex-1">{t.message}</p>
+              {t.action && (
+                <button
+                  onClick={() => {
+                    t.action!.onClick();
+                    dismiss(t.id);
+                  }}
+                  className="shrink-0 text-sm font-semibold text-primary hover:text-primary-hover"
+                >
+                  {t.action.label}
+                </button>
+              )}
               <button
                 onClick={() => dismiss(t.id)}
                 aria-label="Cerrar notificación"

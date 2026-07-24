@@ -12,15 +12,34 @@ function formatDateTime(iso: string) {
 export default function ProjectHistoryTab({ projectId }: { projectId: string }) {
   const [history, setHistory] = useState<ProjectHistoryEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
-  useEffect(() => {
+  function load() {
+    setLoading(true);
+    setError(false);
     fetch(`/api/projects/${projectId}/history`)
-      .then((r) => (r.ok ? r.json() : []))
+      .then((r) => {
+        if (!r.ok) throw new Error();
+        return r.json();
+      })
       .then((data) => setHistory(Array.isArray(data) ? data : []))
+      // Sprint C §7: antes un fallo de red mostraba el mismo "sin eventos" que
+      // un proyecto genuinamente sin historial — indistinguibles para el usuario.
+      .catch(() => setError(true))
       .finally(() => setLoading(false));
-  }, [projectId]);
+  }
+
+  useEffect(() => { queueMicrotask(load); }, [projectId]);
 
   if (loading) return <div className="text-center text-disabled text-sm py-8">Cargando…</div>;
+  if (error) {
+    return (
+      <div className="text-center text-sm py-12 bg-surface border border-border rounded-2xl space-y-2">
+        <p className="text-danger">No se pudo cargar el historial.</p>
+        <button onClick={load} className="text-primary font-medium hover:text-primary-hover">Reintentar</button>
+      </div>
+    );
+  }
   if (history.length === 0) {
     return <div className="text-center text-disabled text-sm py-12 bg-surface border border-border rounded-2xl">Sin eventos registrados</div>;
   }

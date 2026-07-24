@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import type { Role } from "@/generated/prisma/client";
 import { ROLE_LABEL } from "@/lib/roles";
 import TimeInput24 from "@/components/ui/TimeInput24";
+import { useToast } from "@/components/ui/Toast";
 
 type AssignableUser = { id: string; name: string; email: string; role: Role };
 
@@ -25,6 +26,7 @@ export default function MeetingFormModalDashboard({
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const { showToast } = useToast();
 
   useEffect(() => {
     fetch("/api/users/assignable")
@@ -59,12 +61,13 @@ export default function MeetingFormModalDashboard({
         }),
       });
       const data = await res.json();
-      if (!res.ok) setError(data.error ?? "Error al crear reunión");
+      if (!res.ok) showToast(data.error ?? "Error al crear reunión.", "error");
       else {
         if (data.zoomWarning) alert(data.zoomWarning);
+        showToast("Reunión creada.", "success");
         onSaved();
       }
-    } catch { setError("Error de conexión"); }
+    } catch { showToast("Error de conexión.", "error"); }
     finally { setSaving(false); }
   }
 

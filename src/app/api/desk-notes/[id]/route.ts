@@ -131,7 +131,7 @@ export async function DELETE(_req: NextRequest, ctx: Ctx) {
     try {
       await recoveryCenter.moveToTrash({ entityType: "DESK_NOTE", entityId: id, userId: session.userId });
     } catch (err) {
-      return NextResponse.json({ error: err instanceof Error ? err.message : "Error al eliminar" }, { status: 409 });
+      return NextResponse.json({ error: err instanceof recoveryCenter.RecoveryError ? err.message : "Error al eliminar" }, { status: 409 });
     }
     await logDeskAudit({
       entityType: "NOTE",

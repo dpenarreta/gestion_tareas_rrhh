@@ -5,6 +5,7 @@ import type { Role } from "@/generated/prisma/client";
 import type { ProjectActivity, ProjectPhase } from "./types";
 import { DOCUMENT_CATEGORY_LABEL } from "./types";
 import { businessCalendarDay, previousBusinessDays } from "@/lib/businessTime";
+import { useToast } from "@/components/ui/Toast";
 
 const WEEKDAY_LABELS = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
 
@@ -43,9 +44,12 @@ function dayKey(a: ProjectActivity): string {
   return (a.activityDate ?? a.createdAt).slice(0, 10);
 }
 
-async function downloadDocument(projectId: string, documentId: string, fileName: string, mimeType: string | null) {
+async function downloadDocument(projectId: string, documentId: string, fileName: string, mimeType: string | null, onError: () => void) {
   const res = await fetch(`/api/projects/${projectId}/documents/${documentId}`);
-  if (!res.ok) return;
+  if (!res.ok) {
+    onError();
+    return;
+  }
   const data = await res.json();
   const link = document.createElement("a");
   link.href = `data:${mimeType || "application/octet-stream"};base64,${data.fileData}`;
@@ -63,6 +67,7 @@ type Props = {
 };
 
 export default function ProjectActivitiesTab({ projectId, phases, targetTimeHours, currentUserId, canRegister }: Props) {
+  const { showToast } = useToast();
   const today = useMemo(() => businessCalendarDay(new Date()), []);
   const validDates = useMemo(() => [today, ...previousBusinessDays(today, 2)], [today]);
 
@@ -75,7 +80,6 @@ export default function ProjectActivitiesTab({ projectId, phases, targetTimeHour
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
   const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState("");
 
   useEffect(() => {
     fetch(`/api/projects/${projectId}/activities`)
@@ -129,7 +133,6 @@ export default function ProjectActivitiesTab({ projectId, phases, targetTimeHour
     const trimmedDescription = description.trim();
     if (trimmedDescription.length < MIN_DESCRIPTION_LENGTH || !previewDuration || submitting) return;
     setSubmitting(true);
-    setError("");
     try {
       const res = await fetch(`/api/projects/${projectId}/activities`, {
         method: "POST",
@@ -150,10 +153,13 @@ export default function ProjectActivitiesTab({ projectId, phases, targetTimeHour
         setComments("");
         setStartTime("");
         setEndTime("");
+        showToast("Actividad registrada.", "success");
       } else {
         const d = await res.json().catch(() => ({}));
-        setError(d.error ?? "Error al registrar la actividad");
+        showToast(d.error ?? "No se pudo registrar la actividad.", "error", { label: "Reintentar", onClick: submit });
       }
+    } catch {
+      showToast("Error de conexión.", "error", { label: "Reintentar", onClick: submit });
     } finally {
       setSubmitting(false);
     }
@@ -190,7 +196,11 @@ export default function ProjectActivitiesTab({ projectId, phases, targetTimeHour
                             {a.documents.map((doc) => (
                               <button
                                 key={doc.id}
-                                onClick={() => downloadDocument(projectId, doc.id, doc.fileName, doc.mimeType)}
+                                onClick={() =>
+                                  downloadDocument(projectId, doc.id, doc.fileName, doc.mimeType, () =>
+                                    showToast("No se pudo descargar el documento.", "error")
+                                  )
+                                }
                                 className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-primary-surface text-primary hover:bg-primary/[.18]"
                                 title={`Descargar (${DOCUMENT_CATEGORY_LABEL[doc.category]})`}
                               >
@@ -323,8 +333,6 @@ export default function ProjectActivitiesTab({ projectId, phases, targetTimeHour
                 className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary resize-none"
               />
             </div>
-
-            {error && <p className="text-xs text-danger bg-danger/[.09] rounded-lg px-3 py-2">{error}</p>}
 
             <button
               onClick={submit}

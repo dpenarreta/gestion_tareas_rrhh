@@ -244,11 +244,14 @@ export default function AssistantModule() {
                             {doc._count.chunks} fragmentos · {new Date(doc.createdAt).toLocaleDateString("es-CL")}
                           </p>
                           {doc.processingError && (
+                            // Sprint C §7: el detalle técnico crudo (mensaje de excepción)
+                            // queda solo en el tooltip — el texto visible es siempre
+                            // comprensible, sin jerga.
                             <p
                               className={`text-[10px] mt-0.5 ${doc.status === "ERROR" ? "text-danger" : "text-warning"}`}
                               title={doc.processingError}
                             >
-                              ⚠️ {doc.processingError}
+                              ⚠️ No se pudo procesar el documento. Pasa el cursor para más detalle.
                             </p>
                           )}
                         </div>

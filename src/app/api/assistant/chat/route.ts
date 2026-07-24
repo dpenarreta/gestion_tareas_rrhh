@@ -270,9 +270,11 @@ export async function POST(request: NextRequest) {
         teamCtx = await buildTeamContext(session.userId, session.role as Role);
         safeLog("log", "[assistant/chat] Contexto equipo OK, chars:", teamCtx.length);
       } catch (teamErr) {
-        const msg = teamErr instanceof Error ? teamErr.message : String(teamErr);
-        safeLog("error", "[assistant/chat] ERROR en buildTeamContext:", msg);
-        teamCtx = `[No se pudo cargar el contexto del equipo: ${msg}]`;
+        // Sprint C §7: el detalle técnico queda solo en el log del servidor —
+        // antes se insertaba crudo en el contexto que recibe el modelo, con
+        // riesgo de que Nova lo repitiera textualmente al usuario.
+        safeLog("error", "[assistant/chat] ERROR en buildTeamContext:", teamErr);
+        teamCtx = "[No se pudo cargar el contexto del equipo]";
       }
 
       safeLog("log", "[assistant/chat] Buscando chunks relevantes...");
