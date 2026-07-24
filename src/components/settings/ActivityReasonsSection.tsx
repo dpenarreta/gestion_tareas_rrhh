@@ -7,6 +7,7 @@ import SectionCard from "./SectionCard";
 import { Button } from "@/components/ui/Button";
 import { SkeletonText } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { useToast } from "@/components/ui/Toast";
 import { ListX } from "lucide-react";
 
 type Reason = {
@@ -175,12 +176,11 @@ function ReasonRow({ reason, onUpdated }: { reason: Reason; onUpdated: (r: Reaso
 }
 
 function ArchivedReasonRow({ reason, onRestored }: { reason: Reason; onRestored: (r: Reason) => void }) {
+  const { showToast } = useToast();
   const [restoring, setRestoring] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   async function handleRestore() {
     setRestoring(true);
-    setError(null);
     try {
       const res = await fetch(`/api/settings/activity-reasons/${reason.id}`, {
         method: "PATCH",
@@ -189,12 +189,13 @@ function ArchivedReasonRow({ reason, onRestored }: { reason: Reason; onRestored:
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "Error al restaurar el motivo");
+        showToast(data.error ?? "Error al restaurar el motivo", "error");
       } else {
         onRestored(data);
+        showToast("Motivo restaurado.", "success");
       }
     } catch {
-      setError("Error de conexión");
+      showToast("Error de conexión", "error");
     } finally {
       setRestoring(false);
     }
@@ -207,7 +208,6 @@ function ArchivedReasonRow({ reason, onRestored }: { reason: Reason; onRestored:
         <p className="text-[11px] text-disabled mt-0.5">
           Archivado {reason.archivedAt ? formatArchivedDate(reason.archivedAt) : ""}
         </p>
-        {error && <p className="text-xs text-danger mt-1">{error}</p>}
       </div>
       <button
         onClick={handleRestore}
@@ -221,13 +221,13 @@ function ArchivedReasonRow({ reason, onRestored }: { reason: Reason; onRestored:
 }
 
 export default function ActivityReasonsSection() {
+  const { showToast } = useToast();
   const [reasons, setReasons] = useState<Reason[]>([]);
   const [loading, setLoading] = useState(true);
   const [newLabel, setNewLabel] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [newRoles, setNewRoles] = useState<Role[]>([]);
   const [creating, setCreating] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [archiveOpen, setArchiveOpen] = useState(false);
 
   const load = useCallback(async () => {
@@ -244,10 +244,9 @@ export default function ActivityReasonsSection() {
 
   async function handleCreate() {
     if (!newLabel.trim() || newRoles.length === 0) {
-      setError("El nombre y al menos un rol son obligatorios");
+      showToast("El nombre y al menos un rol son obligatorios", "error");
       return;
     }
-    setError(null);
     setCreating(true);
     try {
       const res = await fetch("/api/settings/activity-reasons", {
@@ -257,15 +256,16 @@ export default function ActivityReasonsSection() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "Error al crear el motivo");
+        showToast(data.error ?? "Error al crear el motivo", "error");
       } else {
         setReasons((prev) => [...prev, data]);
         setNewLabel("");
         setNewDescription("");
         setNewRoles([]);
+        showToast("Motivo creado.", "success");
       }
     } catch {
-      setError("Error de conexión");
+      showToast("Error de conexión", "error");
     } finally {
       setCreating(false);
     }
@@ -280,13 +280,6 @@ export default function ActivityReasonsSection() {
 
   return (
     <SectionCard title="Motivos de actividades de seguimiento">
-      {error && (
-        <div className="bg-danger/[.09] rounded-lg px-4 py-3 text-sm text-danger flex items-center justify-between">
-          <span>{error}</span>
-          <button onClick={() => setError(null)} className="ml-2 text-danger hover:brightness-90 font-bold">×</button>
-        </div>
-      )}
-
       <div className="space-y-2 border border-border rounded-lg p-3">
         <p className="text-sm font-medium text-title">Crear motivo</p>
         <input

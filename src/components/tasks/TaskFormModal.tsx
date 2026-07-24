@@ -5,6 +5,7 @@ import type { Task, AssignableUser, TaskType } from "./types";
 import { hoursToDisplay, displayToHours, validateDisplayHours, INVALID_HOURS_MESSAGE } from "@/lib/timeFormat";
 import { TARGET_TIME_TOOLTIP } from "@/lib/targetTime";
 import { Button } from "@/components/ui/Button";
+import { useToast } from "@/components/ui/Toast";
 
 const STATUS_OPTIONS = [
   { value: "PENDIENTE", label: "Pendiente" },
@@ -41,6 +42,7 @@ type Props = {
 };
 
 export default function TaskFormModal({ task, initialStatus, initialAssignedToId, users, currentUserId, onSave, onClose }: Props) {
+  const { showToast } = useToast();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [type, setType] = useState<TaskType>("FIJA");
@@ -110,6 +112,7 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
         return;
       }
 
+      showToast(task ? "Tarea actualizada." : "Tarea creada.", "success");
       onSave();
     } finally {
       setSaving(false);

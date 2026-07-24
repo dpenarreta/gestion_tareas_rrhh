@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/Button";
 import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
 import { SkeletonRow, SkeletonText } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { useToast } from "@/components/ui/Toast";
 import { FileX, ClipboardList } from "lucide-react";
 
 type User = {
@@ -136,17 +137,14 @@ function businessDaysInMonth(year: number, month: number): number {
 export default function SettingsManager({ currentUserRole }: { currentUserRole: Role }) {
   const isAdmin = currentUserRole === "ADMINISTRADOR";
   const canManageKnowledgeBase = isAdmin;
+  const { showToast } = useToast();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const [systemInfo, setSystemInfo] = useState<SystemInfo | null>(null);
   const [infoLoading, setInfoLoading] = useState(true);
   const [loginAttemptCleanupLoading, setLoginAttemptCleanupLoading] = useState(false);
-  const [loginAttemptCleanupMsg, setLoginAttemptCleanupMsg] = useState<string | null>(null);
-  const [loginAttemptCleanupError, setLoginAttemptCleanupError] = useState<string | null>(null);
 
   // Configuración de carga laboral — 4 límites independientes
   const [hoursPerDay, setHoursPerDay] = useState<number | null>(null);
@@ -159,8 +157,6 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
   const [limitOverloadInput, setLimitOverloadInput] = useState("8.30");
   const [hoursLoading, setHoursLoading] = useState(true);
   const [hoursSaving, setHoursSaving] = useState(false);
-  const [hoursMsg, setHoursMsg] = useState<string | null>(null);
-  const [hoursError, setHoursError] = useState<string | null>(null);
 
   // Solicitudes de titulares de datos (LOPDP)
   const [dataRequests, setDataRequests] = useState<DataRequestRow[]>([]);
@@ -171,18 +167,13 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
   const [retentionPolicy, setRetentionPolicy] = useState<RetentionPolicy | null>(null);
   const [retentionLoading, setRetentionLoading] = useState(true);
   const [retentionSaving, setRetentionSaving] = useState(false);
-  const [retentionMsg, setRetentionMsg] = useState<string | null>(null);
-  const [retentionError, setRetentionError] = useState<string | null>(null);
   const [purgeLoading, setPurgeLoading] = useState(false);
-  const [purgeMsg, setPurgeMsg] = useState<string | null>(null);
-  const [purgeError, setPurgeError] = useState<string | null>(null);
 
   // Base de conocimiento RRHH
   const [docs, setDocs] = useState<KnowledgeDoc[]>([]);
   const [docsLoading, setDocsLoading] = useState(true);
   const [docTitle, setDocTitle] = useState("");
   const [docAdding, setDocAdding] = useState(false);
-  const [docError, setDocError] = useState<string | null>(null);
   const [docBusyId, setDocBusyId] = useState<string | null>(null);
   const docFileInputRef = useRef<HTMLInputElement>(null);
 
@@ -278,15 +269,13 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
   ]);
 
   async function handleSaveHours() {
-    setHoursMsg(null);
-    setHoursError(null);
     if (
       !validateDisplayHours(hoursInput) ||
       !validateDisplayHours(limitLowInput) ||
       !validateDisplayHours(limitHighInput) ||
       !validateDisplayHours(limitOverloadInput)
     ) {
-      setHoursError(INVALID_HOURS_MESSAGE);
+      showToast(INVALID_HOURS_MESSAGE, "error");
       return;
     }
     const hoursValue = displayToHours(hoursInput);
@@ -307,7 +296,7 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
       });
       const data = await res.json();
       if (!res.ok) {
-        setHoursError(data.error ?? "Error al guardar la configuración");
+        showToast(data.error ?? "Error al guardar la configuración", "error");
       } else {
         setHoursPerDay(data.hoursPerDay);
         setHoursInput(hoursToDisplay(data.hoursPerDay));
@@ -317,10 +306,10 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
         setLimitHighInput(hoursToDisplay(data.workloadLimitHigh));
         setWorkloadLimitOverload(data.workloadLimitOverload);
         setLimitOverloadInput(hoursToDisplay(data.workloadLimitOverload));
-        setHoursMsg("Configuración de carga laboral actualizada.");
+        showToast("Configuración de carga laboral actualizada.", "success");
       }
     } catch {
-      setHoursError("Error de conexión");
+      showToast("Error de conexión", "error");
     } finally {
       setHoursSaving(false);
     }
@@ -328,16 +317,15 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
 
   async function handleAddDoc(file: File) {
     if (!docTitle.trim()) {
-      setDocError("Ingresa el nombre del documento antes de seleccionar el archivo.");
+      showToast("Ingresa el nombre del documento antes de seleccionar el archivo.", "error");
       return;
     }
     const MAX_UPLOAD_BYTES = 4.5 * 1024 * 1024;
     if (file.size > MAX_UPLOAD_BYTES) {
-      setDocError("El archivo supera el límite de 4.5MB. Por favor usa un archivo más pequeño.");
+      showToast("El archivo supera el límite de 4.5MB. Por favor usa un archivo más pequeño.", "error");
       if (docFileInputRef.current) docFileInputRef.current.value = "";
       return;
     }
-    setDocError(null);
     setDocAdding(true);
     try {
       const fd = new FormData();
@@ -348,17 +336,18 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
       try {
         data = await res.json();
       } catch {
-        setDocError(res.ok ? "Error al agregar el documento." : `Error al agregar el documento (código ${res.status}).`);
+        showToast(res.ok ? "Error al agregar el documento." : `Error al agregar el documento (código ${res.status}).`, "error");
         return;
       }
       if (!res.ok) {
-        setDocError(data.error ?? "Error al agregar el documento");
+        showToast(data.error ?? "Error al agregar el documento", "error");
       } else {
         setDocTitle("");
+        showToast("Documento agregado correctamente.", "success");
         await loadDocs();
       }
     } catch {
-      setDocError("Error de conexión");
+      showToast("Error de conexión", "error");
     } finally {
       setDocAdding(false);
       if (docFileInputRef.current) docFileInputRef.current.value = "";
@@ -383,20 +372,18 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
       )
     )
       return;
-    setMsg(null);
-    setError(null);
     setBusyId(user.id);
     try {
       const res = await fetch(`/api/users/${user.id}/reset-consent`, { method: "PATCH" });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "Error al restablecer el consentimiento");
+        showToast(data.error ?? "Error al restablecer el consentimiento", "error");
       } else {
-        setMsg(`Se restableció el aviso de protección de datos para ${user.name}.`);
+        showToast(`Se restableció el aviso de protección de datos para ${user.name}.`, "success");
         loadUsers();
       }
     } catch {
-      setError("Error de conexión");
+      showToast("Error de conexión", "error");
     } finally {
       setBusyId(null);
     }
@@ -415,36 +402,32 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
       )
     )
       return;
-    setMsg(null);
-    setError(null);
     try {
       const res = await fetch("/api/users/reset-consent-all", { method: "PATCH" });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "Error al restablecer el consentimiento");
+        showToast(data.error ?? "Error al restablecer el consentimiento", "error");
       } else {
-        setMsg(`Se restableció el consentimiento de ${data.count} usuario(s).`);
+        showToast(`Se restableció el consentimiento de ${data.count} usuario(s).`, "success");
         loadUsers();
       }
     } catch {
-      setError("Error de conexión");
+      showToast("Error de conexión", "error");
     }
   }
 
   async function handleResetPassword(user: User) {
-    setMsg(null);
-    setError(null);
     setBusyId(user.id);
     try {
       const res = await fetch(`/api/users/${user.id}/reset-password`, { method: "POST" });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "Error al resetear");
+        showToast(data.error ?? "Error al resetear", "error");
       } else {
-        setMsg(data.message);
+        showToast(data.message, "success");
       }
     } catch {
-      setError("Error de conexión");
+      showToast("Error de conexión", "error");
     } finally {
       setBusyId(null);
     }
@@ -469,8 +452,6 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
 
   async function handleSaveRetentionPolicy() {
     if (!retentionPolicy) return;
-    setRetentionMsg(null);
-    setRetentionError(null);
     setRetentionSaving(true);
     try {
       const res = await fetch("/api/settings/retention-policy", {
@@ -480,32 +461,30 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
       });
       const data = await res.json();
       if (!res.ok) {
-        setRetentionError(data.error ?? "Error al guardar la política de retención");
+        showToast(data.error ?? "Error al guardar la política de retención", "error");
       } else {
         setRetentionPolicy(data);
-        setRetentionMsg("Política de retención actualizada.");
+        showToast("Política de retención actualizada.", "success");
       }
     } catch {
-      setRetentionError("Error de conexión");
+      showToast("Error de conexión", "error");
     } finally {
       setRetentionSaving(false);
     }
   }
 
   async function handleRunPurge() {
-    setPurgeMsg(null);
-    setPurgeError(null);
     setPurgeLoading(true);
     try {
       const previewRes = await fetch("/api/settings/retention-policy/purge");
       const preview = await previewRes.json();
       if (!previewRes.ok) {
-        setPurgeError(preview.error ?? "Error al calcular la vista previa de depuración");
+        showToast(preview.error ?? "Error al calcular la vista previa de depuración", "error");
         return;
       }
       const { reportsToDelete, tasksToDelete, docsToDelete } = preview;
       if (reportsToDelete === 0 && tasksToDelete === 0 && docsToDelete === 0) {
-        setPurgeMsg("No hay registros que superen la política de retención vigente.");
+        showToast("No hay registros que superen la política de retención vigente.", "info");
         return;
       }
       if (
@@ -528,32 +507,31 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
       });
       const data = await res.json();
       if (!res.ok) {
-        setPurgeError(data.error ?? "Error al ejecutar la depuración");
+        showToast(data.error ?? "Error al ejecutar la depuración", "error");
       } else {
-        setPurgeMsg(
-          `Depuración completada: ${data.reportsDeleted} informe(s), ${data.tasksDeleted} tarea(s) y ${data.docsDeleted} documento(s) eliminados.`
+        showToast(
+          `Depuración completada: ${data.reportsDeleted} informe(s), ${data.tasksDeleted} tarea(s) y ${data.docsDeleted} documento(s) eliminados.`,
+          "success"
         );
       }
     } catch {
-      setPurgeError("Error de conexión");
+      showToast("Error de conexión", "error");
     } finally {
       setPurgeLoading(false);
     }
   }
 
   async function handleCleanupLoginAttempts() {
-    setLoginAttemptCleanupMsg(null);
-    setLoginAttemptCleanupError(null);
     setLoginAttemptCleanupLoading(true);
     try {
       const previewRes = await fetch("/api/settings/login-attempts/cleanup");
       const preview = await previewRes.json();
       if (!previewRes.ok) {
-        setLoginAttemptCleanupError(preview.error ?? "Error al calcular los registros a limpiar");
+        showToast(preview.error ?? "Error al calcular los registros a limpiar", "error");
         return;
       }
       if (preview.expiredCount === 0) {
-        setLoginAttemptCleanupMsg("No hay intentos de login expirados para limpiar.");
+        showToast("No hay intentos de login expirados para limpiar.", "info");
         return;
       }
       if (
@@ -566,12 +544,12 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
       const res = await fetch("/api/settings/login-attempts/cleanup", { method: "POST" });
       const data = await res.json();
       if (!res.ok) {
-        setLoginAttemptCleanupError(data.error ?? "Error al limpiar los intentos de login");
+        showToast(data.error ?? "Error al limpiar los intentos de login", "error");
       } else {
-        setLoginAttemptCleanupMsg(`Se eliminaron ${data.deleted} registro(s) de intentos de login expirados.`);
+        showToast(`Se eliminaron ${data.deleted} registro(s) de intentos de login expirados.`, "success");
       }
     } catch {
-      setLoginAttemptCleanupError("Error de conexión");
+      showToast("Error de conexión", "error");
     } finally {
       setLoginAttemptCleanupLoading(false);
     }
@@ -579,23 +557,6 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
 
   return (
     <div className="space-y-6">
-      {msg && (
-        <div className="bg-success/[.13] rounded-lg px-4 py-3 text-sm text-success flex items-center justify-between">
-          <span>{msg}</span>
-          <button onClick={() => setMsg(null)} className="ml-2 text-success hover:brightness-90 font-bold">
-            ×
-          </button>
-        </div>
-      )}
-      {error && (
-        <div className="bg-danger/[.09] rounded-lg px-4 py-3 text-sm text-danger flex items-center justify-between">
-          <span>{error}</span>
-          <button onClick={() => setError(null)} className="ml-2 text-danger hover:brightness-90 font-bold">
-            ×
-          </button>
-        </div>
-      )}
-
       {isAdmin && (
       <>
       <SectionCard title="Consentimiento de datos">
@@ -732,29 +693,6 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
               </div>
             </div>
 
-            {loginAttemptCleanupMsg && (
-              <div className="bg-success/[.13] rounded-lg px-4 py-3 text-sm text-success flex items-center justify-between">
-                <span>{loginAttemptCleanupMsg}</span>
-                <button
-                  onClick={() => setLoginAttemptCleanupMsg(null)}
-                  className="ml-2 text-success hover:brightness-90 font-bold"
-                >
-                  ×
-                </button>
-              </div>
-            )}
-            {loginAttemptCleanupError && (
-              <div className="bg-danger/[.09] rounded-lg px-4 py-3 text-sm text-danger flex items-center justify-between">
-                <span>{loginAttemptCleanupError}</span>
-                <button
-                  onClick={() => setLoginAttemptCleanupError(null)}
-                  className="ml-2 text-danger hover:brightness-90 font-bold"
-                >
-                  ×
-                </button>
-              </div>
-            )}
-
             <div className="flex justify-end pt-3 border-t border-border">
               <Button variant="secondary" onClick={handleCleanupLoginAttempts} disabled={loginAttemptCleanupLoading}>
                 {loginAttemptCleanupLoading ? "Calculando…" : "🗑️ Limpiar intentos de login expirados"}
@@ -771,18 +709,6 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
           <SkeletonText lines={4} />
         ) : (
           <>
-            {hoursMsg && (
-              <div className="bg-success/[.13] rounded-lg px-4 py-3 text-sm text-success flex items-center justify-between">
-                <span>{hoursMsg}</span>
-                <button onClick={() => setHoursMsg(null)} className="ml-2 text-success hover:brightness-90 font-bold">×</button>
-              </div>
-            )}
-            {hoursError && (
-              <div className="bg-danger/[.09] rounded-lg px-4 py-3 text-sm text-danger flex items-center justify-between">
-                <span>{hoursError}</span>
-                <button onClick={() => setHoursError(null)} className="ml-2 text-danger hover:brightness-90 font-bold">×</button>
-              </div>
-            )}
             <p className="text-xs text-secondary">
               4 límites definen los 5 rangos del semáforo de carga laboral. Cada uno se guarda por separado y debe
               mantener el orden: Subutilización &lt; Moderado/Óptimo &lt; Óptimo/Elevada &lt; Elevada/Sobrecarga.
@@ -996,18 +922,6 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
           <SkeletonText lines={3} />
         ) : (
           <>
-            {retentionMsg && (
-              <div className="bg-success/[.13] rounded-lg px-4 py-3 text-sm text-success flex items-center justify-between">
-                <span>{retentionMsg}</span>
-                <button onClick={() => setRetentionMsg(null)} className="ml-2 text-success hover:brightness-90 font-bold">×</button>
-              </div>
-            )}
-            {retentionError && (
-              <div className="bg-danger/[.09] rounded-lg px-4 py-3 text-sm text-danger flex items-center justify-between">
-                <span>{retentionError}</span>
-                <button onClick={() => setRetentionError(null)} className="ml-2 text-danger hover:brightness-90 font-bold">×</button>
-              </div>
-            )}
             <p className="text-xs text-secondary">
               Define por cuánto tiempo se conservan los informes mensuales, las tareas archivadas y los documentos
               de la base de conocimiento de Nova antes de poder depurarlos.
@@ -1065,18 +979,6 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
             </Button>
 
             <div className="pt-4 border-t border-border space-y-3">
-              {purgeMsg && (
-                <div className="bg-success/[.13] rounded-lg px-4 py-3 text-sm text-success flex items-center justify-between">
-                  <span>{purgeMsg}</span>
-                  <button onClick={() => setPurgeMsg(null)} className="ml-2 text-success hover:brightness-90 font-bold">×</button>
-                </div>
-              )}
-              {purgeError && (
-                <div className="bg-danger/[.09] rounded-lg px-4 py-3 text-sm text-danger flex items-center justify-between">
-                  <span>{purgeError}</span>
-                  <button onClick={() => setPurgeError(null)} className="ml-2 text-danger hover:brightness-90 font-bold">×</button>
-                </div>
-              )}
               <p className="text-xs text-secondary">
                 Elimina permanentemente los registros que superen la política vigente. Se pedirá confirmación
                 y quedará constancia de quién ejecutó la depuración y cuántos registros se eliminaron.
@@ -1097,12 +999,6 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
           Sube el PDF desde tu computadora. Nexo lo guarda en el repositorio de documentos y lo indexa
           automáticamente para búsqueda semántica.
         </p>
-        {docError && (
-          <div className="bg-danger/[.09] rounded-lg px-4 py-3 text-sm text-danger flex items-center justify-between">
-            <span>{docError}</span>
-            <button onClick={() => setDocError(null)} className="ml-2 text-danger hover:brightness-90 font-bold">×</button>
-          </div>
-        )}
         <div className="flex flex-col sm:flex-row gap-2">
           <input
             type="text"
@@ -1115,10 +1011,9 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
             className="shrink-0"
             onClick={() => {
               if (!docTitle.trim()) {
-                setDocError("Ingresa el nombre del documento antes de seleccionar el archivo.");
+                showToast("Ingresa el nombre del documento antes de seleccionar el archivo.", "error");
                 return;
               }
-              setDocError(null);
               docFileInputRef.current?.click();
             }}
             disabled={docAdding}

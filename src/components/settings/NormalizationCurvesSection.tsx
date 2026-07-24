@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from "react";
 import SectionCard from "./SectionCard";
 import { Button } from "@/components/ui/Button";
+import { Spinner } from "@/components/ui/Skeleton";
+import { useToast } from "@/components/ui/Toast";
 
 type CurvePoint = { x: number; y: number };
 type CurveName = "cumplimiento" | "vencidas" | "carga" | "capacidad" | "consistencia" | "trazabilidad";
@@ -93,10 +95,10 @@ function CurveEditor({
  * que "Configuración de Analytics".
  */
 export default function NormalizationCurvesSection() {
+  const { showToast } = useToast();
   const [curves, setCurves] = useState<Curves | null>(null);
   const [draft, setDraft] = useState<Curves | null>(null);
   const [savingName, setSavingName] = useState<CurveName | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [successName, setSuccessName] = useState<CurveName | null>(null);
 
   const load = useCallback(async () => {
@@ -114,7 +116,7 @@ export default function NormalizationCurvesSection() {
     return (
       <SectionCard title="Curvas de Normalización (NormalizationEngine)">
         <div className="flex justify-center items-center py-8">
-          <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <Spinner className="w-5 h-5" />
         </div>
       </SectionCard>
     );
@@ -122,7 +124,6 @@ export default function NormalizationCurvesSection() {
 
   async function saveCurve(name: CurveName) {
     setSavingName(name);
-    setError(null);
     setSuccessName(null);
     try {
       const res = await fetch("/api/settings/normalization-curves", {
@@ -132,14 +133,14 @@ export default function NormalizationCurvesSection() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "Error al guardar");
+        showToast(data.error ?? "Error al guardar", "error");
       } else {
         setCurves(data.curves);
         setDraft(data.curves);
         setSuccessName(name);
       }
     } catch {
-      setError("Error de conexión");
+      showToast("Error de conexión", "error");
     } finally {
       setSavingName(null);
     }
@@ -154,13 +155,6 @@ export default function NormalizationCurvesSection() {
         óptimo, y el Administrador decide si penaliza más la subutilización o la sobrecarga ajustando la pendiente
         de cada lado.
       </p>
-
-      {error && (
-        <div className="flex items-center justify-between bg-danger/[.09] text-danger text-sm px-3 py-2 rounded-lg">
-          <span>{error}</span>
-          <button onClick={() => setError(null)} className="ml-2 font-bold">×</button>
-        </div>
-      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
         {CURVE_ORDER.map((name) => {

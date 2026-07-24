@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { Task, TaskStatus } from "./types";
 import { hoursToDisplay, displayToHours, validateDisplayHours, INVALID_HOURS_MESSAGE } from "@/lib/timeFormat";
 import { Button } from "@/components/ui/Button";
+import { useToast } from "@/components/ui/Toast";
 
 const STATUS_OPTIONS: { value: TaskStatus; label: string }[] = [
   { value: "PENDIENTE", label: "Pendiente" },
@@ -18,6 +19,7 @@ type Props = {
 };
 
 export default function CorrectArchivedTaskModal({ task, onClose, onSaved }: Props) {
+  const { showToast } = useToast();
   const [realHours, setRealHours] = useState(hoursToDisplay(task.realHours));
   const [status, setStatus] = useState<TaskStatus>(task.status);
   const [saving, setSaving] = useState(false);
@@ -42,6 +44,7 @@ export default function CorrectArchivedTaskModal({ task, onClose, onSaved }: Pro
         setError(data.error ?? "Error al guardar la corrección");
         return;
       }
+      showToast("Tarea corregida.", "success");
       onSaved(data);
     } catch {
       setError("Error de conexión");

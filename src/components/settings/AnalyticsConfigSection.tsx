@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback } from "react";
 import SectionCard from "./SectionCard";
 import { Button } from "@/components/ui/Button";
+import { Spinner } from "@/components/ui/Skeleton";
+import { useToast, TOAST_MESSAGES } from "@/components/ui/Toast";
 
 type ConfigKey =
   | "healthWeightCumplimiento" | "healthWeightCarga" | "healthWeightVencidas" | "healthWeightConsistencia" | "healthWeightCapacidad"
@@ -84,12 +86,11 @@ function NumberField({
 }
 
 export default function AnalyticsConfigSection() {
+  const { showToast } = useToast();
   const [config, setConfig] = useState<Config | null>(null);
   const [predictionMaxDays, setPredictionMaxDays] = useState<number | null>(null);
   const [draft, setDraft] = useState<Config | null>(null);
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
 
   const load = useCallback(async () => {
     const res = await fetch("/api/settings/analytics-config");
@@ -107,7 +108,7 @@ export default function AnalyticsConfigSection() {
     return (
       <SectionCard title="Configuración de Analytics">
         <div className="flex justify-center items-center py-8">
-          <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <Spinner className="w-5 h-5" />
         </div>
       </SectionCard>
     );
@@ -120,14 +121,11 @@ export default function AnalyticsConfigSection() {
 
   function set(key: ConfigKey, value: number) {
     setDraft((prev) => (prev ? { ...prev, [key]: value } : prev));
-    setSuccess(false);
   }
 
   async function save() {
     if (!draft) return;
     setSaving(true);
-    setError(null);
-    setSuccess(false);
     try {
       const changed = Object.fromEntries(
         (Object.entries(draft) as [ConfigKey, number][]).filter(([k, v]) => config![k] !== v)
@@ -139,14 +137,14 @@ export default function AnalyticsConfigSection() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "Error al guardar");
+        showToast(data.error ?? "Error al guardar", "error");
       } else {
         setConfig(data.config);
         setDraft(data.config);
-        setSuccess(true);
+        showToast(TOAST_MESSAGES.saved, "success");
       }
     } catch {
-      setError("Error de conexión");
+      showToast("Error de conexión", "error");
     } finally {
       setSaving(false);
     }
@@ -219,19 +217,6 @@ export default function AnalyticsConfigSection() {
           </div>
         </div>
       </div>
-
-      {error && (
-        <div className="flex items-center justify-between bg-danger/[.09] text-danger text-sm px-3 py-2 rounded-lg">
-          <span>{error}</span>
-          <button onClick={() => setError(null)} className="ml-2 font-bold">×</button>
-        </div>
-      )}
-      {success && !error && (
-        <div className="flex items-center justify-between bg-success/[.13] text-success text-sm px-3 py-2 rounded-lg">
-          <span>Configuración guardada.</span>
-          <button onClick={() => setSuccess(false)} className="ml-2 font-bold">×</button>
-        </div>
-      )}
 
       <Button onClick={save} disabled={saving || !dirty}>
         {saving ? "Guardando…" : "Guardar configuración"}

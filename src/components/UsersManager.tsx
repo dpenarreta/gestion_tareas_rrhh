@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/Button";
 import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
 import { SkeletonRow } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { useToast } from "@/components/ui/Toast";
 
 type User = {
   id: string;
@@ -34,10 +35,10 @@ type Props = {
 };
 
 export default function UsersManager({ currentUserRole }: Props) {
+  const { showToast } = useToast();
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
-  const [actionError, setActionError] = useState<string | null>(null);
 
   // Create form
   const [form, setForm] = useState({ name: "", email: "", role: "" as Role | "" });
@@ -50,7 +51,6 @@ export default function UsersManager({ currentUserRole }: Props) {
   const [editForm, setEditForm] = useState({ name: "", email: "", role: "" as Role });
   const [editError, setEditError] = useState("");
   const [editLoading, setEditLoading] = useState(false);
-  const [editSuccess, setEditSuccess] = useState(false);
 
   // Revealed (unmasked) emails, keyed by user id
   const [revealedEmails, setRevealedEmails] = useState<Record<string, string>>({});
@@ -109,6 +109,7 @@ export default function UsersManager({ currentUserRole }: Props) {
         setShowCreate(false);
         setForm({ name: "", email: "", role: "" });
         setInformedConsent(false);
+        showToast("Usuario creado.", "success");
         loadUsers();
       }
     } catch {
@@ -122,7 +123,6 @@ export default function UsersManager({ currentUserRole }: Props) {
     setEditUser(user);
     setEditForm({ name: user.name, email: user.email, role: user.role });
     setEditError("");
-    setEditSuccess(false);
     try {
       const res = await fetch(`/api/users/${user.id}`);
       if (res.ok) {
@@ -159,14 +159,12 @@ export default function UsersManager({ currentUserRole }: Props) {
   function closeEdit() {
     setEditUser(null);
     setEditError("");
-    setEditSuccess(false);
   }
 
   async function handleEdit(e: React.FormEvent) {
     e.preventDefault();
     if (!editUser) return;
     setEditError("");
-    setEditSuccess(false);
     setEditLoading(true);
     try {
       const res = await fetch(`/api/users/${editUser.id}`, {
@@ -178,8 +176,8 @@ export default function UsersManager({ currentUserRole }: Props) {
       if (!res.ok) {
         setEditError(data.error ?? "Error al guardar cambios");
       } else {
-        setEditSuccess(true);
         setEditUser(data);
+        showToast("Cambios guardados correctamente.", "success");
         loadUsers();
       }
     } catch {
@@ -192,17 +190,17 @@ export default function UsersManager({ currentUserRole }: Props) {
   async function handleDelete(user: User) {
     if (!confirm(`¿Eliminar a ${user.name}? Esta acción no se puede deshacer.`))
       return;
-    setActionError(null);
     try {
       const res = await fetch(`/api/users/${user.id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) {
-        setActionError(data.error ?? "Error al eliminar");
+        showToast(data.error ?? "Error al eliminar", "error");
       } else {
+        showToast("Usuario eliminado.", "success");
         loadUsers();
       }
     } catch {
-      setActionError("Error de conexión");
+      showToast("Error de conexión", "error");
     }
   }
 
@@ -302,18 +300,6 @@ export default function UsersManager({ currentUserRole }: Props) {
               {formLoading ? "Creando..." : "Crear usuario"}
             </Button>
           </form>
-        </div>
-      )}
-
-      {actionError && (
-        <div className="bg-danger/[.09] rounded-lg px-4 py-3 text-sm text-danger flex items-center justify-between">
-          <span>{actionError}</span>
-          <button
-            onClick={() => setActionError(null)}
-            className="ml-2 text-danger hover:brightness-90 font-bold"
-          >
-            ×
-          </button>
         </div>
       )}
 
@@ -484,15 +470,6 @@ export default function UsersManager({ currentUserRole }: Props) {
                 {editError && (
                   <p className="text-sm text-danger bg-danger/[.09] px-3 py-2 rounded-lg">
                     {editError}
-                  </p>
-                )}
-
-                {editSuccess && (
-                  <p className="text-sm text-success bg-success/[.13] px-3 py-2 rounded-lg flex items-center gap-2">
-                    <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                    </svg>
-                    Cambios guardados exitosamente
                   </p>
                 )}
 

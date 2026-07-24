@@ -6,6 +6,8 @@ import type { Role } from "@/generated/prisma/client";
 import SectionCard from "./SectionCard";
 import { Button } from "@/components/ui/Button";
 import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
+import { Spinner } from "@/components/ui/Skeleton";
+import { useToast } from "@/components/ui/Toast";
 
 type Config = {
   commentTargets: Partial<Record<Role, Role[]>>;
@@ -93,11 +95,10 @@ function RoleMultiSelect({
 }
 
 export default function NotificationRulesSection() {
+  const { showToast } = useToast();
   const [config, setConfig] = useState<Config | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -113,8 +114,6 @@ export default function NotificationRulesSection() {
 
   async function handleSave() {
     if (!config) return;
-    setMsg(null);
-    setError(null);
     setSaving(true);
     try {
       const res = await fetch("/api/settings/notification-rules", {
@@ -124,13 +123,13 @@ export default function NotificationRulesSection() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "Error al guardar la configuración de notificaciones");
+        showToast(data.error ?? "Error al guardar la configuración de notificaciones", "error");
       } else {
         setConfig(data);
-        setMsg("Configuración de notificaciones guardada.");
+        showToast("Configuración de notificaciones guardada.", "success");
       }
     } catch {
-      setError("Error de conexión");
+      showToast("Error de conexión", "error");
     } finally {
       setSaving(false);
     }
@@ -140,23 +139,10 @@ export default function NotificationRulesSection() {
     <SectionCard title="Configuración de notificaciones">
       {loading || !config ? (
         <div className="flex justify-center items-center py-8">
-          <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <Spinner className="w-5 h-5" />
         </div>
       ) : (
         <>
-          {msg && (
-            <div className="bg-success/[.13] rounded-lg px-4 py-3 text-sm text-success flex items-center justify-between">
-              <span>{msg}</span>
-              <button onClick={() => setMsg(null)} className="ml-2 text-success hover:brightness-90 font-bold">×</button>
-            </div>
-          )}
-          {error && (
-            <div className="bg-danger/[.09] rounded-lg px-4 py-3 text-sm text-danger flex items-center justify-between">
-              <span>{error}</span>
-              <button onClick={() => setError(null)} className="ml-2 text-danger hover:brightness-90 font-bold">×</button>
-            </div>
-          )}
-
           <div>
             <p className="text-sm font-medium text-title mb-1">Notificaciones de comentarios en tareas</p>
             <p className="text-xs text-secondary mb-3">

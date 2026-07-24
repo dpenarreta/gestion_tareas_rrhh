@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Instrument_Sans } from "next/font/google";
 import "./globals.css";
 import ThemeProvider from "@/components/ThemeProvider";
+import { ToastProvider } from "@/components/ui/Toast";
 import { getSession } from "@/lib/session";
 import { prisma } from "@/lib/prisma";
 
@@ -38,7 +39,9 @@ export default async function RootLayout({
       suppressHydrationWarning
     >
       <body className="min-h-full flex flex-col bg-background text-main">
-        <ThemeProvider defaultTheme={defaultTheme}>{children}</ThemeProvider>
+        <ThemeProvider defaultTheme={defaultTheme}>
+          <ToastProvider>{children}</ToastProvider>
+        </ThemeProvider>
       </body>
     </html>
   );

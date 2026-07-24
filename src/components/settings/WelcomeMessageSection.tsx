@@ -3,14 +3,15 @@
 import { useState, useEffect, useCallback } from "react";
 import SectionCard from "./SectionCard";
 import { Button } from "@/components/ui/Button";
+import { Spinner } from "@/components/ui/Skeleton";
+import { useToast } from "@/components/ui/Toast";
 
 export default function WelcomeMessageSection() {
+  const { showToast } = useToast();
   const [message, setMessage] = useState("");
   const [active, setActive] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -29,8 +30,6 @@ export default function WelcomeMessageSection() {
   useEffect(() => { queueMicrotask(load); }, [load]);
 
   async function handleSave() {
-    setMsg(null);
-    setError(null);
     setSaving(true);
     try {
       const res = await fetch("/api/settings/welcome-message", {
@@ -40,14 +39,14 @@ export default function WelcomeMessageSection() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "Error al guardar el mensaje de bienvenida");
+        showToast(data.error ?? "Error al guardar el mensaje de bienvenida", "error");
       } else {
         setMessage(data.message);
         setActive(data.active);
-        setMsg("Mensaje de bienvenida actualizado.");
+        showToast("Mensaje de bienvenida actualizado.", "success");
       }
     } catch {
-      setError("Error de conexión");
+      showToast("Error de conexión", "error");
     } finally {
       setSaving(false);
     }
@@ -57,22 +56,10 @@ export default function WelcomeMessageSection() {
     <SectionCard title="Mensaje de bienvenida">
       {loading ? (
         <div className="flex justify-center items-center py-8">
-          <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <Spinner className="w-5 h-5" />
         </div>
       ) : (
         <>
-          {msg && (
-            <div className="bg-success/[.13] rounded-lg px-4 py-3 text-sm text-success flex items-center justify-between">
-              <span>{msg}</span>
-              <button onClick={() => setMsg(null)} className="ml-2 text-success hover:brightness-90 font-bold">×</button>
-            </div>
-          )}
-          {error && (
-            <div className="bg-danger/[.09] rounded-lg px-4 py-3 text-sm text-danger flex items-center justify-between">
-              <span>{error}</span>
-              <button onClick={() => setError(null)} className="ml-2 text-danger hover:brightness-90 font-bold">×</button>
-            </div>
-          )}
           <p className="text-xs text-secondary">
             Si está activo y no está vacío, aparece como una tarjeta destacada en el Dashboard de todos los usuarios.
           </p>

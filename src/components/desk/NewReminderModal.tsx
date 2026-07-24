@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { useToast } from "@/components/ui/Toast";
 import {
   REMINDER_PRIORITY_LABEL,
   REMINDER_PRIORITY_COLOR,
@@ -35,6 +36,7 @@ export default function NewReminderModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const { showToast } = useToast();
   const initial = reminder ? splitDateTime(reminder.dueAt) : defaultDateTime();
   const [title, setTitle] = useState(reminder?.title ?? "");
   const [description, setDescription] = useState(reminder?.description ?? "");
@@ -64,6 +66,7 @@ export default function NewReminderModal({
         const data = await res.json();
         setError(data.error ?? "Error al guardar el recordatorio");
       } else {
+        showToast(reminder ? "Recordatorio actualizado." : "Recordatorio creado.", "success");
         onSaved();
       }
     } catch {

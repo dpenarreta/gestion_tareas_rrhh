@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/Button";
 import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
 import { Spinner } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { useToast } from "@/components/ui/Toast";
 import { BarChart3, FileText } from "lucide-react";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -542,6 +543,7 @@ type Props = {
 };
 
 export default function MonthlyReports({ currentUserRole }: Props) {
+  const { showToast } = useToast();
   const [viewMode, setViewMode] = useState<"individual" | "range">("individual");
 
   // ── Individual month state ─────────────────────────────────────────────────
@@ -552,14 +554,12 @@ export default function MonthlyReports({ currentUserRole }: Props) {
   const [detailLoading, setDetailLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [generateMonth, setGenerateMonth] = useState(currentMonthParam);
-  const [error, setError] = useState<string | null>(null);
 
   // ── Range state ────────────────────────────────────────────────────────────
   const [rangeFrom, setRangeFrom] = useState(() => addMonths(currentMonthParam(), -5));
   const [rangeTo, setRangeTo] = useState(currentMonthParam);
   const [rangeReport, setRangeReport] = useState<RangeReportData | null>(null);
   const [rangeLoading, setRangeLoading] = useState(false);
-  const [rangeError, setRangeError] = useState<string | null>(null);
 
   const fetchReports = useCallback(async () => {
     setLoading(true);
@@ -599,18 +599,18 @@ export default function MonthlyReports({ currentUserRole }: Props) {
 
   async function handleGenerate() {
     setGenerating(true);
-    setError(null);
     try {
       const res = await fetch(`/api/reports/generate?month=${generateMonth}`, { method: "POST" });
       if (!res.ok) {
         const err: { error?: string } = await res.json();
-        setError(err.error ?? "Error al generar el informe");
+        showToast(err.error ?? "Error al generar el informe", "error");
         return;
       }
       const data: { report: MonthlyReportFull } = await res.json();
       await fetchReports();
       setFullReport(data.report);
       setSelectedId(data.report.id);
+      showToast("Informe generado.", "success");
     } finally {
       setGenerating(false);
     }
@@ -618,17 +618,16 @@ export default function MonthlyReports({ currentUserRole }: Props) {
 
   async function handleGenerateRange() {
     if (rangeFrom >= rangeTo) {
-      setRangeError("El mes de inicio debe ser anterior al mes de fin");
+      showToast("El mes de inicio debe ser anterior al mes de fin", "error");
       return;
     }
     setRangeLoading(true);
-    setRangeError(null);
     setRangeReport(null);
     try {
       const res = await fetch(`/api/reports/range?from=${rangeFrom}&to=${rangeTo}`);
       if (!res.ok) {
         const err: { error?: string } = await res.json();
-        setRangeError(err.error ?? "Error al generar el informe de rango");
+        showToast(err.error ?? "Error al generar el informe de rango", "error");
         return;
       }
       const data: { report: RangeReportData } = await res.json();
@@ -732,10 +731,6 @@ export default function MonthlyReports({ currentUserRole }: Props) {
             )}
           </div>
 
-          {rangeError && (
-            <div className="bg-danger/[.09] text-danger text-sm rounded-xl px-4 py-3">{rangeError}</div>
-          )}
-
           {rangeLoading && (
             <div className="flex flex-col items-center justify-center py-24 gap-3 text-disabled">
               <Spinner className="w-8 h-8 text-primary" />
@@ -743,7 +738,7 @@ export default function MonthlyReports({ currentUserRole }: Props) {
             </div>
           )}
 
-          {!rangeLoading && !rangeReport && !rangeError && (
+          {!rangeLoading && !rangeReport && (
             <EmptyState icon={BarChart3} title="Selecciona un rango y genera el informe" />
           )}
 
@@ -959,11 +954,6 @@ export default function MonthlyReports({ currentUserRole }: Props) {
         </div>
       </div>
 
-      {error && (
-        <div className="bg-danger/[.09] text-danger text-sm rounded-xl px-4 py-3">
-          {error}
-        </div>
-      )}
 
       {/* Two-panel layout */}
       <div className="flex flex-col lg:flex-row gap-5 items-stretch lg:items-start">

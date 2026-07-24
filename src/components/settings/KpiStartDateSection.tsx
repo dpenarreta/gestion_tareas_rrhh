@@ -5,6 +5,8 @@ import type { Role } from "@/generated/prisma/client";
 import { ROLE_LABEL } from "@/lib/roles";
 import SectionCard from "./SectionCard";
 import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
+import { Spinner } from "@/components/ui/Skeleton";
+import { useToast, TOAST_MESSAGES } from "@/components/ui/Toast";
 
 type UserRow = {
   id: string;
@@ -20,15 +22,14 @@ function toDateInputValue(iso: string | null): string {
 }
 
 function UserKpiStartDateRow({ user, onUpdated }: { user: UserRow; onUpdated: (u: UserRow) => void }) {
+  const { showToast } = useToast();
   const [value, setValue] = useState(toDateInputValue(user.kpiStartDate));
   const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const dirty = value !== toDateInputValue(user.kpiStartDate);
 
   async function save(kpiStartDate: string | null) {
     setSaving(true);
-    setError(null);
     try {
       const res = await fetch("/api/settings/kpi-start-date", {
         method: "PATCH",
@@ -37,13 +38,14 @@ function UserKpiStartDateRow({ user, onUpdated }: { user: UserRow; onUpdated: (u
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "Error al guardar");
+        showToast(data.error ?? "Error al guardar", "error");
       } else {
         onUpdated(data);
         setValue(toDateInputValue(data.kpiStartDate));
+        showToast(TOAST_MESSAGES.saved, "success");
       }
     } catch {
-      setError("Error de conexión");
+      showToast("Error de conexión", "error");
     } finally {
       setSaving(false);
     }
@@ -62,7 +64,6 @@ function UserKpiStartDateRow({ user, onUpdated }: { user: UserRow; onUpdated: (u
           onChange={(e) => setValue(e.target.value)}
           className="border border-border rounded-lg px-3 py-1.5 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
         />
-        {error && <p className="text-xs text-danger mt-1">{error}</p>}
       </Td>
       <Td className="text-right whitespace-nowrap">
         <button
@@ -117,7 +118,7 @@ export default function KpiStartDateSection() {
       <div className="rounded-lg border border-border overflow-hidden">
         {loading ? (
           <div className="flex justify-center items-center py-8">
-            <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            <Spinner className="w-5 h-5" />
           </div>
         ) : (
           <Table>

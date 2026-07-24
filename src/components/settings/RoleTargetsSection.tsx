@@ -4,6 +4,8 @@ import { useState, useEffect, useCallback } from "react";
 import SectionCard from "./SectionCard";
 import type { Role } from "@/generated/prisma/client";
 import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
+import { Spinner } from "@/components/ui/Skeleton";
+import { useToast } from "@/components/ui/Toast";
 
 type RoleTarget = { performance: number | null; riesgoMax: number | null; cumplimiento: number | null };
 type Targets = Partial<Record<Role, RoleTarget>>;
@@ -26,13 +28,13 @@ function fromInput(v: string): number | null {
  * configurado, el motor oculta esa comparación en vez de inventar un valor.
  */
 export default function RoleTargetsSection() {
+  const { showToast } = useToast();
   const [roles, setRoles] = useState<Role[]>([]);
   const [roleLabels, setRoleLabels] = useState<Record<string, string>>({});
   const [targets, setTargets] = useState<Targets | null>(null);
   const [draft, setDraft] = useState<Record<Role, RoleTarget> | null>(null);
   const [savingRole, setSavingRole] = useState<Role | null>(null);
   const [successRole, setSuccessRole] = useState<Role | null>(null);
-  const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     const res = await fetch("/api/settings/role-targets");
@@ -54,7 +56,7 @@ export default function RoleTargetsSection() {
     return (
       <SectionCard title="Objetivo esperado del cargo">
         <div className="flex justify-center items-center py-8">
-          <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <Spinner className="w-5 h-5" />
         </div>
       </SectionCard>
     );
@@ -62,7 +64,6 @@ export default function RoleTargetsSection() {
 
   async function saveRole(role: Role) {
     setSavingRole(role);
-    setError(null);
     setSuccessRole(null);
     try {
       const res = await fetch("/api/settings/role-targets", {
@@ -72,13 +73,13 @@ export default function RoleTargetsSection() {
       });
       const data = await res.json();
       if (!res.ok) {
-        setError(data.error ?? "Error al guardar");
+        showToast(data.error ?? "Error al guardar", "error");
       } else {
         setTargets(data.targets);
         setSuccessRole(role);
       }
     } catch {
-      setError("Error de conexión");
+      showToast("Error de conexión", "error");
     } finally {
       setSavingRole(null);
     }
@@ -91,13 +92,6 @@ export default function RoleTargetsSection() {
         ningún colaborador para comparar entre pares (§Sprint 7). Nunca modifica el cálculo de ningún KPI — si se
         deja en blanco, esa comparación simplemente no se muestra.
       </p>
-
-      {error && (
-        <div className="flex items-center justify-between bg-danger/[.09] text-danger text-sm px-3 py-2 rounded-lg">
-          <span>{error}</span>
-          <button onClick={() => setError(null)} className="ml-2 font-bold">×</button>
-        </div>
-      )}
 
       <Table>
         <TableHead>
