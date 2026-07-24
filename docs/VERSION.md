@@ -8,7 +8,7 @@
 
 | Componente | Versión | Notas |
 |---|---|---|
-| **NEXO** (producto) | **v1.14.1** | Ver `docs/CHANGELOG.md` para el detalle de qué introdujo cada versión |
+| **NEXO** (producto) | **v1.14.2** | Ver `docs/CHANGELOG.md` para el detalle de qué introdujo cada versión |
 | **Analytics Engine** | v1.5.0 | `ANALYTICS_ENGINE_VERSION` en `src/lib/analytics.ts` — sin cambios (el fix de `isCompletedOnTime` vive en `priorityCompliance.ts`, fuera del motor central) |
 | **Formulas Set** | v4.3 | `FORMULA_SET_VERSION` en `src/lib/analytics.ts` — sube por la corrección de `isCompletedOnTime` (2026-07-24, `FORMULA_VERSIONS.completadoATiempo`) |
 | **API** | Sin versionado explícito (rutas internas de Next.js, no una API pública versionada) | Ver `docs/ARCHITECTURE.md` |
@@ -76,7 +76,8 @@ hacia adelante):
 | v1.12.0 | 2026-07-23 | **Sprint A — Analytics Explicativo**: capa de interpretación sobre el Analytics Engine existente (insights de Performance Score en ambas direcciones, fortalezas/oportunidades, explicación de tendencias, ayuda contextual de 4 partes, histórico con selector de período, simulador "¿qué pasaría si...?" personal) — cero cambios de fórmula/peso/curva/umbral |
 | v1.13.0 | 2026-07-24 | **Sprint B — UX Consistente + Design System Foundation**: Design System oficial (`docs/DESIGN_SYSTEM.md`), primitivos compartidos (Button de 6 variantes, PriorityChip/StatusChip, Table, Toast, Skeleton, EmptyState, SearchInput) adoptados en Tareas/Dashboard/Escritorio Digital/Equipo/KPIs/Ajustes/Usuarios — puramente visual/estructural, cero cambios de lógica de negocio |
 | v1.14.0 | 2026-07-24 | **Sprint C — NEXO Experience**: reducción de clics en flujos frecuentes, navegación "volver" unificada, acción Reintentar en toasts, useToast() extendido a Ideas/Reuniones/Proyectos, nueva card "Mis proyectos" en Dashboard + jerarquía visual rebalanceada, InfoTooltip y búsquedas recientes — auditoría completa en `docs/PRODUCT_REVIEW.md`, cero cambios de lógica de negocio |
-| **v1.14.1** | 2026-07-24 | **Fix — `isCompletedOnTime` compara por día calendario**: corrige la clasificación "completada a tiempo" (Definición B de Cumplimiento, `/api/kpis/[userId]`/`/api/kpis/me`), que marcaba como tardía cualquier tarea cerrada durante el horario laboral real de su día de vencimiento (instante UTC crudo vs. día calendario en huso de negocio) — auditoría empírica previa confirmó 51% de falsos "fuera de tiempo"; ver `docs/AUDIT_LOG.md` § 2026-07-24 |
+| v1.14.1 | 2026-07-24 | **Fix — `isCompletedOnTime` compara por día calendario**: corrige la clasificación "completada a tiempo" (Definición B de Cumplimiento, `/api/kpis/[userId]`/`/api/kpis/me`), que marcaba como tardía cualquier tarea cerrada durante el horario laboral real de su día de vencimiento (instante UTC crudo vs. día calendario en huso de negocio) — auditoría empírica previa confirmó 51% de falsos "fuera de tiempo"; ver `docs/AUDIT_LOG.md` § 2026-07-24 |
+| **v1.14.2** | 2026-07-24 | **Migración histórica única — backfill `Task.completedAt`**: regulariza 33 tareas `COMPLETADA` con `completedAt = NULL` (limitación del modelo de datos anterior a 2026-07-07) asignando `completedAt = endDate`; "completadas a tiempo" pasa de 57/121 a 90/121. Cierra además un gap de prevención en `POST /api/tasks` (crear una tarea ya Completada no fijaba `completedAt`). Migración de datos de una sola ejecución, no un cambio de fórmula; ver `docs/AUDIT_LOG.md` § 2026-07-24 |
 
 Ver `docs/CHANGELOG.md` para el detalle completo de cada versión (tipo de
 cambio, módulo, archivos afectados, impacto).

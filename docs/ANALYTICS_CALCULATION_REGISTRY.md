@@ -90,6 +90,15 @@ negocio), no por la duplicación de definiciones que documenta este D1 —
 ver `docs/AUDIT_LOG.md` § 2026-07-24 y `docs/ANALYTICS_FORMULAS.md` §6/§7. La
 coexistencia de Definición A/B en sí sigue sin resolverse.
 
+**Nota 2026-07-24 — migración histórica de datos (no de fórmula):** la
+misma auditoría reveló que 33 tareas `COMPLETADA` tenían `completedAt =
+NULL` (anteriores a la migración de schema que agregó esa columna, sin
+backfill). Se ejecutó un backfill de una sola vez (`completedAt = endDate`
+para esas 33, ninguna otra) — es una regularización de datos, **no** un
+cambio a `isCompletedOnTime` ni a ninguna fórmula del motor. Ver
+`docs/AUDIT_LOG.md` § 2026-07-24 (segunda entrada del día) para el detalle
+completo y el informe de validación.
+
 **Bonus (mismo archivo, mismo commit):** al editar `kpis/team/route.ts` se encontró un umbral de color 80/60 (`completedPct >= 80 ? "green" : ...`) que el fix de **D10** no había capturado — se corrigió para usar `cumplimientoColor` (`analyticsExplain.ts`) igual que el resto. Quedan 2 instancias más del mismo patrón, inline en JSX (no en una función nombrada), en `MonthlyReports.tsx` y `MyKpisModule.tsx` — no se tocaron por estar fuera del archivo/alcance de este fix; quedan como remanente de D10 para una futura pasada si se desea.
 
 **Verificación:** `tsc --noEmit`/`eslint` limpios en los 6 archivos tocados (`analytics.ts` + 5 rutas); suite completa 840/842 (mismos 2 fallos preexistentes de `kpis-executive.test.ts`, no relacionados) — los tests que sí verifican valores numéricos de `completedPct`/`score`/alertas (`reports.test.ts`, `kpis-executive.test.ts`) pasan sin modificación, confirmando que no hubo cambio de comportamiento.

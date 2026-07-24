@@ -71,6 +71,12 @@ export async function POST(request: NextRequest) {
       endDate: new Date(endDate),
       estimatedHours: parseFloat(estimatedHours),
       progress: initialStatus === "COMPLETADA" ? 100 : 0,
+      // Prevención (docs/AUDIT_LOG.md § 2026-07-24, backfill histórico de
+      // completedAt): crear una tarea directamente en estado Completada
+      // dejaba completedAt en null — el mismo problema que motivó el
+      // backfill, pero reproduciéndose hacia adelante en vez de ser solo
+      // histórico. PATCH /api/tasks/[id] ya lo hacía bien al editar.
+      completedAt: initialStatus === "COMPLETADA" ? new Date() : null,
       assignedToId,
       createdById: session.userId,
     },

@@ -23,6 +23,56 @@
 
 ---
 
+## v1.14.2 — 2026-07-24
+
+**Tipo:** DATABASE / FIX
+**Módulo:** Migración histórica única de datos — `Task.completedAt`
+
+**Implementado:** backfill histórico de ejecución única, no una regla
+permanente. Regulariza exclusivamente las **33 tareas** identificadas en la
+auditoría de `isCompletedOnTime` (v1.14.1) con `status = COMPLETADA` y
+`completedAt = NULL` — limitación del modelo de datos anterior a que NEXO
+empezara a registrar automáticamente esa fecha (migración
+`20260707004617`, sin backfill en su momento), no un error del usuario.
+
+- **Alcance:** exactamente 33 tareas, verificadas por consulta directa
+  antes de escribir (no reutilizado ciegamente el número de la auditoría
+  previa) — coincidió. Ninguna tarea adicional, de ningún otro estado, fue
+  tocada. Ningún otro campo de esas 33 tareas se modificó.
+- **Actualización:** `completedAt = endDate` para cada una, dentro de una
+  única transacción (todo o nada).
+- **Validación post-migración:** 33 actualizadas · 0 tareas `COMPLETADA`
+  con `completedAt` nulo restantes · total de tareas `COMPLETADA` sin
+  cambios (121 → 121, confirma que no se creó/eliminó ninguna) ·
+  "completadas a tiempo" (Definición B) 57/121 → 90/121 (+33, exactamente
+  las regularizadas).
+- **Prevención futura (§7):** se verificó que `PATCH /api/tasks/[id]` y
+  `POST /api/tasks/import` ya no podían reproducir este problema; se
+  encontró y corrigió un tercer camino con el mismo gap —
+  `POST /api/tasks` (crear una tarea ya con estado inicial `COMPLETADA`) no
+  fijaba `completedAt`. Corregido en el mismo cambio
+  (`src/app/api/tasks/route.ts`).
+- **No modifica** la fórmula de Cumplimiento, el Analytics Engine, el
+  NormalizationEngine, Performance Score, Riesgo Operativo, pesos, curvas
+  ni benchmarks — es exclusivamente una regularización de datos históricos
+  más el cierre de un gap de comportamiento (no de fórmula) hacia adelante.
+- **No se repetirá:** migración de una sola vez, sin mecanismo para
+  reejecutarse.
+
+**Impacto:** el indicador "Cumplimiento" (Definición B, vista personal)
+sube para los colaboradores dueños de esas 33 tareas, reflejando ahora que
+sí se completaron (aproximado a su fecha objetivo, único dato disponible).
+No afecta la Definición A ni ningún otro indicador.
+
+**Archivos:** `src/app/api/tasks/route.ts` (prevención futura); migración
+de datos ejecutada vía script de una sola vez, no versionado en el
+repositorio (no es una migración de schema de Prisma — no cambia
+estructura, solo regulariza valores existentes).
+
+**Autor:** Claude Code
+
+---
+
 ## v1.14.1 — 2026-07-24
 
 **Tipo:** FIX / ANALYTICS

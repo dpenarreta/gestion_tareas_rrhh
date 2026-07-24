@@ -15,6 +15,84 @@
 
 ---
 
+## 2026-07-24 — Migración histórica única (backfill): `completedAt` para 33 tareas sin fecha de finalización registrada
+
+**Problema detectado:** la auditoría y corrección previas de `isCompletedOnTime`
+(entrada anterior de este mismo día) identificaron, además del bug de
+comparación de fechas, un problema de **datos históricos faltantes**: 33
+tareas con `status = COMPLETADA` tenían `completedAt = NULL` — todas
+anteriores a la migración `20260707004617_add_administrador_role_and_task_completed_at`,
+que agregó la columna `Task.completedAt` **sin backfill**. No es un error
+del usuario: en el momento en que esas tareas se completaron, el sistema
+todavía no registraba automáticamente esa fecha. Mientras `completedAt` sea
+`null`, `isCompletedOnTime` las excluye explícitamente de "completadas a
+tiempo" (aunque genuinamente se hayan completado), penalizando el indicador
+de Cumplimiento personal sin ninguna razón real de negocio.
+
+**Alcance, verificado antes de escribir nada:** se volvió a consultar
+`status = COMPLETADA AND completedAt IS NULL` en el momento de ejecutar la
+migración (no se reutilizó ciegamente el número de la auditoría anterior) —
+el resultado fue exactamente **33 tareas**, coincidiendo con la auditoría.
+Solo esas 33 filas, identificadas por `id`, se tocaron.
+
+**Decisión tomada:** para cada una de esas 33 tareas, `completedAt = endDate`
+(dentro de una única transacción de Prisma — todo o nada). Ningún otro campo
+de esas tareas se modificó, y ninguna otra tarea (con `completedAt` ya
+poblado, pendiente, en progreso, o de cualquier otro estado) fue tocada.
+
+**Justificación de `completedAt = endDate` (y no otro valor):** no existe
+ningún registro del instante real en que esas tareas se completaron — fue
+literalmente el motivo del problema. Asignar la fecha objetivo como
+aproximación es la única opción que no inventa un dato inexistente y que,
+de forma consistente con la intención original de quien las completó (se
+crearon y cerraron antes de que el sistema pudiera medir la puntualidad),
+las trata como cumplidas en la fecha prevista. Se descartó "dejarlas sin
+clasificar" (crear una tercera categoría "sin dato" en Cumplimiento) por
+ser un cambio de fórmula, explícitamente fuera de alcance de esta
+migración — el pedido fue completar el dato faltante, no cambiar cómo se
+interpreta su ausencia.
+
+**Validación post-migración (script de una sola ejecución, ya eliminado del repositorio):**
+- Total de tareas actualizadas: **33**.
+- Tareas `COMPLETADA` con `completedAt = NULL` después de la migración: **0**.
+- Las 33 quedaron con `completedAt` exactamente igual a su `endDate`: confirmado.
+- Total de tareas `COMPLETADA` antes vs. después (debe ser igual — confirma que no se creó ni eliminó ninguna tarea): **121 → 121**.
+- "Completadas a tiempo" (Definición B, `isCompletedOnTime`, ya con la
+  comparación por día calendario corregida) antes: **57 de 121** (33 con
+  `completedAt` nulo, excluidas). Después: **90 de 121**. Cambio neto: **+33**
+  — exactamente las 33 tareas regularizadas, ninguna otra cambió de
+  clasificación.
+
+**Prevención futura (verificada, no solo asumida):** se confirmó que
+`PATCH /api/tasks/[id]` ya fija `completedAt = new Date()` automáticamente
+al mover una tarea a `COMPLETADA` (desde 2026-07-07), y que
+`POST /api/tasks/import` nunca acepta un `status` inicial (siempre crea en
+`PENDIENTE`) — ninguno de los dos podía reproducir este problema. Sí se
+encontró un tercer camino con el mismo gap: `POST /api/tasks` (crear una
+tarea nueva ya con estado inicial `COMPLETADA`, ej. para registrar trabajo
+ya realizado) no fijaba `completedAt`. Corregido en el mismo cambio
+(`src/app/api/tasks/route.ts`): ahora fija `completedAt = new Date()` cuando
+`initialStatus === "COMPLETADA"`, igual que el resto de los caminos. A
+partir de esta versión, los tres caminos que pueden dejar una tarea en
+`COMPLETADA` (crear, editar, corregir) registran `completedAt`
+automáticamente — no debería volver a aparecer una tarea completada sin
+fecha de finalización.
+
+**Naturaleza del cambio:** migración de datos histórica, de ejecución
+única — **no** modifica la fórmula de Cumplimiento, el Analytics Engine, el
+NormalizationEngine, Performance Score, Riesgo Operativo, pesos, curvas ni
+benchmarks. El fix de prevención en `POST /api/tasks` es una corrección de
+comportamiento normal (mismo tipo que el fix de `isCompletedOnTime`), no un
+cambio de fórmula. Esta migración no se repetirá — no existe ningún
+mecanismo ni intención de volver a ejecutarla; futuras tareas sin
+`completedAt` (si llegaran a existir por una vía no contemplada aquí)
+requerirían su propia investigación, no un re-uso automático de este script.
+
+**Aprobado por:** Anthony Jácome (especificó el alcance exacto — 33 tareas,
+`completedAt = endDate`, sin tocar ninguna otra — y autorizó la ejecución).
+
+---
+
 ## 2026-07-24 — Corrección de `isCompletedOnTime`: comparación por día calendario en huso de negocio, no por instante UTC crudo
 
 **Problema detectado:** auditoría solicitada explícitamente (sin tocar
