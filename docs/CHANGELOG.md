@@ -23,6 +23,67 @@
 
 ---
 
+## v1.14.0 — 2026-07-24
+
+**Tipo:** UX / FEATURE
+**Módulo:** Sprint C — NEXO Experience (Product Excellence)
+
+**Implementado:** refinamiento de interacción y fricción anclado en un
+informe de hallazgos previo (3 agentes de investigación sobre flujos de
+clics, contenido del Dashboard, y calidad de mensajes de error/éxito) — sin
+tocar Analytics Engine, KPIs, base de datos, permisos, autenticación ni
+reglas de negocio. Ver `docs/PRODUCT_REVIEW.md` para la auditoría de
+producto completa (fortalezas/debilidades/deuda técnica y de UX/
+recomendaciones futuras).
+
+- **Fase 1 — Reducción de clics:** "+ Nueva nota" en el header de
+  Escritorio Digital (visible desde cualquier pestaña, antes 4 clics);
+  enlace "Ver mi desempeño" en Analytics para roles con KPIs individuales de
+  ejecución (`isLeadershipRole`, sin lógica nueva); búsqueda de tareas
+  ahora también compara descripción y responsable asignado.
+- **Fase 2 — Consistencia de navegación:** `BackLink` compartido (antes 3
+  implementaciones distintas de "volver"); selector de estado en Kanban
+  como complemento del drag-and-drop existente (el único de los 4
+  mecanismos de cambio de estado detectados que no tenía alternativa de
+  clic).
+- **Fase 3 — Error y éxito:** acción "Reintentar" en `Toast`; 3 fallos
+  genuinamente silenciosos corregidos (`ProjectCommentsTab`,
+  `ProjectHistoryTab`, `PhaseDetailModal`); fuga técnica cerrada en
+  `AssistantModule`/`assistant/chat/route.ts`; nueva clase `RecoveryError`
+  para que las rutas de Proyectos/Escritorio Digital/Papelera solo reenvíen
+  `err.message` cuando es un error curado, no cualquier excepción
+  inesperada; `useToast()` extendido a Ideas, Reuniones y el resto de
+  Proyectos; `profile/page.tsx` migrado a `useToast()`.
+- **Fase 4 — Dashboard:** nueva card "Mis proyectos" (reutiliza la regla de
+  acceso ya existente de `GET /api/projects`, sin cálculo nuevo) — cierra el
+  hueco más claro del audit; `jornada` rebalanceada (resumen de urgencia en
+  el espacio más prominente en vez de un saludo decorativo); mensaje de
+  bienvenida ahora descartable.
+- **Fase 5 — Ayuda contextual y acciones inteligentes:** `InfoTooltip`
+  (versión liviana del `HelpPopover` de Analytics) en 3 puntos de fricción
+  real; búsquedas recientes en el buscador de Escritorio Digital
+  (localStorage, sin IA — única instancia de "acciones inteligentes" de
+  este sprint).
+- **Fase 6 — Documentación:** `docs/PRODUCT_REVIEW.md` (nuevo).
+
+**Impacto:** puramente de interacción/UX — todos los commits pasan
+`npx tsc --noEmit`, `npx eslint` y `npm test` (897 tests) limpios. Cero
+diff en `prisma/schema.prisma`, `src/lib/analytics.ts`, `src/lib/roles.ts`
+(solo se **consumen** funciones existentes como `isLeadershipRole`, nunca se
+modifican), `src/lib/session.ts`, `src/proxy.ts`, `src/lib/workload.ts` ni
+`src/lib/capacityForecast.ts`.
+
+**Deliberadamente fuera de alcance** (documentado como recomendación futura
+en `docs/PRODUCT_REVIEW.md` §10): relajar `targetTimeHours` en Crear
+Proyecto (requiere migración de schema), un buscador global unificado
+tareas+proyectos+notas (feature nueva, no una unificación de UI), sistema de
+onboarding/tour completo, y unificar el cambio de estado de Ideas (quedó
+como el único de los 4 mecanismos detectados sin resolver).
+
+**Autor:** Claude Code
+
+---
+
 ## v1.13.0 — 2026-07-24
 
 **Tipo:** UI / UX

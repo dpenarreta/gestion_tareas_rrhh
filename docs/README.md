@@ -21,6 +21,7 @@ para el procedimiento exacto.
 | [`ANALYTICS_FORMULAS.md`](./ANALYTICS_FORMULAS.md) | Documentación completa de cada fórmula del motor de Analytics: objetivo, fórmula, variables, pesos, normalización, ejemplo de cálculo, casos borde, reglas de negocio, versión. |
 | [`VERSION.md`](./VERSION.md) | Versionado de NEXO, del Analytics Engine y del set de fórmulas, con el historial completo reconstruido desde Git. |
 | [`DESIGN_SYSTEM.md`](./DESIGN_SYSTEM.md) | Referencia oficial de UI: tokens, botones, chips, tablas, modales, toasts, loading, empty states, iconografía — y el informe de Design Review de cada sprint de UX. |
+| [`PRODUCT_REVIEW.md`](./PRODUCT_REVIEW.md) | Auditoría de producto: fortalezas, debilidades, oportunidades, deuda técnica y de UX, recomendaciones para futuras versiones. |
 | [`ANALYTICS_CALCULATION_REGISTRY.md`](./ANALYTICS_CALCULATION_REGISTRY.md) | Auditoría técnica de duplicación de cálculos en el motor de Analytics (documento preexistente, complementario a `ANALYTICS_FORMULAS.md` — este es el ángulo "¿hay lógica repetida?", aquel es el ángulo "¿cómo se calcula cada cosa?"). |
 | [`RAT.md`](./RAT.md) | Registro de Actividades de Tratamiento (LOPDP) — documento de cumplimiento normativo, no de arquitectura. |
 | [`PENDIENTES_LEGALES.md`](./PENDIENTES_LEGALES.md) | Pendientes legales de cumplimiento LOPDP. |
