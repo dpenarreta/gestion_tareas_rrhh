@@ -9,7 +9,12 @@ import { rangesOverlap } from "@/lib/timeOverlap";
 // corrección automática. Ver docs/AUDIT_LOG.md § Sprint D.
 
 const MAX_ITEMS = 20;
-const OVERLAP_LOOKBACK_DAYS = 90;
+// Aplica a los chequeos basados en actividades (solapamiento, motivo
+// huérfano, retroactivo inconsistente) — acota el volumen de un scan
+// completo del historial en un click bajo demanda; los chequeos sobre
+// Tarea/Proyecto/Fase (fechas, rango, propietario) sí son sobre la tabla
+// completa, ya que ahí el volumen es mucho menor.
+const ACTIVITY_LOOKBACK_DAYS = 90;
 
 type QualityItem = { id: string; label: string };
 type QualityCheck = { key: string; label: string; count: number; items: QualityItem[]; note?: string };
@@ -25,9 +30,9 @@ export async function GET() {
     return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
   }
 
-  const overlapCutoff = new Date(Date.now() - OVERLAP_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
+  const activityCutoff = new Date(Date.now() - ACTIVITY_LOOKBACK_DAYS * 24 * 60 * 60 * 1000);
 
-  const [tasks, projects, phases, taskActivities, projectActivities] = await Promise.all([
+  const [tasks, projects, phases, participants, activityReasons, taskActivities, projectActivities] = await Promise.all([
     prisma.task.findMany({
       select: { id: true, title: true, startDate: true, endDate: true, progress: true, realHours: true, estimatedHours: true, assignedToId: true },
     }),
@@ -37,13 +42,40 @@ export async function GET() {
     prisma.projectPhase.findMany({
       select: { id: true, name: true, startDate: true, targetDate: true, progress: true, project: { select: { name: true } } },
     }),
+    prisma.projectParticipant.findMany({
+      select: { id: true, userId: true, project: { select: { name: true } } },
+    }),
+    prisma.activityReason.findMany({ select: { key: true } }),
     prisma.taskActivity.findMany({
-      where: { startTime: { not: null }, endTime: { not: null }, createdAt: { gte: overlapCutoff } },
-      select: { id: true, authorId: true, startTime: true, endTime: true, createdAt: true, duration: true, task: { select: { title: true } }, author: { select: { name: true } } },
+      where: { createdAt: { gte: activityCutoff } },
+      select: {
+        id: true,
+        authorId: true,
+        startTime: true,
+        endTime: true,
+        createdAt: true,
+        duration: true,
+        reason: true,
+        isRetroactive: true,
+        activityDate: true,
+        task: { select: { title: true } },
+        author: { select: { name: true } },
+      },
     }),
     prisma.projectActivity.findMany({
-      where: { startTime: { not: null }, endTime: { not: null }, createdAt: { gte: overlapCutoff } },
-      select: { id: true, authorId: true, startTime: true, endTime: true, createdAt: true, duration: true, project: { select: { name: true } }, author: { select: { name: true } } },
+      where: { createdAt: { gte: activityCutoff } },
+      select: {
+        id: true,
+        authorId: true,
+        startTime: true,
+        endTime: true,
+        createdAt: true,
+        duration: true,
+        isRetroactive: true,
+        activityDate: true,
+        project: { select: { name: true } },
+        author: { select: { name: true } },
+      },
     }),
   ]);
 
@@ -75,15 +107,63 @@ export async function GET() {
 
   const calculosFueraDeRango = buildCheck("calculos_fuera_de_rango", "Progreso u horas fuera de rango", [...outOfRangeProgress, ...negativeHours]);
 
-  // ── Registros sin propietario/responsable (defensivo — ambos campos son
-  // obligatorios en el schema, se espera 0; solo detecta strings vacíos que
-  // el schema no impide) ──────────────────────────────────────────────────
+  // ── Registros sin propietario/responsable/participante (defensivo — todos
+  // son campos obligatorios y con FK real en el schema, se espera 0; solo
+  // detecta strings vacíos que el schema no impide) ──────────────────────
   const sinPropietario = buildCheck(
     "sin_propietario",
-    "Tareas sin propietario / proyectos sin responsable",
+    "Tareas sin propietario / proyectos sin responsable / participantes sin usuario",
     [
       ...tasks.filter((t) => !t.assignedToId).map((t) => ({ id: t.id, label: `Tarea: "${t.title}"` })),
       ...projects.filter((p) => !p.responsibleId).map((p) => ({ id: p.id, label: `Proyecto: "${p.name}"` })),
+      ...participants.filter((p) => !p.userId).map((p) => ({ id: p.id, label: `Participante de "${p.project.name}"` })),
+    ]
+  );
+
+  // ── Actividades con motivo huérfano: TaskActivity.reason es un String
+  // libre resuelto por convención contra ActivityReason.key — no es una FK
+  // real, así que un motivo eliminado o mal escrito puede quedar "colgado"
+  // sin que el schema lo impida. ProjectActivity no tiene campo de motivo.
+  const validReasonKeys = new Set(activityReasons.map((r) => r.key));
+  const motivoHuerfano = buildCheck(
+    "motivo_huerfano",
+    `Actividades con motivo que no existe en el catálogo (últimos ${ACTIVITY_LOOKBACK_DAYS} días)`,
+    taskActivities
+      .filter((a) => !validReasonKeys.has(a.reason))
+      .map((a) => ({ id: a.id, label: `${a.author.name}: "${a.task.title}" — motivo "${a.reason}"` }))
+  );
+
+  // ── Registros retroactivos inconsistentes: dos chequeos de consistencia
+  // interna (no relativos a "hoy", para no generar falsos positivos con
+  // datos históricos legítimos que ya no están dentro de ninguna ventana
+  // vigente):
+  //  1. isRetroactive=true sin activityDate — contradicción, un registro
+  //     retroactivo siempre debe traer una fecha explícita.
+  //  2. isRetroactive=false pero activityDate cae en un día calendario
+  //     distinto al de createdAt — sugiere un registro backdateado a mano
+  //     sin marcar el flag.
+  type ActivityForRetroCheck = { id: string; isRetroactive: boolean; activityDate: Date | null; createdAt: Date; label: string };
+  function retroInconsistencies(items: ActivityForRetroCheck[]): QualityItem[] {
+    const out: QualityItem[] = [];
+    for (const a of items) {
+      if (a.isRetroactive && a.activityDate == null) {
+        out.push({ id: a.id, label: `${a.label} — marcada retroactiva sin fecha` });
+      } else if (!a.isRetroactive && a.activityDate != null && businessCalendarDay(a.activityDate).getTime() !== businessCalendarDay(a.createdAt).getTime()) {
+        out.push({ id: a.id, label: `${a.label} — fecha distinta a su creación, sin marcar como retroactiva` });
+      }
+    }
+    return out;
+  }
+  const registrosRetroactivosInconsistentes = buildCheck(
+    "retroactivo_inconsistente",
+    `Registros retroactivos inconsistentes (últimos ${ACTIVITY_LOOKBACK_DAYS} días)`,
+    [
+      ...retroInconsistencies(
+        taskActivities.map((a) => ({ ...a, label: `${a.author.name}: "${a.task.title}" (Tarea)` }))
+      ),
+      ...retroInconsistencies(
+        projectActivities.map((a) => ({ ...a, label: `${a.author.name}: "${a.project.name}" (Proyecto)` }))
+      ),
     ]
   );
 
@@ -94,22 +174,26 @@ export async function GET() {
   // no corrige nada, solo evidencia si el hueco produjo casos reales. ────────
   type OverlapCandidate = { id: string; authorId: string; startTime: string; endTime: string; day: number; label: string };
   const candidates: OverlapCandidate[] = [
-    ...taskActivities.map((a) => ({
-      id: a.id,
-      authorId: a.authorId,
-      startTime: a.startTime!,
-      endTime: a.endTime!,
-      day: businessCalendarDay(a.createdAt).getTime(),
-      label: `${a.author.name}: "${a.task.title}" (Tarea) ${a.startTime}-${a.endTime}`,
-    })),
-    ...projectActivities.map((a) => ({
-      id: a.id,
-      authorId: a.authorId,
-      startTime: a.startTime!,
-      endTime: a.endTime!,
-      day: businessCalendarDay(a.createdAt).getTime(),
-      label: `${a.author.name}: "${a.project.name}" (Proyecto) ${a.startTime}-${a.endTime}`,
-    })),
+    ...taskActivities
+      .filter((a) => a.startTime != null && a.endTime != null)
+      .map((a) => ({
+        id: a.id,
+        authorId: a.authorId,
+        startTime: a.startTime!,
+        endTime: a.endTime!,
+        day: businessCalendarDay(a.createdAt).getTime(),
+        label: `${a.author.name}: "${a.task.title}" (Tarea) ${a.startTime}-${a.endTime}`,
+      })),
+    ...projectActivities
+      .filter((a) => a.startTime != null && a.endTime != null)
+      .map((a) => ({
+        id: a.id,
+        authorId: a.authorId,
+        startTime: a.startTime!,
+        endTime: a.endTime!,
+        day: businessCalendarDay(a.createdAt).getTime(),
+        label: `${a.author.name}: "${a.project.name}" (Proyecto) ${a.startTime}-${a.endTime}`,
+      })),
   ];
   const byAuthorDay = new Map<string, OverlapCandidate[]>();
   for (const c of candidates) {
@@ -137,7 +221,7 @@ export async function GET() {
   }
   const horasDuplicadas = buildCheck(
     "horas_duplicadas",
-    `Horas con horario solapado, mismo autor y día (últimos ${OVERLAP_LOOKBACK_DAYS} días)`,
+    `Horas con horario solapado, mismo autor y día (últimos ${ACTIVITY_LOOKBACK_DAYS} días)`,
     overlapping
   );
 
@@ -154,7 +238,15 @@ export async function GET() {
     "Protegido estructuralmente por restricciones de llave foránea (no se puede crear un huérfano vía el ORM)."
   );
 
-  const checks: QualityCheck[] = [fechasInvalidas, calculosFueraDeRango, sinPropietario, horasDuplicadas, registrosHuerfanos];
+  const checks: QualityCheck[] = [
+    fechasInvalidas,
+    calculosFueraDeRango,
+    sinPropietario,
+    motivoHuerfano,
+    registrosRetroactivosInconsistentes,
+    horasDuplicadas,
+    registrosHuerfanos,
+  ];
 
   return NextResponse.json({
     generatedAt: new Date().toISOString(),

@@ -4,6 +4,8 @@ import type { SessionPayload } from "@/lib/session";
 const taskFindMany = vi.fn();
 const projectFindMany = vi.fn();
 const projectPhaseFindMany = vi.fn();
+const projectParticipantFindMany = vi.fn();
+const activityReasonFindMany = vi.fn();
 const taskActivityFindMany = vi.fn();
 const projectActivityFindMany = vi.fn();
 
@@ -12,6 +14,8 @@ vi.mock("@/lib/prisma", () => ({
     task: { findMany: (...a: unknown[]) => taskFindMany(...a) },
     project: { findMany: (...a: unknown[]) => projectFindMany(...a) },
     projectPhase: { findMany: (...a: unknown[]) => projectPhaseFindMany(...a) },
+    projectParticipant: { findMany: (...a: unknown[]) => projectParticipantFindMany(...a) },
+    activityReason: { findMany: (...a: unknown[]) => activityReasonFindMany(...a) },
     taskActivity: { findMany: (...a: unknown[]) => taskActivityFindMany(...a) },
     projectActivity: { findMany: (...a: unknown[]) => projectActivityFindMany(...a) },
   },
@@ -41,6 +45,8 @@ function resetAll() {
   taskFindMany.mockReset().mockResolvedValue([]);
   projectFindMany.mockReset().mockResolvedValue([]);
   projectPhaseFindMany.mockReset().mockResolvedValue([]);
+  projectParticipantFindMany.mockReset().mockResolvedValue([]);
+  activityReasonFindMany.mockReset().mockResolvedValue([]);
   taskActivityFindMany.mockReset().mockResolvedValue([]);
   projectActivityFindMany.mockReset().mockResolvedValue([]);
   vi.mocked(getSession).mockReset();
@@ -123,6 +129,89 @@ describe("GET /api/settings/data-quality", () => {
     const res = await dataQualityGET();
     const body = await res.json();
     const check = body.checks.find((c: { key: string }) => c.key === "horas_duplicadas");
+    expect(check.count).toBe(0);
+  });
+
+  it("detecta un participante sin usuario asociado", async () => {
+    mockSession({});
+    projectParticipantFindMany.mockResolvedValue([
+      { id: "p1", userId: "", project: { name: "Proyecto Z" } },
+    ]);
+    const res = await dataQualityGET();
+    const body = await res.json();
+    const check = body.checks.find((c: { key: string }) => c.key === "sin_propietario");
+    expect(check.count).toBe(1);
+    expect(check.items[0].label).toContain("Proyecto Z");
+  });
+
+  it("detecta una actividad con un motivo que no existe en el catálogo", async () => {
+    mockSession({});
+    activityReasonFindMany.mockResolvedValue([{ key: "REUNION" }]);
+    taskActivityFindMany.mockResolvedValue([
+      { id: "a1", authorId: "u1", startTime: null, endTime: null, createdAt: new Date(), duration: 30, reason: "MOTIVO_ELIMINADO", isRetroactive: false, activityDate: null, task: { title: "Tarea X" }, author: { name: "Ana" } },
+    ]);
+    const res = await dataQualityGET();
+    const body = await res.json();
+    const check = body.checks.find((c: { key: string }) => c.key === "motivo_huerfano");
+    expect(check.count).toBe(1);
+    expect(check.items[0].label).toContain("MOTIVO_ELIMINADO");
+  });
+
+  it("no marca un motivo que sí existe en el catálogo", async () => {
+    mockSession({});
+    activityReasonFindMany.mockResolvedValue([{ key: "REUNION" }]);
+    taskActivityFindMany.mockResolvedValue([
+      { id: "a1", authorId: "u1", startTime: null, endTime: null, createdAt: new Date(), duration: 30, reason: "REUNION", isRetroactive: false, activityDate: null, task: { title: "Tarea X" }, author: { name: "Ana" } },
+    ]);
+    const res = await dataQualityGET();
+    const body = await res.json();
+    const check = body.checks.find((c: { key: string }) => c.key === "motivo_huerfano");
+    expect(check.count).toBe(0);
+  });
+
+  it("detecta un registro marcado retroactivo sin activityDate", async () => {
+    mockSession({});
+    taskActivityFindMany.mockResolvedValue([
+      { id: "a1", authorId: "u1", startTime: null, endTime: null, createdAt: new Date("2026-06-10T12:00:00Z"), duration: 30, reason: "REUNION", isRetroactive: true, activityDate: null, task: { title: "Tarea X" }, author: { name: "Ana" } },
+    ]);
+    const res = await dataQualityGET();
+    const body = await res.json();
+    const check = body.checks.find((c: { key: string }) => c.key === "retroactivo_inconsistente");
+    expect(check.count).toBe(1);
+    expect(check.items[0].label).toContain("sin fecha");
+  });
+
+  it("detecta un registro no marcado retroactivo cuya activityDate difiere de createdAt", async () => {
+    mockSession({});
+    projectActivityFindMany.mockResolvedValue([
+      {
+        id: "a1",
+        authorId: "u1",
+        startTime: null,
+        endTime: null,
+        createdAt: new Date("2026-06-10T12:00:00Z"),
+        duration: 30,
+        isRetroactive: false,
+        activityDate: new Date("2026-06-05T05:00:00Z"),
+        project: { name: "Proyecto X" },
+        author: { name: "Ana" },
+      },
+    ]);
+    const res = await dataQualityGET();
+    const body = await res.json();
+    const check = body.checks.find((c: { key: string }) => c.key === "retroactivo_inconsistente");
+    expect(check.count).toBe(1);
+    expect(check.items[0].label).toContain("sin marcar como retroactiva");
+  });
+
+  it("no marca un registro retroactivo correctamente marcado y con fecha", async () => {
+    mockSession({});
+    taskActivityFindMany.mockResolvedValue([
+      { id: "a1", authorId: "u1", startTime: null, endTime: null, createdAt: new Date("2026-06-10T12:00:00Z"), duration: 30, reason: "REUNION", isRetroactive: true, activityDate: new Date("2026-06-08T00:00:00Z"), task: { title: "Tarea X" }, author: { name: "Ana" } },
+    ]);
+    const res = await dataQualityGET();
+    const body = await res.json();
+    const check = body.checks.find((c: { key: string }) => c.key === "retroactivo_inconsistente");
     expect(check.count).toBe(0);
   });
 });
