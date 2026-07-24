@@ -7,6 +7,9 @@ import { ROLE_LABEL, ALL_ROLES } from "@/lib/roles";
 import { TARGET_TIME_REASON_OPTIONS, TARGET_TIME_REASON_LABEL, type TargetTimeAdjustReason } from "@/lib/targetTime";
 import ValidateTargetTimeModal from "./ValidateTargetTimeModal";
 import { Button } from "@/components/ui/Button";
+import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
+import { SkeletonRow } from "@/components/ui/Skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
 
 type PendingTask = {
   id: string;
@@ -251,42 +254,53 @@ export default function RegularizeTargetTimeManager({ currentUserId }: { current
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-2xl border border-border bg-surface">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-border bg-background">
-              <th className="px-3 py-3">
+      <div className="rounded-2xl border border-border bg-surface">
+        <Table>
+          <TableHead>
+            <tr className="border-b border-border">
+              <Th>
                 <input
                   type="checkbox"
                   checked={selectableTasks.length > 0 && selected.size === selectableTasks.length}
                   onChange={toggleSelectAll}
                   disabled={selectableTasks.length === 0}
                 />
-              </th>
-              <th className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Tarea</th>
-              <th className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Responsable</th>
-              <th className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Tipo</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Tiempo objetivo inicial</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Horas reales</th>
-              <th className="text-right px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Acción</th>
+              </Th>
+              <Th>Tarea</Th>
+              <Th>Responsable</Th>
+              <Th>Tipo</Th>
+              <Th className="text-right">Tiempo objetivo inicial</Th>
+              <Th className="text-right">Horas reales</Th>
+              <Th className="text-right">Acción</Th>
             </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
+          </TableHead>
+          <TableBody>
             {loading && (
-              <tr>
-                <td colSpan={7} className="text-center py-10 text-disabled text-sm">Cargando…</td>
-              </tr>
+              <>
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <TableRow key={i}>
+                    <Td colSpan={7} className="p-0">
+                      <SkeletonRow columns={7} />
+                    </Td>
+                  </TableRow>
+                ))}
+              </>
             )}
             {!loading && tasks.length === 0 && (
-              <tr>
-                <td colSpan={7} className="text-center py-10 text-disabled text-sm">Sin tareas pendientes de validar con estos filtros.</td>
-              </tr>
+              <TableRow>
+                <Td colSpan={7} className="p-0">
+                  <EmptyState
+                    title="Sin tareas pendientes"
+                    description="No hay tareas pendientes de validar con estos filtros."
+                  />
+                </Td>
+              </TableRow>
             )}
             {!loading && tasks.map((t) => {
               const isSelf = t.assignedTo.id === currentUserId;
               return (
-                <tr key={t.id} className="hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
-                  <td className="px-3 py-3">
+                <TableRow key={t.id}>
+                  <Td>
                     <input
                       type="checkbox"
                       checked={selected.has(t.id)}
@@ -294,15 +308,15 @@ export default function RegularizeTargetTimeManager({ currentUserId }: { current
                       disabled={isSelf}
                       title={isSelf ? "No puedes validar el tiempo objetivo de tus propias tareas" : undefined}
                     />
-                  </td>
-                  <td className="px-3 py-3 max-w-[260px] truncate text-title">{t.title}</td>
-                  <td className="px-3 py-3 whitespace-nowrap text-main">
+                  </Td>
+                  <Td className="max-w-[260px] truncate text-title">{t.title}</Td>
+                  <Td className="whitespace-nowrap">
                     {t.assignedTo.name} <span className="text-disabled text-xs">({ROLE_LABEL[t.assignedTo.role]})</span>
-                  </td>
-                  <td className="px-3 py-3 text-main">{TYPE_LABEL[t.type]}</td>
-                  <td className="px-3 py-3 text-right text-main">{hoursToDisplay(t.estimatedHours)}h</td>
-                  <td className="px-3 py-3 text-right text-main">{hoursToDisplay(t.realHours)}h</td>
-                  <td className="px-3 py-3 text-right">
+                  </Td>
+                  <Td>{TYPE_LABEL[t.type]}</Td>
+                  <Td className="text-right">{hoursToDisplay(t.estimatedHours)}h</Td>
+                  <Td className="text-right">{hoursToDisplay(t.realHours)}h</Td>
+                  <Td className="text-right">
                     <Button
                       variant="tertiary"
                       size="sm"
@@ -312,12 +326,12 @@ export default function RegularizeTargetTimeManager({ currentUserId }: { current
                     >
                       Validar
                     </Button>
-                  </td>
-                </tr>
+                  </Td>
+                </TableRow>
               );
             })}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
 
       {editingTask && (

@@ -27,6 +27,10 @@ import { hoursToDisplay } from "@/lib/timeFormat";
 import { Button } from "@/components/ui/Button";
 import { StatusChip } from "@/components/ui/Chip";
 import { TASK_STATUS_CONFIG } from "@/lib/chipConfig";
+import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
+import { Spinner } from "@/components/ui/Skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Users } from "lucide-react";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -526,7 +530,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
   if (teamLoading && activeTab === "kpis") {
     return (
       <div className="flex justify-center items-center py-32">
-        <div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        <Spinner className="w-7 h-7 text-primary" />
       </div>
     );
   }
@@ -568,12 +572,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
 
       {/* ── KPIs tab ──────────────────────────────────────────────────────── */}
       {activeTab === "kpis" && team.length === 0 && !teamLoading && (
-        <div className="flex flex-col items-center justify-center py-32 text-disabled">
-          <svg className="w-12 h-12 mb-4 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-          </svg>
-          <p className="text-sm">No tienes subordinados para visualizar KPIs</p>
-        </div>
+        <EmptyState icon={Users} title="No tienes subordinados para visualizar KPIs" />
       )}
 
       {activeTab === "kpis" && team.length > 0 && (
@@ -646,7 +645,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
         >
           {kpiLoading && !kpi && (
             <div className="flex justify-center py-24">
-              <div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              <Spinner className="w-7 h-7 text-primary" />
             </div>
           )}
 
@@ -875,9 +874,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
                 {kpi.seguimiento.byReason.length === 0 && (
                   <div className="lg:col-span-2">
                     <Section title="Consultas por motivo (SEGUIMIENTO)">
-                      <div className="flex items-center justify-center h-28 text-disabled text-sm">
-                        Sin tareas de tipo SEGUIMIENTO en este período
-                      </div>
+                      <EmptyState title="Sin tareas de tipo SEGUIMIENTO en este período" className="py-6" />
                     </Section>
                   </div>
                 )}
@@ -889,67 +886,55 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
                 title={`Detalle de tareas del período (${kpi.tasks.length})`}
               >
                 {kpi.tasks.length === 0 ? (
-                  <p className="text-sm text-disabled py-6 text-center">
-                    Sin tareas con fecha de vencimiento en este período
-                  </p>
+                  <EmptyState title="Sin tareas con fecha de vencimiento en este período" className="py-6" />
                 ) : (
-                  <div className="overflow-x-auto -mx-5 px-5">
-                    <table className="w-full text-sm min-w-[560px]">
-                      <thead>
-                        <tr className="border-b border-border">
-                          <th className="text-left py-2 pr-4 text-xs font-semibold text-secondary uppercase tracking-wider">
-                            Título
-                          </th>
-                          <th className="text-left py-2 pr-4 text-xs font-semibold text-secondary uppercase tracking-wider">
-                            Tipo
-                          </th>
-                          <th className="text-left py-2 pr-4 text-xs font-semibold text-secondary uppercase tracking-wider">
-                            Estado
-                          </th>
-                          <th className="text-left py-2 pr-4 text-xs font-semibold text-secondary uppercase tracking-wider">
-                            Fecha fin
-                          </th>
-                          <th className="text-left py-2 pr-4 text-xs font-semibold text-secondary uppercase tracking-wider">
-                            Retraso
-                          </th>
-                          <th className="py-2 text-xs font-semibold text-secondary uppercase tracking-wider" />
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
+                  <div className="-mx-5 px-5">
+                    <Table className="min-w-[560px]">
+                      <TableHead>
+                        <TableRow>
+                          <Th>Título</Th>
+                          <Th>Tipo</Th>
+                          <Th>Estado</Th>
+                          <Th>Fecha fin</Th>
+                          <Th>Retraso</Th>
+                          <Th />
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
                         {kpi.tasks.map((t) => (
-                          <tr key={t.id} className="hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
-                            <td className="py-2.5 pr-4 max-w-[220px]">
+                          <TableRow key={t.id}>
+                            <Td className="max-w-[220px]">
                               <p className="text-sm font-medium text-title truncate" title={t.title}>
                                 {t.title}
                               </p>
-                            </td>
-                            <td className="py-2.5 pr-4">
+                            </Td>
+                            <Td>
                               <span className="text-[11px] font-medium text-secondary">
                                 {TYPE_LABEL[t.type] ?? t.type}
                               </span>
-                            </td>
-                            <td className="py-2.5 pr-4">
+                            </Td>
+                            <Td>
                               <StatusChip value={t.status} config={TASK_STATUS_CONFIG} />
-                            </td>
-                            <td className="py-2.5 pr-4 text-sm text-main whitespace-nowrap">
+                            </Td>
+                            <Td className="whitespace-nowrap">
                               {formatDate(t.endDate)}
-                            </td>
-                            <td className="py-2.5 pr-4 text-sm">
+                            </Td>
+                            <Td>
                               {t.delayDays > 0 ? (
                                 <span className="text-danger font-medium">{t.delayDays}d</span>
                               ) : (
                                 <span className="text-disabled">—</span>
                               )}
-                            </td>
-                            <td className="py-2.5 text-right">
+                            </Td>
+                            <Td className="text-right">
                               <div
                                 className={`inline-block w-2.5 h-2.5 rounded-full ${DOT_CLASS[t.color]}`}
                               />
-                            </td>
-                          </tr>
+                            </Td>
+                          </TableRow>
                         ))}
-                      </tbody>
-                    </table>
+                      </TableBody>
+                    </Table>
                   </div>
                 )}
               </Section>

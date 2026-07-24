@@ -5,6 +5,7 @@ import { ROLE_LABEL, ALL_ROLES } from "@/lib/roles";
 import type { Role } from "@/generated/prisma/client";
 import SectionCard from "./SectionCard";
 import { Button } from "@/components/ui/Button";
+import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
 
 type Config = {
   commentTargets: Partial<Record<Role, Role[]>>;
@@ -162,19 +163,19 @@ export default function NotificationRulesSection() {
               Para cada rol (fila), selecciona qué rol(es) reciben la notificación cuando ese rol comenta en una
               tarea. Elige &ldquo;Nadie&rdquo; para desactivar la notificación de ese rol.
             </p>
-            <div className="rounded-lg border border-border overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-background">
-                    <th className="text-left px-4 py-2.5 font-medium text-main">Rol que comenta</th>
-                    <th className="text-left px-4 py-2.5 font-medium text-main">Notifica a</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-border">
+            <div className="rounded-lg border border-border overflow-hidden">
+              <Table>
+                <TableHead>
+                  <TableRow>
+                    <Th>Rol que comenta</Th>
+                    <Th>Notifica a</Th>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
                   {ALL_ROLES.map((role) => (
-                    <tr key={role}>
-                      <td className="px-4 py-2.5 text-title font-medium whitespace-nowrap">{ROLE_LABEL[role]}</td>
-                      <td className="px-4 py-2.5">
+                    <TableRow key={role}>
+                      <Td className="text-title font-medium whitespace-nowrap">{ROLE_LABEL[role]}</Td>
+                      <Td>
                         <RoleMultiSelect
                           roles={ALL_ROLES.filter((r) => r !== role)}
                           selected={config.commentTargets[role] ?? []}
@@ -182,11 +183,11 @@ export default function NotificationRulesSection() {
                             setConfig({ ...config, commentTargets: { ...config.commentTargets, [role]: roles } })
                           }
                         />
-                      </td>
-                    </tr>
+                      </Td>
+                    </TableRow>
                   ))}
-                </tbody>
-              </table>
+                </TableBody>
+              </Table>
             </div>
           </div>
 

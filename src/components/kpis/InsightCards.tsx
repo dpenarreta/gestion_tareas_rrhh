@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { PriorityCompliance } from "./types";
 import { resultBarClass } from "@/lib/analyticsExplain";
+import { SkeletonText } from "@/components/ui/Skeleton";
 
 // ── Task breakdown (reemplaza el número simple de "Total tareas") ───────────
 
@@ -157,13 +158,7 @@ export function NovaInsightsCard({ userId, month }: { userId: string; month: str
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-[13px] font-semibold text-nova mb-2">{data ? NOVA_TITLE[data.mode] : "Análisis del período"}</p>
-          {loading && (
-            <div className="space-y-2">
-              {[0, 1, 2, 3].map((i) => (
-                <div key={i} className="h-3 rounded bg-black/10 dark:bg-white/10 animate-pulse" style={{ width: `${85 - i * 10}%` }} />
-              ))}
-            </div>
-          )}
+          {loading && <SkeletonText lines={4} />}
           {!loading && error && (
             <p className="text-sm text-disabled">No se pudo generar el análisis. Intenta de nuevo.</p>
           )}

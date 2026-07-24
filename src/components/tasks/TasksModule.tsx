@@ -7,6 +7,8 @@ import type { Task, ViewType, AssignableUser } from "./types";
 import type { ActivityFormat } from "@/lib/activityFormat";
 import { canManageUsers } from "@/lib/roles";
 import { Button } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { SearchX } from "lucide-react";
 import KanbanView from "./KanbanView";
 import TableView from "./TableView";
 import GanttView from "./GanttView";
@@ -287,8 +289,12 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
       <div className="flex-1">
         {showRepository && <RepositoryView currentUserRole={currentUserRole} />}
         {!showRepository && noSearchResults && (
-          <div className="text-center py-16 text-secondary text-sm rounded-2xl border border-border bg-surface">
-            No se encontraron tareas con ese nombre
+          <div className="rounded-2xl border border-border bg-surface">
+            <EmptyState
+              icon={SearchX}
+              title="Sin resultados"
+              description="No se encontraron tareas con ese nombre."
+            />
           </div>
         )}
         {!showRepository && !noSearchResults && currentView === "KANBAN" && (

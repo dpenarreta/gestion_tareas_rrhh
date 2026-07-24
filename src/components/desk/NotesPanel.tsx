@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import type { LucideIcon } from "lucide-react";
+import { Inbox, Pin, Archive, Send } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
 import DeskNotePostIt from "./DeskNotePostIt";
 import NewNoteModal from "./NewNoteModal";
 import type { DeskNote } from "./types";
@@ -16,11 +20,18 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "sent", label: "Enviadas" },
 ];
 
-const EMPTY_COPY: Record<Tab, { icon: string; text: string }> = {
-  desk: { icon: "🗒️", text: "Tu escritorio está despejado — sin notas pendientes" },
-  pinned: { icon: "📌", text: "No tienes notas fijadas" },
-  archive: { icon: "🗃️", text: "El archivo está vacío (las notas se purgan a los 15 días)" },
-  sent: { icon: "✉️", text: "Aún no has dejado notas a nadie" },
+const EMPTY_ICON: Record<Tab, LucideIcon> = {
+  desk: Inbox,
+  pinned: Pin,
+  archive: Archive,
+  sent: Send,
+};
+
+const EMPTY_TEXT: Record<Tab, string> = {
+  desk: "Tu escritorio está despejado — sin notas pendientes",
+  pinned: "No tienes notas fijadas",
+  archive: "El archivo está vacío (las notas se purgan a los 15 días)",
+  sent: "Aún no has dejado notas a nadie",
 };
 
 export default function NotesPanel({ onNoteCreated }: { onNoteCreated?: () => void }) {
@@ -153,14 +164,17 @@ export default function NotesPanel({ onNoteCreated }: { onNoteCreated?: () => vo
       </div>
 
       {activeNotes === null ? (
-        <div className="flex items-center justify-center py-20">
-          <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-40 w-full rounded-2xl" />
+          ))}
         </div>
       ) : activeNotes.length === 0 ? (
-        <div className="text-center text-disabled text-sm py-16 bg-surface border border-border rounded-2xl">
-          <p className="text-3xl mb-2">{EMPTY_COPY[tab].icon}</p>
-          {EMPTY_COPY[tab].text}
-        </div>
+        <EmptyState
+          icon={EMPTY_ICON[tab]}
+          title={EMPTY_TEXT[tab]}
+          className="bg-surface border border-border rounded-2xl"
+        />
       ) : (
         <motion.div layout className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
           <AnimatePresence mode="popLayout">

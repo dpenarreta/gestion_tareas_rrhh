@@ -11,6 +11,10 @@ import CorrectArchivedTaskModal from "./CorrectArchivedTaskModal";
 import { Button } from "@/components/ui/Button";
 import { StatusChip, PriorityChip } from "@/components/ui/Chip";
 import { TASK_STATUS_CONFIG, TASK_PRIORITY_CONFIG } from "@/lib/chipConfig";
+import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
+import { SkeletonText, SkeletonRow } from "@/components/ui/Skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Archive } from "lucide-react";
 
 type RepositoryMonth = { year: number; month: number; totalTasks: number; completedTasks: number; totalHours: number };
 
@@ -73,7 +77,11 @@ export default function RepositoryView({ currentUserRole }: Props) {
   }, [months]);
 
   if (loading) {
-    return <div className="text-sm text-disabled py-16 text-center">Cargando repositorio…</div>;
+    return (
+      <div className="rounded-2xl border border-border bg-surface p-6">
+        <SkeletonText lines={4} />
+      </div>
+    );
   }
 
   if (selected) {
@@ -113,40 +121,49 @@ export default function RepositoryView({ currentUserRole }: Props) {
           </div>
         </div>
 
-        {loadingTasks && <div className="text-sm text-disabled py-8 text-center">Cargando tareas…</div>}
+        {loadingTasks && (
+          <div className="rounded-2xl border border-border bg-surface divide-y divide-border">
+            <SkeletonRow columns={9} />
+            <SkeletonRow columns={9} />
+            <SkeletonRow columns={9} />
+          </div>
+        )}
 
         {!loadingTasks && tasks && (
-          <div className="overflow-x-auto rounded-2xl border border-border bg-surface">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-background">
+          <div className="rounded-2xl border border-border bg-surface">
+            <Table>
+              <TableHead>
+                <tr className="border-b border-border">
                   <th className="w-1 px-0" />
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Título</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Responsable</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Frecuencia</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Estado</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Prioridad</th>
-                  <th className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Fin</th>
-                  <th className="text-right px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">T. Objetivo</th>
-                  <th className="text-right px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">H. Reales</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Avance</th>
-                  {isAdmin && <th className="text-right px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Acciones</th>}
+                  <Th>Título</Th>
+                  <Th>Responsable</Th>
+                  <Th>Frecuencia</Th>
+                  <Th>Estado</Th>
+                  <Th>Prioridad</Th>
+                  <Th>Fin</Th>
+                  <Th className="text-right">T. Objetivo</Th>
+                  <Th className="text-right">H. Reales</Th>
+                  <Th className="text-center">Avance</Th>
+                  {isAdmin && <Th className="text-right">Acciones</Th>}
                 </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
+              </TableHead>
+              <TableBody>
                 {tasks.length === 0 && (
-                  <tr>
-                    <td colSpan={isAdmin ? 10 : 9} className="text-center py-10 text-disabled text-sm">
-                      No tienes tareas archivadas visibles en este mes.
-                    </td>
-                  </tr>
+                  <TableRow>
+                    <Td colSpan={isAdmin ? 10 : 9} className="p-0">
+                      <EmptyState
+                        title="Sin tareas archivadas"
+                        description="No tienes tareas archivadas visibles en este mes."
+                      />
+                    </Td>
+                  </TableRow>
                 )}
                 {tasks.map((task) => {
                   const hex = taskColorHex(task.color);
                   return (
-                    <tr key={task.id} className="hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
+                    <TableRow key={task.id}>
                       <td className="w-1 p-0" style={{ backgroundColor: hex ?? "transparent" }} />
-                      <td className="px-4 py-3 max-w-[200px] text-title">
+                      <Td className="max-w-[200px] text-title">
                         <div className="flex items-center gap-1.5">
                           <span className="truncate">{task.title}</span>
                           {task.corrected && (
@@ -155,33 +172,33 @@ export default function RepositoryView({ currentUserRole }: Props) {
                             </span>
                           )}
                         </div>
-                      </td>
-                      <td className="px-3 py-3 text-main">{task.assignedTo.name}</td>
-                      <td className="px-3 py-3 text-main">{FREQUENCY_LABELS[task.frequency]}</td>
-                      <td className="px-3 py-3">
+                      </Td>
+                      <Td>{task.assignedTo.name}</Td>
+                      <Td>{FREQUENCY_LABELS[task.frequency]}</Td>
+                      <Td>
                         <StatusChip value={task.status} config={TASK_STATUS_CONFIG} />
-                      </td>
-                      <td className="px-3 py-3">
+                      </Td>
+                      <Td>
                         <PriorityChip value={task.priority} config={TASK_PRIORITY_CONFIG} />
-                      </td>
-                      <td className="px-3 py-3 whitespace-nowrap text-main">{formatDate(task.endDate)}</td>
-                      <td className="px-3 py-3 text-right text-main">
+                      </Td>
+                      <Td className="whitespace-nowrap">{formatDate(task.endDate)}</Td>
+                      <Td className="text-right">
                         {hoursToDisplay(getOfficialTargetTime(task))}h
                         {isTargetTimeValidated(task) && (
                           <span className="ml-1 text-success text-[10px]" title="Tiempo objetivo validado">✓</span>
                         )}
-                      </td>
-                      <td className="px-3 py-3 text-right text-main">{hoursToDisplay(task.realHours)}h</td>
-                      <td className="px-3 py-3">
+                      </Td>
+                      <Td className="text-right">{hoursToDisplay(task.realHours)}h</Td>
+                      <Td>
                         <div className="flex items-center gap-2 min-w-[80px]">
                           <div className="flex-1 h-1.5 bg-black/10 dark:bg-white/10 rounded-full overflow-hidden">
                             <div className="h-full bg-primary rounded-full" style={{ width: `${task.progress}%` }} />
                           </div>
                           <span className="text-[10px] text-secondary w-7 text-right">{task.progress}%</span>
                         </div>
-                      </td>
+                      </Td>
                       {isAdmin && (
-                        <td className="px-3 py-3 text-right">
+                        <Td className="text-right">
                           <Button
                             variant="tertiary"
                             size="sm"
@@ -190,13 +207,13 @@ export default function RepositoryView({ currentUserRole }: Props) {
                           >
                             ✏️ Corregir
                           </Button>
-                        </td>
+                        </Td>
                       )}
-                    </tr>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         )}
 
@@ -213,11 +230,12 @@ export default function RepositoryView({ currentUserRole }: Props) {
 
   if (months.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-16 text-disabled text-sm rounded-2xl border border-border bg-surface">
-        <svg className="w-8 h-8 mb-2 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 8h14M5 8a2 2 0 01-2-2V4a2 2 0 012-2h14a2 2 0 012 2v2a2 2 0 01-2 2M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" />
-        </svg>
-        Todavía no hay meses cerrados en el repositorio.
+      <div className="rounded-2xl border border-border bg-surface">
+        <EmptyState
+          icon={Archive}
+          title="Sin meses cerrados"
+          description="Todavía no hay meses cerrados en el repositorio."
+        />
       </div>
     );
   }

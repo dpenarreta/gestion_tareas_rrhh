@@ -3,6 +3,8 @@
 import { useEffect, useState } from "react";
 import { Search, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { Spinner } from "@/components/ui/Skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { PriorityChip } from "@/components/ui/Chip";
 import { DESK_NOTE_PRIORITY_CONFIG, REMINDER_PRIORITY_CONFIG } from "@/lib/chipConfig";
 import {
@@ -127,7 +129,13 @@ export default function GlobalSearchOverlay({ onClose }: { onClose: () => void }
               ))}
             </select>
             <Button type="submit" variant="primary" size="sm" disabled={loading}>
-              {loading ? "Buscando…" : "Buscar"}
+              {loading ? (
+                <span className="inline-flex items-center gap-1.5">
+                  <Spinner className="w-3.5 h-3.5" /> Buscando…
+                </span>
+              ) : (
+                "Buscar"
+              )}
             </Button>
           </div>
         </form>
@@ -140,7 +148,7 @@ export default function GlobalSearchOverlay({ onClose }: { onClose: () => void }
               <div>
                 <h4 className="text-xs font-semibold text-secondary uppercase tracking-wide mb-2">Notas ({results.notes.length})</h4>
                 {results.notes.length === 0 ? (
-                  <p className="text-xs text-disabled">Sin resultados</p>
+                  <EmptyState title="Sin resultados" className="py-4" />
                 ) : (
                   <ul className="space-y-1.5">
                     {results.notes.map((n) => (
@@ -165,7 +173,7 @@ export default function GlobalSearchOverlay({ onClose }: { onClose: () => void }
               <div>
                 <h4 className="text-xs font-semibold text-secondary uppercase tracking-wide mb-2">Recordatorios ({results.reminders.length})</h4>
                 {results.reminders.length === 0 ? (
-                  <p className="text-xs text-disabled">Sin resultados</p>
+                  <EmptyState title="Sin resultados" className="py-4" />
                 ) : (
                   <ul className="space-y-1.5">
                     {results.reminders.map((r) => (

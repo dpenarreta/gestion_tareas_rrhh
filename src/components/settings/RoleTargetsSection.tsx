@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import SectionCard from "./SectionCard";
 import type { Role } from "@/generated/prisma/client";
+import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
 
 type RoleTarget = { performance: number | null; riesgoMax: number | null; cumplimiento: number | null };
 type Targets = Partial<Record<Role, RoleTarget>>;
@@ -98,74 +99,72 @@ export default function RoleTargetsSection() {
         </div>
       )}
 
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-[11px] text-disabled uppercase tracking-wider border-b border-border">
-              <th className="py-2 pr-3">Cargo</th>
-              <th className="py-2 px-3">Performance esperado</th>
-              <th className="py-2 px-3">Riesgo Operativo máximo</th>
-              <th className="py-2 px-3">Cumplimiento esperado</th>
-              <th className="py-2 pl-3"></th>
-            </tr>
-          </thead>
-          <tbody>
-            {roles.map((role) => {
-              const value = draft[role] ?? EMPTY_TARGET;
-              const dirty = JSON.stringify(targets[role] ?? EMPTY_TARGET) !== JSON.stringify(value);
-              const setField = (field: keyof RoleTarget, v: string) =>
-                setDraft((prev) => (prev ? { ...prev, [role]: { ...prev[role], [field]: fromInput(v) } } : prev));
-              return (
-                <tr key={role} className="border-b border-border last:border-0">
-                  <td className="py-2 pr-3 text-title font-medium whitespace-nowrap">{roleLabels[role] ?? role}</td>
-                  <td className="py-2 px-3">
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      placeholder="—"
-                      value={toInput(value.performance)}
-                      onChange={(e) => setField("performance", e.target.value)}
-                      className="w-20 border border-border rounded-lg px-1.5 py-1 text-xs text-title bg-surface text-right focus:outline-none focus:ring-2 focus:ring-primary"
-                    />
-                  </td>
-                  <td className="py-2 px-3">
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      placeholder="—"
-                      value={toInput(value.riesgoMax)}
-                      onChange={(e) => setField("riesgoMax", e.target.value)}
-                      className="w-20 border border-border rounded-lg px-1.5 py-1 text-xs text-title bg-surface text-right focus:outline-none focus:ring-2 focus:ring-primary"
-                    />
-                  </td>
-                  <td className="py-2 px-3">
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      placeholder="—"
-                      value={toInput(value.cumplimiento)}
-                      onChange={(e) => setField("cumplimiento", e.target.value)}
-                      className="w-20 border border-border rounded-lg px-1.5 py-1 text-xs text-title bg-surface text-right focus:outline-none focus:ring-2 focus:ring-primary"
-                    />
-                  </td>
-                  <td className="py-2 pl-3 text-right">
-                    <button
-                      onClick={() => saveRole(role)}
-                      disabled={savingRole === role || !dirty}
-                      className="px-3 py-1.5 bg-primary text-white font-medium rounded-lg text-xs hover:bg-primary-hover disabled:opacity-50 transition-colors whitespace-nowrap"
-                    >
-                      {savingRole === role ? "Guardando…" : successRole === role && !dirty ? "Guardado ✓" : "Guardar"}
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
+      <Table>
+        <TableHead>
+          <TableRow>
+            <Th>Cargo</Th>
+            <Th>Performance esperado</Th>
+            <Th>Riesgo Operativo máximo</Th>
+            <Th>Cumplimiento esperado</Th>
+            <Th></Th>
+          </TableRow>
+        </TableHead>
+        <TableBody>
+          {roles.map((role) => {
+            const value = draft[role] ?? EMPTY_TARGET;
+            const dirty = JSON.stringify(targets[role] ?? EMPTY_TARGET) !== JSON.stringify(value);
+            const setField = (field: keyof RoleTarget, v: string) =>
+              setDraft((prev) => (prev ? { ...prev, [role]: { ...prev[role], [field]: fromInput(v) } } : prev));
+            return (
+              <TableRow key={role}>
+                <Td className="text-title font-medium whitespace-nowrap">{roleLabels[role] ?? role}</Td>
+                <Td>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    placeholder="—"
+                    value={toInput(value.performance)}
+                    onChange={(e) => setField("performance", e.target.value)}
+                    className="w-20 border border-border rounded-lg px-1.5 py-1 text-xs text-title bg-surface text-right focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                </Td>
+                <Td>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    placeholder="—"
+                    value={toInput(value.riesgoMax)}
+                    onChange={(e) => setField("riesgoMax", e.target.value)}
+                    className="w-20 border border-border rounded-lg px-1.5 py-1 text-xs text-title bg-surface text-right focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                </Td>
+                <Td>
+                  <input
+                    type="number"
+                    min={0}
+                    max={100}
+                    placeholder="—"
+                    value={toInput(value.cumplimiento)}
+                    onChange={(e) => setField("cumplimiento", e.target.value)}
+                    className="w-20 border border-border rounded-lg px-1.5 py-1 text-xs text-title bg-surface text-right focus:outline-none focus:ring-2 focus:ring-primary"
+                  />
+                </Td>
+                <Td className="text-right">
+                  <button
+                    onClick={() => saveRole(role)}
+                    disabled={savingRole === role || !dirty}
+                    className="px-3 py-1.5 bg-primary text-white font-medium rounded-lg text-xs hover:bg-primary-hover disabled:opacity-50 transition-colors whitespace-nowrap"
+                  >
+                    {savingRole === role ? "Guardando…" : successRole === role && !dirty ? "Guardado ✓" : "Guardar"}
+                  </button>
+                </Td>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
     </SectionCard>
   );
 }

@@ -15,6 +15,10 @@ import { getOfficialTargetTime, isTargetTimeValidated } from "@/lib/targetTime";
 import { Button } from "@/components/ui/Button";
 import { StatusChip, PriorityChip } from "@/components/ui/Chip";
 import { TASK_STATUS_CONFIG, TASK_PRIORITY_CONFIG } from "@/lib/chipConfig";
+import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
+import { Spinner } from "@/components/ui/Skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { ClipboardList, Users } from "lucide-react";
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -150,37 +154,37 @@ function MemberTaskRow({ task, onCommentClick, onActivityClick }: {
       transition={{ type: "spring", stiffness: 500, damping: 40 }}
       className="hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
     >
-      <td className="px-4 py-3 max-w-[200px]">
+      <Td className="max-w-[200px]">
         <p className="text-sm font-medium text-title truncate" title={task.title}>
           {task.title}
         </p>
         {task.description && (
           <p className="text-[10px] text-disabled truncate mt-0.5">{task.description}</p>
         )}
-      </td>
-      <td className="px-3 py-3 text-main whitespace-nowrap">
+      </Td>
+      <Td className="whitespace-nowrap">
         {FREQUENCY_LABELS[task.frequency] ?? task.frequency}
-      </td>
-      <td className="px-3 py-3">
+      </Td>
+      <Td>
         <span className="inline-block cursor-not-allowed" title="Solo el responsable puede cambiar el estado">
           <StatusChip value={task.status} config={TASK_STATUS_CONFIG} />
         </span>
-      </td>
-      <td className="px-3 py-3">
+      </Td>
+      <Td>
         <PriorityChip value={task.priority} config={TASK_PRIORITY_CONFIG} />
-      </td>
-      <td className="px-3 py-3 text-main whitespace-nowrap text-xs">{formatDate(task.startDate)}</td>
-      <td className="px-3 py-3 whitespace-nowrap text-xs">
+      </Td>
+      <Td className="whitespace-nowrap text-xs">{formatDate(task.startDate)}</Td>
+      <Td className="whitespace-nowrap text-xs">
         <span className={isTaskOverdue(task.endDate, task.status) ? "text-danger font-semibold" : "text-main"}>
           {formatDate(task.endDate)}
         </span>
-      </td>
-      <td className="px-3 py-3 text-right text-main text-xs">
+      </Td>
+      <Td className="text-right text-xs">
         {hoursToDisplay(getOfficialTargetTime(task))}h
         {isTargetTimeValidated(task) && <span className="ml-1 text-success" title="Tiempo objetivo validado">✓</span>}
-      </td>
-      <td className="px-3 py-3 text-right text-secondary text-xs">{hoursToDisplay(task.realHours)}h</td>
-      <td className="px-3 py-3 text-center">
+      </Td>
+      <Td className="text-right text-secondary text-xs">{hoursToDisplay(task.realHours)}h</Td>
+      <Td className="text-center">
         <div className="inline-flex items-center gap-2">
           <button
             onClick={() => onActivityClick(task)}
@@ -201,7 +205,7 @@ function MemberTaskRow({ task, onCommentClick, onActivityClick }: {
             {task._count.comments}
           </button>
         </div>
-      </td>
+      </Td>
     </motion.tr>
   );
 }
@@ -256,14 +260,7 @@ function MemberTasksTable({
   }
 
   if (tasks.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-16 text-disabled">
-        <svg className="w-10 h-10 mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-        </svg>
-        <p className="text-sm">No tiene tareas asignadas</p>
-      </div>
-    );
+    return <EmptyState icon={ClipboardList} title="No tiene tareas asignadas" className="py-16" />;
   }
 
   const tasksBySection = Object.fromEntries(
@@ -303,42 +300,40 @@ function MemberTasksTable({
                   transition={{ duration: 0.2, ease: "easeInOut" }}
                   style={{ overflow: "hidden" }}
                 >
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-border bg-background">
-                          <th onDoubleClick={() => handleSort("title")} className="text-left px-4 py-3 text-xs font-semibold text-secondary uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Título<SortIcon col="title" /></th>
-                          <th className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider">Frecuencia</th>
-                          <th onDoubleClick={() => handleSort("status")} className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Estado<SortIcon col="status" /></th>
-                          <th onDoubleClick={() => handleSort("priority")} className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Prioridad<SortIcon col="priority" /></th>
-                          <th onDoubleClick={() => handleSort("startDate")} className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Inicio<SortIcon col="startDate" /></th>
-                          <th onDoubleClick={() => handleSort("endDate")} className="text-left px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Fin<SortIcon col="endDate" /></th>
-                          <th onDoubleClick={() => handleSort("estimatedHours")} className="text-right px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">T. Objetivo<SortIcon col="estimatedHours" /></th>
-                          <th onDoubleClick={() => handleSort("realHours")} className="text-right px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">H. Reales<SortIcon col="realHours" /></th>
-                          <th onDoubleClick={() => handleSort("comments")} className="text-center px-3 py-3 text-xs font-semibold text-secondary uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Coment.<SortIcon col="comments" /></th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
-                        <AnimatePresence initial={false}>
-                          {sectionTasks.length === 0 && (
-                            <tr>
-                              <td colSpan={9} className="text-center py-6 text-disabled text-xs">
-                                Sin tareas en esta sección
-                              </td>
-                            </tr>
-                          )}
-                          {sectionTasks.map((task) => (
-                            <MemberTaskRow
-                              key={task.id}
-                              task={task}
-                              onCommentClick={onCommentClick}
-                              onActivityClick={onActivityClick}
-                            />
-                          ))}
-                        </AnimatePresence>
-                      </tbody>
-                    </table>
-                  </div>
+                  <Table>
+                    <TableHead>
+                      <tr className="border-b border-border">
+                        <Th onDoubleClick={() => handleSort("title")} className="cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Título<SortIcon col="title" /></Th>
+                        <Th>Frecuencia</Th>
+                        <Th onDoubleClick={() => handleSort("status")} className="cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Estado<SortIcon col="status" /></Th>
+                        <Th onDoubleClick={() => handleSort("priority")} className="cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Prioridad<SortIcon col="priority" /></Th>
+                        <Th onDoubleClick={() => handleSort("startDate")} className="cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Inicio<SortIcon col="startDate" /></Th>
+                        <Th onDoubleClick={() => handleSort("endDate")} className="cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Fin<SortIcon col="endDate" /></Th>
+                        <Th onDoubleClick={() => handleSort("estimatedHours")} className="text-right cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">T. Objetivo<SortIcon col="estimatedHours" /></Th>
+                        <Th onDoubleClick={() => handleSort("realHours")} className="text-right cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">H. Reales<SortIcon col="realHours" /></Th>
+                        <Th onDoubleClick={() => handleSort("comments")} className="text-center cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Coment.<SortIcon col="comments" /></Th>
+                      </tr>
+                    </TableHead>
+                    <TableBody>
+                      <AnimatePresence initial={false}>
+                        {sectionTasks.length === 0 && (
+                          <TableRow>
+                            <Td colSpan={9} className="p-0">
+                              <EmptyState title="Sin tareas en esta sección" className="py-6" />
+                            </Td>
+                          </TableRow>
+                        )}
+                        {sectionTasks.map((task) => (
+                          <MemberTaskRow
+                            key={task.id}
+                            task={task}
+                            onCommentClick={onCommentClick}
+                            onActivityClick={onActivityClick}
+                          />
+                        ))}
+                      </AnimatePresence>
+                    </TableBody>
+                  </Table>
                 </motion.div>
               )}
             </AnimatePresence>
@@ -458,20 +453,13 @@ export default function TeamModule({ currentUserId, currentUserRole }: Props) {
   if (membersLoading) {
     return (
       <div className="flex justify-center items-center py-24">
-        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        <Spinner className="w-6 h-6 text-primary" />
       </div>
     );
   }
 
   if (members.length === 0) {
-    return (
-      <div className="flex flex-col items-center justify-center py-24 text-disabled">
-        <svg className="w-12 h-12 mb-4 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" />
-        </svg>
-        <p className="text-sm">No tienes subordinados asignados</p>
-      </div>
-    );
+    return <EmptyState icon={Users} title="No tienes subordinados asignados" className="py-24" />;
   }
 
   return (
@@ -544,7 +532,7 @@ export default function TeamModule({ currentUserId, currentUserRole }: Props) {
 
           {memberTasksLoading ? (
             <div className="flex justify-center py-16">
-              <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              <Spinner className="w-6 h-6 text-primary" />
             </div>
           ) : (
             <MemberTasksTable

@@ -6,6 +6,7 @@ import type { TaskActivity, ActivityComment } from "./types";
 import { reasonLabel, reasonIsActive, reasonIsArchived, reasonColorClass, formatDuration, type ActivityReasonConfig } from "./activityReasons";
 import { Modal, ModalHeader } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
+import { Spinner } from "@/components/ui/Skeleton";
 
 function formatActivityDateTime(iso: string): string {
   const d = new Date(iso);
@@ -261,7 +262,11 @@ export default function ActivityItem({ activity: a, taskId, currentUserId, curre
 
         {showComments && (
           <div className="mt-2 space-y-2">
-            {commentsLoading && <p className="text-[10px] text-disabled">Cargando comentarios…</p>}
+            {commentsLoading && (
+              <p className="text-[10px] text-disabled flex items-center gap-1.5">
+                <Spinner className="w-3 h-3" /> Cargando comentarios…
+              </p>
+            )}
             {!commentsLoading && comments && comments.length > 0 && (
               <div className="space-y-1.5">
                 {comments.map((c) => (

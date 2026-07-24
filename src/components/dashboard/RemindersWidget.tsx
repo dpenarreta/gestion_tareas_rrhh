@@ -2,8 +2,10 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Check } from "lucide-react";
+import { Check, Clock } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
 import NewReminderModal from "@/components/desk/NewReminderModal";
 import { REMINDER_PRIORITY_COLOR, fmtDueRelative, isOverdue, type PersonalReminder } from "@/components/desk/types";
 
@@ -50,14 +52,13 @@ export default function RemindersWidget() {
       <p className="text-[11px] text-secondary mb-3 -mt-1">Mis próximos recordatorios</p>
 
       {reminders === null ? (
-        <div className="h-24 flex items-center justify-center">
-          <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        <div className="space-y-1.5">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-9 w-full rounded-xl" />
+          ))}
         </div>
       ) : reminders.length === 0 ? (
-        <div className="text-center py-6">
-          <p className="text-2xl mb-2">⏰</p>
-          <p className="text-sm text-secondary">Sin recordatorios próximos</p>
-        </div>
+        <EmptyState icon={Clock} title="Sin recordatorios próximos" className="py-6" />
       ) : (
         <ul className="space-y-1.5">
           <AnimatePresence mode="popLayout">

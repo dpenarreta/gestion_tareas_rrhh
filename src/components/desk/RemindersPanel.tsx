@@ -2,7 +2,11 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import type { LucideIcon } from "lucide-react";
+import { Clock, CheckCircle2, Archive } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
 import ReminderCard from "./ReminderCard";
 import NewReminderModal from "./NewReminderModal";
 import type { PersonalReminder } from "./types";
@@ -19,6 +23,12 @@ const EMPTY_TEXT: Record<View, string> = {
   PENDIENTE: "Sin recordatorios pendientes",
   COMPLETADO: "Sin recordatorios completados",
   ARCHIVADO: "Sin recordatorios archivados",
+};
+
+const EMPTY_ICON: Record<View, LucideIcon> = {
+  PENDIENTE: Clock,
+  COMPLETADO: CheckCircle2,
+  ARCHIVADO: Archive,
 };
 
 function queryFor(view: View): string {
@@ -116,14 +126,17 @@ export default function RemindersPanel({ onChanged }: { onChanged?: () => void }
       </div>
 
       {reminders === null ? (
-        <div className="flex items-center justify-center py-20">
-          <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        <div className="space-y-2.5">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-16 w-full rounded-2xl" />
+          ))}
         </div>
       ) : reminders.length === 0 ? (
-        <div className="text-center text-disabled text-sm py-16 bg-surface border border-border rounded-2xl">
-          <p className="text-3xl mb-2">⏰</p>
-          {EMPTY_TEXT[view]}
-        </div>
+        <EmptyState
+          icon={EMPTY_ICON[view]}
+          title={EMPTY_TEXT[view]}
+          className="bg-surface border border-border rounded-2xl"
+        />
       ) : (
         <motion.div layout className="space-y-2.5">
           <AnimatePresence mode="popLayout">

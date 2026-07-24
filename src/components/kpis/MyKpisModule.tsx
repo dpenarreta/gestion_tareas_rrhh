@@ -23,6 +23,10 @@ import { openReportWindow, fetchAnalyticsExportMeta } from "./reportWindow";
 import { Button } from "@/components/ui/Button";
 import { StatusChip } from "@/components/ui/Chip";
 import { TASK_STATUS_CONFIG } from "@/lib/chipConfig";
+import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
+import { Spinner } from "@/components/ui/Skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { BarChart3 } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -706,7 +710,7 @@ export default function MyKpisModule({ currentUserId, currentUserName, currentUs
 
           {loading && (
             <div className="flex justify-center py-32">
-              <div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              <Spinner className="w-7 h-7 text-primary" />
             </div>
           )}
 
@@ -937,51 +941,51 @@ export default function MyKpisModule({ currentUserId, currentUserName, currentUs
                   <h3 className="text-[11px] font-semibold text-main uppercase tracking-wider mb-4">
                     Mis tareas — {formatMonthLabel(month)}
                   </h3>
-                  <div className="overflow-x-auto -mx-5 px-5">
-                    <table className="w-full text-sm min-w-[580px]">
-                      <thead>
-                        <tr className="border-b border-border">
+                  <div className="-mx-5 px-5">
+                    <Table className="min-w-[580px]">
+                      <TableHead>
+                        <TableRow>
                           {["Tarea", "Tipo", "Estado", "Vence", "Retraso"].map((h) => (
-                            <th key={h} className="text-left py-2 pr-4 text-xs font-semibold text-secondary uppercase tracking-wider">{h}</th>
+                            <Th key={h}>{h}</Th>
                           ))}
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-border">
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
                         {kpi.tasks
                           .sort((a, b) => {
                             const o = { red: 0, yellow: 1, green: 2 } as Record<KpiColor, number>;
                             return o[a.color] - o[b.color];
                           })
                           .map((t) => (
-                            <tr key={t.id} className="hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
-                              <td className="py-2.5 pr-4">
+                            <TableRow key={t.id}>
+                              <Td>
                                 <div className="flex items-center gap-2">
                                   <div className={`w-2 h-2 rounded-full shrink-0 ${DOT_CLASS[t.color]}`} />
                                   <span className="text-sm text-title leading-snug">{t.title}</span>
                                 </div>
-                              </td>
-                              <td className="py-2.5 pr-4">
+                              </Td>
+                              <Td>
                                 <span className="text-[11px] bg-surface2 text-secondary px-2 py-0.5 rounded-full">
                                   {TYPE_LABEL[t.type] ?? t.type}
                                 </span>
-                              </td>
-                              <td className="py-2.5 pr-4">
+                              </Td>
+                              <Td>
                                 <StatusChip value={t.status} config={TASK_STATUS_CONFIG} />
-                              </td>
-                              <td className="py-2.5 pr-4 text-xs text-secondary">
+                              </Td>
+                              <Td className="text-xs text-secondary">
                                 {formatDate(t.endDate)}
-                              </td>
-                              <td className="py-2.5 pr-4">
+                              </Td>
+                              <Td>
                                 {t.delayDays > 0 ? (
                                   <span className="text-xs text-danger font-medium">{t.delayDays}d</span>
                                 ) : (
                                   <span className="text-disabled text-xs">—</span>
                                 )}
-                              </td>
-                            </tr>
+                              </Td>
+                            </TableRow>
                           ))}
-                      </tbody>
-                    </table>
+                      </TableBody>
+                    </Table>
                   </div>
                 </div>
               ) : (
@@ -1023,7 +1027,7 @@ export default function MyKpisModule({ currentUserId, currentUserName, currentUs
             <Button onClick={handleGenerateRange} disabled={rangeLoading}>
               {rangeLoading ? (
                 <>
-                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <Spinner className="w-3.5 h-3.5 text-white" />
                   Calculando...
                 </>
               ) : (
@@ -1054,18 +1058,13 @@ export default function MyKpisModule({ currentUserId, currentUserName, currentUs
 
           {rangeLoading && (
             <div className="flex flex-col items-center justify-center py-24 gap-3 text-disabled">
-              <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              <Spinner className="w-8 h-8 text-primary" />
               <p className="text-sm">Calculando KPIs mes a mes...</p>
             </div>
           )}
 
           {!rangeLoading && !rangeReport && !rangeError && (
-            <div className="flex flex-col items-center justify-center py-24 text-disabled">
-              <svg className="w-12 h-12 mb-4 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              <p className="text-sm">Selecciona un rango y genera el informe</p>
-            </div>
+            <EmptyState icon={BarChart3} title="Selecciona un rango y genera el informe" />
           )}
 
           {!rangeLoading && rangeReport && (
@@ -1156,39 +1155,39 @@ export default function MyKpisModule({ currentUserId, currentUserName, currentUs
               {/* Monthly table */}
               <div className="bg-surface rounded-2xl border border-border p-5">
                 <h3 className="text-[11px] font-semibold text-main uppercase tracking-wider mb-4">Detalle mensual</h3>
-                <div className="overflow-x-auto -mx-5 px-5">
-                  <table className="w-full text-sm min-w-[520px]">
-                    <thead>
-                      <tr className="border-b border-border">
+                <div className="-mx-5 px-5">
+                  <Table className="min-w-[520px]">
+                    <TableHead>
+                      <TableRow>
                         {["Mes", "Cumpl.", "Score", "Tareas", "Horas", "Carga", "Consultas"].map((h) => (
-                          <th key={h} className="text-left py-2 pr-4 text-xs font-semibold text-secondary uppercase tracking-wider">{h}</th>
+                          <Th key={h}>{h}</Th>
                         ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
                       {rangeReport.months.map((m) => (
-                        <tr key={m.month} className={`hover:bg-surface2 ${m.totalTasks > 0 && m.completedPct < 60 ? "bg-danger/[.06]" : ""}`}>
-                          <td className="py-2 pr-4 text-sm font-medium text-title">{m.label}</td>
-                          <td className="py-2 pr-4">
+                        <TableRow key={m.month} className={m.totalTasks > 0 && m.completedPct < 60 ? "bg-danger/[.06]" : ""}>
+                          <Td className="font-medium text-title">{m.label}</Td>
+                          <Td>
                             <span className="flex items-center gap-1.5">
                               <div className={`w-2 h-2 rounded-full ${m.completedPct >= 80 ? "bg-success" : m.completedPct >= 60 ? "bg-warning" : "bg-danger"}`} />
                               {m.completedPct}%
                             </span>
-                          </td>
-                          <td className="py-2 pr-4 text-main">{m.score}/100</td>
-                          <td className="py-2 pr-4 text-main">{m.completedTasks}/{m.totalTasks}</td>
-                          <td className="py-2 pr-4 text-main text-xs">{hoursToDisplay(m.realHours)}h/{hoursToDisplay(m.estimatedHours)}h</td>
-                          <td className="py-2 pr-4">
+                          </Td>
+                          <Td>{m.score}/100</Td>
+                          <Td>{m.completedTasks}/{m.totalTasks}</Td>
+                          <Td className="text-xs">{hoursToDisplay(m.realHours)}h/{hoursToDisplay(m.estimatedHours)}h</Td>
+                          <Td>
                             <span className="flex items-center gap-1.5 text-xs text-main">
                               <div className={`w-2 h-2 rounded-full shrink-0 ${DOT_CLASS[m.cargaColor]}`} />
                               {m.cargaLabel}
                             </span>
-                          </td>
-                          <td className="py-2 pr-4 text-main">{m.seguimientoTotal}</td>
-                        </tr>
+                          </Td>
+                          <Td>{m.seguimientoTotal}</Td>
+                        </TableRow>
                       ))}
-                    </tbody>
-                  </table>
+                    </TableBody>
+                  </Table>
                 </div>
               </div>
 

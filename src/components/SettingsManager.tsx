@@ -18,6 +18,10 @@ import WelcomeMessageSection from "@/components/settings/WelcomeMessageSection";
 import EngineDiagnosticsSection from "@/components/settings/EngineDiagnosticsSection";
 import DocumentationSection from "@/components/settings/DocumentationSection";
 import { Button } from "@/components/ui/Button";
+import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
+import { SkeletonRow, SkeletonText } from "@/components/ui/Skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { FileX, ClipboardList } from "lucide-react";
 
 type User = {
   id: string;
@@ -602,26 +606,28 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
         </div>
         <div className="rounded-lg border border-border overflow-hidden">
           {loading ? (
-            <div className="flex justify-center items-center py-8">
-              <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            <div>
+              <SkeletonRow columns={3} />
+              <SkeletonRow columns={3} />
+              <SkeletonRow columns={3} />
             </div>
           ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-background">
-                  <th className="text-left px-4 py-2.5 font-medium text-main">Usuario</th>
-                  <th className="text-left px-4 py-2.5 font-medium text-main">Estado</th>
-                  <th className="text-right px-4 py-2.5 font-medium text-main">Acción</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <Th>Usuario</Th>
+                  <Th>Estado</Th>
+                  <Th className="text-right">Acción</Th>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {users.map((u) => (
-                  <tr key={u.id}>
-                    <td className="px-4 py-2.5 text-title font-medium">
+                  <TableRow key={u.id}>
+                    <Td className="text-title font-medium">
                       {u.name}
                       <span className="ml-2 text-xs text-disabled">{ROLE_LABEL[u.role]}</span>
-                    </td>
-                    <td className="px-4 py-2.5">
+                    </Td>
+                    <Td>
                       {u.dataConsentAccepted ? (
                         <span className="px-2.5 py-1 bg-success/[.13] text-success rounded-full text-xs font-medium">
                           Aceptado
@@ -632,8 +638,8 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
                           Pendiente
                         </span>
                       )}
-                    </td>
-                    <td className="px-4 py-2.5 text-right">
+                    </Td>
+                    <Td className="text-right">
                       <button
                         onClick={() => handleResetConsent(u)}
                         disabled={busyId === u.id}
@@ -641,11 +647,11 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
                       >
                         🔄 Restablecer
                       </button>
-                    </td>
-                  </tr>
+                    </Td>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           )}
         </div>
       </SectionCard>
@@ -653,25 +659,27 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
       <SectionCard title="Gestión de contraseñas">
         <div className="rounded-lg border border-border overflow-hidden">
           {loading ? (
-            <div className="flex justify-center items-center py-8">
-              <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            <div>
+              <SkeletonRow columns={2} />
+              <SkeletonRow columns={2} />
+              <SkeletonRow columns={2} />
             </div>
           ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-background">
-                  <th className="text-left px-4 py-2.5 font-medium text-main">Usuario</th>
-                  <th className="text-right px-4 py-2.5 font-medium text-main">Acción</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <Th>Usuario</Th>
+                  <Th className="text-right">Acción</Th>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {users.map((u) => (
-                  <tr key={u.id}>
-                    <td className="px-4 py-2.5 text-title font-medium">
+                  <TableRow key={u.id}>
+                    <Td className="text-title font-medium">
                       {u.name}
                       <span className="ml-2 text-xs text-disabled">{ROLE_LABEL[u.role]}</span>
-                    </td>
-                    <td className="px-4 py-2.5 text-right">
+                    </Td>
+                    <Td className="text-right">
                       <button
                         onClick={() => handleResetPassword(u)}
                         disabled={busyId === u.id}
@@ -680,20 +688,18 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
                       >
                         🔑 Resetear contraseña
                       </button>
-                    </td>
-                  </tr>
+                    </Td>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           )}
         </div>
       </SectionCard>
 
       <SectionCard title="Información del sistema">
         {infoLoading || !systemInfo ? (
-          <div className="flex justify-center items-center py-8">
-            <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-          </div>
+          <SkeletonText lines={4} />
         ) : (
           <>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
@@ -762,9 +768,7 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
 
       <SectionCard title="Configuración de Carga Laboral">
         {hoursLoading || hoursPerDay === null ? (
-          <div className="flex justify-center items-center py-8">
-            <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-          </div>
+          <SkeletonText lines={4} />
         ) : (
           <>
             {hoursMsg && (
@@ -927,26 +931,28 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
         </p>
         <div className="rounded-lg border border-border overflow-hidden">
           {dataRequestsLoading ? (
-            <div className="flex justify-center items-center py-8">
-              <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            <div>
+              <SkeletonRow columns={5} />
+              <SkeletonRow columns={5} />
+              <SkeletonRow columns={5} />
             </div>
           ) : dataRequests.length === 0 ? (
-            <p className="text-sm text-disabled text-center py-8">No hay solicitudes de titulares registradas.</p>
+            <EmptyState icon={ClipboardList} title="Sin solicitudes registradas" description="No hay solicitudes de titulares registradas." />
           ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-background">
-                  <th className="text-left px-4 py-2.5 font-medium text-main">Usuario</th>
-                  <th className="text-left px-4 py-2.5 font-medium text-main">Tipo</th>
-                  <th className="text-left px-4 py-2.5 font-medium text-main">Fecha</th>
-                  <th className="text-left px-4 py-2.5 font-medium text-main">Estado</th>
-                  <th className="text-right px-4 py-2.5 font-medium text-main">Acción</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <Th>Usuario</Th>
+                  <Th>Tipo</Th>
+                  <Th>Fecha</Th>
+                  <Th>Estado</Th>
+                  <Th className="text-right">Acción</Th>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {dataRequests.map((r) => (
-                  <tr key={r.id}>
-                    <td className="px-4 py-2.5 text-title font-medium">
+                  <TableRow key={r.id}>
+                    <Td className="text-title font-medium">
                       {r.user.name}
                       <span className="ml-2 text-xs text-disabled">{ROLE_LABEL[r.user.role]}</span>
                       {r.description && (
@@ -954,15 +960,15 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
                           {r.description}
                         </span>
                       )}
-                    </td>
-                    <td className="px-4 py-2.5 text-secondary">{REQUEST_TYPE_LABEL[r.type]}</td>
-                    <td className="px-4 py-2.5 text-secondary">{formatDate(r.createdAt)}</td>
-                    <td className="px-4 py-2.5">
+                    </Td>
+                    <Td className="text-secondary">{REQUEST_TYPE_LABEL[r.type]}</Td>
+                    <Td className="text-secondary">{formatDate(r.createdAt)}</Td>
+                    <Td>
                       <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${REQUEST_STATUS_CLASS[r.status]}`}>
                         {REQUEST_STATUS_LABEL[r.status]}
                       </span>
-                    </td>
-                    <td className="px-4 py-2.5 text-right">
+                    </Td>
+                    <Td className="text-right">
                       {r.status !== "RESUELTA" ? (
                         <button
                           onClick={() => handleUpdateRequestStatus(r, "RESUELTA")}
@@ -976,20 +982,18 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
                           {r.resolver ? `Resuelta por ${r.resolver.name}` : "Resuelta"}
                         </span>
                       )}
-                    </td>
-                  </tr>
+                    </Td>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           )}
         </div>
       </SectionCard>
 
       <SectionCard title="Política de retención de datos">
         {retentionLoading || !retentionPolicy ? (
-          <div className="flex justify-center items-center py-8">
-            <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-          </div>
+          <SkeletonText lines={3} />
         ) : (
           <>
             {retentionMsg && (
@@ -1135,30 +1139,32 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
 
         <div className="rounded-lg border border-border overflow-hidden">
           {docsLoading ? (
-            <div className="flex justify-center items-center py-8">
-              <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+            <div>
+              <SkeletonRow columns={4} />
+              <SkeletonRow columns={4} />
+              <SkeletonRow columns={4} />
             </div>
           ) : docs.length === 0 ? (
-            <p className="text-sm text-disabled text-center py-8">No hay documentos en la base de conocimiento.</p>
+            <EmptyState icon={FileX} title="Sin documentos en la base de conocimiento" description="No hay documentos en la base de conocimiento." />
           ) : (
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border bg-background">
-                  <th className="text-left px-4 py-2.5 font-medium text-main">Documento</th>
-                  <th className="text-left px-4 py-2.5 font-medium text-main">Fecha</th>
-                  <th className="text-left px-4 py-2.5 font-medium text-main">Estado</th>
-                  <th className="text-right px-4 py-2.5 font-medium text-main">Acción</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
+            <Table>
+              <TableHead>
+                <TableRow>
+                  <Th>Documento</Th>
+                  <Th>Fecha</Th>
+                  <Th>Estado</Th>
+                  <Th className="text-right">Acción</Th>
+                </TableRow>
+              </TableHead>
+              <TableBody>
                 {docs.map((doc) => (
-                  <tr key={doc.id}>
-                    <td className="px-4 py-2.5 text-title font-medium">
+                  <TableRow key={doc.id}>
+                    <Td className="text-title font-medium">
                       {doc.title}
                       <span className="block text-xs text-disabled">{doc._count.chunks} fragmentos</span>
-                    </td>
-                    <td className="px-4 py-2.5 text-secondary">{new Date(doc.createdAt).toLocaleDateString("es-CL")}</td>
-                    <td className="px-4 py-2.5">
+                    </Td>
+                    <Td className="text-secondary">{new Date(doc.createdAt).toLocaleDateString("es-CL")}</Td>
+                    <Td>
                       <span className={`px-2.5 py-1 rounded-full text-xs font-medium ${DOC_STATUS_CLASS[doc.status]}`}>
                         {DOC_STATUS_LABEL[doc.status]}
                       </span>
@@ -1170,8 +1176,8 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
                           {doc.processingError}
                         </span>
                       )}
-                    </td>
-                    <td className="px-4 py-2.5 text-right">
+                    </Td>
+                    <Td className="text-right">
                       <button
                         onClick={() => handleDeleteDoc(doc)}
                         disabled={docBusyId === doc.id}
@@ -1179,11 +1185,11 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
                       >
                         🗑️ Eliminar
                       </button>
-                    </td>
-                  </tr>
+                    </Td>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           )}
         </div>
       </SectionCard>

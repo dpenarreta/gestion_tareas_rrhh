@@ -13,6 +13,10 @@ import { formatDate } from "@/lib/utils";
 import { hoursToDisplay } from "@/lib/timeFormat";
 import { openReportWindow } from "./reportWindow";
 import { Button } from "@/components/ui/Button";
+import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
+import { Spinner } from "@/components/ui/Skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { BarChart3, FileText } from "lucide-react";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -637,7 +641,7 @@ export default function MonthlyReports({ currentUserRole }: Props) {
   if (loading) {
     return (
       <div className="flex justify-center items-center py-32">
-        <div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+        <Spinner className="w-7 h-7 text-primary" />
       </div>
     );
   }
@@ -698,7 +702,7 @@ export default function MonthlyReports({ currentUserRole }: Props) {
             <Button onClick={handleGenerateRange} disabled={rangeLoading}>
               {rangeLoading ? (
                 <>
-                  <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <Spinner className="w-3.5 h-3.5 text-white" />
                   Generando...
                 </>
               ) : (
@@ -734,18 +738,13 @@ export default function MonthlyReports({ currentUserRole }: Props) {
 
           {rangeLoading && (
             <div className="flex flex-col items-center justify-center py-24 gap-3 text-disabled">
-              <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              <Spinner className="w-8 h-8 text-primary" />
               <p className="text-sm">Calculando KPIs mes a mes y generando análisis IA...</p>
             </div>
           )}
 
           {!rangeLoading && !rangeReport && !rangeError && (
-            <div className="flex flex-col items-center justify-center py-24 text-disabled">
-              <svg className="w-12 h-12 mb-4 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              <p className="text-sm">Selecciona un rango y genera el informe</p>
-            </div>
+            <EmptyState icon={BarChart3} title="Selecciona un rango y genera el informe" />
           )}
 
           {!rangeLoading && rangeReport && (
@@ -837,35 +836,35 @@ export default function MonthlyReports({ currentUserRole }: Props) {
               {/* Monthly breakdown table */}
               <div className="bg-surface rounded-2xl border border-border p-5">
                 <h3 className="text-sm font-semibold text-main uppercase tracking-wider mb-4">Detalle Mensual</h3>
-                <div className="overflow-x-auto -mx-5 px-5">
-                  <table className="w-full text-sm min-w-[500px]">
-                    <thead>
-                      <tr className="border-b border-border">
+                <div className="-mx-5 px-5">
+                  <Table className="min-w-[500px]">
+                    <TableHead>
+                      <TableRow>
                         {["Mes", "Cumpl. equipo", "Tareas", "Carga", "Consultas"].map((h) => (
-                          <th key={h} className="text-left py-2 pr-4 text-xs font-semibold text-secondary uppercase tracking-wider">{h}</th>
+                          <Th key={h}>{h}</Th>
                         ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
                       {rangeReport.months.map((ms) => (
-                        <tr key={ms.month} className={`hover:bg-surface2 ${ms.totalTasks > 0 && ms.teamAvgCumplimiento < 60 ? "bg-danger/[.06]" : ""}`}>
-                          <td className="py-2 pr-4 text-sm font-medium text-title">{ms.label}</td>
-                          <td className="py-2 pr-4">
+                        <TableRow key={ms.month} className={ms.totalTasks > 0 && ms.teamAvgCumplimiento < 60 ? "bg-danger/[.06]" : ""}>
+                          <Td className="font-medium text-title">{ms.label}</Td>
+                          <Td>
                             <span className="flex items-center gap-1.5">
                               <div className={`w-2 h-2 rounded-full ${colorDot(ms.teamAvgCumplimiento)}`} />
                               {ms.teamAvgCumplimiento}%
                             </span>
-                          </td>
-                          <td className="py-2 pr-4 text-main">{ms.totalCompletedTasks}/{ms.totalTasks}</td>
-                          <td className="py-2 pr-4 text-main text-xs">
+                          </Td>
+                          <Td>{ms.totalCompletedTasks}/{ms.totalTasks}</Td>
+                          <Td className="text-xs">
                             {ms.totalCargaBaseHours > 0 ? Math.round((ms.totalCargaRealHours / ms.totalCargaBaseHours) * 100) : 0}%
                             {" "}({hoursToDisplay(ms.totalCargaRealHours)}h/{hoursToDisplay(ms.totalCargaBaseHours)}h)
-                          </td>
-                          <td className="py-2 pr-4 text-main">{ms.totalConsultas}</td>
-                        </tr>
+                          </Td>
+                          <Td>{ms.totalConsultas}</Td>
+                        </TableRow>
                       ))}
-                    </tbody>
-                  </table>
+                    </TableBody>
+                  </Table>
                 </div>
               </div>
 
@@ -974,9 +973,11 @@ export default function MonthlyReports({ currentUserRole }: Props) {
             Informes guardados
           </p>
           {reports.length === 0 ? (
-            <p className="text-xs text-disabled px-2 py-4 text-center leading-relaxed">
-              No hay informes generados aún. Usa el botón para crear el primero.
-            </p>
+            <EmptyState
+              title="No hay informes generados aún"
+              description="Usa el botón para crear el primero."
+              className="py-4"
+            />
           ) : (
             <div className="space-y-1">
               {reports.map((r) => (
@@ -995,18 +996,16 @@ export default function MonthlyReports({ currentUserRole }: Props) {
         <div className="flex-1 min-w-0">
           {detailLoading && (
             <div className="flex justify-center py-24">
-              <div className="w-7 h-7 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              <Spinner className="w-7 h-7 text-primary" />
             </div>
           )}
 
           {!detailLoading && !fullReport && reports.length === 0 && (
-            <div className="flex flex-col items-center justify-center py-32 text-disabled">
-              <svg className="w-12 h-12 mb-4 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-              </svg>
-              <p className="text-sm">Aún no hay informes generados</p>
-              <p className="text-xs mt-1">Selecciona un mes y haz clic en &quot;Generar / Actualizar&quot;</p>
-            </div>
+            <EmptyState
+              icon={FileText}
+              title="Aún no hay informes generados"
+              description='Selecciona un mes y haz clic en "Generar / Actualizar"'
+            />
           )}
 
           {!detailLoading && fullReport && data && selectedSummary && (
@@ -1164,51 +1163,51 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                 <h3 className="text-sm font-semibold text-main uppercase tracking-wider mb-4">
                   Detalle por Colaborador
                 </h3>
-                <div className="overflow-x-auto -mx-5 px-5">
-                  <table className="w-full text-sm min-w-[700px]">
-                    <thead>
-                      <tr className="border-b border-border">
+                <div className="-mx-5 px-5">
+                  <Table className="min-w-[700px]">
+                    <TableHead>
+                      <TableRow>
                         {["Colaborador", "Score", "Cumpl.", "Carga", "Tareas", "Vencidas", "Horas", "Consultas"].map((h) => (
-                          <th key={h} className="text-left py-2 pr-4 text-xs font-semibold text-secondary uppercase tracking-wider">
+                          <Th key={h}>
                             {h}
-                          </th>
+                          </Th>
                         ))}
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border">
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
                       {data.members.map((m) => (
-                        <tr key={m.id} className="hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
-                          <td className="py-2.5 pr-4">
+                        <TableRow key={m.id}>
+                          <Td>
                             <p className="text-sm font-semibold text-title">{m.name}</p>
                             <p className="text-[11px] text-disabled">{ROLE_LABEL[m.role as Role] ?? m.role}</p>
-                          </td>
-                          <td className="py-2.5 pr-4 font-bold text-main">{m.score}<span className="text-disabled font-normal">/100</span></td>
-                          <td className="py-2.5 pr-4">
+                          </Td>
+                          <Td className="font-bold text-main">{m.score}<span className="text-disabled font-normal">/100</span></Td>
+                          <Td>
                             <span className="flex items-center gap-1.5">
                               <div className={`w-2 h-2 rounded-full ${colorDot(m.completedPct)}`} />
                               {m.completedPct}%
                             </span>
-                          </td>
-                          <td className="py-2.5 pr-4">
+                          </Td>
+                          <Td>
                             <span className="flex items-center gap-1.5" title={`Rango óptimo ${hoursToDisplay(m.cargaRangeMin)}-${hoursToDisplay(m.cargaRangeMax)}h`}>
                               <div className={`w-2 h-2 rounded-full ${KPI_COLOR_DOT[m.cargaColor]}`} />
                               {m.cargaPct}% <span className="text-disabled font-normal">· {m.cargaLabel}</span>
                             </span>
-                          </td>
-                          <td className="py-2.5 pr-4 text-main">{m.completedTasks}/{m.totalTasks}</td>
-                          <td className="py-2.5 pr-4">
+                          </Td>
+                          <Td>{m.completedTasks}/{m.totalTasks}</Td>
+                          <Td>
                             {m.overdueCount > 0 ? (
                               <span className="text-danger font-medium">{m.overdueCount}</span>
                             ) : (
                               <span className="text-disabled">—</span>
                             )}
-                          </td>
-                          <td className="py-2.5 pr-4 text-main text-xs">{hoursToDisplay(m.cargaRealHours)}h/{hoursToDisplay(m.cargaBaseHours)}h</td>
-                          <td className="py-2.5 pr-4 text-main">{m.seguimientoTotal}</td>
-                        </tr>
+                          </Td>
+                          <Td className="text-xs">{hoursToDisplay(m.cargaRealHours)}h/{hoursToDisplay(m.cargaBaseHours)}h</Td>
+                          <Td>{m.seguimientoTotal}</Td>
+                        </TableRow>
                       ))}
-                    </tbody>
-                  </table>
+                    </TableBody>
+                  </Table>
                 </div>
               </div>
 

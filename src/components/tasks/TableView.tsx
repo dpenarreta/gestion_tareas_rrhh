@@ -14,6 +14,10 @@ import { getOfficialTargetTime, isTargetTimeValidated } from "@/lib/targetTime";
 import { Button } from "@/components/ui/Button";
 import { StatusChip, PriorityChip } from "@/components/ui/Chip";
 import { TASK_STATUS_CONFIG, TASK_PRIORITY_CONFIG } from "@/lib/chipConfig";
+import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
+import { Spinner } from "@/components/ui/Skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Inbox } from "lucide-react";
 
 type SortKey = "title" | "frequency" | "status" | "priority" | "startDate" | "endDate" | "estimatedHours" | "realHours";
 import CommentPanel from "./CommentPanel";
@@ -173,7 +177,7 @@ function TaskRow({
       transition={{ type: "spring", stiffness: 500, damping: 40 }}
       className={`${isSelected ? "bg-primary-surface" : index % 2 === 1 ? "bg-black/[0.02] dark:bg-white/[0.02]" : "bg-surface"} hover:bg-primary-surface/40 transition-colors group`}
     >
-      <td className="border border-border px-3 py-3.5 text-center">
+      <Td className="text-center">
         <input
           type="checkbox"
           checked={isSelected}
@@ -181,9 +185,9 @@ function TaskRow({
           className="w-4 h-4 rounded border-border text-primary focus:ring-primary cursor-pointer"
           aria-label={`Seleccionar tarea ${task.title}`}
         />
-      </td>
+      </Td>
       <td className="w-1 p-0" style={{ backgroundColor: hex ?? "transparent" }} />
-      <td className="border border-border px-4 py-3.5 max-w-[200px]">
+      <Td className="max-w-[200px]">
         <InlineEdit
           value={task.title}
           onSave={(v) => onFieldUpdate(task.id, "title", v)}
@@ -191,8 +195,8 @@ function TaskRow({
         {task.assignedTo.name !== task.createdBy.name && (
           <p className="text-[10px] text-disabled mt-0.5">{task.assignedTo.name}</p>
         )}
-      </td>
-      <td className="border border-border px-4 py-3.5">
+      </Td>
+      <Td>
         <InlineEdit
           value={task.frequency}
           type="select"
@@ -205,8 +209,8 @@ function TaskRow({
           ]}
           onSave={(v) => onFieldUpdate(task.id, "frequency", v)}
         />
-      </td>
-      <td className="border border-border px-4 py-3.5">
+      </Td>
+      <Td>
         <InlineEdit
           value={task.status}
           type="select"
@@ -218,23 +222,23 @@ function TaskRow({
           onSave={handleStatusSave}
           renderDisplay={(v) => <StatusChip value={v} config={TASK_STATUS_CONFIG} />}
         />
-      </td>
-      <td className="border border-border px-4 py-3.5">
+      </Td>
+      <Td>
         <PriorityChip value={task.priority} config={TASK_PRIORITY_CONFIG} />
-      </td>
-      <td className="border border-border px-4 py-3.5 whitespace-nowrap text-main">{formatDate(task.startDate)}</td>
-      <td className={`border border-border px-4 py-3.5 whitespace-nowrap ${isTaskOverdue(task.endDate, task.status) ? "text-danger font-semibold" : "text-main"}`}>{formatDate(task.endDate)}</td>
-      <td className="border border-border px-4 py-3.5 text-right text-main">
+      </Td>
+      <Td className="whitespace-nowrap">{formatDate(task.startDate)}</Td>
+      <Td className={`whitespace-nowrap ${isTaskOverdue(task.endDate, task.status) ? "text-danger font-semibold" : "text-main"}`}>{formatDate(task.endDate)}</Td>
+      <Td className="text-right">
         {hoursToDisplay(getOfficialTargetTime(task))}h
         {isTargetTimeValidated(task) && (
           <span className="ml-1 text-success text-[10px]" title="Tiempo objetivo validado">✓</span>
         )}
-      </td>
-      <td className="border border-border px-4 py-3.5 text-right text-main">
+      </Td>
+      <Td className="text-right">
         {hoursToDisplay(task.realHours)}
         <span className="text-disabled ml-0.5 text-xs">h</span>
-      </td>
-      <td className="border border-border px-4 py-3.5 text-center">
+      </Td>
+      <Td className="text-center">
         <div className="inline-flex items-center gap-2">
           <button
             onClick={() => onActivityClick(task)}
@@ -269,8 +273,8 @@ function TaskRow({
             )}
           </button>
         </div>
-      </td>
-      <td className="border border-border px-4 py-3.5">
+      </Td>
+      <Td>
         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
           <button
             onClick={() => onEditTask(task)}
@@ -291,7 +295,7 @@ function TaskRow({
             </svg>
           </button>
         </div>
-      </td>
+      </Td>
     </motion.tr>
   );
 }
@@ -527,7 +531,13 @@ export default function TableView({
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
             </svg>
-            {importing ? "Importando..." : "Importar Excel"}
+            {importing ? (
+              <span className="inline-flex items-center gap-1.5">
+                <Spinner className="w-3.5 h-3.5" /> Importando...
+              </span>
+            ) : (
+              "Importar Excel"
+            )}
           </Button>
           <input ref={fileInputRef} type="file" accept=".xlsx,.xls" className="hidden" onChange={handleImport} />
         </div>
@@ -550,8 +560,13 @@ export default function TableView({
       )}
 
       {tasks.length === 0 && (
-        <div className="text-center py-12 text-disabled text-sm rounded-2xl border border-border bg-surface">
-          No hay tareas. Crea una nueva o importa desde Excel.
+        <div className="rounded-2xl border border-border bg-surface">
+          <EmptyState
+            icon={Inbox}
+            title="No hay tareas"
+            description="Crea una nueva o importa tareas desde Excel."
+            action={<Button onClick={onCreateTask}>Nueva tarea</Button>}
+          />
         </div>
       )}
 
@@ -588,62 +603,60 @@ export default function TableView({
                   transition={{ duration: 0.2, ease: "easeInOut" }}
                   style={{ overflow: "hidden" }}
                 >
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm border-collapse">
-                      <thead>
-                        <tr className="border-b border-border bg-background">
-                          <th className="border border-border px-3 py-3 text-center">
-                            <input
-                              type="checkbox"
-                              checked={sectionTasks.length > 0 && sectionTasks.every((t) => selected.has(t.id))}
-                              onChange={() => toggleSelectAllInSection(sectionTasks)}
-                              className="w-4 h-4 rounded border-border text-primary focus:ring-primary cursor-pointer"
-                              aria-label={`Seleccionar todas las tareas de ${section.label}`}
-                            />
-                          </th>
-                          <th className="w-1 px-0" />
-                          <th onDoubleClick={() => handleSort("title")} className="border border-border text-left px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Título<SortIcon col="title" /></th>
-                          <th onDoubleClick={() => handleSort("frequency")} className="border border-border text-left px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Frecuencia<SortIcon col="frequency" /></th>
-                          <th className="border border-border text-left px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider">Estado</th>
-                          <th onDoubleClick={() => handleSort("priority")} className="border border-border text-left px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Prioridad<SortIcon col="priority" /></th>
-                          <th onDoubleClick={() => handleSort("startDate")} className="border border-border text-left px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Inicio<SortIcon col="startDate" /></th>
-                          <th onDoubleClick={() => handleSort("endDate")} className="border border-border text-left px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Fin<SortIcon col="endDate" /></th>
-                          <th onDoubleClick={() => handleSort("estimatedHours")} className="border border-border text-right px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">T. Objetivo<SortIcon col="estimatedHours" /></th>
-                          <th onDoubleClick={() => handleSort("realHours")} className="border border-border text-right px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">H. Reales<SortIcon col="realHours" /></th>
-                          <th className="border border-border text-center px-4 py-3 text-[11px] font-semibold text-main uppercase tracking-wider">Coment.</th>
-                          <th className="border border-border px-4 py-3" />
-                        </tr>
-                      </thead>
-                      <tbody>
-                        <AnimatePresence initial={false}>
-                          {sectionTasks.length === 0 && (
-                            <tr>
-                              <td colSpan={12} className="text-center py-6 text-disabled text-xs">
-                                Sin tareas en esta sección
-                              </td>
-                            </tr>
-                          )}
-                          {sectionTasks.map((task, index) => (
-                            <TaskRow
-                              key={task.id}
-                              task={task}
-                              index={index}
-                              currentUserId={currentUserId}
-                              isSelected={selected.has(task.id)}
-                              onToggleSelect={toggleSelect}
-                              onFieldUpdate={onFieldUpdate}
-                              onStatusChange={onStatusChange}
-                              onEditTask={onEditTask}
-                              onDeleteTask={onDeleteTask}
-                              onCommentClick={(t) => { setCommentTask(t); onCommentsViewed(t.id); }}
-                              onActivityClick={setActivityTask}
-                              onRetroactiveClick={setRetroactiveTask}
-                            />
-                          ))}
-                        </AnimatePresence>
-                      </tbody>
-                    </table>
-                  </div>
+                  <Table>
+                    <TableHead>
+                      <tr className="border-b border-border">
+                        <Th className="text-center">
+                          <input
+                            type="checkbox"
+                            checked={sectionTasks.length > 0 && sectionTasks.every((t) => selected.has(t.id))}
+                            onChange={() => toggleSelectAllInSection(sectionTasks)}
+                            className="w-4 h-4 rounded border-border text-primary focus:ring-primary cursor-pointer"
+                            aria-label={`Seleccionar todas las tareas de ${section.label}`}
+                          />
+                        </Th>
+                        <th className="w-1 px-0" />
+                        <Th onDoubleClick={() => handleSort("title")} className="cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Título<SortIcon col="title" /></Th>
+                        <Th onDoubleClick={() => handleSort("frequency")} className="cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Frecuencia<SortIcon col="frequency" /></Th>
+                        <Th>Estado</Th>
+                        <Th onDoubleClick={() => handleSort("priority")} className="cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Prioridad<SortIcon col="priority" /></Th>
+                        <Th onDoubleClick={() => handleSort("startDate")} className="cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Inicio<SortIcon col="startDate" /></Th>
+                        <Th onDoubleClick={() => handleSort("endDate")} className="cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Fin<SortIcon col="endDate" /></Th>
+                        <Th onDoubleClick={() => handleSort("estimatedHours")} className="text-right cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">T. Objetivo<SortIcon col="estimatedHours" /></Th>
+                        <Th onDoubleClick={() => handleSort("realHours")} className="text-right cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">H. Reales<SortIcon col="realHours" /></Th>
+                        <Th className="text-center">Coment.</Th>
+                        <Th />
+                      </tr>
+                    </TableHead>
+                    <TableBody>
+                      <AnimatePresence initial={false}>
+                        {sectionTasks.length === 0 && (
+                          <TableRow>
+                            <Td colSpan={12} className="p-0">
+                              <EmptyState title="Sin tareas en esta sección" />
+                            </Td>
+                          </TableRow>
+                        )}
+                        {sectionTasks.map((task, index) => (
+                          <TaskRow
+                            key={task.id}
+                            task={task}
+                            index={index}
+                            currentUserId={currentUserId}
+                            isSelected={selected.has(task.id)}
+                            onToggleSelect={toggleSelect}
+                            onFieldUpdate={onFieldUpdate}
+                            onStatusChange={onStatusChange}
+                            onEditTask={onEditTask}
+                            onDeleteTask={onDeleteTask}
+                            onCommentClick={(t) => { setCommentTask(t); onCommentsViewed(t.id); }}
+                            onActivityClick={setActivityTask}
+                            onRetroactiveClick={setRetroactiveTask}
+                          />
+                        ))}
+                      </AnimatePresence>
+                    </TableBody>
+                  </Table>
                 </motion.div>
               )}
             </AnimatePresence>

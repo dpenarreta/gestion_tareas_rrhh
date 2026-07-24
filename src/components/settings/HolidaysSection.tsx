@@ -3,6 +3,10 @@
 import { useState, useEffect, useCallback } from "react";
 import SectionCard from "./SectionCard";
 import { Button } from "@/components/ui/Button";
+import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
+import { SkeletonRow } from "@/components/ui/Skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { CalendarOff } from "lucide-react";
 
 type Holiday = {
   id: string;
@@ -132,26 +136,32 @@ export default function HolidaysSection() {
 
       <div className="rounded-lg border border-border overflow-hidden">
         {loading ? (
-          <div className="flex justify-center items-center py-8">
-            <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+          <div>
+            <SkeletonRow columns={3} />
+            <SkeletonRow columns={3} />
+            <SkeletonRow columns={3} />
           </div>
         ) : holidays.length === 0 ? (
-          <p className="text-sm text-disabled text-center py-8">No hay feriados registrados para {year}.</p>
+          <EmptyState
+            icon={CalendarOff}
+            title="Sin feriados registrados"
+            description={`No hay feriados registrados para ${year}.`}
+          />
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-background">
-                <th className="text-left px-4 py-2.5 font-medium text-main">Fecha</th>
-                <th className="text-left px-4 py-2.5 font-medium text-main">Nombre</th>
-                <th className="text-right px-4 py-2.5 font-medium text-main">Acción</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
+          <Table>
+            <TableHead>
+              <TableRow>
+                <Th>Fecha</Th>
+                <Th>Nombre</Th>
+                <Th className="text-right">Acción</Th>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {holidays.map((h) => (
-                <tr key={h.id}>
-                  <td className="px-4 py-2.5 text-title font-medium">{formatHolidayDate(h.date)}</td>
-                  <td className="px-4 py-2.5 text-secondary">{h.name}</td>
-                  <td className="px-4 py-2.5 text-right">
+                <TableRow key={h.id}>
+                  <Td className="text-title font-medium">{formatHolidayDate(h.date)}</Td>
+                  <Td className="text-secondary">{h.name}</Td>
+                  <Td className="text-right">
                     <button
                       onClick={() => handleDelete(h)}
                       disabled={busyId === h.id}
@@ -159,11 +169,11 @@ export default function HolidaysSection() {
                     >
                       🗑️ Eliminar
                     </button>
-                  </td>
-                </tr>
+                  </Td>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         )}
       </div>
     </SectionCard>

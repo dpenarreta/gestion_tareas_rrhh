@@ -19,6 +19,9 @@ import { CSS } from "@dnd-kit/utilities";
 import type { Role } from "@/generated/prisma/client";
 import { ROLE_LABEL, canCreateMeetings, isLeadershipRole } from "@/lib/roles";
 import { Button } from "@/components/ui/Button";
+import { SkeletonText } from "@/components/ui/Skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { CheckCircle2, Calendar, CheckCheck, Megaphone } from "lucide-react";
 import TaskFormModal from "@/components/tasks/TaskFormModal";
 import type { AssignableUser } from "@/components/tasks/types";
 import MeetingFormModalDashboard from "@/components/meetings/MeetingFormModalDashboard";
@@ -255,10 +258,7 @@ function PrioridadesCard({ tasks }: { tasks: PriorityTask[] }) {
     <Card>
       <CardTitle>Mis prioridades</CardTitle>
       {tasks.length === 0 ? (
-        <div className="text-center py-6">
-          <p className="text-2xl mb-2">✅</p>
-          <p className="text-sm text-secondary">Sin tareas urgentes</p>
-        </div>
+        <EmptyState icon={CheckCircle2} title="Sin tareas urgentes" className="py-6" />
       ) : (
         <ul className="space-y-2">
           {tasks.map((t) => {
@@ -310,10 +310,7 @@ function AgendaCard({
     <Card>
       <CardTitle>Agenda</CardTitle>
       {meetings.length === 0 ? (
-        <div className="text-center py-6">
-          <p className="text-2xl mb-2">📅</p>
-          <p className="text-sm text-secondary">Sin reuniones próximas</p>
-        </div>
+        <EmptyState icon={Calendar} title="Sin reuniones próximas" className="py-6" />
       ) : (
         <ul className="space-y-2 mb-3">
           {meetings.map((m) => (
@@ -361,10 +358,7 @@ function ActividadAreaCard({
         </p>
       )}
       {events.length === 0 ? (
-        <div className="text-center py-6">
-          <p className="text-2xl mb-2">✓</p>
-          <p className="text-sm text-secondary">Sin actividad nueva desde tu última visita</p>
-        </div>
+        <EmptyState icon={CheckCheck} title="Sin actividad nueva desde tu última visita" className="py-6" />
       ) : (
         <ul className="space-y-3">
           {events.map((e, i) => (
@@ -467,7 +461,7 @@ function ComunicadosCard({
       )}
 
       {announcements.length === 0 ? (
-        <p className="text-sm text-secondary text-center py-4">No hay comunicados activos</p>
+        <EmptyState icon={Megaphone} title="No hay comunicados activos" className="py-4" />
       ) : (
         <ul className="space-y-3">
           {announcements.map((a) => (
@@ -736,9 +730,7 @@ export default function DashboardModule({
     if (!data) {
       return (
         <Card>
-          <div className="h-32 flex items-center justify-center">
-            <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-          </div>
+          <SkeletonText lines={4} />
         </Card>
       );
     }

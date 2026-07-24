@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Skeleton, SkeletonText } from "@/components/ui/Skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { PRIORITY_STRIPE, REMINDER_PRIORITY_COLOR, fmtRelative, fmtDueRelative, type DeskNotePriority, type ReminderPriority } from "./types";
 
 type TodayData = {
@@ -36,7 +38,7 @@ function Block({
         {count > 0 && <span className="text-[11px] font-medium text-secondary bg-surface2 px-2 py-0.5 rounded-full">{count}</span>}
       </div>
       {count === 0 ? (
-        <p className="text-xs text-disabled py-3 text-center">{emptyText}</p>
+        <EmptyState title={emptyText} className="py-3" />
       ) : (
         <ul className="space-y-2">{children}</ul>
       )}
@@ -58,8 +60,13 @@ export default function TodayInbox({ onGoToNotes }: { onGoToNotes: () => void })
 
   if (!data) {
     return (
-      <div className="flex items-center justify-center py-20">
-        <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {Array.from({ length: 4 }).map((_, i) => (
+          <div key={i} className="bg-surface border border-border rounded-2xl p-4 shadow-[var(--shadow)]">
+            <Skeleton className="h-4 w-32 mb-4" />
+            <SkeletonText lines={3} />
+          </div>
+        ))}
       </div>
     );
   }

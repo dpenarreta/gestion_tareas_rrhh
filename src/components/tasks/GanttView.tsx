@@ -3,6 +3,8 @@
 import type { Task } from "./types";
 import { formatDate } from "@/lib/utils";
 import { Button } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { GanttChart as GanttChartIcon } from "lucide-react";
 
 const STATUS_BAR: Record<Task["status"], string> = {
   PENDIENTE: "bg-disabled",
@@ -40,18 +42,18 @@ type Props = { tasks: Task[]; onCreateTask: () => void };
 export default function GanttView({ tasks, onCreateTask }: Props) {
   if (tasks.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center h-64 text-disabled">
-        <svg className="w-12 h-12 mb-3 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-        </svg>
-        <p className="text-sm mb-4">No hay tareas para mostrar</p>
-        <Button onClick={onCreateTask}>
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-          </svg>
-          Nueva tarea
-        </Button>
-      </div>
+      <EmptyState
+        icon={GanttChartIcon}
+        title="No hay tareas para mostrar"
+        action={
+          <Button onClick={onCreateTask}>
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+            </svg>
+            Nueva tarea
+          </Button>
+        }
+      />
     );
   }
 

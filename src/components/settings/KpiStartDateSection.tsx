@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import type { Role } from "@/generated/prisma/client";
 import { ROLE_LABEL } from "@/lib/roles";
 import SectionCard from "./SectionCard";
+import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
 
 type UserRow = {
   id: string;
@@ -49,12 +50,12 @@ function UserKpiStartDateRow({ user, onUpdated }: { user: UserRow; onUpdated: (u
   }
 
   return (
-    <tr>
-      <td className="px-4 py-2.5 text-title font-medium whitespace-nowrap">
+    <TableRow>
+      <Td className="text-title font-medium whitespace-nowrap">
         {user.name}
         <span className="ml-2 text-xs text-disabled">{ROLE_LABEL[user.role]}</span>
-      </td>
-      <td className="px-4 py-2.5">
+      </Td>
+      <Td>
         <input
           type="date"
           value={value}
@@ -62,8 +63,8 @@ function UserKpiStartDateRow({ user, onUpdated }: { user: UserRow; onUpdated: (u
           className="border border-border rounded-lg px-3 py-1.5 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
         />
         {error && <p className="text-xs text-danger mt-1">{error}</p>}
-      </td>
-      <td className="px-4 py-2.5 text-right whitespace-nowrap">
+      </Td>
+      <Td className="text-right whitespace-nowrap">
         <button
           onClick={() => save(value || null)}
           disabled={saving || !dirty}
@@ -80,8 +81,8 @@ function UserKpiStartDateRow({ user, onUpdated }: { user: UserRow; onUpdated: (u
             Quitar ajuste
           </button>
         )}
-      </td>
-    </tr>
+      </Td>
+    </TableRow>
   );
 }
 
@@ -119,20 +120,20 @@ export default function KpiStartDateSection() {
             <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
           </div>
         ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-background">
-                <th className="text-left px-4 py-2.5 font-medium text-main">Usuario</th>
-                <th className="text-left px-4 py-2.5 font-medium text-main">Fecha de inicio de cálculo KPI</th>
-                <th className="text-right px-4 py-2.5 font-medium text-main">Acción</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
+          <Table>
+            <TableHead>
+              <TableRow>
+                <Th>Usuario</Th>
+                <Th>Fecha de inicio de cálculo KPI</Th>
+                <Th className="text-right">Acción</Th>
+              </TableRow>
+            </TableHead>
+            <TableBody>
               {users.map((u) => (
                 <UserKpiStartDateRow key={u.id} user={u} onUpdated={handleUpdated} />
               ))}
-            </tbody>
-          </table>
+            </TableBody>
+          </Table>
         )}
       </div>
     </SectionCard>

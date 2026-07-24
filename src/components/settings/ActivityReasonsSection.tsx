@@ -5,6 +5,9 @@ import { ROLE_LABEL, ALL_ROLES } from "@/lib/roles";
 import type { Role } from "@/generated/prisma/client";
 import SectionCard from "./SectionCard";
 import { Button } from "@/components/ui/Button";
+import { SkeletonText } from "@/components/ui/Skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { ListX } from "lucide-react";
 
 type Reason = {
   id: string;
@@ -311,11 +314,9 @@ export default function ActivityReasonsSection() {
       <div className="space-y-2">
         <p className="text-sm font-medium text-title">Motivos existentes</p>
         {loading ? (
-          <div className="flex justify-center items-center py-8">
-            <div className="w-5 h-5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-          </div>
+          <SkeletonText lines={3} />
         ) : activeReasons.length === 0 ? (
-          <p className="text-sm text-disabled text-center py-6">No hay motivos registrados.</p>
+          <EmptyState icon={ListX} title="Sin motivos registrados" />
         ) : (
           <div className="space-y-2">
             {activeReasons.map((r) => (

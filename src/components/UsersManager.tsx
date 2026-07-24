@@ -4,6 +4,9 @@ import { useState, useEffect, useCallback } from "react";
 import { ROLE_LABEL, ALL_ROLES, ROLE_LEVEL } from "@/lib/roles";
 import type { Role } from "@/generated/prisma/client";
 import { Button } from "@/components/ui/Button";
+import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
+import { SkeletonRow } from "@/components/ui/Skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
 
 type User = {
   id: string;
@@ -315,42 +318,41 @@ export default function UsersManager({ currentUserRole }: Props) {
       )}
 
       <div className="bg-surface rounded-xl border border-border overflow-hidden">
-        {loading ? (
-          <div className="flex justify-center items-center py-12">
-            <div className="w-6 h-6 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-          </div>
-        ) : users.length === 0 ? (
-          <div className="py-12 text-center text-secondary text-sm">
-            No hay usuarios registrados
-          </div>
-        ) : (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-border bg-background">
-                <th className="text-left px-5 py-3 font-medium text-main">
-                  Nombre
-                </th>
-                <th className="text-left px-5 py-3 font-medium text-main hidden sm:table-cell">
-                  Correo
-                </th>
-                <th className="text-left px-5 py-3 font-medium text-main">
-                  Rol
-                </th>
-                <th className="text-left px-5 py-3 font-medium text-main hidden md:table-cell">
-                  Consentimiento
-                </th>
-                <th className="text-right px-5 py-3 font-medium text-main">
-                  Acciones
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {users.map((user) => (
-                <tr key={user.id} className="hover:bg-black/5 dark:hover:bg-white/5 transition-colors">
-                  <td className="px-5 py-3 font-medium text-title">
+        <Table>
+          <TableHead>
+            <TableRow>
+              <Th>Nombre</Th>
+              <Th className="hidden sm:table-cell">Correo</Th>
+              <Th>Rol</Th>
+              <Th className="hidden md:table-cell">Consentimiento</Th>
+              <Th className="text-right">Acciones</Th>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {loading && (
+              <>
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <TableRow key={i}>
+                    <Td colSpan={5} className="p-0">
+                      <SkeletonRow columns={5} />
+                    </Td>
+                  </TableRow>
+                ))}
+              </>
+            )}
+            {!loading && users.length === 0 && (
+              <TableRow>
+                <Td colSpan={5} className="p-0">
+                  <EmptyState title="No hay usuarios registrados" />
+                </Td>
+              </TableRow>
+            )}
+            {!loading && users.map((user) => (
+                <TableRow key={user.id}>
+                  <Td className="font-medium text-title">
                     {user.name}
-                  </td>
-                  <td className="px-5 py-3 text-main hidden sm:table-cell">
+                  </Td>
+                  <Td className="hidden sm:table-cell">
                     <div className="flex items-center gap-2">
                       <span>{revealedEmails[user.id] ?? user.email}</span>
                       <button
@@ -365,13 +367,13 @@ export default function UsersManager({ currentUserRole }: Props) {
                           : "Ver"}
                       </button>
                     </div>
-                  </td>
-                  <td className="px-5 py-3">
+                  </Td>
+                  <Td>
                     <span className="px-2.5 py-1 bg-primary-surface text-primary rounded-full text-xs font-medium">
                       {ROLE_LABEL[user.role]}
                     </span>
-                  </td>
-                  <td className="px-5 py-3 hidden md:table-cell">
+                  </Td>
+                  <Td className="hidden md:table-cell">
                     {user.dataConsentAccepted ? (
                       <span className="px-2.5 py-1 bg-success/[.13] text-success rounded-full text-xs font-medium">
                         Aceptado
@@ -382,8 +384,8 @@ export default function UsersManager({ currentUserRole }: Props) {
                         Pendiente
                       </span>
                     )}
-                  </td>
-                  <td className="px-5 py-3">
+                  </Td>
+                  <Td>
                     <div className="flex items-center justify-end gap-2">
                       {canEdit(user) && (
                         <button
@@ -400,12 +402,11 @@ export default function UsersManager({ currentUserRole }: Props) {
                         Eliminar
                       </button>
                     </div>
-                  </td>
-                </tr>
+                  </Td>
+                </TableRow>
               ))}
-            </tbody>
-          </table>
-        )}
+          </TableBody>
+        </Table>
       </div>
 
       {/* ── Edit modal ──────────────────────────────────────────────────────── */}
