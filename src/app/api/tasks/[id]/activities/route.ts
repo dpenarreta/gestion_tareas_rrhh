@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@/generated/prisma/client";
 import { getSession } from "@/lib/session";
 import { businessCalendarDay } from "@/lib/businessTime";
 import { findOverlappingActivity, overlapMessage } from "@/lib/activityOverlap";
@@ -78,36 +79,60 @@ async function migrateFijaHistoryIfNeeded(task: {
 }) {
   if (task.type !== "FIJA" || task.realHours <= 0) return;
 
-  const existingCount = await prisma.taskActivity.count({ where: { taskId: task.id } });
-  if (existingCount > 0) return;
+  // Corrección 2026-07-24 (ver docs/AUDIT_LOG.md § auditoría de
+  // registros retroactivos): el "count() luego create()" original tenía una
+  // ventana teórica de condición de carrera — dos GET /activities
+  // concurrentes para la misma tarea podían leer existingCount=0 antes de
+  // que cualquiera de las dos terminara de escribir, y ambas crear su
+  // propia actividad migrada (duplicando esas horas). Nunca se observó en
+  // los datos de producción auditados, pero se cierra el hueco igual:
+  // check + create ahora corren dentro de UNA transacción Serializable —
+  // Postgres garantiza que, si dos transacciones concurrentes intentan lo
+  // mismo, una de las dos falla por conflicto de serialización en vez de
+  // que ambas tengan éxito. La transacción perdedora simplemente no crea
+  // nada (la otra ya lo hizo) — se captura el error y se ignora, sin
+  // romper la carga normal de actividades por un efecto secundario de
+  // idempotencia que de todas formas se volverá a intentar en la próxima
+  // apertura del panel.
+  try {
+    await prisma.$transaction(
+      async (tx) => {
+        const existingCount = await tx.taskActivity.count({ where: { taskId: task.id } });
+        if (existingCount > 0) return;
 
-  await prisma.activityReason.upsert({
-    where: { key: MIGRATION_REASON_KEY },
-    update: {},
-    create: {
-      key: MIGRATION_REASON_KEY,
-      label: "Registro migrado automáticamente",
-      description: "Motivo interno usado por la migración automática de historial de tareas Fijas — no asignar a roles ni usar en registros nuevos.",
-      isActive: true,
-      // Sin roles asignados: selectableReasons() lo excluye siempre del
-      // selector de "Motivo" para actividades nuevas.
-      assignedRoles: [],
-    },
-  });
+        await tx.activityReason.upsert({
+          where: { key: MIGRATION_REASON_KEY },
+          update: {},
+          create: {
+            key: MIGRATION_REASON_KEY,
+            label: "Registro migrado automáticamente",
+            description: "Motivo interno usado por la migración automática de historial de tareas Fijas — no asignar a roles ni usar en registros nuevos.",
+            isActive: true,
+            // Sin roles asignados: selectableReasons() lo excluye siempre del
+            // selector de "Motivo" para actividades nuevas.
+            assignedRoles: [],
+          },
+        });
 
-  const activityDate = task.completedAt ?? task.updatedAt;
-  await prisma.taskActivity.create({
-    data: {
-      taskId: task.id,
-      authorId: task.assignedToId,
-      reason: MIGRATION_REASON_KEY,
-      duration: Math.round(task.realHours * 60),
-      description: MIGRATION_ACTIVITY_DESCRIPTION,
-      isRetroactive: true,
-      activityDate,
-      createdAt: activityDate,
-    },
-  });
+        const activityDate = task.completedAt ?? task.updatedAt;
+        await tx.taskActivity.create({
+          data: {
+            taskId: task.id,
+            authorId: task.assignedToId,
+            reason: MIGRATION_REASON_KEY,
+            duration: Math.round(task.realHours * 60),
+            description: MIGRATION_ACTIVITY_DESCRIPTION,
+            isRetroactive: true,
+            activityDate,
+            createdAt: activityDate,
+          },
+        });
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable }
+    );
+  } catch (err) {
+    console.error(`migrateFijaHistoryIfNeeded: se omitió por conflicto de concurrencia (taskId=${task.id})`, err);
+  }
 }
 
 export async function GET(_req: NextRequest, ctx: Ctx) {

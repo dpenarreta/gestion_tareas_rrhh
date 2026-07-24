@@ -23,6 +23,45 @@
 
 ---
 
+## v1.14.3 — 2026-07-24
+
+**Tipo:** FIX
+**Módulo:** Migración perezosa de historial — `migrateFijaHistoryIfNeeded` (`src/app/api/tasks/[id]/activities/route.ts`)
+
+**Implementado:** cierra una ventana teórica de condición de carrera en la
+migración automática de historial de tareas Fijas (crea una `TaskActivity`
+sintética la primera vez que se listan las actividades de una tarea Fija
+con `realHours > 0` y cero actividades). El `count()` seguido de `create()`
+original no tenía ninguna garantía transaccional entre ambas llamadas —
+dos peticiones `GET /activities` concurrentes para la misma tarea podían,
+en teoría, crear cada una su propia actividad migrada, duplicando esas
+horas. Nunca se observó en los datos de producción auditados (ver
+`docs/AUDIT_LOG.md` § de este mismo día), pero se cierra el hueco.
+
+- **Cambio:** `count()` → `upsert()` (motivo de migración) → `create()`
+  ahora corren dentro de una única `prisma.$transaction(...)` con nivel de
+  aislamiento `Serializable`. Si dos transacciones concurrentes chocan,
+  Postgres falla una de las dos por conflicto de serialización — la
+  perdedora se captura y se ignora (la otra ya completó la migración), sin
+  propagar el error al handler `GET`.
+- **Sin cambio de comportamiento observable** en el caso normal (sin
+  condición de carrera): mismo resultado, misma actividad creada.
+- **No modifica** ninguna fórmula, el Analytics Engine, KPIs, permisos ni
+  reglas de negocio — es una corrección de robustez/concurrencia sobre una
+  migración de datos ya existente.
+- **Pruebas:** `src/__tests__/api/tasks-activities-comments.test.ts`
+  actualizado — el mock de Prisma ahora simula `$transaction` invocando el
+  callback con el mismo cliente mockeado. Suite completa: 900/900 pasando.
+
+**Impacto:** ninguno en el comportamiento normal observado por los
+usuarios; cierra un riesgo teórico de duplicación de horas en un escenario
+de concurrencia poco común.
+
+**Archivos:** `src/app/api/tasks/[id]/activities/route.ts`,
+`src/__tests__/api/tasks-activities-comments.test.ts`.
+
+---
+
 ## v1.14.2 — 2026-07-24
 
 **Tipo:** DATABASE / FIX

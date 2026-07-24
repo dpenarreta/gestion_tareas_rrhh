@@ -18,17 +18,26 @@ const activityReasonFindUnique = vi.fn();
 const activityReasonUpsert = vi.fn();
 const systemConfigHistoryFindFirst = vi.fn();
 
+// $transaction simulado: invoca el callback con el mismo objeto prisma
+// mockeado a modo de `tx` — no se simula aislamiento real, solo la forma de
+// la API (necesario desde que migrateFijaHistoryIfNeeded usa una
+// transacción interactiva, ver docs/AUDIT_LOG.md § auditoría de registros
+// retroactivos).
+const prismaMock: Record<string, unknown> = {
+  taskActivity: { findMany: taskActivityFindMany, findUnique: taskActivityFindUnique, create: taskActivityCreate, delete: taskActivityDelete, count: taskActivityCount },
+  task: { findUnique: taskFindUnique, update: taskUpdate },
+  comment: { findMany: commentFindMany, create: commentCreate, count: commentCount },
+  taskCommentView: { upsert: taskCommentViewUpsert },
+  notification: { createMany: notificationCreateMany },
+  user: { findMany: userFindMany },
+  activityReason: { findUnique: activityReasonFindUnique, upsert: activityReasonUpsert },
+  systemConfigHistory: { findFirst: systemConfigHistoryFindFirst },
+};
+const transactionMock = vi.fn(async (fn: (tx: unknown) => unknown) => fn(prismaMock));
+prismaMock.$transaction = transactionMock;
+
 vi.mock("@/lib/prisma", () => ({
-  prisma: {
-    taskActivity: { findMany: taskActivityFindMany, findUnique: taskActivityFindUnique, create: taskActivityCreate, delete: taskActivityDelete, count: taskActivityCount },
-    task: { findUnique: taskFindUnique, update: taskUpdate },
-    comment: { findMany: commentFindMany, create: commentCreate, count: commentCount },
-    taskCommentView: { upsert: taskCommentViewUpsert },
-    notification: { createMany: notificationCreateMany },
-    user: { findMany: userFindMany },
-    activityReason: { findUnique: activityReasonFindUnique, upsert: activityReasonUpsert },
-    systemConfigHistory: { findFirst: systemConfigHistoryFindFirst },
-  },
+  prisma: prismaMock,
 }));
 
 vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
@@ -94,6 +103,7 @@ function resetAll() {
   activityReasonUpsert.mockReset().mockResolvedValue({});
   commentCount.mockReset().mockResolvedValue(1);
   systemConfigHistoryFindFirst.mockReset().mockResolvedValue(null);
+  transactionMock.mockClear();
   vi.mocked(getSession).mockReset();
 }
 

@@ -15,6 +15,96 @@
 
 ---
 
+## 2026-07-24 — Cierre de la ventana de condición de carrera en `migrateFijaHistoryIfNeeded`
+
+**Problema detectado:** la auditoría crítica solicitada sobre registros
+retroactivos y duplicación de horas (entrada de este mismo día, "Escritorio
+Digital..." — ver más abajo la de duplicación) revisó en detalle
+`migrateFijaHistoryIfNeeded` (`src/app/api/tasks/[id]/activities/route.ts`),
+la migración perezosa que crea una `TaskActivity` sintética la primera vez
+que se listan las actividades de una tarea Fija con `realHours > 0` y cero
+actividades. La implementación original hacía `count()` y, si el resultado
+era `0`, un `create()` — dos llamadas separadas, sin ninguna garantía
+transaccional entre ellas. Eso deja una **ventana teórica de condición de
+carrera**: dos peticiones `GET /api/tasks/[id]/activities` concurrentes para
+la misma tarea podían leer `existingCount = 0` antes de que cualquiera de
+las dos terminara de escribir, y ambas crear su propia actividad migrada —
+duplicando esas horas históricas.
+
+**Nunca se observó en producción:** la auditoría de duplicación (ver entrada
+de este mismo día) inspeccionó los datos reales y no encontró ningún caso
+de dos actividades con `reason = "migracion_automatica_registro_historico"`
+para la misma tarea. El riesgo es real pero de baja probabilidad — requiere
+dos peticiones casi simultáneas a la misma tarea Fija recién migrada, un
+escenario poco común dado que cada tarea solo pasa por esta migración una
+vez en su historia. Aun así, se propuso cerrar el hueco por completo en vez
+de dejarlo documentado como riesgo residual aceptado.
+
+**Alternativas consideradas:**
+1. Dejarlo como está y documentarlo como riesgo residual aceptado (dado que
+   nunca se observó en producción) — descartada: existe una solución
+   correcta y de bajo riesgo, no hay razón para no cerrarla.
+2. Agregar una restricción `UNIQUE` a nivel de base de datos (ej.
+   `@@unique([taskId, reason])` en `TaskActivity`) — descartada: cambia el
+   schema de Prisma (requiere migración), y una tarea Fija con múltiples
+   registros legítimos del mismo motivo en el futuro (fuera del caso de
+   migración) rompería la restricción; el motivo de migración ya está
+   protegido por convención (nunca asignado a ningún rol), no es necesario
+   forzarlo a nivel de columna.
+3. **Elegida — envolver `count()` + `upsert()` + `create()` en una única
+   transacción de Prisma con nivel de aislamiento `Serializable`**
+   (`prisma.$transaction(async (tx) => {...}, { isolationLevel:
+   Prisma.TransactionIsolationLevel.Serializable })`). Bajo `Serializable`,
+   Postgres garantiza que si dos transacciones concurrentes leen el mismo
+   estado y ambas intentan escribir de forma que el resultado no sería
+   equivalente a ejecutarlas una tras otra, una de las dos falla por
+   conflicto de serialización — nunca ambas tienen éxito. La transacción
+   perdedora se captura en un `try/catch` alrededor de todo el
+   `$transaction(...)` y se ignora (solo se deja un `console.error` para
+   diagnóstico): la otra transacción ya completó la migración, así que no
+   hay ninguna acción de recuperación que tomar, y la función seguirá
+   siendo un no-op en la próxima apertura del panel (ya habrá una actividad
+   registrada). No se propaga el error al handler `GET` — este es un efecto
+   secundario de idempotencia, no debe poder romper la carga normal de
+   actividades.
+
+**Por qué `Serializable` y no `ReadCommitted`/`RepeatableRead`:** el
+patrón "leer conteo, decidir, escribir" es exactamente el caso clásico que
+`Serializable` protege y que niveles más bajos no garantizan (bajo
+`RepeatableRead`, dos transacciones podrían leer `count = 0` cada una sin
+ver la escritura de la otra, si no hay una dependencia de escritura directa
+entre ambas filas). Es la primera vez que este codebase usa una transacción
+interactiva con nivel de aislamiento explícito — no existe otro precedente
+similar (revisado por búsqueda exhaustiva de `$transaction` con
+`isolationLevel` antes de implementar).
+
+**Alcance del cambio:** exclusivamente `migrateFijaHistoryIfNeeded` en
+`src/app/api/tasks/[id]/activities/route.ts`. No cambia su comportamiento
+observable en el caso normal (sin condición de carrera): mismo resultado,
+misma actividad creada, mismos campos. No toca ninguna otra ruta, la
+lógica de `POST /api/tasks/[id]/activities` (que también usa
+`taskActivity.count` para el límite de 2 registros de tareas Fijas) queda
+sin modificar — ese conteo no tiene el mismo patrón de "migración
+automática de una sola vez", es una validación normal en cada creación, sin
+el mismo riesgo de duplicación.
+
+**Verificación:** `tsc --noEmit` limpio (solo los 2 errores preexistentes y
+no relacionados ya conocidos), `eslint` limpio, suite completa de pruebas
+(900/900) pasando incluyendo los 2 casos de `migrateFijaHistoryIfNeeded` en
+`src/__tests__/api/tasks-activities-comments.test.ts` (mock de
+`$transaction` actualizado para invocar el callback con el mismo cliente
+mockeado), `next build` exitoso.
+
+**Naturaleza del cambio:** corrección de robustez/concurrencia sobre una
+migración de datos ya existente — no modifica ninguna fórmula, el Analytics
+Engine, KPIs, permisos ni reglas de negocio. No es una migración de datos
+nueva ni repite la migración histórica de `completedAt` (entrada siguiente).
+
+**Aprobado por:** Anthony Jácome (solicitó explícitamente implementar la
+corrección propuesta en la auditoría de duplicación de horas).
+
+---
+
 ## 2026-07-24 — Migración histórica única (backfill): `completedAt` para 33 tareas sin fecha de finalización registrada
 
 **Problema detectado:** la auditoría y corrección previas de `isCompletedOnTime`
