@@ -331,6 +331,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-24: test(dashboard): mockea prisma.project para la nueva query de myProjects
 - 2026-07-24: feat(ux): ayuda contextual liviana y búsquedas recientes (Sprint C fase 5)
 - 2026-07-24: refactor(ux): dashboard más completo y jerarquía visual (Sprint C fase 4)
 - 2026-07-24: refactor(ux): unifica experiencia de error y éxito, agrega reintentar (Sprint C fase 3)

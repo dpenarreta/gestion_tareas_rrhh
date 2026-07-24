@@ -12,6 +12,7 @@ const taskActivityFindMany = vi.fn();
 const holidayFindMany = vi.fn();
 const leaveRecordFindMany = vi.fn();
 const specialStatusFindMany = vi.fn();
+const projectFindMany = vi.fn();
 
 // computeCargaTiempo/computeMonthlyHistory (motor central, ver Analytics
 // Calculation Registry § D6) tocan estos modelos además de task/user —
@@ -27,6 +28,7 @@ vi.mock("@/lib/prisma", () => ({
     holiday: { findMany: holidayFindMany },
     leaveRecord: { findMany: leaveRecordFindMany },
     specialStatus: { findMany: specialStatusFindMany },
+    project: { findMany: projectFindMany },
   },
 }));
 
@@ -71,6 +73,7 @@ function resetAll() {
   holidayFindMany.mockReset().mockResolvedValue([]);
   leaveRecordFindMany.mockReset().mockResolvedValue([]);
   specialStatusFindMany.mockReset().mockResolvedValue([]);
+  projectFindMany.mockReset().mockResolvedValue([]);
   vi.mocked(getSession).mockReset();
 }
 
