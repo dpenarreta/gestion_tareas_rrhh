@@ -15,6 +15,213 @@
 
 ---
 
+## 2026-07-24 — Sprint D: Auditoría integral y refinamiento
+
+**Objetivo del sprint:** consolidar NEXO como plataforma estable — sin
+módulos nuevos, sin tocar fórmulas del Analytics Engine — reduciendo deuda
+técnica, cerrando huecos de seguridad, mejorando performance y dejando la
+documentación al día.
+
+### Metodología (Bloque 1 — auditoría previa obligatoria)
+
+Se ejecutaron 3 agentes de investigación de solo lectura en paralelo, cada
+uno cubriendo un grupo de módulos, con instrucción explícita de citar
+archivo:línea para cada hallazgo y clasificarlo como `[INCONSISTENCIA]`
+(brecha no documentada), `[DUPLICACIÓN]` (código repetido) o
+`[INTENCIONAL/DOCUMENTADO]` (divergencia ya explicada en el propio código):
+
+1. Trabajo/Seguimiento/Proyectos — comparó las implementaciones paralelas
+   de registro de actividad, retroactivo, comentarios, eliminación,
+   documentos y participantes entre el dominio Task y el dominio Project.
+2. Escritorio Digital/Reuniones/Equipo/Usuarios/Ajustes — auditó
+   notificaciones (todo sitio que crea una `Notification`), archivado/
+   retención, y consistencia operativa transversal.
+3. Analytics/Dashboard/Seguridad/Calidad del dato — auditó duplicación de
+   cálculos, N+1/caché, un barrido exhaustivo de control de acceso sobre
+   las ~124 rutas de `src/app/api/**`, IDOR, y nulabilidad/`onDelete` del
+   schema.
+
+Resultado: ~40 hallazgos concretos. Ninguno reveló duplicación de fórmulas
+de Analytics no documentada (Bloque 4 — auditoría limpia, sin cambios de
+código necesarios ahí).
+
+### Decisión de alcance
+
+De los ~40 hallazgos, un subconjunto de ~8 cambiaba comportamiento de
+negocio existente (notificaciones nuevas, capacidades nuevas, validaciones
+más estrictas). El propio Sprint D exige aprobación explícita para ese tipo
+de cambio ("No cambiar reglas de negocio sin aprobación"). Se presentó el
+listado completo al usuario, que eligió **"Solo lo seguro"**: implementar
+únicamente lo que es bug/seguridad/deuda técnica/performance sin tocar
+comportamiento de negocio; el resto queda documentado como backlog en
+`docs/DECISIONS.md`/`docs/ROADMAP.md`, no implementado este sprint.
+
+**Corrección a un hallazgo de la auditoría:** el agente 2 marcó
+`[INCONSISTENCIA]` que `PersonalReminder` se elimine sin papelera (hard
+delete) mientras `DeskNote` sí pasa por `recoveryCenter`. Al revisar
+`docs/DECISIONS.md` antes de escribir el backlog se encontró que esto **ya
+es una decisión deliberada de un sprint anterior** (fila "`PersonalReminder`
+no se integra al Centro de Recuperación", 2026-07-23: "ítem de
+productividad personal de alta rotación — someterlo a retención/
+restauración es sobre-ingeniería no pedida"). Se corrige la clasificación a
+`[INTENCIONAL/DOCUMENTADO]` — no entra al backlog de este sprint como
+"pendiente de corregir", solo como "revisar si cambian los requisitos".
+
+### Hallazgos de seguridad (Bloque 8) — implementados
+
+- **[CRÍTICO]** `tasks/[id]/comments/route.ts` (GET/POST),
+  `tasks/[id]/activities/route.ts` (GET/POST),
+  `tasks/[id]/activities/[activityId]/comments/route.ts` (GET/POST) y
+  `tasks/[id]/activities/retroactive/route.ts` (POST, encontrado durante la
+  implementación — no estaba en el listado original de 4 archivos del
+  agente, mismo patrón) — ninguno verificaba que la tarea fuera visible/
+  propia del solicitante antes de leer o escribir. Cualquier usuario
+  autenticado podía comentar o registrar horas en cualquier tarea del
+  sistema por ID, corrompiendo `realHours`/carga laboral de otra persona
+  vía `recalcTaskRealHours`. `tasks/[id]/route.ts` (PATCH) sí tenía el
+  chequeo correcto — nunca se propagó a los subrecursos.
+  **Corrección:** `src/lib/taskAccess.ts` (`canAccessTask`), mismo patrón
+  que el ya existente `src/lib/projectAccess.ts`, aplicado a los 5
+  archivos y reutilizado en `tasks/[id]/route.ts` para eliminar también su
+  propia duplicación inline del mismo chequeo.
+- **[CRÍTICO]** `DELETE /api/users/[id]` llamaba `prisma.user.delete()` sin
+  `try/catch`. Casi todas las FK hacia `User` en el schema no tienen
+  `onDelete` explícito (default `NO ACTION` en Postgres) → eliminar
+  cualquier usuario con historial (prácticamente cualquiera) lanzaba una
+  excepción P2003 no controlada → 500 crudo sin explicación para el
+  Administrador. **Corrección:** `try/catch` detectando `code === "P2003"`,
+  respondiendo 409 con mensaje explicativo — no cambia el camino feliz
+  (usuarios sin registros asociados se siguen eliminando igual).
+- El resto de la superficie (~124 rutas revisadas exhaustivamente para
+  `settings/**`, `users/**`, `analytics/**`; muestreo amplio del resto) no
+  arrojó hallazgos adicionales de severidad alta — control de rol
+  server-side consistente en toda la plataforma.
+
+### Deuda técnica y consistencia (Bloques 3, 6, 11) — implementados
+
+Consolidación segura sin cambio de comportamiento: `recalcRealHours` (4
+copias idénticas → `src/lib/recalcHours.ts`), `parseDateOnly` (2 copias →
+`src/lib/businessTime.ts`), `formatRelative` (2 copias → `src/lib/utils.ts`),
+`formatDuration` (4 copias, **con inconsistencia real** — la de Tareas
+nunca omitía unidades en cero, "0h 30min", las 3 de Proyectos sí, "30min";
+se estandarizó al formato mayoritario), `taskSelect` (2 copias byte-a-byte
+→ una sola, importada), el chequeo de jerarquía de Usuarios repetido 4-5
+veces (`src/lib/roles.ts` → `canManageTargetUser`).
+
+Bugs de comportamiento respecto a su propia intención documentada (no
+reglas nuevas, correcciones): `ideas/route.ts` hardcodeaba el array de
+roles revisores en vez de importar `CAN_REVIEW_IDEAS` (ya usado
+correctamente en 2 rutas hermanas); `analytics/operational-risk/team/route.ts`
+notificaba con la tabla estática `NOTIFICATION_TARGETS` en vez de
+`getNotificationRules()`, pese a que su propio comentario decía "mismo
+criterio que las notificaciones de comentarios de tarea" (que sí usa
+`getNotificationRules()`) — un Administrador que reconfigurara los
+destinos de comentario desde Ajustes no veía ese cambio reflejado en las
+alertas de riesgo operativo; `settings/activity-reasons` (POST/PATCH) no
+invalidaba la caché de Analytics al cambiar `assignedRoles`, a diferencia
+de sus pares (`special-status`, `role-targets`, `workload-config`).
+
+UX: `ProjectCard.tsx` nunca migró al sistema de Chips de Sprint B (clases
+Tailwind literales en vez de `StatusChip`/`PriorityChip`) mientras
+`TaskCard.tsx` sí lo usa; `CommentPanel.tsx` (Tareas) todavía tenía el
+fallo silencioso al comentar que Sprint C §7 ya había corregido en
+`ProjectCommentsTab.tsx` (nunca se aplicó de vuelta) — se hizo el mismo
+backport de `useToast()` + "Reintentar"; `meetings/[id]/route.ts`
+(GET/PATCH/DELETE) no tenía ningún manejo de errores, a diferencia de
+`POST /api/meetings` en el mismo módulo — se agregó `try/catch` con
+fallback genérico (solo endurece el camino de error, no agrega
+notificaciones nuevas ni cambia ningún comportamiento de éxito).
+
+### Performance (Bloque 2) — implementado (subconjunto seguro)
+
+`dashboard/route.ts` agrupó en un solo `Promise.all` las ~9 consultas que
+no dependían entre sí (antes secuenciales, una espera tras otra en cada
+carga del Dashboard). Gráficos de KPIs (`KpiCharts.tsx`,
+`ScoreHistoryChart.tsx`, `ExecutiveDashboard.tsx`) memoizan con `useMemo`
+sus transformaciones de datos, que antes se recalculaban en cada render.
+`UsersManager.tsx` ganó un buscador client-side (sin techo antes, la lista
+completa se renderizaba siempre).
+
+**Diferido (documentado, no implementado):** `kpis/executive` y
+`operational-risk/team` recorren el equipo usuario-por-usuario para Riesgo
+Operativo/Performance Score en vez de una versión "batched" como la que ya
+existe para Capacidad Proyectada (`computeTeamCapacityForecast`). No es una
+emergencia de performance hoy (el `cached()` existente mitiga vistas
+repetidas), y tocar el interior de `computeOperationalRisk`/
+`computePerformanceScore` para batchearlas implica un riesgo real de
+introducir un bug en funciones de cálculo frágiles — se prefirió no
+arriesgarlo dentro del alcance "solo lo seguro" de este sprint. Ver
+`docs/ROADMAP.md`.
+
+### Calidad del dato (Bloque 9) — implementado
+
+No existía ninguna verificación automática. Se agregó `GET /api/settings/data-quality`
+(solo Administrador, bajo demanda vía botón, sin cron — mismo patrón que
+`EngineDiagnosticsSection`) y una sección nueva dentro del Ajustes
+existente (no un módulo nuevo): fechas inválidas (`endDate < startDate` en
+Tarea/Proyecto/Fase), progreso u horas fuera de rango, registros sin
+propietario (defensivo — ambos campos son `NOT NULL` en el schema, se
+espera 0), horas con horario solapado del mismo autor el mismo día
+**cruzando Tarea↔Proyecto** (evidencia práctica, sin corregirlo, del hueco
+ya conocido de `findOverlappingActivity`, que solo cubre Tarea↔Tarea), y
+registros huérfanos (reportado como confirmación estructural vía llaves
+foráneas, no como resultado de una búsqueda — el schema no permite crear
+un huérfano vía el ORM).
+
+### Bloque 5 (UX) y Bloques 6/7 (revisión Proyectos/Escritorio Digital)
+
+Bloque 5 no tuvo hallazgos concretos propios más allá de los ya cubiertos
+en Consistencia (migración de Chips de `ProjectCard`, fix de
+`CommentPanel`) — un barrido visual sin hallazgos concretos que lo
+justificaran habría sido alcance abierto e innecesariamente riesgoso para
+este sprint; se documenta la decisión de acotarlo en vez de ejecutarlo sin
+guía. Los hallazgos propios de Proyectos (Bloque 6) y Escritorio Digital
+(Bloque 7) — paridad `ProjectActivity`/`TaskActivity`, papelera de
+Recordatorios (ver corrección arriba), UI de restauración de Notas,
+`estimatedHours` inconsistente en el pipeline Nota→Recordatorio→Tarea —
+son todos cambios de comportamiento de negocio → quedan en backlog
+documentado, no se tocan este sprint.
+
+### Informe final (Bloque 12)
+
+**Incidencias corregidas:** 2 hallazgos de seguridad críticos (IDOR en 5
+rutas, crash al eliminar usuarios), ~10 de deuda técnica/consistencia
+segura, 4 de performance, 1 funcionalidad nueva (Calidad del Dato).
+
+**Deuda técnica restante (backlog documentado, no implementado):**
+`docs/DECISIONS.md` y `docs/ROADMAP.md` listan cada ítem con su
+justificación. En resumen: paridad de edición/eliminación de
+`ProjectActivity` con `TaskActivity`; notificar a invitados de una reunión
+al reprogramarla/cancelarla; UI de restauración de Notas archivadas
+(el adaptador ya existe en `recoveryCenter`); extender el detector de
+solapamiento (`findOverlappingActivity`) a cruzar Tarea↔Proyecto (el nuevo
+panel de Calidad del Dato ya evidencia el hueco); unificar la validación de
+`estimatedHours` entre `POST /api/tasks` y el pipeline de conversión
+Recordatorio→Tarea; batchear `computeTeamOperationalRisk`/
+`computeTeamPerformanceScore`.
+
+**Oportunidades de mejora identificadas pero fuera de alcance:**
+`docs/ROADMAP.md` no se actualizó desde 2026-07-23 (faltan las entradas de
+v1.9.0 en adelante) — reconciliarlo por completo es una tarea propia, no se
+hizo como efecto secundario de este sprint para no inflarlo; se agrega como
+ítem del propio backlog.
+
+**Recomendaciones para el siguiente sprint:** priorizar los ítems de
+backlog que requieren una decisión de producto (papelera de
+`ProjectActivity`/Notas, notificación de Reuniones) antes de Trabajo de
+integraciones/escalabilidad, ya que varios de ellos tocan superficies que
+un sprint de integraciones probablemente vuelva a rozar (Reuniones,
+notificaciones).
+
+**Verificación:** `tsc --noEmit` (2 errores preexistentes en tests, sin
+relación), `eslint` (0 errores, 3 warnings preexistentes), `vitest run`
+(913/913, +7 nuevas), `next build` exitoso.
+
+**Aprobado por:** Anthony Jácome (definió el alcance "solo lo seguro" tras
+revisar el listado de hallazgos de negocio diferidos).
+
+---
+
 ## 2026-07-24 — Cierre de la ventana de condición de carrera en `migrateFijaHistoryIfNeeded`
 
 **Problema detectado:** la auditoría crítica solicitada sobre registros

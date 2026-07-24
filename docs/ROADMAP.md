@@ -113,6 +113,34 @@ cierre de este sprint)._
 - Timestamp real de "última visita a Escritorio Digital" por usuario — la
   Bandeja Hoy usa una ventana fija de 7 días para "proyectos con actividad
   reciente" en su lugar (ver `docs/AUDIT_LOG.md` § 2026-07-23).
+- **Este documento no se actualizó entre v1.9.0 y v1.14.3** — reconciliarlo
+  por completo con `docs/CHANGELOG.md` es una tarea propia (identificado
+  durante el Sprint D, ver `docs/AUDIT_LOG.md` § Sprint D); no se hizo como
+  efecto secundario de ese sprint para no inflar su alcance.
+- Paridad de edición/eliminación entre `ProjectActivity` y `TaskActivity` —
+  hoy una actividad de Proyecto, una vez creada, es permanente e
+  inauditable incluso para un Administrador; `TaskActivity` sí tiene
+  corrección administrativa y eliminación por el autor (`AUDIT_LOG.md` §
+  Sprint D).
+- Notificar a los invitados de una reunión al reprogramarla o cancelarla —
+  hoy `POST /api/meetings` notifica solo en la creación; `PATCH`/`DELETE`
+  en `meetings/[id]/route.ts` no avisan a nadie (`AUDIT_LOG.md` § Sprint D).
+- Extender `findOverlappingActivity` para detectar solapamiento de horario
+  cruzando Tarea↔Proyecto (hoy solo cubre Tarea↔Tarea) — el panel de
+  Calidad del Dato (Sprint D) ya evidencia el hueco sin corregirlo
+  (`AUDIT_LOG.md` § Sprint D).
+- Unificar la validación de `estimatedHours` entre `POST /api/tasks` (acepta
+  0/negativos) y el pipeline de conversión Recordatorio→Tarea (los rechaza)
+  — decidir primero cuál dirección es la correcta antes de tocar cualquiera
+  de las dos (`AUDIT_LOG.md` § Sprint D).
+- UI de restauración/papelera para Notas archivadas de Escritorio Digital —
+  el adaptador de `recoveryCenter` ya existe (`DELETE /api/desk-notes/[id]`
+  ya usa `moveToTrash()`), falta la pantalla, igual que el punto ya
+  existente arriba para "consola administrativa unificada".
+- Batched `computeTeamOperationalRisk`/`computeTeamPerformanceScore`,
+  mirando el patrón ya existente de `computeTeamCapacityForecast` — diferido
+  en Sprint D por el riesgo de tocar funciones de cálculo frágiles fuera del
+  apetito de riesgo de ese sprint (`AUDIT_LOG.md` § Sprint D).
 
 ## Ideas futuras
 

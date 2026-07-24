@@ -23,6 +23,87 @@
 
 ---
 
+## v1.15.0 — 2026-07-24
+
+**Tipo:** SECURITY / REFACTOR / PERFORMANCE / FEATURE / DOCUMENTATION
+**Módulo:** Sprint D — Optimización y Refinamiento (auditoría integral de los 10 módulos, sin nuevos módulos, sin tocar fórmulas del Analytics Engine)
+
+**Contexto:** Bloque 1 exigía una auditoría funcional previa a cualquier cambio.
+Se ejecutó vía 3 agentes de investigación de solo lectura (Trabajo/Seguimiento/
+Proyectos; Escritorio Digital/Reuniones/Equipo/Usuarios/Ajustes; Analytics/
+Dashboard/Seguridad/Calidad del dato), con ~40 hallazgos concretos citados por
+archivo:línea. De esos hallazgos, un subconjunto cambiaba comportamiento de
+negocio existente (ej. notificar a invitados al reprogramar una reunión) —
+el propio Sprint D exige aprobación para ese tipo de cambio, así que se
+consultó el alcance con el usuario, que eligió explícitamente **"Solo lo
+seguro"**: implementar todo lo que es bug/seguridad/deuda técnica/performance
+sin tocar comportamiento de negocio, y documentar el resto como backlog. Ver
+`docs/AUDIT_LOG.md` § Sprint D para el detalle completo de la auditoría, la
+decisión de alcance y el informe final (Bloque 12).
+
+- **SECURITY — cierra un IDOR real**: 5 rutas de subrecursos de tareas
+  (`tasks/[id]/comments`, `tasks/[id]/activities`, `tasks/[id]/activities/[activityId]/comments`,
+  `tasks/[id]/activities/retroactive`) no verificaban que la tarea fuera
+  visible/propia del solicitante — cualquier usuario autenticado podía leer y
+  escribir comentarios/horas de cualquier tarea del sistema, corrompiendo
+  `realHours`/carga laboral de otra persona. Nuevo `src/lib/taskAccess.ts`
+  (`canAccessTask`, mismo patrón que `projectAccess.ts`), aplicado en los 5
+  archivos y reutilizado también en `tasks/[id]/route.ts` (dedup). Además,
+  `DELETE /api/users/[id]` lanzaba un 500 crudo (violación de FK no
+  controlada) al eliminar cualquier usuario con historial — ahora responde
+  409 con un mensaje claro.
+- **REFACTOR — consolida duplicación segura**: `recalcRealHours` (4 copias →
+  `src/lib/recalcHours.ts`), `parseDateOnly` (2 copias → `businessTime.ts`),
+  `formatRelative` (2 copias → `utils.ts`), `formatDuration` (4 copias con
+  formato inconsistente → `utils.ts`, estandarizado a la variante que omite
+  unidades en cero), `taskSelect` (2 copias idénticas → uno solo, importado),
+  el chequeo de jerarquía de Usuarios repetido 4 veces (→
+  `canManageTargetUser` en `roles.ts`). Corrige además: `ideas/route.ts`
+  usaba un array de roles hardcodeado en vez de `CAN_REVIEW_IDEAS`;
+  `operational-risk/team` notificaba con la tabla estática
+  `NOTIFICATION_TARGETS` en vez de `getNotificationRules()` (no honraba
+  reconfiguraciones desde Ajustes); `activity-reasons` no invalidaba la
+  caché de Analytics al cambiar `assignedRoles`; `ProjectCard.tsx` nunca
+  migró al sistema de Chips de Sprint B; `CommentPanel.tsx` (Tareas)
+  todavía tenía el fallo silencioso que Sprint C §7 ya había corregido en
+  Proyectos (ahora usa el mismo `useToast()` + "Reintentar"); `meetings/[id]/route.ts`
+  no tenía ningún manejo de errores.
+- **PERFORMANCE**: `dashboard/route.ts` agrupó ~9 consultas independientes
+  en un solo `Promise.all` (antes secuenciales); gráficos de KPIs
+  (`KpiCharts.tsx`, `ScoreHistoryChart.tsx`, `ExecutiveDashboard.tsx`)
+  memoizan sus transformaciones de datos con `useMemo`; `UsersManager.tsx`
+  ganó un buscador (nombre/correo/rol) sobre la lista ya cargada.
+- **FEATURE — Calidad del Dato**: nuevo panel de diagnóstico de solo
+  lectura dentro de Ajustes (no un módulo nuevo), `GET /api/settings/data-quality`
+  (solo Administrador, bajo demanda, sin cron): fechas inválidas, progreso/
+  horas fuera de rango, registros sin propietario, horas duplicadas (mismo
+  autor, horario solapado, cruzando Tarea↔Proyecto — evidencia el hueco de
+  `findOverlappingActivity` documentado en el backlog sin corregirlo),
+  registros huérfanos (confirmación estructural vía llaves foráneas).
+- **No modifica** ninguna fórmula del Analytics Engine, permisos existentes
+  fuera del propio hallazgo de seguridad, ni ninguna regla de negocio — los
+  ~8 hallazgos que sí la cambiaban quedaron documentados como backlog
+  (`docs/DECISIONS.md`, `docs/ROADMAP.md`), no implementados.
+
+**Pruebas:** 913/913 pasando (7 nuevas, cubriendo el IDOR cerrado, el 409 de
+`DELETE /api/users/[id]` y el nuevo endpoint de calidad del dato). `tsc`/
+`eslint` en la misma baseline previa (2 errores/3 warnings preexistentes, sin
+relación). `next build` exitoso.
+
+**Archivos:** `src/lib/taskAccess.ts` (nuevo), `src/lib/recalcHours.ts`
+(nuevo), `src/app/api/settings/data-quality/route.ts` (nuevo),
+`src/components/settings/DataQualitySection.tsx` (nuevo), más ~25 archivos
+modificados en `src/app/api/tasks/**`, `src/app/api/users/**`,
+`src/app/api/meetings/**`, `src/app/api/ideas/route.ts`,
+`src/app/api/analytics/operational-risk/team/route.ts`,
+`src/app/api/settings/activity-reasons/**`, `src/app/api/dashboard/route.ts`,
+`src/lib/roles.ts`, `src/lib/businessTime.ts`, `src/lib/utils.ts`,
+`src/components/kpis/**`, `src/components/tasks/CommentPanel.tsx`,
+`src/components/projects/{ProjectCard,ProjectCommentsTab,ProjectPhasesTab,ProjectActivitiesTab,PhaseDetailModal}.tsx`,
+`src/components/UsersManager.tsx`.
+
+---
+
 ## v1.14.3 — 2026-07-24
 
 **Tipo:** FIX
