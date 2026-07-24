@@ -6,6 +6,7 @@ import type { Role } from "@/generated/prisma/client";
 import type { Task, ViewType, AssignableUser } from "./types";
 import type { ActivityFormat } from "@/lib/activityFormat";
 import { canManageUsers } from "@/lib/roles";
+import { Button } from "@/components/ui/Button";
 import KanbanView from "./KanbanView";
 import TableView from "./TableView";
 import GanttView from "./GanttView";
@@ -273,15 +274,12 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
         </div>
 
         {canManageUsers(currentUserRole) && (
-          <button
-            onClick={() => setShowCloseMonth(true)}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-semibold text-background bg-title rounded-[9px] hover:brightness-110 transition-all"
-          >
+          <Button size="sm" onClick={() => setShowCloseMonth(true)}>
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
             Cerrar mes
-          </button>
+          </Button>
         )}
       </div>
 

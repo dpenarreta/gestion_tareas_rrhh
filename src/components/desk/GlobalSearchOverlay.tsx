@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Search, MessageCircle } from "lucide-react";
+import { Button } from "@/components/ui/Button";
 import {
   PRIORITY_LABEL,
   PRIORITY_STRIPE,
@@ -126,9 +127,9 @@ export default function GlobalSearchOverlay({ onClose }: { onClose: () => void }
                 <option key={o.value} value={o.value}>{o.label}</option>
               ))}
             </select>
-            <button type="submit" disabled={loading} className="px-4 py-1.5 bg-primary hover:bg-primary-hover disabled:opacity-50 text-white text-xs font-medium rounded-lg">
+            <Button type="submit" variant="primary" size="sm" disabled={loading}>
               {loading ? "Buscando…" : "Buscar"}
-            </button>
+            </Button>
           </div>
         </form>
 

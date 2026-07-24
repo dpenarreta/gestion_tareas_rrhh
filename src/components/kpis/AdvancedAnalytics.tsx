@@ -15,6 +15,7 @@ import type {
 } from "./types";
 import type { ResolvedAlert } from "@/lib/analytics";
 import { isFeatureEnabled } from "@/lib/featureFlags";
+import { Button } from "@/components/ui/Button";
 import { SmartBenchmarkPanel } from "./SmartBenchmark";
 import TargetTimePrecisionCard from "./TargetTimePrecisionCard";
 import {
@@ -439,7 +440,7 @@ export function HealthScoreCard({ result, onExplain }: { result: HealthScoreResu
         <h3 className="text-sm font-semibold text-main uppercase tracking-wider flex items-center gap-1.5">
           Score de Salud Laboral <HelpPopover title="Score de Salud Laboral" help={INDICATOR_HELP.scoreSalud} />
         </h3>
-        <button onClick={onExplain} className="text-xs font-medium text-primary hover:text-primary-hover">¿Cómo se obtuvo este resultado?</button>
+        <Button variant="tertiary" size="sm" onClick={onExplain}>¿Cómo se obtuvo este resultado?</Button>
       </div>
       <p className="text-[10px] font-semibold text-disabled bg-surface2 inline-block px-2 py-0.5 rounded-full mb-3">
         Versión anterior — será retirada en una versión futura
@@ -477,7 +478,7 @@ export function PerformanceScoreCard({ result, onExplain, confidence }: { result
         <h3 className="text-sm font-semibold text-main uppercase tracking-wider flex items-center gap-1.5">
           Performance Score <HelpPopover title="Performance Score" help={INDICATOR_HELP.performanceScore} />
         </h3>
-        <button onClick={onExplain} className="text-xs font-medium text-primary hover:text-primary-hover">¿Cómo se obtuvo este resultado?</button>
+        <Button variant="tertiary" size="sm" onClick={onExplain}>¿Cómo se obtuvo este resultado?</Button>
       </div>
       <p className="text-[10px] font-semibold text-primary bg-primary-surface inline-block px-2 py-0.5 rounded-full mb-3">
         Nuevo — Analytics Engine v{result.engineVersion}
@@ -625,9 +626,9 @@ export function ConsistencyCard({ result, dataQualityPct }: { result: Consistenc
           Consistencia <HelpPopover title="Consistencia" help={INDICATOR_HELP.consistencia} />
         </h3>
         {result.available && (
-          <button onClick={() => setExplainOpen(true)} className="text-xs font-medium text-primary hover:text-primary-hover">
+          <Button variant="tertiary" size="sm" onClick={() => setExplainOpen(true)}>
             ¿Cómo se obtuvo este resultado?
-          </button>
+          </Button>
         )}
       </div>
       {!result.available ? (

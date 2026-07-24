@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { Button } from "@/components/ui/Button";
 import ReminderCard from "./ReminderCard";
 import NewReminderModal from "./NewReminderModal";
 import type { PersonalReminder } from "./types";
@@ -109,12 +110,9 @@ export default function RemindersPanel({ onChanged }: { onChanged?: () => void }
             </button>
           ))}
         </div>
-        <button
-          onClick={() => setShowNew(true)}
-          className="px-4 py-2 bg-primary hover:bg-primary-hover text-white text-sm font-medium rounded-xl transition-colors"
-        >
+        <Button variant="primary" onClick={() => setShowNew(true)}>
           + Nuevo recordatorio
-        </button>
+        </Button>
       </div>
 
       {reminders === null ? (

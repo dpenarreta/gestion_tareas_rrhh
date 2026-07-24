@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { Button } from "@/components/ui/Button";
 import { REMINDER_PRIORITY_COLOR, PRIORITY_STRIPE, type PersonalReminder, type DeskNote } from "./types";
 
 const WEEKDAY_LABELS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"];
@@ -89,12 +90,13 @@ export default function CalendarPanel() {
           >
             <ChevronLeft className="w-4 h-4" strokeWidth={2} />
           </button>
-          <button
+          <Button
+            variant="tertiary"
+            size="sm"
             onClick={() => setCursor(() => { const d = new Date(); return new Date(d.getFullYear(), d.getMonth(), 1); })}
-            className="text-xs font-medium text-primary px-2 py-1 rounded-lg hover:bg-primary-surface"
           >
             Hoy
-          </button>
+          </Button>
           <button
             onClick={() => setCursor((c) => new Date(c.getFullYear(), c.getMonth() + 1, 1))}
             className="p-1.5 rounded-lg text-secondary hover:text-title hover:bg-surface2"

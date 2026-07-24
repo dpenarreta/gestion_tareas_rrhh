@@ -6,6 +6,7 @@ import { hoursToDisplay, displayToHours, validateDisplayHours, INVALID_HOURS_MES
 import { ROLE_LABEL, ALL_ROLES } from "@/lib/roles";
 import { TARGET_TIME_REASON_OPTIONS, TARGET_TIME_REASON_LABEL, type TargetTimeAdjustReason } from "@/lib/targetTime";
 import ValidateTargetTimeModal from "./ValidateTargetTimeModal";
+import { Button } from "@/components/ui/Button";
 
 type PendingTask = {
   id: string;
@@ -112,16 +113,12 @@ function BulkValidateModal({ taskIds, onClose, onDone }: { taskIds: string[]; on
           )}
           {error && <p className="text-xs text-danger bg-danger/[.09] rounded-lg px-3 py-2">{error}</p>}
           <div className="flex justify-end gap-2 pt-1">
-            <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-main hover:bg-black/5 dark:hover:bg-white/5 rounded-xl transition-colors">
+            <Button variant="secondary" onClick={onClose}>
               Cancelar
-            </button>
-            <button
-              onClick={submit}
-              disabled={submitting}
-              className="px-5 py-2 text-sm font-medium bg-primary text-white rounded-xl hover:bg-primary-hover disabled:opacity-50 transition-colors"
-            >
+            </Button>
+            <Button onClick={submit} disabled={submitting}>
               {submitting ? "Guardando…" : `Regularizar ${taskIds.length}`}
-            </button>
+            </Button>
           </div>
         </div>
       </div>
@@ -248,12 +245,9 @@ export default function RegularizeTargetTimeManager({ currentUserId }: { current
       {selected.size > 0 && (
         <div className="flex items-center justify-between bg-primary-surface border border-primary/20 rounded-xl px-4 py-2.5">
           <span className="text-sm text-primary font-medium">{selected.size} {selected.size === 1 ? "seleccionada" : "seleccionadas"}</span>
-          <button
-            onClick={() => setBulkOpen(true)}
-            className="px-4 py-1.5 text-sm font-medium bg-primary text-white rounded-lg hover:bg-primary-hover transition-colors"
-          >
+          <Button size="sm" onClick={() => setBulkOpen(true)}>
             Regularizar seleccionadas
-          </button>
+          </Button>
         </div>
       )}
 
@@ -309,14 +303,15 @@ export default function RegularizeTargetTimeManager({ currentUserId }: { current
                   <td className="px-3 py-3 text-right text-main">{hoursToDisplay(t.estimatedHours)}h</td>
                   <td className="px-3 py-3 text-right text-main">{hoursToDisplay(t.realHours)}h</td>
                   <td className="px-3 py-3 text-right">
-                    <button
+                    <Button
+                      variant="tertiary"
+                      size="sm"
                       onClick={() => setEditingTask(t)}
                       disabled={isSelf}
                       title={isSelf ? "No puedes validar el tiempo objetivo de tus propias tareas" : undefined}
-                      className="text-xs font-medium text-primary hover:text-primary-hover disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       Validar
-                    </button>
+                    </Button>
                   </td>
                 </tr>
               );

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Button } from "@/components/ui/Button";
 import { displayToHours, validateDisplayHours, INVALID_HOURS_MESSAGE } from "@/lib/timeFormat";
 import type { PersonalReminder } from "./types";
 
@@ -161,20 +162,12 @@ export default function ConvertReminderToTaskModal({
           {error && <p className="text-sm text-danger bg-danger/[.09] px-3 py-2 rounded-xl">{error}</p>}
 
           <div className="flex gap-3 pt-1">
-            <button
-              type="submit"
-              disabled={saving}
-              className="flex-1 py-2.5 bg-primary hover:bg-primary-hover disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-colors"
-            >
+            <Button type="submit" variant="primary" disabled={saving} className="flex-1">
               {saving ? "Creando…" : "Crear tarea"}
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2.5 text-sm font-medium text-main hover:bg-black/5 dark:hover:bg-white/5 rounded-xl transition-colors"
-            >
+            </Button>
+            <Button type="button" variant="ghost" onClick={onClose}>
               Cancelar
-            </button>
+            </Button>
           </div>
         </form>
       </div>

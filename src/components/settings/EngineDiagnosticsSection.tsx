@@ -3,6 +3,7 @@
 import { useState } from "react";
 import SectionCard from "./SectionCard";
 import { formatDate } from "@/lib/utils";
+import { Button } from "@/components/ui/Button";
 
 type Diagnostics = {
   kpisCalculados: number;
@@ -70,13 +71,9 @@ export default function EngineDiagnosticsSection() {
         <p className="text-sm text-secondary">
           Reporte interno del motor centralizado (caché, validaciones, calidad de datos) — solo visible para Administrador.
         </p>
-        <button
-          onClick={runDiagnostics}
-          disabled={loading}
-          className="shrink-0 px-4 py-2 border border-border hover:bg-black/5 dark:hover:bg-white/5 text-main font-medium rounded-lg text-sm transition-colors disabled:opacity-50"
-        >
+        <Button variant="secondary" className="shrink-0" onClick={runDiagnostics} disabled={loading}>
           {loading ? "Calculando…" : "🔧 Diagnóstico del Motor"}
-        </button>
+        </Button>
       </div>
 
       {error && <p className="text-sm text-danger mt-3">{error}</p>}

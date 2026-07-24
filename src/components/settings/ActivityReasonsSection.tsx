@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { ROLE_LABEL, ALL_ROLES } from "@/lib/roles";
 import type { Role } from "@/generated/prisma/client";
 import SectionCard from "./SectionCard";
+import { Button } from "@/components/ui/Button";
 
 type Reason = {
   id: string;
@@ -118,16 +119,12 @@ function ReasonRow({ reason, onUpdated }: { reason: Reason; onUpdated: (r: Reaso
         />
         <RoleCheckboxGrid selected={roles} onChange={setRoles} />
         <div className="flex gap-2 justify-end pt-1">
-          <button onClick={() => setEditing(false)} className="px-3 py-1.5 text-xs font-medium text-main hover:bg-black/5 dark:hover:bg-white/5 rounded-lg">
+          <Button variant="secondary" size="sm" onClick={() => setEditing(false)}>
             Cancelar
-          </button>
-          <button
-            onClick={handleSaveEdit}
-            disabled={saving}
-            className="px-3 py-1.5 text-xs font-medium bg-primary text-white rounded-lg hover:bg-primary-hover disabled:opacity-50"
-          >
+          </Button>
+          <Button size="sm" onClick={handleSaveEdit} disabled={saving}>
             {saving ? "Guardando…" : "Guardar"}
-          </button>
+          </Button>
         </div>
       </div>
     );
@@ -305,13 +302,9 @@ export default function ActivityReasonsSection() {
         />
         <RoleCheckboxGrid selected={newRoles} onChange={setNewRoles} />
         <div className="flex justify-end pt-1">
-          <button
-            onClick={handleCreate}
-            disabled={creating}
-            className="px-4 py-2 bg-primary text-white font-medium rounded-lg text-sm hover:bg-primary-hover disabled:opacity-50 transition-colors"
-          >
+          <Button onClick={handleCreate} disabled={creating}>
             {creating ? "Creando…" : "Crear motivo"}
-          </button>
+          </Button>
         </div>
       </div>
 

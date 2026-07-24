@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { validateDisplayHours, displayToHours } from "@/lib/timeFormat";
 import type { WorkloadColor, WorkloadLabel } from "./types";
+import { Button } from "@/components/ui/Button";
 
 /**
  * Panel personal "¿Qué pasaría si...?" (Sprint A §2/§3) — versión standalone
@@ -153,12 +154,9 @@ export default function WhatIfSimulator({ userId }: { userId: string }) {
 
   if (!open) {
     return (
-      <button
-        onClick={() => setOpen(true)}
-        className="text-sm font-semibold px-4 py-2 rounded-lg bg-primary-surface text-primary hover:bg-primary/20 transition-colors"
-      >
+      <Button variant="tertiary" onClick={() => setOpen(true)}>
         ¿Qué pasaría si...?
-      </button>
+      </Button>
     );
   }
 
@@ -261,12 +259,9 @@ export default function WhatIfSimulator({ userId }: { userId: string }) {
 
         <p className="text-[11px] text-disabled mt-4">Esto es solo una simulación visual — no guarda ni modifica ningún dato real.</p>
 
-        <button
-          onClick={() => setOpen(false)}
-          className="mt-5 w-full text-sm font-medium px-3 py-2 rounded-lg border border-border text-main hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-        >
+        <Button variant="secondary" onClick={() => setOpen(false)} className="mt-5 w-full">
           Cerrar simulación
-        </button>
+        </Button>
       </div>
     </div>
   );

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { ROLE_LABEL, ALL_ROLES, ROLE_LEVEL } from "@/lib/roles";
 import type { Role } from "@/generated/prisma/client";
+import { Button } from "@/components/ui/Button";
 
 type User = {
   id: string;
@@ -210,16 +211,15 @@ export default function UsersManager({ currentUserRole }: Props) {
           {users.length !== 1 ? "s" : ""}
         </p>
         <div className="flex items-center gap-2">
-          <button
+          <Button
             onClick={() => {
               setShowCreate(!showCreate);
               setFormError("");
               setInformedConsent(false);
             }}
-            className="px-4 py-2 bg-primary hover:bg-primary-hover text-white font-medium rounded-lg text-sm transition-colors"
           >
             {showCreate ? "Cancelar" : "+ Nuevo usuario"}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -295,13 +295,9 @@ export default function UsersManager({ currentUserRole }: Props) {
               </p>
             )}
 
-            <button
-              type="submit"
-              disabled={formLoading || !informedConsent}
-              className="px-4 py-2 bg-primary hover:bg-primary-hover disabled:opacity-50 text-white font-medium rounded-lg text-sm transition-colors"
-            >
+            <Button type="submit" disabled={formLoading || !informedConsent}>
               {formLoading ? "Creando..." : "Crear usuario"}
-            </button>
+            </Button>
           </form>
         </div>
       )}
@@ -500,20 +496,12 @@ export default function UsersManager({ currentUserRole }: Props) {
                 )}
 
                 <div className="flex items-center justify-end gap-3 pt-1">
-                  <button
-                    type="button"
-                    onClick={closeEdit}
-                    className="px-4 py-2 text-sm font-medium text-main border border-border rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-                  >
+                  <Button type="button" variant="secondary" onClick={closeEdit}>
                     Cerrar
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={editLoading}
-                    className="px-4 py-2 text-sm font-medium text-white bg-primary rounded-lg hover:bg-primary-hover disabled:opacity-50 transition-colors"
-                  >
+                  </Button>
+                  <Button type="submit" disabled={editLoading}>
                     {editLoading ? "Guardando..." : "Guardar cambios"}
-                  </button>
+                  </Button>
                 </div>
               </form>
             </div>

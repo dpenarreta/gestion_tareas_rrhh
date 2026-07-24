@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import SectionCard from "./SectionCard";
+import { Button } from "@/components/ui/Button";
 
 type CurvePoint = { x: number; y: number };
 type CurveName = "cumplimiento" | "vencidas" | "carga" | "capacidad" | "consistencia" | "trazabilidad";
@@ -174,13 +175,14 @@ export default function NormalizationCurvesSection() {
                   setSuccessName(null);
                 }}
               />
-              <button
+              <Button
+                size="sm"
+                className="w-full"
                 onClick={() => saveCurve(name)}
                 disabled={savingName === name || !dirty}
-                className="w-full px-3 py-1.5 bg-primary text-white font-medium rounded-lg text-xs hover:bg-primary-hover disabled:opacity-50 transition-colors"
               >
                 {savingName === name ? "Guardando…" : successName === name ? "Guardado ✓" : "Guardar curva"}
-              </button>
+              </Button>
             </div>
           );
         })}

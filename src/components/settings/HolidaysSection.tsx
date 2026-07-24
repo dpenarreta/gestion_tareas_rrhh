@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import SectionCard from "./SectionCard";
+import { Button } from "@/components/ui/Button";
 
 type Holiday = {
   id: string;
@@ -111,13 +112,9 @@ export default function HolidaysSection() {
             className="w-full border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
           />
         </div>
-        <button
-          onClick={handleCreate}
-          disabled={creating}
-          className="px-4 py-2 bg-primary text-white font-medium rounded-lg text-sm hover:bg-primary-hover disabled:opacity-50 transition-colors"
-        >
+        <Button onClick={handleCreate} disabled={creating}>
           {creating ? "Agregando…" : "Agregar feriado"}
-        </button>
+        </Button>
       </div>
 
       <div className="flex items-center gap-2">

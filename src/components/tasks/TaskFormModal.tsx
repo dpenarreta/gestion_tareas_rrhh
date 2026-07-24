@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import type { Task, AssignableUser, TaskType } from "./types";
 import { hoursToDisplay, displayToHours, validateDisplayHours, INVALID_HOURS_MESSAGE } from "@/lib/timeFormat";
 import { TARGET_TIME_TOOLTIP } from "@/lib/targetTime";
+import { Button } from "@/components/ui/Button";
 
 const STATUS_OPTIONS = [
   { value: "PENDIENTE", label: "Pendiente" },
@@ -286,20 +287,12 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
           </div>
 
           <div className="flex justify-end gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-main hover:bg-black/5 dark:hover:bg-white/5 rounded-xl transition-colors"
-            >
+            <Button type="button" variant="secondary" onClick={onClose}>
               Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={saving}
-              className="px-5 py-2 text-sm font-medium bg-primary text-white rounded-xl hover:bg-primary-hover disabled:opacity-50 transition-colors"
-            >
+            </Button>
+            <Button type="submit" disabled={saving}>
               {saving ? "Guardando..." : task ? "Actualizar" : "Crear tarea"}
-            </button>
+            </Button>
           </div>
         </form>
       </div>

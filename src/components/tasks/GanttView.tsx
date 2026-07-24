@@ -2,6 +2,7 @@
 
 import type { Task } from "./types";
 import { formatDate } from "@/lib/utils";
+import { Button } from "@/components/ui/Button";
 
 const STATUS_BAR: Record<Task["status"], string> = {
   PENDIENTE: "bg-disabled",
@@ -44,15 +45,12 @@ export default function GanttView({ tasks, onCreateTask }: Props) {
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
         </svg>
         <p className="text-sm mb-4">No hay tareas para mostrar</p>
-        <button
-          onClick={onCreateTask}
-          className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-xl hover:bg-primary-hover transition-colors"
-        >
+        <Button onClick={onCreateTask}>
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
           Nueva tarea
-        </button>
+        </Button>
       </div>
     );
   }
@@ -60,15 +58,12 @@ export default function GanttView({ tasks, onCreateTask }: Props) {
   return (
     <div className="flex flex-col gap-4">
       <div>
-        <button
-          onClick={onCreateTask}
-          className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-xl hover:bg-primary-hover transition-colors"
-        >
+        <Button onClick={onCreateTask}>
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
           Nueva tarea
-        </button>
+        </Button>
       </div>
       <GanttChart tasks={tasks} />
     </div>

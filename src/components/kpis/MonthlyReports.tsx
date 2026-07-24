@@ -12,6 +12,7 @@ import * as XLSX from "xlsx";
 import { formatDate } from "@/lib/utils";
 import { hoursToDisplay } from "@/lib/timeFormat";
 import { openReportWindow } from "./reportWindow";
+import { Button } from "@/components/ui/Button";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -694,11 +695,7 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                 className="text-sm border border-border rounded-lg px-3 py-1.5 bg-surface text-main focus:outline-none focus:ring-2 focus:ring-primary"
               />
             </div>
-            <button
-              onClick={handleGenerateRange}
-              disabled={rangeLoading}
-              className="flex items-center gap-1.5 px-5 py-2 text-sm bg-primary rounded-lg text-white hover:bg-primary-hover transition-colors disabled:opacity-60"
-            >
+            <Button onClick={handleGenerateRange} disabled={rangeLoading}>
               {rangeLoading ? (
                 <>
                   <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -712,27 +709,21 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                   Generar informe de rango
                 </>
               )}
-            </button>
+            </Button>
             {rangeReport && !rangeLoading && (
               <div className="flex items-center gap-2 ml-auto">
-                <button
-                  onClick={() => downloadRangeExcel(rangeReport)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-border rounded-lg text-main hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-                >
+                <Button variant="secondary" size="sm" onClick={() => downloadRangeExcel(rangeReport)}>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                   </svg>
                   Excel
-                </button>
-                <button
-                  onClick={() => downloadRangePDF(rangeReport)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary rounded-lg text-white hover:bg-primary-hover transition-colors"
-                >
+                </Button>
+                <Button variant="primary" size="sm" onClick={() => downloadRangePDF(rangeReport)}>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                   </svg>
                   PDF
-                </button>
+                </Button>
               </div>
             )}
           </div>
@@ -951,11 +942,7 @@ export default function MonthlyReports({ currentUserRole }: Props) {
             onChange={(e) => setGenerateMonth(e.target.value)}
             className="text-sm border border-border rounded-lg px-3 py-1.5 bg-surface text-main focus:outline-none focus:ring-2 focus:ring-primary"
           />
-          <button
-            onClick={handleGenerate}
-            disabled={generating}
-            className="flex items-center gap-1.5 px-4 py-1.5 text-sm bg-primary rounded-lg text-white hover:bg-primary-hover transition-colors disabled:opacity-60"
-          >
+          <Button variant="primary" size="sm" onClick={handleGenerate} disabled={generating}>
             {generating ? (
               <>
                 <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -969,7 +956,7 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                 Generar / Actualizar
               </>
             )}
-          </button>
+          </Button>
         </div>
       </div>
 
@@ -1036,24 +1023,18 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                   </p>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
-                  <button
-                    onClick={() => downloadReportExcel(fullReport)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-border rounded-lg text-main hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-                  >
+                  <Button variant="secondary" size="sm" onClick={() => downloadReportExcel(fullReport)}>
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                     </svg>
                     Excel consolidado
-                  </button>
-                  <button
-                    onClick={() => downloadReportPDF(fullReport)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary rounded-lg text-white hover:bg-primary-hover transition-colors"
-                  >
+                  </Button>
+                  <Button variant="primary" size="sm" onClick={() => downloadReportPDF(fullReport)}>
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                     </svg>
                     PDF consolidado
-                  </button>
+                  </Button>
                 </div>
               </div>
 

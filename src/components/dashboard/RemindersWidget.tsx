@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Check } from "lucide-react";
+import { Button } from "@/components/ui/Button";
 import NewReminderModal from "@/components/desk/NewReminderModal";
 import { REMINDER_PRIORITY_COLOR, fmtDueRelative, isOverdue, type PersonalReminder } from "@/components/desk/types";
 
@@ -41,12 +42,9 @@ export default function RemindersWidget() {
     <div className="rounded-[16px] p-5 bg-surface border border-border shadow-[var(--shadow)]">
       <div className="flex items-center justify-between pb-3 mb-4 border-b border-border">
         <h2 className="text-[11px] font-semibold text-secondary uppercase tracking-[.07em]">Escritorio Digital</h2>
-        <button
-          onClick={() => setShowNew(true)}
-          className="text-xs font-medium text-primary hover:text-primary-hover px-2 py-1 rounded-lg hover:bg-primary-surface transition-colors"
-        >
+        <Button variant="primary" size="sm" onClick={() => setShowNew(true)}>
           + Nuevo recordatorio
-        </button>
+        </Button>
       </div>
 
       <p className="text-[11px] text-secondary mb-3 -mt-1">Mis próximos recordatorios</p>

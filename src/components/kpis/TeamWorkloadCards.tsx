@@ -6,6 +6,7 @@ import { hoursToDisplay, displayToHours, validateDisplayHours } from "@/lib/time
 import { canViewOperationalRisk } from "@/lib/roles";
 import { isFeatureEnabled } from "@/lib/featureFlags";
 import type { Role } from "@/generated/prisma/client";
+import { Button } from "@/components/ui/Button";
 
 const AVATAR_COLORS = [
   "from-indigo-500 to-violet-500",
@@ -185,12 +186,9 @@ function CapacityRow({
             </p>
           )}
           <ConfiabilidadLine member={member} />
-          <button
-            onClick={onSimulate}
-            className="mt-3 text-xs font-semibold px-3 py-1.5 rounded-lg bg-primary-surface text-primary hover:bg-primary/20 transition-colors"
-          >
+          <Button variant="tertiary" size="sm" onClick={onSimulate} className="mt-3">
             Simular asignación
-          </button>
+          </Button>
         </div>
       )}
     </div>
@@ -358,12 +356,9 @@ function SimulatorPanel({ member, onClose }: { member: CapacityMember; onClose: 
 
         <p className="text-[11px] text-disabled mt-4">Esto es solo una simulación visual — no guarda ni modifica ningún dato real.</p>
 
-        <button
-          onClick={onClose}
-          className="mt-5 w-full text-sm font-medium px-3 py-2 rounded-lg border border-border text-main hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-        >
+        <Button variant="secondary" onClick={onClose} className="mt-5 w-full">
           Cerrar simulación
-        </button>
+        </Button>
       </div>
     </div>
   );
@@ -449,9 +444,9 @@ export function TeamRecommendationsCard({ currentUserRole }: { currentUserRole: 
           {prioritized!.additional.length > 0 && (
             <div>
               {!showAdditional ? (
-                <button onClick={() => setShowAdditional(true)} className="text-xs font-medium text-primary hover:text-primary-hover">
+                <Button variant="tertiary" size="sm" onClick={() => setShowAdditional(true)}>
                   Ver recomendaciones adicionales ({prioritized!.additional.length})
-                </button>
+                </Button>
               ) : (
                 <div className="space-y-3 pt-1">
                   {prioritized!.additional.map((r, i) => (

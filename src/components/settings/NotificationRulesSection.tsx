@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { ROLE_LABEL, ALL_ROLES } from "@/lib/roles";
 import type { Role } from "@/generated/prisma/client";
 import SectionCard from "./SectionCard";
+import { Button } from "@/components/ui/Button";
 
 type Config = {
   commentTargets: Partial<Record<Role, Role[]>>;
@@ -225,13 +226,9 @@ export default function NotificationRulesSection() {
             />
           </div>
 
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="px-4 py-2 bg-primary text-white font-medium rounded-lg text-sm hover:bg-primary-hover disabled:opacity-50 transition-colors"
-          >
+          <Button onClick={handleSave} disabled={saving}>
             {saving ? "Guardando…" : "Guardar configuración de notificaciones"}
-          </button>
+          </Button>
         </>
       )}
     </SectionCard>

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import SectionCard from "./SectionCard";
+import { Button } from "@/components/ui/Button";
 
 type ConfigKey =
   | "healthWeightCumplimiento" | "healthWeightCarga" | "healthWeightVencidas" | "healthWeightConsistencia" | "healthWeightCapacidad"
@@ -232,13 +233,9 @@ export default function AnalyticsConfigSection() {
         </div>
       )}
 
-      <button
-        onClick={save}
-        disabled={saving || !dirty}
-        className="px-4 py-2 bg-primary text-white font-medium rounded-lg text-sm hover:bg-primary-hover disabled:opacity-50 transition-colors"
-      >
+      <Button onClick={save} disabled={saving || !dirty}>
         {saving ? "Guardando…" : "Guardar configuración"}
-      </button>
+      </Button>
     </SectionCard>
   );
 }

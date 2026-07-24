@@ -4,6 +4,7 @@ import { useState, useEffect } from "react";
 import type { SmartBenchmarkResult, MetricBenchmark, PersonalEvolution } from "./types";
 import { InfoTooltip, ConfidenceBadges } from "./AdvancedAnalytics";
 import { CONFIDENCE_TOOLTIPS, MIN_PEER_SAMPLE, type ConfidenceIndicators } from "@/lib/analyticsExplain";
+import { Button } from "@/components/ui/Button";
 
 // ── Metadatos por métrica (unidad, dirección "mejor") ────────────────────────
 
@@ -382,9 +383,9 @@ export function SmartBenchmarkPanel({ userId }: { userId: string }) {
             </h3>
             <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${MODE_BADGE[benchmark.mode]}`}>{MODE_HEADLINE[benchmark.mode]}</span>
           </div>
-          <button onClick={() => setExplainOpen(true)} className="text-xs font-medium text-primary hover:text-primary-hover">
+          <Button variant="tertiary" size="sm" onClick={() => setExplainOpen(true)}>
             ¿Cómo se obtuvo este resultado?
-          </button>
+          </Button>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 mt-3">
           {METRIC_ORDER.map((key) => (

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Button } from "@/components/ui/Button";
 import { fmtDueDateTime, type PersonalReminder } from "./types";
 
 type Props = {
@@ -85,19 +86,12 @@ export default function ReopenReminderModal({ reminder, onClose, onReopen }: Pro
                 </div>
               </div>
               <div className="flex gap-3">
-                <button
-                  onClick={confirmNewDate}
-                  disabled={!date || !time}
-                  className="flex-1 py-2.5 bg-primary hover:bg-primary-hover disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-colors"
-                >
+                <Button variant="primary" onClick={confirmNewDate} disabled={!date || !time} className="flex-1">
                   Reabrir con esta fecha
-                </button>
-                <button
-                  onClick={() => setChoosingNewDate(false)}
-                  className="px-4 py-2.5 text-sm font-medium text-main hover:bg-black/5 dark:hover:bg-white/5 rounded-xl transition-colors"
-                >
+                </Button>
+                <Button variant="ghost" onClick={() => setChoosingNewDate(false)}>
                   Volver
-                </button>
+                </Button>
               </div>
             </div>
           )}

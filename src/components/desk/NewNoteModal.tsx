@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Paperclip, X as XIcon } from "lucide-react";
+import { Button } from "@/components/ui/Button";
 import { ROLE_LABEL } from "@/lib/roles";
 import {
   PRIORITY_LABEL,
@@ -154,14 +155,15 @@ export default function NewNoteModal({ onClose, onCreated }: { onClose: () => vo
                 </button>
               </div>
             ) : (
-              <button
+              <Button
                 type="button"
+                variant="secondary"
                 onClick={() => fileInputRef.current?.click()}
-                className="w-full flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-medium text-secondary border border-dashed border-border rounded-xl hover:border-primary/40 hover:text-primary transition-colors"
+                className="w-full"
               >
                 <Paperclip className="w-3.5 h-3.5" strokeWidth={2} />
                 Adjuntar archivo (máx. 8MB)
-              </button>
+              </Button>
             )}
             <input
               ref={fileInputRef}
@@ -175,20 +177,12 @@ export default function NewNoteModal({ onClose, onCreated }: { onClose: () => vo
           {error && <p className="text-sm text-danger bg-danger/[.09] px-3 py-2 rounded-xl">{error}</p>}
 
           <div className="flex gap-3 pt-1">
-            <button
-              type="submit"
-              disabled={saving}
-              className="flex-1 py-2.5 bg-primary hover:bg-primary-hover disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-colors"
-            >
+            <Button type="submit" variant="primary" disabled={saving} className="flex-1">
               {saving ? "Dejando nota…" : "Dejar nota"}
-            </button>
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2.5 text-sm font-medium text-main hover:bg-black/5 dark:hover:bg-white/5 rounded-xl transition-colors"
-            >
+            </Button>
+            <Button type="button" variant="ghost" onClick={onClose}>
               Cancelar
-            </button>
+            </Button>
           </div>
         </form>
       </div>

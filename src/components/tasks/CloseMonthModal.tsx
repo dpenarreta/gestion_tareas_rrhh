@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Button } from "@/components/ui/Button";
 
 type Preview = {
   year: number;
@@ -195,30 +196,21 @@ export default function CloseMonthModal({ onClose, onClosed }: Props) {
           <div className="flex justify-end gap-3 pt-2">
             {!result ? (
               <>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="px-4 py-2 text-sm font-medium text-main hover:bg-black/5 dark:hover:bg-white/5 rounded-xl transition-colors"
-                >
+                <Button type="button" variant="secondary" onClick={onClose}>
                   Cancelar
-                </button>
-                <button
+                </Button>
+                <Button
                   type="button"
                   onClick={handleConfirm}
                   disabled={loading || closing || !preview || preview.alreadyClosed}
-                  className="px-5 py-2 text-sm font-medium bg-primary text-white rounded-xl hover:bg-primary-hover disabled:opacity-50 transition-colors"
                 >
                   {closing ? "Cerrando..." : "Confirmar cierre"}
-                </button>
+                </Button>
               </>
             ) : (
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-5 py-2 text-sm font-medium bg-primary text-white rounded-xl hover:bg-primary-hover transition-colors"
-              >
+              <Button type="button" onClick={onClose}>
                 Listo
-              </button>
+              </Button>
             )}
           </div>
         </div>

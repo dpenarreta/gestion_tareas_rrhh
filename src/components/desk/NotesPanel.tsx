@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { Button } from "@/components/ui/Button";
 import DeskNotePostIt from "./DeskNotePostIt";
 import NewNoteModal from "./NewNoteModal";
 import type { DeskNote } from "./types";
@@ -146,12 +147,9 @@ export default function NotesPanel({ onNoteCreated }: { onNoteCreated?: () => vo
             </button>
           ))}
         </div>
-        <button
-          onClick={() => setShowNewNote(true)}
-          className="px-4 py-2 bg-primary hover:bg-primary-hover text-white text-sm font-medium rounded-xl transition-colors shrink-0"
-        >
+        <Button variant="primary" onClick={() => setShowNewNote(true)} className="shrink-0">
           + Nueva nota
-        </button>
+        </Button>
       </div>
 
       {activeNotes === null ? (

@@ -5,6 +5,7 @@ import type { Role } from "@/generated/prisma/client";
 import type { TaskActivity, ActivityComment } from "./types";
 import { reasonLabel, reasonIsActive, reasonIsArchived, reasonColorClass, formatDuration, type ActivityReasonConfig } from "./activityReasons";
 import { Modal, ModalHeader } from "@/components/ui/Modal";
+import { Button } from "@/components/ui/Button";
 
 function formatActivityDateTime(iso: string): string {
   const d = new Date(iso);
@@ -283,13 +284,13 @@ export default function ActivityItem({ activity: a, taskId, currentUserId, curre
                 placeholder="Escribe un comentario…"
                 className="flex-1 min-w-0 border border-border rounded-lg px-2.5 py-1.5 text-xs text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
               />
-              <button
+              <Button
+                size="sm"
                 onClick={submitComment}
                 disabled={!commentText.trim() || commentSubmitting}
-                className="px-3 text-xs font-medium bg-primary text-white rounded-lg hover:bg-primary-hover disabled:opacity-40 transition-colors"
               >
                 Enviar
-              </button>
+              </Button>
             </div>
             {commentError && <p className="text-[10px] text-danger">{commentError}</p>}
           </div>
@@ -345,19 +346,12 @@ export default function ActivityItem({ activity: a, taskId, currentUserId, curre
             <p className="text-xs text-danger bg-danger/[.09] rounded-lg px-3 py-2">{editError}</p>
           )}
           <div className="flex gap-2 justify-end pt-1">
-            <button
-              onClick={() => setEditing(false)}
-              className="px-4 py-2 text-sm font-medium text-main hover:bg-black/5 dark:hover:bg-white/5 rounded-xl transition-colors"
-            >
+            <Button variant="secondary" onClick={() => setEditing(false)}>
               Cancelar
-            </button>
-            <button
-              onClick={submitEdit}
-              disabled={editSubmitting || !editComment.trim()}
-              className="px-4 py-2 bg-primary hover:bg-primary-hover disabled:opacity-40 text-white text-sm font-medium rounded-xl transition-colors"
-            >
+            </Button>
+            <Button onClick={submitEdit} disabled={editSubmitting || !editComment.trim()}>
               {editSubmitting ? "Guardando…" : "Guardar cambios"}
-            </button>
+            </Button>
           </div>
         </div>
       </Modal>

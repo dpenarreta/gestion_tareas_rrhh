@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { hoursToDisplay, displayToHours, validateDisplayHours, INVALID_HOURS_MESSAGE } from "@/lib/timeFormat";
 import { TARGET_TIME_REASON_OPTIONS, TARGET_TIME_REASON_LABEL, type TargetTimeAdjustReason, type HistoricalDeviationInsight } from "@/lib/targetTime";
+import { Button } from "@/components/ui/Button";
 
 type Props = {
   taskId: string;
@@ -131,16 +132,12 @@ export default function ValidateTargetTimeModal({ taskId, taskTitle, currentValu
           <p className="text-[11px] text-disabled">Este cambio queda registrado con tu usuario, rol, fecha y motivo — nunca se elimina el historial.</p>
 
           <div className="flex justify-end gap-2 pt-1">
-            <button onClick={onClose} className="px-4 py-2 text-sm font-medium text-main hover:bg-black/5 dark:hover:bg-white/5 rounded-xl transition-colors">
+            <Button variant="secondary" onClick={onClose}>
               Cancelar
-            </button>
-            <button
-              onClick={submit}
-              disabled={submitting}
-              className="px-5 py-2 text-sm font-medium bg-primary text-white rounded-xl hover:bg-primary-hover disabled:opacity-50 transition-colors"
-            >
+            </Button>
+            <Button onClick={submit} disabled={submitting}>
               {submitting ? "Guardando…" : "Validar"}
-            </button>
+            </Button>
           </div>
         </div>
       </div>

@@ -17,6 +17,7 @@ import RoleTargetsSection from "@/components/settings/RoleTargetsSection";
 import WelcomeMessageSection from "@/components/settings/WelcomeMessageSection";
 import EngineDiagnosticsSection from "@/components/settings/EngineDiagnosticsSection";
 import DocumentationSection from "@/components/settings/DocumentationSection";
+import { Button } from "@/components/ui/Button";
 
 type User = {
   id: string;
@@ -595,12 +596,9 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
       <>
       <SectionCard title="Consentimiento de datos">
         <div className="flex justify-end">
-          <button
-            onClick={handleResetConsentAll}
-            className="px-4 py-2 border border-border hover:bg-black/5 dark:hover:bg-white/5 text-main font-medium rounded-lg text-sm transition-colors"
-          >
+          <Button variant="secondary" onClick={handleResetConsentAll}>
             🔄 Restablecer todos
-          </button>
+          </Button>
         </div>
         <div className="rounded-lg border border-border overflow-hidden">
           {loading ? (
@@ -752,13 +750,9 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
             )}
 
             <div className="flex justify-end pt-3 border-t border-border">
-              <button
-                onClick={handleCleanupLoginAttempts}
-                disabled={loginAttemptCleanupLoading}
-                className="px-4 py-2 border border-border hover:bg-black/5 dark:hover:bg-white/5 text-main font-medium rounded-lg text-sm transition-colors disabled:opacity-50"
-              >
+              <Button variant="secondary" onClick={handleCleanupLoginAttempts} disabled={loginAttemptCleanupLoading}>
                 {loginAttemptCleanupLoading ? "Calculando…" : "🗑️ Limpiar intentos de login expirados"}
-              </button>
+              </Button>
             </div>
           </>
         )}
@@ -887,7 +881,7 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
               );
             })()}
 
-            <button
+            <Button
               onClick={handleSaveHours}
               disabled={
                 hoursSaving ||
@@ -900,10 +894,9 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
                   displayToHours(limitHighInput) === workloadLimitHigh &&
                   displayToHours(limitOverloadInput) === workloadLimitOverload)
               }
-              className="px-4 py-2 bg-primary text-white font-medium rounded-lg text-sm hover:bg-primary-hover disabled:opacity-50 transition-colors"
             >
               {hoursSaving ? "Guardando…" : "Guardar configuración"}
-            </button>
+            </Button>
           </>
         )}
       </SectionCard>
@@ -1063,13 +1056,9 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
               </div>
             </div>
 
-            <button
-              onClick={handleSaveRetentionPolicy}
-              disabled={retentionSaving}
-              className="px-4 py-2 bg-primary text-white font-medium rounded-lg text-sm hover:bg-primary-hover disabled:opacity-50 transition-colors"
-            >
+            <Button onClick={handleSaveRetentionPolicy} disabled={retentionSaving}>
               {retentionSaving ? "Guardando…" : "Guardar política"}
-            </button>
+            </Button>
 
             <div className="pt-4 border-t border-border space-y-3">
               {purgeMsg && (
@@ -1088,13 +1077,9 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
                 Elimina permanentemente los registros que superen la política vigente. Se pedirá confirmación
                 y quedará constancia de quién ejecutó la depuración y cuántos registros se eliminaron.
               </p>
-              <button
-                onClick={handleRunPurge}
-                disabled={purgeLoading}
-                className="px-4 py-2 border border-danger/30 text-danger hover:bg-danger/[.09] font-medium rounded-lg text-sm transition-colors disabled:opacity-50"
-              >
+              <Button variant="destructive" onClick={handleRunPurge} disabled={purgeLoading}>
                 {purgeLoading ? "Calculando…" : "🗑️ Ejecutar depuración ahora"}
-              </button>
+              </Button>
             </div>
           </>
         )}
@@ -1122,7 +1107,8 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
             onChange={(e) => setDocTitle(e.target.value)}
             className="flex-1 border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
           />
-          <button
+          <Button
+            className="shrink-0"
             onClick={() => {
               if (!docTitle.trim()) {
                 setDocError("Ingresa el nombre del documento antes de seleccionar el archivo.");
@@ -1132,10 +1118,9 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
               docFileInputRef.current?.click();
             }}
             disabled={docAdding}
-            className="px-4 py-2 bg-primary text-white font-medium rounded-lg text-sm hover:bg-primary-hover disabled:opacity-50 transition-colors shrink-0"
           >
             {docAdding ? "Procesando…" : "Subir PDF"}
-          </button>
+          </Button>
           <input
             ref={docFileInputRef}
             type="file"

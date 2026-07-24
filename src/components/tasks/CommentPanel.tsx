@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import type { Task, TaskComment } from "./types";
 import { ROLE_LABEL } from "@/lib/roles";
 import type { Role } from "@/generated/prisma/client";
+import { Button } from "@/components/ui/Button";
 
 function formatRelative(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
@@ -146,13 +147,13 @@ export default function CommentPanel({ task, currentUserId: _cu, onClose, onComm
             rows={3}
             placeholder="Escribe un comentario… (Ctrl+Enter para enviar)"
           />
-          <button
+          <Button
             onClick={submit}
             disabled={!text.trim() || submitting}
-            className="mt-2 w-full bg-primary text-white rounded-xl py-2 text-sm font-medium hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="mt-2 w-full"
           >
             {submitting ? "Enviando…" : "Comentar"}
-          </button>
+          </Button>
         </div>
       </aside>
     </>

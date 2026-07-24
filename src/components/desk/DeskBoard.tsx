@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Search } from "lucide-react";
+import { Button } from "@/components/ui/Button";
 import TodayInbox from "./TodayInbox";
 import NotesPanel from "./NotesPanel";
 import RemindersPanel from "./RemindersPanel";
@@ -29,13 +30,10 @@ export default function DeskBoard() {
           <p className="text-sm text-secondary">Tu centro personal de trabajo — notas, recordatorios y lo que importa hoy.</p>
         </div>
         {/* §9: buscador único, disponible desde cualquier pestaña sin cambiar de sección. */}
-        <button
-          onClick={() => setShowSearch(true)}
-          className="flex items-center gap-2 px-3 py-2 rounded-xl border border-border2 text-secondary hover:text-title hover:bg-surface2 transition-colors text-sm shrink-0"
-        >
+        <Button variant="ghost" onClick={() => setShowSearch(true)} className="shrink-0">
           <Search className="w-4 h-4" strokeWidth={2} />
           Buscar
-        </button>
+        </Button>
       </div>
 
       <div className="flex items-center gap-1 border-b border-border overflow-x-auto">

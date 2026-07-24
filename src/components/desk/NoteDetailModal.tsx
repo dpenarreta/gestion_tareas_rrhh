@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Paperclip, ListTodo, History, Send } from "lucide-react";
+import { Button } from "@/components/ui/Button";
 import {
   type DeskNote,
   type DeskNoteReply,
@@ -121,14 +122,15 @@ export default function NoteDetailModal({ note, variant, onClose, onRead, onConv
             )}
 
             {variant === "received" && (
-              <button
+              <Button
+                variant="success"
+                size="sm"
                 onClick={() => setShowConvert(true)}
                 disabled={Boolean(note.convertedToReminderId)}
-                className="flex items-center gap-1.5 text-xs font-medium text-primary border border-primary/30 bg-primary-surface px-3 py-1.5 rounded-lg hover:bg-primary/20 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
                 <ListTodo className="w-3.5 h-3.5" strokeWidth={2} />
                 {note.convertedToReminderId ? "Ya convertida en recordatorio" : "Convertir en Recordatorio"}
-              </button>
+              </Button>
             )}
 
             {/* §4 Respuestas cortas — máximo 2, nunca un chat. */}
@@ -161,14 +163,17 @@ export default function NoteDetailModal({ note, variant, onClose, onRead, onConv
                         placeholder="Responder…"
                         className="flex-1 px-3 py-2 text-sm text-title bg-background border border-border rounded-xl focus:outline-none focus:ring-2 focus:ring-primary resize-none"
                       />
-                      <button
+                      <Button
                         type="submit"
+                        variant="primary"
+                        size="sm"
                         disabled={!replyText.trim() || sending}
                         title="Enviar"
-                        className="p-2.5 bg-primary hover:bg-primary-hover disabled:opacity-50 text-white rounded-xl transition-colors shrink-0"
+                        aria-label="Enviar"
+                        className="shrink-0"
                       >
                         <Send className="w-4 h-4" strokeWidth={2} />
-                      </button>
+                      </Button>
                     </form>
                   )}
                   {error && <p className="text-xs text-danger bg-danger/[.09] px-3 py-2 rounded-xl">{error}</p>}

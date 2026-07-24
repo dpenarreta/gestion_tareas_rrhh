@@ -24,6 +24,7 @@ import { openReportWindow, fetchAnalyticsExportMeta } from "./reportWindow";
 import * as XLSX from "xlsx";
 import { formatDate } from "@/lib/utils";
 import { hoursToDisplay } from "@/lib/timeFormat";
+import { Button } from "@/components/ui/Button";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -677,24 +678,18 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
                   </div>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    onClick={() => downloadExcel(kpi)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm border border-border rounded-lg text-main hover:bg-black/5 dark:hover:bg-white/5 transition-colors"
-                  >
+                  <Button variant="secondary" size="sm" onClick={() => downloadExcel(kpi)}>
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                     </svg>
                     Excel
-                  </button>
-                  <button
-                    onClick={() => downloadPDF(kpi)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 text-sm bg-primary rounded-lg text-white hover:bg-primary-hover transition-colors"
-                  >
+                  </Button>
+                  <Button variant="primary" size="sm" onClick={() => downloadPDF(kpi)}>
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                     </svg>
                     PDF
-                  </button>
+                  </Button>
                 </div>
               </div>
 
@@ -781,12 +776,9 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
                         level={maturityFromCount(kpi.cumplimiento.total)}
                         title={`Madurez del dato: ${kpi.cumplimiento.total} tareas en el período`}
                       />
-                      <button
-                        onClick={() => setExplainCumplimientoOpen(true)}
-                        className="text-[11px] font-medium text-primary hover:text-primary-hover"
-                      >
+                      <Button variant="tertiary" size="sm" onClick={() => setExplainCumplimientoOpen(true)}>
                         ¿Cómo se obtuvo este resultado?
-                      </button>
+                      </Button>
                     </span>
                   }
                 >

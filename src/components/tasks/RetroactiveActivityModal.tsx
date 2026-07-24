@@ -9,6 +9,7 @@ import { businessCalendarDay, previousBusinessDays } from "@/lib/businessTime";
 import { rangesOverlap } from "@/lib/timeOverlap";
 import { Modal, ModalHeader } from "@/components/ui/Modal";
 import TimeInput24 from "@/components/ui/TimeInput24";
+import { Button } from "@/components/ui/Button";
 
 type DayScheduleEntry = { id: string; startTime: string; endTime: string; taskId: string; taskTitle: string };
 
@@ -301,19 +302,15 @@ export default function RetroactiveActivityModal({ task, currentUserRole, activi
         )}
 
         <div className="flex gap-2 justify-end pt-1">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 text-sm font-medium text-main hover:bg-black/5 dark:hover:bg-white/5 rounded-xl transition-colors"
-          >
+          <Button variant="secondary" onClick={onClose}>
             Cancelar
-          </button>
-          <button
+          </Button>
+          <Button
             onClick={submit}
             disabled={submitting || !effectiveReason || !previewDuration || !description.trim() || !!overlapConflict || validDates.length === 0}
-            className="px-4 py-2 bg-primary hover:bg-primary-hover disabled:opacity-40 text-white text-sm font-medium rounded-xl transition-colors"
           >
             {submitting ? "Registrando…" : "Registrar horas retroactivas"}
-          </button>
+          </Button>
         </div>
       </div>
     </Modal>

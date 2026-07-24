@@ -331,6 +331,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-24: refactor(ui): unifica botones en módulos de alto tráfico con <Button> (Sprint B fase 1)
 - 2026-07-24: feat(design-system): primitivos UI compartidos (Sprint B fase 0)
 - 2026-07-23: feat(analytics): capa de explicabilidad sobre el Analytics Engine (Sprint A)
 - 2026-07-23: feat(desk): lectura automática, respuestas cortas y pipeline nota→recordatorio→tarea

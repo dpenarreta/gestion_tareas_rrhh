@@ -6,6 +6,7 @@ import { canViewOperationalRisk } from "@/lib/roles";
 import { isFeatureEnabled } from "@/lib/featureFlags";
 import type { OperationalRiskResult } from "./types";
 import { ExplainModal, HelpPopover, ConfidenceBadges } from "./AdvancedAnalytics";
+import { Button } from "@/components/ui/Button";
 import { INDICATOR_HELP, derivedNormalizedValue, type ConfidenceIndicators } from "@/lib/analyticsExplain";
 import ScoreHistoryChart from "./ScoreHistoryChart";
 
@@ -72,7 +73,7 @@ export default function OperationalRiskCard({ userId, currentUserRole }: { userI
         <h3 className="text-sm font-semibold text-main uppercase tracking-wider flex items-center gap-1.5">
           Índice de Riesgo Operativo <HelpPopover title="Índice de Riesgo Operativo" help={INDICATOR_HELP.riesgoOperativo} />
         </h3>
-        <button onClick={() => setExplainOpen(true)} className="text-xs font-medium text-primary hover:text-primary-hover">¿Cómo se obtuvo este resultado?</button>
+        <Button variant="tertiary" size="sm" onClick={() => setExplainOpen(true)}>¿Cómo se obtuvo este resultado?</Button>
       </div>
       <p className="text-[11px] text-disabled mb-3">
         Riesgo para el equipo — complementa al Performance Score, no lo reemplaza (§Sprint 5)
@@ -131,9 +132,9 @@ export default function OperationalRiskCard({ userId, currentUserRole }: { userI
 
       <div className="pt-2 border-t border-border flex items-center justify-between">
         <ConfidenceBadges {...data.confidence} compact />
-        <button onClick={() => setShowHistory((v) => !v)} className="text-xs font-medium text-primary hover:text-primary-hover shrink-0">
+        <Button variant="tertiary" size="sm" onClick={() => setShowHistory((v) => !v)} className="shrink-0">
           {showHistory ? "Ocultar histórico" : "Ver histórico"}
-        </button>
+        </Button>
       </div>
 
       {showHistory && (

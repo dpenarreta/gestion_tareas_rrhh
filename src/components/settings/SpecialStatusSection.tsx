@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { Role } from "@/generated/prisma/client";
 import { hoursToDisplay, displayToHours, validateDisplayHours, INVALID_HOURS_MESSAGE } from "@/lib/timeFormat";
 import SectionCard from "./SectionCard";
+import { Button } from "@/components/ui/Button";
 
 type SimpleUser = { id: string; name: string; email: string; role: Role };
 
@@ -330,13 +331,9 @@ export default function SpecialStatusSection({ users }: { users: SimpleUser[] })
         </div>
 
         <div className="flex justify-end pt-1">
-          <button
-            onClick={handleCreate}
-            disabled={creating}
-            className="px-4 py-2 bg-primary text-white font-medium rounded-lg text-sm hover:bg-primary-hover disabled:opacity-50 transition-colors"
-          >
+          <Button onClick={handleCreate} disabled={creating}>
             {creating ? "Registrando…" : "Registrar estado especial"}
-          </button>
+          </Button>
         </div>
       </div>
 

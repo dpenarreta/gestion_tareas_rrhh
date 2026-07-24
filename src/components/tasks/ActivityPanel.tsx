@@ -11,6 +11,7 @@ import { rangesOverlap } from "@/lib/timeOverlap";
 import { hoursToDisplay } from "@/lib/timeFormat";
 import ActivityItem from "./ActivityItem";
 import ValidateTargetTimeModal from "./ValidateTargetTimeModal";
+import { Button } from "@/components/ui/Button";
 import {
   TARGET_TIME_REASON_LABEL,
   type TargetTimeAdjustReason,
@@ -340,22 +341,20 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
                 )}
 
                 {targetTimeInfo.canValidate && (
-                  <button
-                    onClick={() => setValidateOpen(true)}
-                    className="w-full bg-primary text-white rounded-lg py-1.5 text-xs font-medium hover:bg-primary-hover transition-colors"
-                  >
+                  <Button size="sm" onClick={() => setValidateOpen(true)} className="w-full">
                     Validar tiempo objetivo
-                  </button>
+                  </Button>
                 )}
 
                 {targetTimeInfo.auditHistory.length > 0 && (
                   <div>
-                    <button
+                    <Button
+                      variant="tertiary"
+                      size="sm"
                       onClick={() => setAuditExpanded((v) => !v)}
-                      className="text-[11px] font-medium text-primary hover:text-primary-hover"
                     >
                       {auditExpanded ? "Ocultar" : "Ver"} historial de validaciones ({targetTimeInfo.auditHistory.length})
-                    </button>
+                    </Button>
                     {auditExpanded && (
                       <div className="space-y-1.5 mt-2">
                         {targetTimeInfo.auditHistory.map((a) => (
@@ -537,13 +536,13 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
             </p>
           )}
 
-          <button
+          <Button
             onClick={submit}
             disabled={!previewDuration || !effectiveReason || !!overlapConflict || submitting}
-            className="w-full bg-primary text-white rounded-xl py-2 text-sm font-medium hover:bg-primary-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            className="w-full"
           >
             {submitting ? "Registrando…" : "Agregar actividad"}
-          </button>
+          </Button>
         </div>}
       </aside>
     </>

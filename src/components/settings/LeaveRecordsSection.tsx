@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import type { Role } from "@/generated/prisma/client";
 import SectionCard from "./SectionCard";
+import { Button } from "@/components/ui/Button";
 
 type SimpleUser = { id: string; name: string; email: string; role: Role };
 
@@ -292,13 +293,9 @@ export default function LeaveRecordsSection({ users }: { users: SimpleUser[] }) 
         />
 
         <div className="flex justify-end pt-1">
-          <button
-            onClick={handleCreate}
-            disabled={creating}
-            className="px-4 py-2 bg-primary text-white font-medium rounded-lg text-sm hover:bg-primary-hover disabled:opacity-50 transition-colors"
-          >
+          <Button onClick={handleCreate} disabled={creating}>
             {creating ? "Registrando…" : "Registrar permiso"}
-          </button>
+          </Button>
         </div>
       </div>
 

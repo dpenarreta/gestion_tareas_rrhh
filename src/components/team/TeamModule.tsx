@@ -12,6 +12,7 @@ import TaskFormModal from "@/components/tasks/TaskFormModal";
 import { formatDate, isTaskOverdue } from "@/lib/utils";
 import { hoursToDisplay } from "@/lib/timeFormat";
 import { getOfficialTargetTime, isTargetTimeValidated } from "@/lib/targetTime";
+import { Button } from "@/components/ui/Button";
 
 // ─── types ────────────────────────────────────────────────────────────────────
 
@@ -503,15 +504,12 @@ export default function TeamModule({ currentUserId, currentUserRole }: Props) {
             <p className="text-sm text-secondary">
               {members.length} {members.length === 1 ? "integrante" : "integrantes"}
             </p>
-            <button
-              onClick={() => openAssign()}
-              className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-xl hover:bg-primary-hover transition-colors"
-            >
+            <Button onClick={() => openAssign()} className="rounded-xl">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
               </svg>
               Asignar tarea
-            </button>
+            </Button>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
@@ -528,15 +526,17 @@ export default function TeamModule({ currentUserId, currentUserRole }: Props) {
           {/* Header */}
           <div className="flex items-start justify-between gap-4 mb-6">
             <div className="flex items-center gap-3">
-              <button
+              <Button
+                variant="ghost"
                 onClick={goBack}
-                className="p-2 text-secondary hover:text-title hover:bg-black/5 dark:hover:bg-white/5 rounded-xl transition-colors"
+                className="rounded-xl"
                 title="Volver al equipo"
+                aria-label="Volver al equipo"
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
                 </svg>
-              </button>
+              </Button>
               <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${avatarGradient(selectedMember.name)} flex items-center justify-center`}>
                 <span className="text-lg font-bold text-white">{initials(selectedMember.name)}</span>
               </div>
@@ -554,15 +554,12 @@ export default function TeamModule({ currentUserId, currentUserRole }: Props) {
                 <MiniStat label="En curso" value={selectedMember.tasks.inProgress} color="bg-primary-surface text-primary" />
                 <MiniStat label="Listas" value={selectedMember.tasks.completed} color="bg-success/[.13] text-success" />
               </div>
-              <button
-                onClick={() => openAssign(selectedMember.id)}
-                className="flex items-center gap-2 px-4 py-2 bg-primary text-white text-sm font-medium rounded-xl hover:bg-primary-hover transition-colors"
-              >
+              <Button onClick={() => openAssign(selectedMember.id)} className="rounded-xl">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                 </svg>
                 Asignar tarea
-              </button>
+              </Button>
             </div>
           </div>
 

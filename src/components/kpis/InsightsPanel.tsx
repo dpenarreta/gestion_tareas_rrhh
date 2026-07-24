@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { MaturityStars } from "./AdvancedAnalytics";
+import { Button } from "@/components/ui/Button";
 
 // ── Tipos — reflejan src/lib/insightsEngine.ts (Sprint 6 — Decision Intelligence Engine) ──
 
@@ -297,9 +298,9 @@ function PrioritizedSection({ prioritized }: { prioritized: { top: Insight[]; ad
       {prioritized.additional.length > 0 && (
         <div className="mt-3">
           {!showAdditional ? (
-            <button onClick={() => setShowAdditional(true)} className="text-xs font-medium text-primary hover:text-primary-hover">
+            <Button variant="tertiary" size="sm" onClick={() => setShowAdditional(true)}>
               Ver recomendaciones adicionales ({prioritized.additional.length})
-            </button>
+            </Button>
           ) : (
             <div className="space-y-3">
               {prioritized.additional.map((i) => (

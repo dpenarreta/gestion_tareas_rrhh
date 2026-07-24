@@ -18,6 +18,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import type { Role } from "@/generated/prisma/client";
 import { ROLE_LABEL, canCreateMeetings, isLeadershipRole } from "@/lib/roles";
+import { Button } from "@/components/ui/Button";
 import TaskFormModal from "@/components/tasks/TaskFormModal";
 import type { AssignableUser } from "@/components/tasks/types";
 import MeetingFormModalDashboard from "@/components/meetings/MeetingFormModalDashboard";
@@ -332,12 +333,9 @@ function AgendaCard({
         </ul>
       )}
       {canCreate ? (
-        <button
-          onClick={onNewMeeting}
-          className="w-full text-xs font-medium text-primary border border-primary/30 rounded-xl py-2 hover:bg-primary-surface transition-colors"
-        >
+        <Button variant="primary" size="sm" onClick={onNewMeeting} className="w-full">
           + Nueva reunión
-        </button>
+        </Button>
       ) : (
         <a href="/meetings" className="block text-center text-xs font-medium text-primary hover:text-primary-hover py-2 rounded-xl hover:bg-primary-surface transition-colors">
           Ver todas las reuniones →
@@ -417,12 +415,9 @@ function ComunicadosCard({
       <div className="flex items-center justify-between mb-4 pb-3 border-b border-border">
         <h2 className="text-sm font-semibold text-secondary uppercase tracking-wider">Comunicados</h2>
         {canPost && (
-          <button
-            onClick={() => setShowForm(!showForm)}
-            className="text-xs font-medium text-primary hover:text-primary-hover px-2 py-1 rounded-lg hover:bg-primary-surface transition-colors"
-          >
+          <Button variant="tertiary" size="sm" onClick={() => setShowForm(!showForm)}>
             {showForm ? "Cancelar" : "+ Publicar"}
-          </button>
+          </Button>
         )}
       </div>
 
@@ -465,13 +460,9 @@ function ComunicadosCard({
               Fijar arriba
             </label>
           </div>
-          <button
-            type="submit"
-            disabled={saving}
-            className="px-4 py-2 bg-primary text-white text-sm rounded-lg hover:bg-primary-hover disabled:opacity-50 transition-colors"
-          >
+          <Button type="submit" variant="primary" disabled={saving}>
             {saving ? "Publicando…" : "Publicar comunicado"}
-          </button>
+          </Button>
         </form>
       )}
 
