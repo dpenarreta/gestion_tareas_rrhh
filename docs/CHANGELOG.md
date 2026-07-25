@@ -23,6 +23,76 @@
 
 ---
 
+## v1.17.0 — 2026-07-24
+
+**Tipo:** FEATURE / ANALYTICS
+**Módulo:** Sprint Reportes Ejecutivos 2.0 — Inteligencia Organizacional en el Informe Consolidado
+
+Transforma el Informe Mensual Consolidado (`/kpis` → Informes) de una
+exportación de tablas a un informe ejecutivo: primera página de resumen,
+hallazgos y recomendaciones generados por reglas (nunca IA), interpretación
+por indicador, visualizaciones (recharts), mapa de riesgo, tendencias
+automáticas e Índice Ejecutivo del Equipo. **No modifica el Analytics
+Engine** (`src/lib/analytics.ts`) ni ninguna fórmula/peso existente — todo
+lo nuevo es una capa de composición sobre datos que el motor ya calcula.
+Ver `docs/AUDIT_LOG.md` § Sprint Reportes Ejecutivos 2.0 para el detalle de
+decisiones y `docs/DECISIONS.md` para el índice.
+
+- **FEATURE — nuevo módulo `src/lib/reportInsights.ts`:** motor de
+  interpretación de reportes, 100% determinístico (mismo principio que
+  `insightsEngine.ts`, a nivel de equipo en vez de individuo):
+  `classifyIndiceEjecutivo`, `computeTeamMonthlySnapshots`,
+  `computeTrendComparisons`, `computeRiskQuadrant`,
+  `explainMotivoDistribution`, `computeFindings`, `computeRecommendations`,
+  `computeTeamInsights`, `explainCumplimientoIndicator`/
+  `explainCargaIndicator`/`explainConsultasIndicator`.
+- **FEATURE — Resumen Ejecutivo (Bloque 1):** primera sección del informe —
+  score y estado del Índice Ejecutivo, variación vs. informe anterior,
+  riesgos críticos, alertas, personas destacadas y en riesgo, todo en una
+  sola pantalla (`ExecutiveSummarySection.tsx`).
+- **FEATURE — Índice Ejecutivo del Equipo (Bloque 11):** promedio de
+  Performance Score + Equilibrio Operativo por miembro, clasificado en 4
+  niveles (Excelente/Bueno/Atención/Crítico). Disponible **solo cuando el
+  informe es del mes calendario en curso** — Capacidad Futura (parte de
+  Equilibrio Operativo) es una proyección hacia adelante, no representativa
+  para un mes pasado; en informes de meses históricos se muestra una nota
+  explicativa en su lugar.
+- **FEATURE — Hallazgos Automáticos y Recomendaciones Ejecutivas (Bloques
+  2 y 3):** reglas fijas sobre datos ya calculados (variación de
+  cumplimiento, colaboradores subutilizados/sobrecargados, tareas
+  vencidas, motivo dominante) — explícitamente sin IA, coexistiendo con el
+  bloque "Análisis IA" (Groq) ya existente, que se mantiene intacto como
+  lectura complementaria.
+- **FEATURE — Mapa de Riesgo (Bloque 8):** matriz Cumplimiento×Carga
+  (`RiskMatrixChart.tsx`, `ScatterChart` de recharts), un punto por
+  colaborador, 4 cuadrantes.
+- **FEATURE — Tendencias automáticas (Bloque 9):** comparación del
+  cumplimiento del equipo vs. mes anterior/trimestre/semestre
+  (`TrendsSection.tsx`), vía `computeTeamMonthlySnapshots` — seguro para
+  cualquier mes (sin Capacidad Futura).
+- **FEATURE — Insights (Bloque 10):** observaciones automáticas tipo
+  "X concentró el N% del tiempo ejecutado" (`TeamInsightsSection.tsx`).
+- **ANALYTICS — Distribución por Motivo enriquecida (Bloque 6):** cada
+  motivo ahora muestra % del total, tendencia vs. período anterior (solo
+  en el informe de un mes) e interpretación generada por reglas.
+- **UI — Interpretación por indicador (Bloque 5):** Cumplimiento/Carga/
+  Consultas del equipo ahora responden qué significa/por qué/impacto/
+  acción (`IndicatorInterpretation.tsx`).
+- **UI — Ranking visual y exportación PDF:** el ranking ya usaba tarjetas
+  con barra de progreso (no tabla); la exportación PDF/impresión
+  (`downloadReportPDF`/`downloadRangePDF`) se amplió con las mismas
+  secciones nuevas en formato texto/tabla.
+- **Archivos nuevos:** `src/lib/reportInsights.ts`,
+  `src/components/kpis/reports/{ExecutiveSummarySection,FindingsSection,
+  RecommendationsSection,RiskMatrixChart,TrendsSection,
+  TeamInsightsSection,IndicatorInterpretation}.tsx`.
+- **No modifica** `src/lib/analytics.ts`, ningún peso/fórmula/rol/permiso
+  existente. Verificación: `tsc --noEmit` (2 errores preexistentes sin
+  relación), `eslint .` limpio (3 warnings preexistentes sin relación),
+  `vitest run` 962/962 (936 previos + 26 nuevos), `next build` exitoso.
+
+---
+
 ## v1.16.0 — 2026-07-24
 
 **Tipo:** ANALYTICS / FEATURE

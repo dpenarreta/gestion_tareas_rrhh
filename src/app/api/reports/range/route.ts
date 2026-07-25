@@ -6,9 +6,11 @@ import { isTaskOverdue } from "@/lib/utils";
 import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
 import { computeSimpleScore, computeEstimatedVsRealRatio, computeCompletedPctAny } from "@/lib/analytics";
+import { getActivityReasonLabelMap } from "@/lib/activityReasons";
+import { computeRiskQuadrant, explainMotivoDistribution, computeFindings, computeRecommendations, computeTeamInsights } from "@/lib/reportInsights";
 import Groq from "groq-sdk";
 import type { Role } from "@/generated/prisma/client";
-import type { MonthSnapshot, RangeReportData, ReportMemberKpi } from "@/components/kpis/types";
+import type { MonthSnapshot, RangeReportData, ReportMemberKpi, MotivoDistributionItem } from "@/components/kpis/types";
 
 const SYSTEM_PROMPT_OBJECTIVITY = `Eres un analista de Recursos Humanos que genera informes ejecutivos estrictamente basados en datos.
 
@@ -456,8 +458,24 @@ export async function GET(request: NextRequest) {
       reasonMap[act.reason].count++;
       reasonMap[act.reason].totalMinutes += act.duration;
     }
-    const consultasByReason = Object.entries(reasonMap)
-      .map(([reason, d]) => ({ reason, count: d.count, totalMinutes: d.totalMinutes }))
+    const totalConsultasRange = allActivities.length;
+    // Sprint Reportes Ejecutivos 2.0 (Bloque 6) — % + interpretación por
+    // motivo. Sin tendencia vs. "período anterior" en la vista de rango (un
+    // rango de N meses no tiene un período anterior equivalente sin
+    // ambigüedad) — el rango ya muestra evolución mes a mes más abajo.
+    const reasonLabelMap = await getActivityReasonLabelMap();
+    const consultasByReason: MotivoDistributionItem[] = Object.entries(reasonMap)
+      .map(([reason, d]) => {
+        const pct = totalConsultasRange > 0 ? Math.round((d.count / totalConsultasRange) * 100) : 0;
+        return {
+          reason,
+          count: d.count,
+          totalMinutes: d.totalMinutes,
+          pct,
+          trendPct: null,
+          interpretation: explainMotivoDistribution(reason, reasonLabelMap[reason] ?? reason, pct, null),
+        };
+      })
       .sort((a, b) => b.count - a.count);
 
     // Ranking
@@ -513,6 +531,25 @@ export async function GET(request: NextRequest) {
     const cumplimientoTrend =
       cumplimientoChange > 5 ? "mejora" : cumplimientoChange < -5 ? "deterioro" : "estancamiento";
 
+    // Sprint Reportes Ejecutivos 2.0 (Bloques 2, 3, 8, 10) — mismo motor de
+    // reglas que el informe de un solo mes (sin Índice Ejecutivo/tendencias
+    // mes-trimestre-semestre: no aplican a un rango de N meses, ver
+    // docs/DECISIONS.md § Sprint Reportes Ejecutivos 2.0).
+    const riskQuadrant = computeRiskQuadrant(aggregatedMembers.map((m) => ({ id: m.id, name: m.name, completedPct: m.completedPct, cargaPct: m.cargaPct })));
+    const topReason = consultasByReason[0] ? { label: reasonLabelMap[consultasByReason[0].reason] ?? consultasByReason[0].reason, pct: consultasByReason[0].pct ?? 0 } : null;
+    // overdueCount no se rastrea por miembro en la agregación de rango (0
+    // fijo, limitación preexistente a este sprint — ver docs/AUDIT_LOG.md).
+    const totalOverdueRange = 0;
+    const findings = computeFindings({
+      avgCumplimiento,
+      avgCumplimientoDelta: cumplimientoChange,
+      members: aggregatedMembers,
+      totalOverdue: totalOverdueRange,
+      topReason,
+    });
+    const recommendations = computeRecommendations({ avgCumplimiento, members: aggregatedMembers, topReason });
+    const insights = computeTeamInsights({ members: aggregatedMembers, totalCargaRealHours });
+
     const reportData: RangeReportData = {
       from: fromParam,
       to: toParam,
@@ -535,6 +572,10 @@ export async function GET(request: NextRequest) {
         consultasByReason,
         alerts,
         problematicMonths,
+        riskQuadrant,
+        findings,
+        recommendations,
+        insights,
       },
       trends: { cumplimientoTrend, cumplimientoChange, firstMonthAvgCumplimiento, lastMonthAvgCumplimiento },
       aiAnalysis: "",

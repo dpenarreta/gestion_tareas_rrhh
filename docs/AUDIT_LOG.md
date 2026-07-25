@@ -15,6 +15,115 @@
 
 ---
 
+## 2026-07-24 — Sprint Reportes Ejecutivos 2.0: Inteligencia Organizacional en el Informe Consolidado
+
+**Problema:** el Informe Mensual Consolidado (`MonthlyReports.tsx` +
+`reports/{generate,range}/route.ts`) era, en esencia, una exportación de
+tablas — tarjetas de resumen, tabla de detalle, barras CSS de ranking/
+motivo, y un bloque de prosa de Groq. Un Coordinador/Jefe Nacional no podía
+entender el estado del equipo en 5 minutos sin leer tabla por tabla, y
+ningún indicador se auto-explicaba (qué significa/por qué/impacto/acción).
+
+**Restricción explícita del sprint:** no tocar `src/lib/analytics.ts` (el
+Analytics Engine) ni sus fórmulas/pesos — todo lo nuevo debía ser una capa
+de composición/interpretación sobre datos ya calculados.
+
+### Decisión 1 — El "Análisis IA" (Groq) existente se mantiene, las secciones nuevas son reglas
+
+**Alternativas consideradas:**
+1. Reemplazar por completo el bloque de Groq por el nuevo motor
+   determinístico, alineado estrictamente con el "no usar IA" del Bloque 3.
+2. Mantener el Análisis IA intacto y agregar las nuevas secciones
+   deterministas (Resumen Ejecutivo, Hallazgos, Recomendaciones) como el
+   nuevo cuerpo principal, con el análisis de IA más abajo, como lectura
+   complementaria.
+
+**Decisión:** opción 2 (confirmada con el usuario). **Justificación:** el
+Bloque 3 exige explícitamente reglas (no IA) para las *recomendaciones
+nuevas* que ese bloque pide — no pide eliminar una funcionalidad existente
+que nadie señaló como problema. Quitar el Análisis IA habría sido un
+cambio de alcance mayor al pedido. **Impacto:** el usuario ve ambos: una
+lectura ejecutiva basada en reglas fijas (auditable, reproducible) y,
+debajo, la narrativa de Groq como complemento — sin perder funcionalidad.
+
+### Decisión 2 — Índice Ejecutivo del Equipo: motor completo, pero solo para el mes en curso
+
+**Alternativas consideradas:**
+1. Basar el nuevo "Índice Ejecutivo del Equipo" (Bloque 11) en
+   `computeSimpleScore`, el score que el reporte ya usaba (liviano, sin
+   llamadas nuevas al motor).
+2. Promediar Performance Score + Equilibrio Operativo por miembro
+   (`computeHealthScore`), reutilizando el patrón `cached(perf-bench:/
+   equilibrio-bench:)` ya construido en `/api/kpis/executive`.
+
+**Decisión:** opción 2 (confirmada con el usuario). **Justificación:**
+`computeSimpleScore` (cumplimiento + ratio horas + progreso) no incluye
+carga laboral, salud operativa ni consistencia — el Bloque 11 pide
+explícitamente que el índice resuma esas 5 dimensiones. Solo el motor
+completo las cubre honestamente.
+
+**Restricción derivada:** Equilibrio Operativo incluye Capacidad Futura,
+una proyección **hacia adelante desde "ahora"** (`capacityForecast.ts`) —
+no es representativa si se recalcula para un mes pasado, y el generador de
+informes permite regenerar cualquier mes, no solo el actual. Por eso el
+Índice Ejecutivo (y las dimensiones que dependen de él: `equilibrioScore`
+por miembro, el insight "mantiene el mayor Equilibrio Operativo",
+variaciones de consistencia) se calculan **únicamente cuando el mes del
+informe es el mes calendario en curso** — en informes históricos se
+muestra una nota explicativa en su lugar (`indiceEjecutivo: null`). La
+"variación vs. período anterior" del índice se resuelve comparando contra
+el valor ya persistido en el `MonthlyReport` del mes anterior (mismo
+scope) — no recalculando el motor para un mes pasado.
+
+Performance Score (cumplimiento/vencidas/consistencia/trazabilidad,
+ninguno forward-looking) es seguro para cualquier mes — por eso las
+Tendencias (Bloque 9, mes anterior/trimestre/semestre) se basan en
+`computeTeamMonthlySnapshots`, un helper nuevo que usa
+`computeSimpleScore`/`computeCompletedPctAny` (mismos cálculos ya
+validados en `reports/range`), no el motor completo — seguro para
+cualquier ventana de meses pasados, sin las 6+ llamadas extra por miembro
+que el motor completo habría requerido.
+
+### Decisión 3 — Alcance de Bloques 1/9/11 en el informe de Rango
+
+El Índice Ejecutivo y las tarjetas de tendencia mes/trimestre/semestre
+**no se agregaron** a `reports/range` (informe de rango personalizado):
+un rango de N meses no tiene un "mes en curso" al cual gatear el índice, y
+el informe de rango ya expone su propia evolución mes a mes (`months[]` +
+`trends.cumplimientoTrend`), que cubre el mismo propósito del Bloque 9 sin
+datos adicionales. Sí se agregaron a `reports/range`: Hallazgos,
+Recomendaciones, Insights, Mapa de Riesgo y Distribución por Motivo con %
+(sin tendencia — un rango de N meses no tiene un "período anterior
+equivalente" sin ambigüedad, a diferencia de un solo mes).
+
+### Decisión 4 — `computeTeamMonthlySnapshots` no reemplaza la lógica ya existente en `kpis/executive`
+
+`src/app/api/kpis/executive/route.ts` ya construye snapshots mensuales
+muy similares (líneas 82-190) para su propio propósito (dashboard
+ejecutivo de 6 meses). Se evaluó extraer un helper único compartido entre
+los 3 call sites, pero se decidió **no tocar `kpis/executive/route.ts`**
+en este sprint — es una ruta ya estable y probada, fuera del alcance
+declarado (Informe Consolidado), y refactorizarla como efecto colateral
+introduce riesgo de regresión no solicitado. `computeTeamMonthlySnapshots`
+(nuevo, en `reportInsights.ts`) deduplica la lógica dentro del alcance de
+este sprint (usado por `reports/generate`); la unificación completa con
+`kpis/executive` queda documentada como oportunidad en `docs/ROADMAP.md`.
+
+**Verificación:** `tsc --noEmit` (2 errores preexistentes sin relación),
+`eslint .` (0 errores, 3 warnings preexistentes sin relación), `vitest run`
+(962/962 — 936 previos + 26 nuevos para `classifyIndiceEjecutivo`/
+`computeRiskQuadrant`/`explainMotivoDistribution`/`computeTrendComparisons`/
+`computeFindings`/`computeRecommendations`/`computeTeamInsights`), `next
+build` exitoso. `git diff -- src/lib/analytics.ts` confirma **diff
+vacío** — ninguna fórmula, peso, KPI ni clasificación del Analytics Engine
+se tocó.
+
+**Aprobado por:** Anthony Jácome (plan revisado y aprobado explícitamente
+antes de implementar, incluyendo las decisiones 1 y 2 vía pregunta directa).
+Pendiente de aprobación expresa para commit/push.
+
+---
+
 ## 2026-07-24 — Sprint Analytics 2.0: Inteligencia Explicable e Interpretación Ejecutiva
 
 **Problema:** `computeHealthScore` (Score de Salud Laboral) llevaba congelado

@@ -67,8 +67,15 @@
   automática 100% determinística (qué significa/por qué/impacto/qué
   hacer), Estado Operativo de 5 niveles con escala siempre visible,
   normalización progresiva de Capacidad Futura (único cambio de fórmula
-  de este sprint) y auto-explicación de Consistencia "Variable" (v1.16.0
-  — este sprint).
+  de este sprint) y auto-explicación de Consistencia "Variable" (v1.16.0).
+- Sprint Reportes Ejecutivos 2.0 — el Informe Mensual Consolidado pasa de
+  exportación de tablas a informe ejecutivo: Resumen Ejecutivo, Hallazgos
+  y Recomendaciones por reglas (sin IA, coexistiendo con el Análisis IA de
+  Groq ya existente), interpretación de 4 partes por indicador, Mapa de
+  Riesgo (Cumplimiento×Carga), tendencias automáticas mes/trimestre/
+  semestre, e Índice Ejecutivo del Equipo (Performance Score + Equilibrio
+  Operativo promediados, disponible solo para el mes en curso) — cero
+  cambios al Analytics Engine (v1.17.0 — este sprint).
 
 ## En desarrollo
 
@@ -178,6 +185,24 @@ cierre de este sprint)._
   completa tocaría también el lado positivo (`alta`/`limitada`/
   `sin-planificacion` → 100/70/70), fuera del único cambio matemático
   autorizado en ese sprint.
+- Unificar `computeTeamMonthlySnapshots` (`src/lib/reportInsights.ts`,
+  Sprint Reportes Ejecutivos 2.0) con la lógica de snapshots mensuales ya
+  existente en `src/app/api/kpis/executive/route.ts` (líneas 82-190,
+  prácticamente equivalente) — no se tocó `kpis/executive` en ese sprint
+  para no introducir riesgo de regresión en una ruta estable fuera de su
+  alcance declarado (ver `docs/AUDIT_LOG.md`).
+- Extender el Índice Ejecutivo del Equipo y las tarjetas de tendencia mes/
+  trimestre/semestre (Sprint Reportes Ejecutivos 2.0, Bloques 1/9/11) al
+  informe de Rango personalizado (`reports/range`) — hoy solo existen en
+  el informe de un mes; el rango ya cubre el mismo propósito de Bloque 9
+  vía su evolución mes a mes, pero no tiene un equivalente de Bloque 11
+  (un "mes en curso" no aplica limpiamente a un rango de N meses, requiere
+  una decisión de producto explícita antes de implementarse).
+- Tendencia de % por motivo en el informe de Rango (Sprint Reportes
+  Ejecutivos 2.0, Bloque 6) — hoy solo el informe de un mes muestra
+  tendencia vs. período anterior; el rango no tiene un "período anterior
+  equivalente" sin ambigüedad (¿los N meses previos? ¿el mismo rango del
+  año anterior?), requiere definir el criterio antes de implementarse.
 
 ## Ideas futuras
 

@@ -18,6 +18,13 @@ import { Spinner } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useToast } from "@/components/ui/Toast";
 import { BarChart3, FileText, Download, Lightbulb } from "lucide-react";
+import { ExecutiveSummarySection } from "./reports/ExecutiveSummarySection";
+import { FindingsSection } from "./reports/FindingsSection";
+import { RecommendationsSection } from "./reports/RecommendationsSection";
+import { RiskMatrixChart } from "./reports/RiskMatrixChart";
+import { TrendsSection } from "./reports/TrendsSection";
+import { TeamInsightsSection } from "./reports/TeamInsightsSection";
+import { IndicatorInterpretation } from "./reports/IndicatorInterpretation";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -202,13 +209,14 @@ function downloadReportPDF(report: MonthlyReportFull) {
   const consultasHtml =
     data.consultasByReason.length > 0
       ? `<table>
-    <thead><tr><th>Motivo</th><th>Consultas</th><th>Total min</th></tr></thead>
+    <thead><tr><th>Motivo</th><th>Consultas</th><th>%</th><th>Total min</th></tr></thead>
     <tbody>
       ${data.consultasByReason
         .map(
           (r) => `<tr>
-        <td>${REASON_LABEL[r.reason] ?? r.reason}</td>
+        <td>${REASON_LABEL[r.reason] ?? r.reason}${r.interpretation ? `<div style="font-size:10px;color:#64748b;margin-top:2px">${r.interpretation}</div>` : ""}</td>
         <td>${r.count}</td>
+        <td>${typeof r.pct === "number" ? `${r.pct}%` : "—"}</td>
         <td>${r.totalMinutes}</td>
       </tr>`,
         )
@@ -216,6 +224,63 @@ function downloadReportPDF(report: MonthlyReportFull) {
     </tbody>
   </table>`
       : '<p style="color:#64748b">Sin consultas SEGUIMIENTO en este período.</p>';
+
+  // Sprint Reportes Ejecutivos 2.0 — Resumen Ejecutivo / Hallazgos /
+  // Recomendaciones / Tendencias / Mapa de Riesgo para la versión impresa
+  // (HTML estático — un scatter de recharts no es viable aquí, se
+  // representa como tabla por cuadrante).
+  const indiceHtml = data.indiceEjecutivo
+    ? `<div class="stat" style="text-align:left"><div class="stat-label">Índice Ejecutivo del Equipo</div>
+      <div class="stat-value" style="font-size:22px">${data.indiceEjecutivo.valor}/100 — ${data.indiceEjecutivo.nivel}</div>
+      <div style="font-size:11px;color:#64748b">${data.indiceEjecutivo.explicacion}${data.indiceEjecutivo.variacion !== null ? ` (${data.indiceEjecutivo.variacion >= 0 ? "+" : ""}${data.indiceEjecutivo.variacion} pts vs. mes anterior)` : ""}</div></div>`
+    : `<p style="color:#64748b">Índice Ejecutivo disponible solo al generar el informe del mes en curso.</p>`;
+
+  const findingsHtml =
+    data.findings && data.findings.length > 0
+      ? `<ul>${data.findings.map((f) => `<li>${f.text}</li>`).join("")}</ul>`
+      : '<p style="color:#64748b">Sin hallazgos relevantes este período.</p>';
+
+  const recommendationsHtml =
+    data.recommendations && data.recommendations.length > 0
+      ? `<ul>${data.recommendations.map((r) => `<li><strong>[${r.priority === "alta" ? "Prioridad alta" : "Prioridad media"}]</strong> ${r.text}</li>`).join("")}</ul>`
+      : '<p style="color:#64748b">Sin recomendaciones adicionales este período.</p>';
+
+  const trendsHtml = data.trends
+    ? `<table>
+    <thead><tr><th>Comparación</th><th>Actual</th><th>Referencia</th><th>Variación</th></tr></thead>
+    <tbody>
+      ${[data.trends.mesAnterior, data.trends.trimestre, data.trends.semestre]
+        .map(
+          (t) => `<tr>
+        <td>${t.label}</td><td>${t.currentValue}%</td>
+        <td>${t.compareValue !== null ? `${t.compareValue}%` : "—"}</td>
+        <td>${t.delta !== null ? `${t.delta >= 0 ? "+" : ""}${t.delta} pp` : "Sin datos"}</td>
+      </tr>`,
+        )
+        .join("")}
+    </tbody>
+  </table>`
+    : "";
+
+  const riskQuadrantHtml =
+    data.riskQuadrant && data.riskQuadrant.length > 0
+      ? `<table>
+    <thead><tr><th>Colaborador</th><th>Cumplimiento</th><th>Carga</th><th>Cuadrante</th></tr></thead>
+    <tbody>
+      ${data.riskQuadrant
+        .map(
+          (p) => `<tr>
+        <td>${p.name}</td><td>${p.completedPct}%</td><td>${p.cargaPct}%</td>
+        <td>${{ criticos: "Crítico", "atencion-carga": "Atención (carga)", "atencion-cumplimiento": "Atención (cumplimiento)", saludables: "Saludable" }[p.quadrant]}</td>
+      </tr>`,
+        )
+        .join("")}
+    </tbody>
+  </table>`
+      : "";
+
+  const insightsHtml =
+    data.insights && data.insights.length > 0 ? `<ul>${data.insights.map((i) => `<li>${i}</li>`).join("")}</ul>` : "";
 
   const aiHtml = report.aiAnalysis
     ? `<h2>Análisis IA</h2>
@@ -248,6 +313,14 @@ function downloadReportPDF(report: MonthlyReportFull) {
     ${new Date(report.updatedAt).toLocaleDateString("es-CL")}
   </div>
 
+  <h2>Resumen Ejecutivo</h2>
+  <div class="stats" style="grid-template-columns:1fr">
+    ${indiceHtml}
+  </div>
+
+  <h2>Hallazgos Principales</h2>
+  ${findingsHtml}
+
   <h2>Resumen del Equipo</h2>
   <div class="stats">
     <div class="stat">
@@ -271,6 +344,8 @@ function downloadReportPDF(report: MonthlyReportFull) {
   <h2>Alertas</h2>
   ${alertsHtml}
 
+  ${riskQuadrantHtml ? `<h2>Mapa de Riesgo</h2>${riskQuadrantHtml}` : ""}
+
   <h2>Ranking de Cumplimiento</h2>
   <table>
     <thead><tr><th>#</th><th>Nombre</th><th>Cargo</th><th>Score</th><th>Cumplimiento</th></tr></thead>
@@ -288,8 +363,15 @@ function downloadReportPDF(report: MonthlyReportFull) {
     <tbody>${memberRows}</tbody>
   </table>
 
-  <h2>Consultas SEGUIMIENTO por Motivo</h2>
+  <h2>Distribución por Motivo</h2>
   ${consultasHtml}
+
+  ${trendsHtml ? `<h2>Tendencias</h2>${trendsHtml}` : ""}
+
+  ${insightsHtml ? `<h2>Insights</h2>${insightsHtml}` : ""}
+
+  <h2>Acciones Sugeridas</h2>
+  ${recommendationsHtml}
 
   ${aiHtml}`;
 
@@ -478,6 +560,35 @@ function downloadRangePDF(data: RangeReportData) {
       ).join("")
     : '<p style="color:#64748b">Sin alertas persistentes.</p>';
 
+  const findingsHtml =
+    data.aggregated.findings && data.aggregated.findings.length > 0
+      ? `<ul>${data.aggregated.findings.map((f) => `<li>${f.text}</li>`).join("")}</ul>`
+      : "";
+  const recommendationsHtml =
+    data.aggregated.recommendations && data.aggregated.recommendations.length > 0
+      ? `<ul>${data.aggregated.recommendations.map((r) => `<li><strong>[${r.priority === "alta" ? "Prioridad alta" : "Prioridad media"}]</strong> ${r.text}</li>`).join("")}</ul>`
+      : "";
+  const insightsHtml =
+    data.aggregated.insights && data.aggregated.insights.length > 0
+      ? `<ul>${data.aggregated.insights.map((i) => `<li>${i}</li>`).join("")}</ul>`
+      : "";
+  const riskQuadrantHtml =
+    data.aggregated.riskQuadrant && data.aggregated.riskQuadrant.length > 0
+      ? `<table>
+    <thead><tr><th>Colaborador</th><th>Cumplimiento</th><th>Carga</th><th>Cuadrante</th></tr></thead>
+    <tbody>
+      ${data.aggregated.riskQuadrant
+        .map(
+          (p) => `<tr>
+        <td>${p.name}</td><td>${p.completedPct}%</td><td>${p.cargaPct}%</td>
+        <td>${{ criticos: "Crítico", "atencion-carga": "Atención (carga)", "atencion-cumplimiento": "Atención (cumplimiento)", saludables: "Saludable" }[p.quadrant]}</td>
+      </tr>`,
+        )
+        .join("")}
+    </tbody>
+  </table>`
+      : "";
+
   const aiHtml = data.aiAnalysis
     ? `<h2>Análisis IA</h2><div class="ai-analysis">${data.aiAnalysis.replace(/\n/g, "<br>")}</div>`
     : "";
@@ -516,7 +627,11 @@ function downloadRangePDF(data: RangeReportData) {
     <div class="stat"><div class="stat-label">Rango óptimo (por persona)</div><div class="stat-value" style="font-size:13px">${hoursToDisplay(data.aggregated.teamSummary.cargaRangeMin)}h-${hoursToDisplay(data.aggregated.teamSummary.cargaRangeMax)}h</div></div>
   </div>
 
+  ${findingsHtml ? `<h2>Hallazgos Principales</h2>${findingsHtml}` : ""}
+
   <h2>Alertas Persistentes</h2>${alertsHtml}
+
+  ${riskQuadrantHtml ? `<h2>Mapa de Riesgo</h2>${riskQuadrantHtml}` : ""}
 
   <h2>Evolución Mensual</h2>
   <table><thead><tr><th>Mes</th><th>Cumpl.%</th><th>Tareas compl/total</th><th>Carga (real/base)</th><th>Consultas</th></tr></thead>
@@ -525,6 +640,10 @@ function downloadRangePDF(data: RangeReportData) {
   <h2>Ranking del Período</h2>
   <table><thead><tr><th>#</th><th>Nombre</th><th>Cargo</th><th>Score prom.</th><th>Cumpl. prom.</th></tr></thead>
   <tbody>${rankingRows}</tbody></table>
+
+  ${insightsHtml ? `<h2>Insights</h2>${insightsHtml}` : ""}
+
+  ${recommendationsHtml ? `<h2>Acciones Sugeridas</h2>${recommendationsHtml}` : ""}
 
   ${aiHtml}`;
 
@@ -800,6 +919,12 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                 </div>
               )}
 
+              {/* Bloque 2 — Hallazgos automáticos */}
+              {rangeReport.aggregated.findings && <FindingsSection findings={rangeReport.aggregated.findings} />}
+
+              {/* Bloque 8 — Mapa de Riesgo */}
+              {rangeReport.aggregated.riskQuadrant && <RiskMatrixChart points={rangeReport.aggregated.riskQuadrant} />}
+
               {/* Evolution line chart */}
               <div className="bg-surface rounded-2xl border border-border p-5">
                 <h3 className="text-sm font-semibold text-main uppercase tracking-wider mb-4">
@@ -880,6 +1005,12 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                   ))}
                 </div>
               </div>
+
+              {/* Bloque 10 — Insights */}
+              {rangeReport.aggregated.insights && <TeamInsightsSection insights={rangeReport.aggregated.insights} />}
+
+              {/* Bloque 3 — Recomendaciones ejecutivas */}
+              {rangeReport.aggregated.recommendations && <RecommendationsSection recommendations={rangeReport.aggregated.recommendations} />}
 
               {/* AI Analysis */}
               {rangeReport.aiAnalysis ? (
@@ -1013,6 +1144,14 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                 </div>
               </div>
 
+              {/* Bloque 1 — Resumen Ejecutivo (primera "página" del informe) */}
+              <ExecutiveSummarySection
+                indiceEjecutivo={data.indiceEjecutivo ?? null}
+                riskQuadrant={data.riskQuadrant}
+                alerts={data.alerts}
+                ranking={data.ranking}
+              />
+
               {/* Team summary stats */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 <MetricStat
@@ -1051,6 +1190,21 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                   sub="incluidos en el informe"
                 />
               </div>
+
+              {/* Bloque 5 — Interpretación de indicadores (qué significa/por qué/impacto/acción) */}
+              {data.indicatorExplanations && (
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <IndicatorInterpretation title="Cumplimiento" value={`${data.teamSummary.avgCumplimiento}%`} explanation={data.indicatorExplanations.cumplimiento} />
+                  <IndicatorInterpretation title="Carga laboral" value={`${data.teamSummary.avgCargaPct}%`} explanation={data.indicatorExplanations.carga} />
+                  <IndicatorInterpretation title="Consultas" value={`${data.teamSummary.totalConsultas}`} explanation={data.indicatorExplanations.consultas} />
+                </div>
+              )}
+
+              {/* Bloque 2 — Hallazgos automáticos */}
+              {data.findings && <FindingsSection findings={data.findings} />}
+
+              {/* Bloque 8 — Mapa de Riesgo */}
+              {data.riskQuadrant && <RiskMatrixChart points={data.riskQuadrant} />}
 
               {/* Alerts */}
               {data.alerts.length > 0 && (
@@ -1187,32 +1341,47 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                 </div>
               </div>
 
-              {/* Consultas by reason */}
+              {/* Bloque 6 — Consultas por Motivo, con %/tendencia/interpretación */}
               {data.consultasByReason.length > 0 && (
                 <div className="bg-surface rounded-2xl border border-border p-5">
                   <h3 className="text-sm font-semibold text-main uppercase tracking-wider mb-4">
-                    Consultas SEGUIMIENTO por Motivo (Equipo Completo)
+                    Distribución por Motivo (Equipo Completo)
                   </h3>
-                  <div className="space-y-2">
+                  <div className="space-y-3">
                     {data.consultasByReason.map((r) => {
                       const maxCount = data.consultasByReason[0].count;
-                      const pct = Math.round((r.count / maxCount) * 100);
+                      const barWidthPct = Math.round((r.count / maxCount) * 100);
                       return (
-                        <div key={r.reason} className="flex items-center gap-3">
-                          <span className="text-xs text-main w-44 shrink-0 truncate" title={REASON_LABEL[r.reason] ?? r.reason}>
-                            {REASON_LABEL[r.reason] ?? r.reason}
-                          </span>
-                          <div className="flex-1 bg-black/10 dark:bg-white/10 rounded-full h-2">
-                            <div className="bg-primary h-2 rounded-full" style={{ width: `${pct}%` }} />
+                        <div key={r.reason}>
+                          <div className="flex items-center gap-3">
+                            <span className="text-xs text-main w-44 shrink-0 truncate" title={REASON_LABEL[r.reason] ?? r.reason}>
+                              {REASON_LABEL[r.reason] ?? r.reason}
+                            </span>
+                            <div className="flex-1 bg-black/10 dark:bg-white/10 rounded-full h-2">
+                              <div className="bg-primary h-2 rounded-full" style={{ width: `${barWidthPct}%` }} />
+                            </div>
+                            <span className="text-xs font-semibold text-main w-8 text-right">{r.count}</span>
+                            {typeof r.pct === "number" && <span className="text-[11px] text-primary font-medium w-10 text-right">{r.pct}%</span>}
+                            <span className="text-[11px] text-disabled w-16">{r.totalMinutes} min</span>
                           </div>
-                          <span className="text-xs font-semibold text-main w-8 text-right">{r.count}</span>
-                          <span className="text-[11px] text-disabled w-16">{r.totalMinutes} min</span>
+                          {r.interpretation && (
+                            <p className="text-[11px] text-secondary mt-1 ml-0 sm:ml-[188px] leading-relaxed">{r.interpretation}</p>
+                          )}
                         </div>
                       );
                     })}
                   </div>
                 </div>
               )}
+
+              {/* Bloque 9 — Tendencias */}
+              {data.trends && <TrendsSection mesAnterior={data.trends.mesAnterior} trimestre={data.trends.trimestre} semestre={data.trends.semestre} />}
+
+              {/* Bloque 10 — Insights */}
+              {data.insights && <TeamInsightsSection insights={data.insights} />}
+
+              {/* Bloque 3 — Recomendaciones ejecutivas */}
+              {data.recommendations && <RecommendationsSection recommendations={data.recommendations} />}
 
               {/* AI Analysis */}
               {fullReport.aiAnalysis && (

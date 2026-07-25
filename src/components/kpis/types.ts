@@ -1,4 +1,5 @@
 import type { RiskAlert } from "@/lib/riskAlerts";
+import type { IndiceEjecutivoNivel, TrendComparison, RiskQuadrant, Finding, Recommendation, IndicatorExplanation } from "@/lib/reportInsights";
 
 export type KpiColor = "green" | "yellow" | "red";
 
@@ -30,7 +31,30 @@ export type ReportMemberKpi = {
   overdueCount: number;
   seguimientoTotal: number;
   byReason: Array<{ reason: string; count: number; totalMinutes: number }>;
+  /** Equilibrio Operativo (0-100) — solo presente cuando el informe es del mes calendario en curso (ver Sprint Reportes Ejecutivos 2.0 § Índice Ejecutivo). */
+  equilibrioScore?: number;
 };
+
+/** Distribución por Motivo enriquecida (Bloque 6, Sprint Reportes Ejecutivos 2.0) — `pct`/`trendPct`/`interpretation` ausentes en informes generados antes de este sprint. */
+export type MotivoDistributionItem = {
+  reason: string;
+  count: number;
+  totalMinutes: number;
+  pct?: number;
+  trendPct?: number | null;
+  interpretation?: string;
+};
+
+/** Índice Ejecutivo del Equipo (Bloque 11) — `null` cuando el informe no es del mes calendario en curso (Capacidad Futura, dentro de Equilibrio Operativo, es una proyección hacia adelante — ver `docs/DECISIONS.md`). Ausente por completo en informes generados antes de este sprint. */
+export type IndiceEjecutivoData = {
+  valor: number;
+  nivel: IndiceEjecutivoNivel;
+  color: "green" | "yellow" | "red";
+  explicacion: string;
+  avgPerformance: number;
+  avgEquilibrio: number;
+  variacion: number | null;
+} | null;
 
 export type ReportData = {
   month: string;
@@ -49,8 +73,16 @@ export type ReportData = {
   };
   members: ReportMemberKpi[];
   ranking: Array<{ id: string; name: string; role: string; score: number; completedPct: number }>;
-  consultasByReason: Array<{ reason: string; count: number; totalMinutes: number }>;
+  consultasByReason: MotivoDistributionItem[];
   alerts: Array<{ userId: string; name: string; type: "cumplimiento" | "sobrecarga"; value: number }>;
+  /** Todos opcionales — ausentes en informes generados antes de Sprint Reportes Ejecutivos 2.0. */
+  indiceEjecutivo?: IndiceEjecutivoData;
+  trends?: { mesAnterior: TrendComparison; trimestre: TrendComparison; semestre: TrendComparison };
+  riskQuadrant?: Array<{ id: string; name: string; completedPct: number; cargaPct: number; quadrant: RiskQuadrant }>;
+  findings?: Finding[];
+  recommendations?: Recommendation[];
+  insights?: string[];
+  indicatorExplanations?: { cumplimiento: IndicatorExplanation; carga: IndicatorExplanation; consultas: IndicatorExplanation };
 };
 
 export type MonthlyReportSummary = {
@@ -109,9 +141,14 @@ export type RangeReportData = {
     };
     members: ReportMemberKpi[];
     ranking: Array<{ id: string; name: string; role: string; avgScore: number; avgCumplimiento: number }>;
-    consultasByReason: Array<{ reason: string; count: number; totalMinutes: number }>;
+    consultasByReason: MotivoDistributionItem[];
     alerts: Array<{ userId: string; name: string; type: "cumplimiento" | "sobrecarga"; avgValue: number; monthsAffected: number }>;
     problematicMonths: Array<{ month: string; label: string; teamAvgCumplimiento: number }>;
+    /** Todos opcionales — ausentes en informes generados antes de Sprint Reportes Ejecutivos 2.0. */
+    riskQuadrant?: Array<{ id: string; name: string; completedPct: number; cargaPct: number; quadrant: RiskQuadrant }>;
+    findings?: Finding[];
+    recommendations?: Recommendation[];
+    insights?: string[];
   };
   trends: {
     cumplimientoTrend: "mejora" | "deterioro" | "estancamiento";
@@ -185,6 +222,20 @@ export type {
   PersonalEvolution,
 } from "@/lib/analytics";
 export type { RoleTarget } from "@/lib/systemConfig";
+
+// ── Motor de interpretación de Informes (src/lib/reportInsights.ts) —
+// mismo criterio: import type se borra en compilación, no dispara la
+// guardia "server-only" en componentes cliente. ──
+export type {
+  IndiceEjecutivoNivel,
+  IndiceEjecutivoResult,
+  TeamMonthlyPoint,
+  TrendComparison,
+  RiskQuadrant,
+  Finding,
+  Recommendation,
+  IndicatorExplanation,
+} from "@/lib/reportInsights";
 
 /** Respuesta de GET /api/analytics/[userId] — ver Analytics § motor centralizado. */
 export type AnalyticsBundle = {

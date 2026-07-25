@@ -6,10 +6,24 @@ import { isTaskOverdue } from "@/lib/utils";
 import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
 import { getActivityReasonLabelMap } from "@/lib/activityReasons";
-import { computeSimpleScore, computeEstimatedVsRealRatio, computeCompletedPctAny } from "@/lib/analytics";
+import { computeSimpleScore, computeEstimatedVsRealRatio, computeCompletedPctAny, cached, computeHealthScore, computePerformanceScore } from "@/lib/analytics";
+import { getEffectiveAnalyticsConfig } from "@/lib/systemConfig";
+import {
+  classifyIndiceEjecutivo,
+  computeTeamMonthlySnapshots,
+  computeTrendComparisons,
+  computeRiskQuadrant,
+  explainMotivoDistribution,
+  computeFindings,
+  computeRecommendations,
+  computeTeamInsights,
+  explainCumplimientoIndicator,
+  explainCargaIndicator,
+  explainConsultasIndicator,
+} from "@/lib/reportInsights";
 import Groq from "groq-sdk";
 import type { Role, ReportScope } from "@/generated/prisma/client";
-import type { KpiColor, WorkloadLabel } from "@/components/kpis/types";
+import type { KpiColor, WorkloadLabel, IndiceEjecutivoData, MotivoDistributionItem } from "@/components/kpis/types";
 
 function monthBounds(year: number, month: number) {
   const start = new Date(year, month - 1, 1);
@@ -42,6 +56,7 @@ type MemberKpi = {
   overdueCount: number;
   seguimientoTotal: number;
   byReason: Array<{ reason: string; count: number; totalMinutes: number }>;
+  equilibrioScore?: number;
 };
 
 type ReportData = {
@@ -61,8 +76,19 @@ type ReportData = {
   };
   members: MemberKpi[];
   ranking: Array<{ id: string; name: string; role: string; score: number; completedPct: number }>;
-  consultasByReason: Array<{ reason: string; count: number; totalMinutes: number }>;
+  consultasByReason: MotivoDistributionItem[];
   alerts: Array<{ userId: string; name: string; type: "cumplimiento" | "sobrecarga"; value: number }>;
+  indiceEjecutivo: IndiceEjecutivoData;
+  trends: ReturnType<typeof computeTrendComparisons>;
+  riskQuadrant: ReturnType<typeof computeRiskQuadrant<{ id: string; name: string; completedPct: number; cargaPct: number }>>;
+  findings: ReturnType<typeof computeFindings>;
+  recommendations: ReturnType<typeof computeRecommendations>;
+  insights: string[];
+  indicatorExplanations: {
+    cumplimiento: ReturnType<typeof explainCumplimientoIndicator>;
+    carga: ReturnType<typeof explainCargaIndicator>;
+    consultas: ReturnType<typeof explainConsultasIndicator>;
+  };
 };
 
 const SYSTEM_PROMPT_OBJECTIVITY = `Eres un analista de Recursos Humanos que genera informes ejecutivos estrictamente basados en datos.
@@ -363,9 +389,33 @@ export async function POST(request: NextRequest) {
     teamReasonMap[act.reason].count++;
     teamReasonMap[act.reason].totalMinutes += act.duration;
   }
-  const consultasByReason = Object.entries(teamReasonMap)
+
+  // Sprint Reportes Ejecutivos 2.0 (Bloque 6) — período anterior de
+  // consultas por motivo, solo para calcular % de tendencia. Query liviana
+  // (sin motor), segura para cualquier mes.
+  const prevMonth = month === 1 ? 12 : month - 1;
+  const prevYear = month === 1 ? year - 1 : year;
+  const { start: prevStart, end: prevEnd } = monthBounds(prevYear, prevMonth);
+  const prevActivities = await prisma.taskActivity.findMany({
+    where: { authorId: { in: userIds }, createdAt: { gte: prevStart, lte: prevEnd }, task: { type: "SEGUIMIENTO" } },
+    select: { reason: true },
+  });
+  const prevReasonCount: Record<string, number> = {};
+  for (const act of prevActivities) prevReasonCount[act.reason] = (prevReasonCount[act.reason] ?? 0) + 1;
+  const totalConsultasPrev = prevActivities.length;
+
+  const consultasByReason: MotivoDistributionItem[] = Object.entries(teamReasonMap)
     .map(([reason, d]) => ({ reason, count: d.count, totalMinutes: d.totalMinutes }))
     .sort((a, b) => b.count - a.count);
+  const reasonLabelMap = await getActivityReasonLabelMap();
+  for (const item of consultasByReason) {
+    const pct = totalConsultas > 0 ? Math.round((item.count / totalConsultas) * 100) : 0;
+    const prevCount = prevReasonCount[item.reason];
+    const trendPct = prevCount && prevCount > 0 ? Math.round(((item.count - prevCount) / prevCount) * 100) : null;
+    item.pct = pct;
+    item.trendPct = trendPct;
+    item.interpretation = explainMotivoDistribution(item.reason, reasonLabelMap[item.reason] ?? item.reason, pct, trendPct);
+  }
 
   // Ranking
   const ranking = [...members]
@@ -382,6 +432,78 @@ export async function POST(request: NextRequest) {
       alerts.push({ userId: m.id, name: m.name, type: "sobrecarga", value: m.cargaPct });
     }
   }
+
+  // Sprint Reportes Ejecutivos 2.0 (Bloque 8) — Mapa de Riesgo, no requiere
+  // datos nuevos (completedPct/cargaPct ya calculados arriba).
+  const riskQuadrant = computeRiskQuadrant(members.map((m) => ({ id: m.id, name: m.name, completedPct: m.completedPct, cargaPct: m.cargaPct })));
+
+  // Sprint Reportes Ejecutivos 2.0 (Bloque 9) — tendencias mes anterior/
+  // trimestre/semestre. Seguro para cualquier mes (computeSimpleScore, sin
+  // Capacidad Futura) — no está gateado al mes en curso.
+  const teamSnapshots = await computeTeamMonthlySnapshots(userIds, year, month, 6);
+  const trends = computeTrendComparisons(teamSnapshots);
+
+  // Sprint Reportes Ejecutivos 2.0 (Bloque 11) — Índice Ejecutivo del
+  // Equipo. Solo se calcula cuando el informe es del mes calendario en
+  // curso: Equilibrio Operativo incluye Capacidad Futura, una proyección
+  // hacia adelante desde "ahora" que no es representativa para un mes
+  // pasado (ver docs/DECISIONS.md § Sprint Reportes Ejecutivos 2.0).
+  const isCurrentMonth = monthParam === `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  let indiceEjecutivo: IndiceEjecutivoData = null;
+  const variableConsistencyMembers: string[] = [];
+  if (isCurrentMonth && userIds.length > 0) {
+    const analyticsConfig = await getEffectiveAnalyticsConfig();
+    const [perfResults, healthResults] = await Promise.all([
+      Promise.all(userIds.map((id) => cached(`perf-bench:${id}`, analyticsConfig.cacheTtlMinutes, () => computePerformanceScore(id)).then((r) => r.value))),
+      Promise.all(userIds.map((id) => cached(`equilibrio-bench:${id}`, analyticsConfig.cacheTtlMinutes, () => computeHealthScore(id)).then((r) => r.value))),
+    ]);
+    const avgPerformance = Math.round((perfResults.reduce((s, r) => s + r.score, 0) / perfResults.length) * 10) / 10;
+    const avgEquilibrio = Math.round((healthResults.reduce((s, r) => s + r.score, 0) / healthResults.length) * 10) / 10;
+    const classified = classifyIndiceEjecutivo(avgPerformance, avgEquilibrio);
+
+    // Variación vs el informe anterior ya guardado (mismo scope, mes-1) —
+    // no se recalcula el motor para el mes pasado, se compara contra el
+    // valor que ese informe ya persistió en su momento.
+    const prevReport = await prisma.monthlyReport.findUnique({ where: { month_year_scope: { month: prevMonth, year: prevYear, scope } } });
+    const prevIndiceValor = (prevReport?.data as { indiceEjecutivo?: { valor: number } | null } | null)?.indiceEjecutivo?.valor;
+    const variacion = typeof prevIndiceValor === "number" ? Math.round((classified.valor - prevIndiceValor) * 10) / 10 : null;
+
+    indiceEjecutivo = { ...classified, avgPerformance, avgEquilibrio, variacion };
+
+    userIds.forEach((id, i) => {
+      const member = members.find((m) => m.id === id);
+      if (member) member.equilibrioScore = healthResults[i].score;
+      const consistenciaFactor = healthResults[i].factors.find((f) => f.name === "Consistencia");
+      if (consistenciaFactor && (consistenciaFactor.rawLabel === "Variable" || consistenciaFactor.rawLabel === "Muy variable") && member) {
+        variableConsistencyMembers.push(member.name);
+      }
+    });
+  }
+
+  // Sprint Reportes Ejecutivos 2.0 (Bloques 2, 3, 5, 10) — hallazgos,
+  // recomendaciones, interpretación por indicador e insights, todos reglas
+  // fijas sobre datos ya calculados arriba. Nunca IA (ver reportInsights.ts).
+  const topReason = consultasByReason[0] ? { label: reasonLabelMap[consultasByReason[0].reason] ?? consultasByReason[0].reason, pct: consultasByReason[0].pct ?? 0 } : null;
+  const totalOverdue = members.reduce((s, m) => s + m.overdueCount, 0);
+  const findings = computeFindings({
+    avgCumplimiento,
+    avgCumplimientoDelta: trends.mesAnterior.delta,
+    members,
+    totalOverdue,
+    topReason,
+  });
+  const recommendations = computeRecommendations({ avgCumplimiento, members, topReason });
+  const insights = computeTeamInsights({
+    members,
+    totalCargaRealHours,
+    healthByMember: isCurrentMonth ? members.filter((m) => m.equilibrioScore !== undefined).map((m) => ({ name: m.name, score: m.equilibrioScore! })) : undefined,
+    variableConsistencyMembers,
+  });
+  const indicatorExplanations = {
+    cumplimiento: explainCumplimientoIndicator(avgCumplimiento, members.length),
+    carga: explainCargaIndicator(avgCargaPct),
+    consultas: explainConsultasIndicator(totalConsultas, totalConsultasPrev),
+  };
 
   // Rango óptimo configurado (por persona, no sumado al equipo) para que la
   // UI y el análisis de IA den contexto de qué significa el % de carga.
@@ -406,10 +528,16 @@ export async function POST(request: NextRequest) {
     ranking,
     consultasByReason,
     alerts,
+    indiceEjecutivo,
+    trends,
+    riskQuadrant,
+    findings,
+    recommendations,
+    insights,
+    indicatorExplanations,
   };
 
   // Generate AI analysis
-  const reasonLabelMap = await getActivityReasonLabelMap();
   const aiAnalysis = await buildAiAnalysis(reportData, reasonLabelMap);
 
   // Upsert report
