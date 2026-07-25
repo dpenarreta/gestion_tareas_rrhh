@@ -3,11 +3,21 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canAccessReports, ROLE_LABEL, ALL_ROLES, isLeadershipRole } from "@/lib/roles";
 import { isTaskOverdue } from "@/lib/utils";
-import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct } from "@/lib/workload";
+import { monthlyBusinessBase, monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
 import { computeSimpleScore, computeEstimatedVsRealRatio, computeCompletedPctAny } from "@/lib/analytics";
 import { getActivityReasonLabelMap } from "@/lib/activityReasons";
-import { computeRiskQuadrant, explainMotivoDistribution, computeFindings, computeRecommendations, computeTeamInsights } from "@/lib/reportInsights";
+import {
+  computeRiskQuadrant,
+  explainMotivoDistribution,
+  computeFindings,
+  computeRecommendations,
+  computeTeamInsights,
+  computeEffectiveMemberBases,
+  deriveEstadoOperativo,
+  computePrincipalHallazgo,
+  previousEquivalentPeriod,
+} from "@/lib/reportInsights";
 import Groq from "groq-sdk";
 import type { Role } from "@/generated/prisma/client";
 import type { MonthSnapshot, RangeReportData, ReportMemberKpi, MotivoDistributionItem } from "@/components/kpis/types";
@@ -165,12 +175,20 @@ export async function GET(request: NextRequest) {
 
     const scope = session.role === "JEFE_NACIONAL" || session.role === "ADMINISTRADOR" ? "JEFE" : "COORDINADOR";
 
+    // Sprint Analytics 2.1 (Bloque 5) — Generador Inteligente: subconjunto
+    // opcional de colaboradores pedido por el asistente de configuración.
+    const userIdsParam = request.nextUrl.searchParams.get("userIds");
+    const requestedUserIds = userIdsParam ? userIdsParam.split(",").filter(Boolean) : null;
+
     // Los roles de liderazgo (Administrador, Jefe Nacional) nunca aparecen
     // como sujetos individuales de informes consolidados, sin importar el
     // scope (ver Sprint 0A, isLeadershipRole en roles.ts).
     const excludedRoles: Role[] = ALL_ROLES.filter(isLeadershipRole);
     const users = await prisma.user.findMany({
-      where: { role: { notIn: excludedRoles } },
+      where: {
+        role: { notIn: excludedRoles },
+        ...(requestedUserIds ? { id: { in: requestedUserIds } } : {}),
+      },
       select: { id: true, name: true, role: true },
       orderBy: { name: "asc" },
     });
@@ -181,6 +199,23 @@ export async function GET(request: NextRequest) {
     const [toYear, toMonth] = toParam.split("-").map(Number);
     const rangeStart = monthBounds(fromYear, fromMonth).start;
     const rangeEnd = monthBounds(toYear, toMonth).end;
+
+    // Sprint Analytics 2.1 (Bloque 1) — Base Horaria Efectiva: recorta la
+    // base/límites de cada colaborador al tramo en que realmente tuvo
+    // disponibilidad en NEXO dentro del rango completo, usando la tarifa
+    // (horas/día, límites) vigente al INICIO del rango — igual que
+    // monthlyBusinessBase hace por mes — en vez de recorrer mes a mes
+    // (simplificación deliberada, ver docs/AUDIT_LOG.md § Sprint Analytics 2.1).
+    const rangeStartRate = await monthlyBusinessBase(fromYear, fromMonth);
+    const effectiveBases = await computeEffectiveMemberBases(
+      userIds,
+      rangeStart,
+      rangeEnd,
+      rangeStartRate.hoursPerDay,
+      rangeStartRate.limitLowPerDay,
+      rangeStartRate.limitHighPerDay,
+      rangeStartRate.limitOverloadPerDay,
+    );
 
     // Dynamic business-day base per month (días lunes-viernes × horas efectivas vigentes ese mes).
     // `perUser` trae overrides (base 6h/límites 5-7-8) para quienes tengan un estado
@@ -322,24 +357,6 @@ export async function GET(request: NextRequest) {
       };
     });
 
-    // Suma la base/límites de cada mes del rango PARA ESE usuario en particular
-    // (los meses en que tuvo estado especial vigente aportan su override de 6h/5-7-8).
-    function rangeBizForUser(userId: string) {
-      return monthBusinessInfo.reduce(
-        (acc, b) => {
-          const u = bizInfoForUser(b, userId);
-          return {
-            baseHours: acc.baseHours + u.baseHours,
-            limitBaseHours: acc.limitBaseHours + u.limitBaseHours,
-            limitLowHours: acc.limitLowHours + u.limitLowHours,
-            limitHighHours: acc.limitHighHours + u.limitHighHours,
-            limitOverloadHours: acc.limitOverloadHours + u.limitOverloadHours,
-          };
-        },
-        { baseHours: 0, limitBaseHours: 0, limitLowHours: 0, limitHighHours: 0, limitOverloadHours: 0 },
-      );
-    }
-
     // Aggregate per member across full range
     const aggregatedMembers: ReportMemberKpi[] = users.map((user) => {
       const userTasks = allTasks.filter((t) => t.assignedToId === user.id);
@@ -353,7 +370,9 @@ export async function GET(request: NextRequest) {
       const activityHours =
         activitiesForCarga.filter((a) => a.authorId === user.id).reduce((s, a) => s + a.duration, 0) / 60;
       const cargaRealHours = Math.round((fijaHours + activityHours) * 100) / 100;
-      const userRangeBiz = rangeBizForUser(user.id);
+      // Sprint Analytics 2.1 (Bloque 1) — base efectiva del rango completo, ya
+      // recortada al tramo de disponibilidad real (ver effectiveBases arriba).
+      const userRangeBiz = effectiveBases.get(user.id)!;
       const cargaBaseHours = userRangeBiz.baseHours;
       const cargaRange = computeWorkloadRange(
         cargaRealHours,
@@ -394,6 +413,19 @@ export async function GET(request: NextRequest) {
         byReasonMap[act.reason].totalMinutes += act.duration;
       }
 
+      // Sprint Analytics 2.1 (Bloques 9 y 10) — sin equilibrioScore/consistencia
+      // real disponibles en un rango (no hay proyección de Capacidad Futura
+      // representativa para un período ya cerrado — mismo criterio que
+      // Índice Ejecutivo, ver docs/DECISIONS.md) — ambas funciones degradan a
+      // su aproximación basada en cumplimiento/carga/vencidas.
+      const estadoOperativo = deriveEstadoOperativo({ completedPct: avgCumplimiento, cargaLabel: cargaRange.label, overdueCount: 0 });
+      const principalHallazgo = computePrincipalHallazgo({
+        cargaLabel: cargaRange.label,
+        completedPct: avgCumplimiento,
+        overdueCount: 0,
+        totalTasks: userTasks.length,
+      });
+
       return {
         id: user.id,
         name: user.name,
@@ -416,6 +448,10 @@ export async function GET(request: NextRequest) {
           count: d.count,
           totalMinutes: d.totalMinutes,
         })),
+        baseWasProrated: userRangeBiz.wasProrated,
+        baseEffectiveStart: userRangeBiz.wasProrated ? userRangeBiz.effectiveStart.toISOString() : undefined,
+        estadoOperativo,
+        principalHallazgo,
       };
     });
 
@@ -427,10 +463,10 @@ export async function GET(request: NextRequest) {
         : 0;
     const totalCargaRealHours = Math.round(aggregatedMembers.reduce((s, m) => s + m.cargaRealHours, 0) * 100) / 100;
     const totalCargaBaseHours = Math.round(aggregatedMembers.reduce((s, m) => s + m.cargaBaseHours, 0) * 100) / 100;
-    const totalLimitBaseHours = users.reduce((s, u) => s + rangeBizForUser(u.id).limitBaseHours, 0);
-    const totalLimitLowHours = users.reduce((s, u) => s + rangeBizForUser(u.id).limitLowHours, 0);
-    const totalLimitHighHours = users.reduce((s, u) => s + rangeBizForUser(u.id).limitHighHours, 0);
-    const totalLimitOverloadHours = users.reduce((s, u) => s + rangeBizForUser(u.id).limitOverloadHours, 0);
+    const totalLimitBaseHours = users.reduce((s, u) => s + (effectiveBases.get(u.id)?.limitBaseHours ?? 0), 0);
+    const totalLimitLowHours = users.reduce((s, u) => s + (effectiveBases.get(u.id)?.limitLowHours ?? 0), 0);
+    const totalLimitHighHours = users.reduce((s, u) => s + (effectiveBases.get(u.id)?.limitHighHours ?? 0), 0);
+    const totalLimitOverloadHours = users.reduce((s, u) => s + (effectiveBases.get(u.id)?.limitOverloadHours ?? 0), 0);
     const teamCargaRange = computeWorkloadRange(
       totalCargaRealHours,
       totalLimitBaseHours,
@@ -459,21 +495,33 @@ export async function GET(request: NextRequest) {
       reasonMap[act.reason].totalMinutes += act.duration;
     }
     const totalConsultasRange = allActivities.length;
-    // Sprint Reportes Ejecutivos 2.0 (Bloque 6) — % + interpretación por
-    // motivo. Sin tendencia vs. "período anterior" en la vista de rango (un
-    // rango de N meses no tiene un período anterior equivalente sin
-    // ambigüedad) — el rango ya muestra evolución mes a mes más abajo.
+    // Sprint Analytics 2.1 (Bloque 11) — tendencia vs. un período anterior
+    // EQUIVALENTE (misma duración en días, terminando el día previo al
+    // inicio del rango) — antes el rango no mostraba tendencia por motivo
+    // (Sprint Reportes Ejecutivos 2.0 la dejó fuera por falta de una
+    // definición de "período anterior" para un rango de N meses, ver
+    // docs/ROADMAP.md § Sprint Reportes Ejecutivos 2.0 — ya resuelto aquí).
+    const { start: prevPeriodStart, end: prevPeriodEnd } = previousEquivalentPeriod(rangeStart, rangeEnd);
+    const prevPeriodActivities = await prisma.taskActivity.findMany({
+      where: { authorId: { in: userIds }, createdAt: { gte: prevPeriodStart, lte: prevPeriodEnd }, task: { type: "SEGUIMIENTO" } },
+      select: { reason: true },
+    });
+    const prevPeriodReasonCount: Record<string, number> = {};
+    for (const act of prevPeriodActivities) prevPeriodReasonCount[act.reason] = (prevPeriodReasonCount[act.reason] ?? 0) + 1;
+
     const reasonLabelMap = await getActivityReasonLabelMap();
     const consultasByReason: MotivoDistributionItem[] = Object.entries(reasonMap)
       .map(([reason, d]) => {
         const pct = totalConsultasRange > 0 ? Math.round((d.count / totalConsultasRange) * 100) : 0;
+        const prevCount = prevPeriodReasonCount[reason];
+        const trendPct = prevCount && prevCount > 0 ? Math.round(((d.count - prevCount) / prevCount) * 100) : null;
         return {
           reason,
           count: d.count,
           totalMinutes: d.totalMinutes,
           pct,
-          trendPct: null,
-          interpretation: explainMotivoDistribution(reason, reasonLabelMap[reason] ?? reason, pct, null),
+          trendPct,
+          interpretation: explainMotivoDistribution(reason, reasonLabelMap[reason] ?? reason, pct, trendPct),
         };
       })
       .sort((a, b) => b.count - a.count);

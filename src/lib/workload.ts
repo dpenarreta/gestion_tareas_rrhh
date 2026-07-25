@@ -97,7 +97,7 @@ type SpecialStatusLimitField = "limitLow" | "limitHigh" | "limitOverload";
  * del rango — usa el valor configurado por registro en días con estado especial
  * vigente (`specialMap`), y el límite global (per-día) el resto de días.
  */
-function sumWeightedLimit(
+export function sumWeightedLimit(
   start: Date,
   end: Date,
   holidays: Set<number>,
@@ -229,7 +229,7 @@ function utcMonthEnd(d: Date) {
  * business-timezone shift is needed). No es por usuario — los permisos (que sí
  * son por persona) se aplican aparte, por miembro, donde se consuma este valor.
  */
-export async function monthlyBusinessBase(year: number, month: number): Promise<{
+async function businessBaseCore(start: Date, end: Date): Promise<{
   start: Date;
   end: Date;
   businessDays: number;
@@ -246,12 +246,10 @@ export async function monthlyBusinessBase(year: number, month: number): Promise<
   limitHighHours: number;
   limitOverloadHours: number;
 }> {
-  const start = new Date(Date.UTC(year, month - 1, 1));
-  const end = new Date(Date.UTC(year, month, 1) - 1);
   const holidays = await getHolidaySet();
   const businessDays = countBusinessDays(start, end, holidays);
-  // El valor vigente al INICIO del mes es el que rigió ese período — así cambios
-  // de configuración posteriores no alteran KPIs de meses ya cerrados.
+  // El valor vigente al INICIO del período es el que rigió ese tramo — así
+  // cambios de configuración posteriores no alteran KPIs de períodos ya cerrados.
   const [hoursPerDay, limitLowPerDay, limitHighPerDay, limitOverloadPerDay] = await Promise.all([
     getEffectiveHorasEfectivas(start),
     getEffectiveWorkloadLimitLow(start),
@@ -273,6 +271,22 @@ export async function monthlyBusinessBase(year: number, month: number): Promise<
     limitHighHours: businessDays * limitHighPerDay,
     limitOverloadHours: businessDays * limitOverloadPerDay,
   };
+}
+
+export async function monthlyBusinessBase(year: number, month: number) {
+  const start = new Date(Date.UTC(year, month - 1, 1));
+  const end = new Date(Date.UTC(year, month, 1) - 1);
+  return businessBaseCore(start, end);
+}
+
+/**
+ * Igual que monthlyBusinessBase, pero para un rango arbitrario de fechas (no
+ * necesariamente un mes calendario) — Sprint Analytics 2.1, Generador
+ * Inteligente de Reportes (períodos "Últimos 30 días"/rango personalizado,
+ * ver src/app/api/reports/custom-range/route.ts).
+ */
+export async function businessBaseForRange(start: Date, end: Date) {
+  return businessBaseCore(start, end);
 }
 
 export type MonthlyBusinessBase = Awaited<ReturnType<typeof monthlyBusinessBase>>;

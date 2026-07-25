@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canAccessReports, ROLE_LABEL, ALL_ROLES, isLeadershipRole } from "@/lib/roles";
 import { isTaskOverdue } from "@/lib/utils";
-import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct } from "@/lib/workload";
+import { monthlyBusinessBase, computeWorkloadRange, computeWorkloadPct } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
 import { getActivityReasonLabelMap } from "@/lib/activityReasons";
 import { computeSimpleScore, computeEstimatedVsRealRatio, computeCompletedPctAny, cached, computeHealthScore, computePerformanceScore } from "@/lib/analytics";
@@ -20,6 +20,9 @@ import {
   explainCumplimientoIndicator,
   explainCargaIndicator,
   explainConsultasIndicator,
+  computeEffectiveMemberBases,
+  deriveEstadoOperativo,
+  computePrincipalHallazgo,
 } from "@/lib/reportInsights";
 import Groq from "groq-sdk";
 import type { Role, ReportScope } from "@/generated/prisma/client";
@@ -57,6 +60,10 @@ type MemberKpi = {
   seguimientoTotal: number;
   byReason: Array<{ reason: string; count: number; totalMinutes: number }>;
   equilibrioScore?: number;
+  baseWasProrated?: boolean;
+  baseEffectiveStart?: string;
+  estadoOperativo?: import("@/lib/analytics").EstadoOperativoResult;
+  principalHallazgo?: string;
 };
 
 type ReportData = {
@@ -207,36 +214,60 @@ export async function POST(request: NextRequest) {
   const scope: ReportScope =
     session.role === "JEFE_NACIONAL" || session.role === "ADMINISTRADOR" ? "JEFE" : "COORDINADOR";
 
+  // Sprint Analytics 2.1 (Bloque 5) — Generador Inteligente: el asistente de
+  // configuración puede pedir un subconjunto de colaboradores. Cuando viene
+  // `userIds`, el informe NO se persiste como MonthlyReport (ese modelo
+  // asume siempre el equipo completo, ver unique [month, year, scope]) — se
+  // calcula al vuelo y se devuelve sin guardar.
+  const userIdsParam = request.nextUrl.searchParams.get("userIds");
+  const requestedUserIds = userIdsParam ? userIdsParam.split(",").filter(Boolean) : null;
+  const persistReport = requestedUserIds === null;
+
   // Los roles de liderazgo (Administrador, Jefe Nacional) nunca aparecen como
   // sujetos individuales de informes consolidados, sin importar el scope —
   // su responsabilidad es dirigir, no ejecutar tareas (ver Sprint 0A,
   // isLeadershipRole en roles.ts).
   const excludedRoles: Role[] = ALL_ROLES.filter(isLeadershipRole);
   const users = await prisma.user.findMany({
-    where: { role: { notIn: excludedRoles } },
+    where: {
+      role: { notIn: excludedRoles },
+      ...(requestedUserIds ? { id: { in: requestedUserIds } } : {}),
+    },
     select: { id: true, name: true, role: true },
     orderBy: { name: "asc" },
   });
 
   const userIds = users.map((u) => u.id);
 
-  // `shared` aplica a todo el equipo salvo a quienes tengan un estado especial
-  // (maternidad/lactancia) vigente ese mes — esos usuarios usan su propia base/
-  // límites (6h/5h/7h/8h) desde `perUser`.
   const {
-    shared: {
-      start: cargaStart,
-      end: cargaEnd,
-      baseHours: monthlyBaseHours,
-      hoursPerDay,
-      limitLowHours,
-      limitHighHours,
-      limitOverloadHours,
-    },
-    perUser: businessBasePerUser,
-  } = await monthlyBusinessBaseForUsers(userIds, year, month);
+    start: cargaStart,
+    end: cargaEnd,
+    baseHours: monthlyBaseHours,
+    hoursPerDay,
+    limitLowPerDay,
+    limitHighPerDay,
+    limitOverloadPerDay,
+    limitLowHours,
+    limitHighHours,
+    limitOverloadHours,
+  } = await monthlyBusinessBase(year, month);
   const { start: cargaRealStart } = businessDayRealRange(cargaStart);
   const { end: cargaRealEnd } = businessDayRealRange(cargaEnd);
+
+  // Sprint Analytics 2.1 (Bloque 1) — Base Horaria Efectiva: recorta la base/
+  // límites de cada colaborador al tramo en que realmente tuvo disponibilidad
+  // en NEXO (reemplaza monthlyBusinessBaseForUsers, que solo ajustaba por
+  // estado especial — ver reportInsights.ts § computeEffectiveMemberBases,
+  // que ya incluye esa misma ponderación por estado especial internamente).
+  const effectiveBases = await computeEffectiveMemberBases(
+    userIds,
+    cargaStart,
+    cargaEnd,
+    hoursPerDay,
+    limitLowPerDay,
+    limitHighPerDay,
+    limitOverloadPerDay,
+  );
 
   // Fetch all tasks and activities for the month in one go
   const [allTasks, allActivities, fijaTasksForCarga, activitiesForCarga] = await Promise.all([
@@ -288,14 +319,17 @@ export async function POST(request: NextRequest) {
     const activityHours =
       activitiesForCarga.filter((a) => a.authorId === user.id).reduce((s, a) => s + a.duration, 0) / 60;
     const cargaRealHours = Math.round((fijaHours + activityHours) * 100) / 100;
-    const userBase = businessBasePerUser.get(user.id);
-    const userBaseHours = userBase?.baseHours ?? monthlyBaseHours;
+    // Sprint Analytics 2.1 (Bloque 1) — base/límites ya recortados al tramo de
+    // disponibilidad real del colaborador (y ponderados por estado especial,
+    // si aplica) — ver computeEffectiveMemberBases.
+    const userBase = effectiveBases.get(user.id)!;
+    const userBaseHours = userBase.baseHours;
     // limitBaseHours es el umbral real de clasificación Moderado/Óptimo — puede
     // diferir de userBaseHours (dailyHours) si el registro configuró valores distintos.
-    const userLimitBaseHours = userBase?.limitBaseHours ?? monthlyBaseHours;
-    const userLimitLowHours = userBase?.limitLowHours ?? limitLowHours;
-    const userLimitHighHours = userBase?.limitHighHours ?? limitHighHours;
-    const userLimitOverloadHours = userBase?.limitOverloadHours ?? limitOverloadHours;
+    const userLimitBaseHours = userBase.limitBaseHours;
+    const userLimitLowHours = userBase.limitLowHours;
+    const userLimitHighHours = userBase.limitHighHours;
+    const userLimitOverloadHours = userBase.limitOverloadHours;
     const cargaRange = computeWorkloadRange(cargaRealHours, userLimitBaseHours, userLimitLowHours, userLimitHighHours, userLimitOverloadHours);
     const cargaPct = computeWorkloadPct(cargaRealHours, userLimitBaseHours, cargaRange.max);
 
@@ -350,6 +384,8 @@ export async function POST(request: NextRequest) {
       overdueCount: overdue,
       seguimientoTotal: userActivities.length,
       byReason,
+      baseWasProrated: userBase.wasProrated,
+      baseEffectiveStart: userBase.wasProrated ? userBase.effectiveStart.toISOString() : undefined,
       // Extra fields for report
       recurringCompleted,
       recurringTotal: recurring.length,
@@ -365,10 +401,10 @@ export async function POST(request: NextRequest) {
   // ya viene ajustada a 6h/día en cargaBaseHours) en vez de asumir la misma base
   // compartida para todos.
   const totalCargaBaseHours = Math.round(members.reduce((s, m) => s + m.cargaBaseHours, 0) * 100) / 100;
-  const totalLimitBaseHours = members.reduce((s, m) => s + (businessBasePerUser.get(m.id)?.limitBaseHours ?? monthlyBaseHours), 0);
-  const totalLimitLowHours = members.reduce((s, m) => s + (businessBasePerUser.get(m.id)?.limitLowHours ?? limitLowHours), 0);
-  const totalLimitHighHours = members.reduce((s, m) => s + (businessBasePerUser.get(m.id)?.limitHighHours ?? limitHighHours), 0);
-  const totalLimitOverloadHours = members.reduce((s, m) => s + (businessBasePerUser.get(m.id)?.limitOverloadHours ?? limitOverloadHours), 0);
+  const totalLimitBaseHours = members.reduce((s, m) => s + (effectiveBases.get(m.id)?.limitBaseHours ?? monthlyBaseHours), 0);
+  const totalLimitLowHours = members.reduce((s, m) => s + (effectiveBases.get(m.id)?.limitLowHours ?? limitLowHours), 0);
+  const totalLimitHighHours = members.reduce((s, m) => s + (effectiveBases.get(m.id)?.limitHighHours ?? limitHighHours), 0);
+  const totalLimitOverloadHours = members.reduce((s, m) => s + (effectiveBases.get(m.id)?.limitOverloadHours ?? limitOverloadHours), 0);
   const teamCargaRange = computeWorkloadRange(
     totalCargaRealHours,
     totalLimitBaseHours,
@@ -480,6 +516,27 @@ export async function POST(request: NextRequest) {
     });
   }
 
+  // Sprint Analytics 2.1 (Bloques 9 y 10) — Estado Operativo y Principal
+  // Hallazgo por colaborador. equilibrioScore/consistencyVariable solo están
+  // disponibles cuando isCurrentMonth (ver arriba) — para cualquier otro mes,
+  // deriveEstadoOperativo/computePrincipalHallazgo degradan a una
+  // aproximación basada en datos ya calculados (nunca recalculan el motor).
+  for (const member of members) {
+    member.estadoOperativo = deriveEstadoOperativo({
+      completedPct: member.completedPct,
+      cargaLabel: member.cargaLabel,
+      overdueCount: member.overdueCount,
+      equilibrioScore: member.equilibrioScore,
+    });
+    member.principalHallazgo = computePrincipalHallazgo({
+      cargaLabel: member.cargaLabel,
+      completedPct: member.completedPct,
+      overdueCount: member.overdueCount,
+      totalTasks: member.totalTasks,
+      consistencyVariable: variableConsistencyMembers.includes(member.name),
+    });
+  }
+
   // Sprint Reportes Ejecutivos 2.0 (Bloques 2, 3, 5, 10) — hallazgos,
   // recomendaciones, interpretación por indicador e insights, todos reglas
   // fijas sobre datos ya calculados arriba. Nunca IA (ver reportInsights.ts).
@@ -539,6 +596,26 @@ export async function POST(request: NextRequest) {
 
   // Generate AI analysis
   const aiAnalysis = await buildAiAnalysis(reportData, reasonLabelMap);
+
+  // Sprint Analytics 2.1 (Bloque 5) — un subconjunto de colaboradores no se
+  // persiste (ver nota junto a `requestedUserIds` más arriba): se devuelve
+  // igual, con la misma forma que un informe guardado, para que el wizard
+  // pueda reutilizar los mismos builders de PDF/Excel del cliente.
+  if (!persistReport) {
+    return NextResponse.json({
+      report: {
+        id: `adhoc-${monthParam}-${scope}`,
+        month,
+        year,
+        scope,
+        data: reportData,
+        aiAnalysis,
+        generatedBy: session.name,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    });
+  }
 
   // Upsert report
   const report = await prisma.monthlyReport.upsert({

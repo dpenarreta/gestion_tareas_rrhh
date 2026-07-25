@@ -1,8 +1,10 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
-import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct } from "@/lib/workload";
+import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct, sumWeightedBaseHours, sumWeightedLimit } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
-import { computeCompletedPctAny } from "@/lib/analytics";
+import { computeCompletedPctAny, computeEffectiveHistoryStart, classifyEstadoOperativo, type EstadoOperativoResult } from "@/lib/analytics";
+import { getTeamSpecialStatusDayMap } from "@/lib/specialStatus";
+import { getHolidaySet } from "@/lib/holidays";
 import type { WorkloadLabel } from "@/components/kpis/types";
 
 /**
@@ -384,6 +386,155 @@ export function explainCargaIndicator(pct: number): IndicatorExplanation {
     impact: pct > 100 ? "Una carga sostenida por encima del rango óptimo eleva el riesgo de sobrecarga y desgaste." : "La carga del equipo no representa un riesgo operativo inmediato.",
     action: pct > 100 ? "Redistribuir tareas hacia colaboradores con capacidad disponible." : "Sin acción requerida — monitorear en el próximo período.",
   };
+}
+
+// ── Sprint Analytics 2.1 — Bloque 1: Base Horaria Efectiva ─────────────────
+// El reporte comparaba a todos los colaboradores contra la base mensual
+// COMPLETA sin importar cuándo empezaron a tener disponibilidad real para
+// registrar en NEXO — esto castigaba injustamente a quienes se incorporaron
+// a mitad de período (su % de utilización salía artificialmente bajo).
+// `computeEffectiveMemberBases` recorta la base/límites de cada colaborador
+// al tramo [max(inicioPeríodo, inicioEfectivo), finPeríodo], reutilizando
+// `computeEffectiveHistoryStart` (analytics.ts, ya usado por Consistencia
+// desde el Analytics Engine v1.3.1 — mismo criterio de "señal más
+// reciente gana": kpiStartDate > primera actividad/tarea/imputación >
+// createdAt). Para rangos multi-mes se usa la tarifa (horas/día, límites)
+// vigente al INICIO del período completo — igual que monthlyBusinessBase ya
+// hace por mes — en vez de recorrer mes a mes; una simplificación deliberada
+// (ver docs/AUDIT_LOG.md § Sprint Analytics 2.1) que evita duplicar el
+// recorrido mensual de `range/route.ts` para este cálculo adicional.
+
+export type EffectiveMemberBase = {
+  baseHours: number;
+  limitBaseHours: number;
+  limitLowHours: number;
+  limitHighHours: number;
+  limitOverloadHours: number;
+  effectiveStart: Date;
+  /** true cuando el inicio efectivo del colaborador es posterior al inicio del período (su base fue recortada). */
+  wasProrated: boolean;
+};
+
+export async function computeEffectiveMemberBases(
+  userIds: string[],
+  periodStart: Date,
+  periodEnd: Date,
+  hoursPerDay: number,
+  limitLowPerDay: number,
+  limitHighPerDay: number,
+  limitOverloadPerDay: number,
+): Promise<Map<string, EffectiveMemberBase>> {
+  const result = new Map<string, EffectiveMemberBase>();
+  if (userIds.length === 0) return result;
+
+  const [effectiveStarts, specialMap, holidays] = await Promise.all([
+    Promise.all(userIds.map((id) => computeEffectiveHistoryStart(id, periodEnd))),
+    getTeamSpecialStatusDayMap(userIds, periodStart, periodEnd),
+    getHolidaySet(),
+  ]);
+
+  userIds.forEach((userId, i) => {
+    const effectiveStart = effectiveStarts[i];
+    const clampedStart = effectiveStart.getTime() > periodStart.getTime() ? effectiveStart : periodStart;
+    const wasProrated = clampedStart.getTime() > periodStart.getTime();
+    const userSpecialMap = specialMap.get(userId) ?? new Map();
+
+    if (clampedStart.getTime() > periodEnd.getTime()) {
+      result.set(userId, { baseHours: 0, limitBaseHours: 0, limitLowHours: 0, limitHighHours: 0, limitOverloadHours: 0, effectiveStart, wasProrated: true });
+      return;
+    }
+
+    const baseHours = sumWeightedBaseHours(clampedStart, periodEnd, hoursPerDay, holidays, new Map(), userSpecialMap, "dailyHours");
+    const limitBaseHours = sumWeightedBaseHours(clampedStart, periodEnd, hoursPerDay, holidays, new Map(), userSpecialMap, "limitBase");
+    const limitLowHours = sumWeightedLimit(clampedStart, periodEnd, holidays, userSpecialMap, limitLowPerDay, "limitLow");
+    const limitHighHours = sumWeightedLimit(clampedStart, periodEnd, holidays, userSpecialMap, limitHighPerDay, "limitHigh");
+    const limitOverloadHours = sumWeightedLimit(clampedStart, periodEnd, holidays, userSpecialMap, limitOverloadPerDay, "limitOverload");
+    result.set(userId, { baseHours, limitBaseHours, limitLowHours, limitHighHours, limitOverloadHours, effectiveStart, wasProrated });
+  });
+
+  return result;
+}
+
+/** Período anterior de igual duración, terminando el día previo al inicio del período dado — usado para % de tendencia de motivos de consulta en CUALQUIER largo de período (Bloque 11), no solo meses calendario. */
+export function previousEquivalentPeriod(periodStart: Date, periodEnd: Date): { start: Date; end: Date } {
+  const durationMs = periodEnd.getTime() - periodStart.getTime();
+  const end = new Date(periodStart.getTime() - 1);
+  const start = new Date(end.getTime() - durationMs);
+  return { start, end };
+}
+
+// ── Sprint Analytics 2.1 — Bloque 9: Estado del Colaborador ────────────────
+// Reutiliza LITERALMENTE classifyEstadoOperativo (analytics.ts) — nunca
+// inventa tramos nuevos. Cuando el informe es del mes calendario en curso ya
+// existe un Equilibrio Operativo real (equilibrioScore, motor completo con
+// Capacidad Futura) — se clasifica ese valor tal cual. Para cualquier otro
+// período (mes pasado, trimestre/semestre/año, rango personalizado) NO se
+// invoca el motor: mismo criterio que Índice Ejecutivo/Tendencias (ver
+// docs/DECISIONS.md § Sprint Reportes Ejecutivos 2.0) — Capacidad Futura es
+// una proyección hacia adelante desde "ahora", no representativa de un
+// período ya cerrado. En su lugar se deriva un puntaje aproximado 0-100 a
+// partir de datos YA calculados por el informe (cumplimiento, zona de carga,
+// vencidas) y se clasifica con los MISMOS 5 tramos.
+
+export type MemberEstadoInput = {
+  completedPct: number;
+  cargaLabel: WorkloadLabel;
+  overdueCount: number;
+  /** Equilibrio Operativo real (0-100) — solo presente en informes del mes calendario en curso. */
+  equilibrioScore?: number;
+};
+
+const CARGA_LABEL_SCORE: Record<WorkloadLabel, number> = {
+  "Óptimo": 100,
+  "Moderado": 80,
+  "Carga elevada": 60,
+  "Subutilización": 30,
+  "Sobrecarga": 30,
+};
+
+export function deriveEstadoOperativo(m: MemberEstadoInput): EstadoOperativoResult {
+  if (m.equilibrioScore !== undefined) return classifyEstadoOperativo(m.equilibrioScore);
+  const vencidasPenalty = Math.min(30, m.overdueCount * 10);
+  const approxScore = Math.max(0, Math.round(m.completedPct * 0.5 + CARGA_LABEL_SCORE[m.cargaLabel] * 0.5 - vencidasPenalty));
+  return classifyEstadoOperativo(approxScore);
+}
+
+// ── Sprint Analytics 2.1 — Bloque 10: Principal Hallazgo ────────────────────
+// Un único hallazgo predominante por colaborador, reglas fijas (sin IA),
+// prioridad de mayor a menor severidad operativa. `consistencyVariable` y
+// `capacidadLimitada` son opcionales porque dependen de señales que solo se
+// calculan para el mes calendario en curso (mismo motivo que Bloque 9) — si
+// el caller no las provee, esos dos tramos simplemente se omiten.
+
+export type MemberHallazgoInput = {
+  cargaLabel: WorkloadLabel;
+  completedPct: number;
+  overdueCount: number;
+  totalTasks: number;
+  consistencyVariable?: boolean;
+  capacidadLimitada?: boolean;
+};
+
+export const PRINCIPAL_HALLAZGO_LABEL = {
+  sinDatos: "Sin actividad registrada",
+  sobrecarga: "Sobrecarga",
+  subutilizacion: "Subutilización",
+  capacidadLimitada: "Capacidad limitada",
+  retrasosRecurrentes: "Retrasos recurrentes",
+  consistenciaBaja: "Consistencia baja",
+  sinTareasVencidas: "Sin tareas vencidas",
+  cargaEquilibrada: "Carga equilibrada",
+} as const;
+
+export function computePrincipalHallazgo(m: MemberHallazgoInput): string {
+  if (m.totalTasks === 0) return PRINCIPAL_HALLAZGO_LABEL.sinDatos;
+  if (m.cargaLabel === "Sobrecarga") return PRINCIPAL_HALLAZGO_LABEL.sobrecarga;
+  if (m.cargaLabel === "Subutilización") return PRINCIPAL_HALLAZGO_LABEL.subutilizacion;
+  if (m.capacidadLimitada) return PRINCIPAL_HALLAZGO_LABEL.capacidadLimitada;
+  if (m.overdueCount > 0) return PRINCIPAL_HALLAZGO_LABEL.retrasosRecurrentes;
+  if (m.consistencyVariable) return PRINCIPAL_HALLAZGO_LABEL.consistenciaBaja;
+  if (m.completedPct >= 80) return PRINCIPAL_HALLAZGO_LABEL.sinTareasVencidas;
+  return PRINCIPAL_HALLAZGO_LABEL.cargaEquilibrada;
 }
 
 export function explainConsultasIndicator(total: number, prevTotal: number | null): IndicatorExplanation {

@@ -1,5 +1,6 @@
 import type { RiskAlert } from "@/lib/riskAlerts";
 import type { IndiceEjecutivoNivel, TrendComparison, RiskQuadrant, Finding, Recommendation, IndicatorExplanation } from "@/lib/reportInsights";
+import type { EstadoOperativoResult } from "@/lib/analytics";
 
 export type KpiColor = "green" | "yellow" | "red";
 
@@ -33,6 +34,13 @@ export type ReportMemberKpi = {
   byReason: Array<{ reason: string; count: number; totalMinutes: number }>;
   /** Equilibrio Operativo (0-100) — solo presente cuando el informe es del mes calendario en curso (ver Sprint Reportes Ejecutivos 2.0 § Índice Ejecutivo). */
   equilibrioScore?: number;
+  /** Bloque 1 (Sprint Analytics 2.1) — base horaria recortada al tramo en que el colaborador realmente tuvo disponibilidad en NEXO. Ausente en informes generados antes de este sprint (se asume false). */
+  baseWasProrated?: boolean;
+  baseEffectiveStart?: string;
+  /** Bloque 9 (Sprint Analytics 2.1) — Estado Operativo (5 niveles), reutiliza classifyEstadoOperativo. */
+  estadoOperativo?: EstadoOperativoResult;
+  /** Bloque 10 (Sprint Analytics 2.1) — hallazgo predominante, reglas fijas sin IA. */
+  principalHallazgo?: string;
 };
 
 /** Distribución por Motivo enriquecida (Bloque 6, Sprint Reportes Ejecutivos 2.0) — `pct`/`trendPct`/`interpretation` ausentes en informes generados antes de este sprint. */
@@ -83,6 +91,44 @@ export type ReportData = {
   recommendations?: Recommendation[];
   insights?: string[];
   indicatorExplanations?: { cumplimiento: IndicatorExplanation; carga: IndicatorExplanation; consultas: IndicatorExplanation };
+};
+
+/**
+ * Sprint Analytics 2.1 (Generador Inteligente de Reportes) — informe de un
+ * rango de fechas ARBITRARIO (no meses calendario completos, a diferencia de
+ * RangeReportData), para los presets "Últimos 30 días" y "Rango
+ * personalizado" — ver /api/reports/custom-range. Sin Índice Ejecutivo ni
+ * Tendencias mes-trimestre-semestre (conceptos atados a meses calendario,
+ * ver docs/DECISIONS.md) ni evolución mes a mes — solo el acumulado del
+ * período, igual forma que ReportData.teamSummary/members.
+ */
+export type PeriodReportData = {
+  from: string;
+  to: string;
+  periodLabel: string;
+  scope: string;
+  teamSummary: {
+    avgCumplimiento: number;
+    avgCargaPct: number;
+    totalCargaRealHours: number;
+    totalCargaBaseHours: number;
+    totalCompletedTasks: number;
+    totalConsultas: number;
+    totalTasks: number;
+    hoursPerDay: number;
+    cargaRangeMin: number;
+    cargaRangeMax: number;
+  };
+  members: ReportMemberKpi[];
+  ranking: Array<{ id: string; name: string; role: string; score: number; completedPct: number }>;
+  consultasByReason: MotivoDistributionItem[];
+  alerts: Array<{ userId: string; name: string; type: "cumplimiento" | "sobrecarga"; value: number }>;
+  riskQuadrant?: Array<{ id: string; name: string; completedPct: number; cargaPct: number; quadrant: RiskQuadrant }>;
+  findings?: Finding[];
+  recommendations?: Recommendation[];
+  insights?: string[];
+  indicatorExplanations?: { cumplimiento: IndicatorExplanation; carga: IndicatorExplanation; consultas: IndicatorExplanation };
+  aiAnalysis: string;
 };
 
 export type MonthlyReportSummary = {

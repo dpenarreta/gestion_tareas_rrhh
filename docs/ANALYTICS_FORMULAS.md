@@ -1075,6 +1075,89 @@ stars: 0.8983 >= 0.85 → 5 ("Muy alta")
 - El simulador de escenarios (§ya documentado arriba en esta sección para `carga`/`capacidad`) se amplía con 4 escenarios sobre factores de Performance Score (`complete_task`, `reduce_overdue`, `increase_consistency`) y uno sobre Carga Laboral (`register_hours`) — cada uno recalcula un único factor con `normalize()`/`weightedPoints()` reales y lo recombina con los demás, sin tocar `computePerformanceScore`.
 - Ningún archivo del motor central (`analytics.ts`, `capacityForecast.ts`, `workload.ts`, `targetTime.ts`, `normalizationEngine.ts`) fue modificado para esta ampliación.
 
+## 15. Base Horaria Efectiva (Sprint Analytics 2.1 — capa de Reporte, no del Analytics Engine)
+
+### Objetivo
+Comparar a cada colaborador, en el Informe Ejecutivo, contra la base
+laboral del tramo en que **realmente tuvo disponibilidad** para registrar
+actividades en NEXO — no contra el período completo. Sin esto, un
+colaborador incorporado a mitad de un mes/rango salía con un % de
+utilización artificialmente bajo frente a compañeros que estuvieron activos
+todo el período.
+
+**No es una fórmula del Analytics Engine** — vive enteramente en la capa de
+reporte (`src/lib/reportInsights.ts` § `computeEffectiveMemberBases`,
+`src/lib/workload.ts` § `businessBaseForRange`). No afecta ningún KPI
+individual (Cumplimiento, Carga, Equilibrio Operativo, Performance Score,
+Riesgo Operativo, Consistencia) ni ninguna vista distinta del Informe
+Ejecutivo — `ANALYTICS_ENGINE_VERSION`/`FORMULA_SET_VERSION` no cambian.
+
+### Fórmula
+```
+efectivoInicio(colaborador) = computeEffectiveHistoryStart(userId, finDelPeríodo)
+inicioRecortado             = MAX(inicioDelPeríodo, efectivoInicio)
+fueProrrateado               = inicioRecortado > inicioDelPeríodo
+
+baseHoras(colaborador) = Σ (horasEfectivasDelDía) para cada día hábil en [inicioRecortado, finDelPeríodo]
+```
+`computeEffectiveHistoryStart` es la MISMA función que usa Consistencia
+desde el Analytics Engine v1.3.1 (§8 de este documento) — cruza
+`kpiStartDate`, primera actividad registrada, primera tarea completada,
+primera imputación de horas y `User.createdAt`, quedándose con la señal
+**más reciente**.
+
+### Variables
+- `inicioDelPeríodo`/`finDelPeríodo`: límites del informe (mes calendario,
+  rango de meses, o rango de fechas arbitrario — ver `/api/reports/{generate,range,custom-range}`).
+- `efectivoInicio`: ver §8 de este documento (Consistencia) para el detalle
+  completo de las 5 señales cruzadas.
+
+### Normalización
+No aplica (no es un score 0-100) — es un recorte de fechas que alimenta el
+mismo cálculo de base horaria (`sumWeightedBaseHours`/`sumWeightedLimit`,
+`workload.ts`) que ya usa toda la app, ponderado por estado especial
+(maternidad/lactancia) si corresponde.
+
+### Ejemplo de cálculo
+Período: julio 2026 (01/07 – 31/07). Colaboradora con `createdAt` =
+10/07/2026 y sin actividad previa: `efectivoInicio` = 10/07/2026 →
+`inicioRecortado` = 10/07/2026 (posterior al inicio del mes) →
+`fueProrrateado` = true → base = solo los días hábiles del 10/07 al 31/07
+(≈91h en vez de los ≈149h del mes completo).
+
+### Casos borde
+- Colaborador cuyo `efectivoInicio` cae DESPUÉS del fin del período
+  (incorporado tras el cierre del informe): base = 0h, `fueProrrateado` =
+  true.
+- Informes de rango multi-mes (trimestre/semestre/año/rango personalizado):
+  la tarifa (horas/día, límites) usada para todo el rango prorrateado es la
+  vigente al INICIO del rango completo, no mes a mes — simplificación
+  deliberada, ver `docs/AUDIT_LOG.md` § Sprint Analytics 2.1 y
+  `docs/DECISIONS.md`.
+- Estado especial (maternidad/lactancia) vigente dentro del tramo
+  prorrateado: se pondera igual que en cualquier otro cálculo de base
+  horaria (`sumWeightedBaseHours`/`sumWeightedLimit` con el `specialMap` del
+  colaborador).
+
+### Reglas de negocio
+- La UI marca cada fila con base recortada (`*` + nota informativa,
+  Bloque 2 del sprint) — nunca se muestra un % de utilización recortado sin
+  explicar por qué.
+- Se aplica en la tabla "Detalle por Colaborador" y en todas las
+  exportaciones (PDF, Excel, Generador Inteligente de Reportes) — nunca en
+  KPIs individuales (`/kpis/me`, `/kpis/[userId]`, Analytics personal), que
+  siguen usando `computeCargaTiempo`/`kpiStartDate` como siempre.
+
+### Versión
+No versionada en `FORMULA_VERSIONS` (no es una fórmula del Analytics
+Engine) — cambios a esta lógica se documentan en `docs/CHANGELOG.md` bajo
+el sprint correspondiente.
+
+### Notas
+Ver también §8 (Consistencia) para el detalle completo de
+`computeEffectiveHistoryStart`, la función que ambos cálculos comparten sin
+duplicar.
+
 ---
 
-_Generado a partir de src/lib/analytics.ts (ANALYTICS_ENGINE_VERSION 1.5.0 / FORMULA_SET_VERSION 4.4) el 2026-07-22. Ampliado el 2026-07-23 (Sprint A). Ampliado el 2026-07-24 (Sprint Analytics 2.0 — Equilibrio Operativo, curva progresiva de Capacidad Futura, corrige la desincronización de versión 4.2 vs. 4.3 vigente en código)._
+_Generado a partir de src/lib/analytics.ts (ANALYTICS_ENGINE_VERSION 1.5.0 / FORMULA_SET_VERSION 4.4) el 2026-07-22. Ampliado el 2026-07-23 (Sprint A). Ampliado el 2026-07-24 (Sprint Analytics 2.0 — Equilibrio Operativo, curva progresiva de Capacidad Futura, corrige la desincronización de versión 4.2 vs. 4.3 vigente en código). Ampliado el 2026-07-24 (Sprint Analytics 2.1 — Base Horaria Efectiva, capa de Reporte, sin cambios al Analytics Engine)._

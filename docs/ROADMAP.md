@@ -75,7 +75,15 @@
   Riesgo (Cumplimiento×Carga), tendencias automáticas mes/trimestre/
   semestre, e Índice Ejecutivo del Equipo (Performance Score + Equilibrio
   Operativo promediados, disponible solo para el mes en curso) — cero
-  cambios al Analytics Engine (v1.17.0 — este sprint).
+  cambios al Analytics Engine (v1.17.0).
+- Sprint Analytics 2.1 — Base Horaria Efectiva (compara a cada colaborador
+  contra la base laboral del tramo en que realmente tuvo disponibilidad en
+  NEXO, no el período completo), Generador Inteligente de Reportes (asistente
+  de configuración: colaboradores, período de 7 presets, secciones, formato
+  PDF Ejecutivo/Completo/Excel), Estado Operativo y Principal Hallazgo por
+  colaborador en la tabla de detalle, interpretación de consultas extendida a
+  informes de rango — cero cambios al Analytics Engine, cero cambios de
+  fórmulas/pesos/KPIs existentes (v1.18.0 — este sprint).
 
 ## En desarrollo
 
@@ -198,11 +206,18 @@ cierre de este sprint)._
   vía su evolución mes a mes, pero no tiene un equivalente de Bloque 11
   (un "mes en curso" no aplica limpiamente a un rango de N meses, requiere
   una decisión de producto explícita antes de implementarse).
-- Tendencia de % por motivo en el informe de Rango (Sprint Reportes
-  Ejecutivos 2.0, Bloque 6) — hoy solo el informe de un mes muestra
-  tendencia vs. período anterior; el rango no tiene un "período anterior
-  equivalente" sin ambigüedad (¿los N meses previos? ¿el mismo rango del
-  año anterior?), requiere definir el criterio antes de implementarse.
+- Base Horaria Efectiva y Estado Operativo/Principal Hallazgo por
+  colaborador (Bloques 1, 9 y 10 de Sprint Analytics 2.1) no se extendieron
+  a `computeTeamMonthlySnapshots`/las tarjetas de Tendencias mes-trimestre-
+  semestre — esas siguen usando `computeSimpleScore` sobre una base plana,
+  sin proration ni Estado Operativo por diseño (son snapshots livianos para
+  4 tarjetas comparativas, no el detalle por colaborador). Evaluar si vale
+  la pena extenderlo en un sprint futuro.
+- Comparación de Equipos (áreas/equipos/coordinaciones/zonas) — arquitectura
+  preparada en `src/lib/teamComparison.ts` (Sprint Analytics 2.1, Bloque
+  12), sin implementar: falta decidir la dimensión organizacional real
+  (NEXO no tiene hoy un campo de área/equipo/zona en `User`, solo `role`) y
+  la UI de comparación en sí.
 
 ## Ideas futuras
 

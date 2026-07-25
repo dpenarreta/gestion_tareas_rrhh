@@ -15,6 +15,152 @@
 
 ---
 
+## 2026-07-24 — Sprint Analytics 2.1: Mejora del Reporte Ejecutivo y Calidad de la Comparabilidad
+
+**Problema:** el Informe Ejecutivo (construido en Sprint Reportes Ejecutivos
+2.0) comparaba a todos los colaboradores contra la base mensual **completa**,
+sin importar cuándo empezaron a tener disponibilidad real para registrar en
+NEXO — un colaborador incorporado a mitad de mes salía con un % de
+utilización artificialmente bajo. Además, generar el informe no ofrecía
+ninguna personalización (siempre todo el equipo, todas las secciones, un
+solo formato de PDF), y no había forma de identificar de un vistazo el
+estado operativo ni el hallazgo principal de cada colaborador sin leer fila
+por fila.
+
+**Restricción explícita del sprint:** no modificar fórmulas/pesos/KPIs
+existentes del Analytics Engine (`src/lib/analytics.ts`), ni el historial,
+la auditoría o los roles/permisos — toda la información nueva debía
+derivarse del motor actual, sin duplicar cálculos.
+
+### Decisión 1 — Base Horaria Efectiva: reutilizar `computeEffectiveHistoryStart`, no crear un cálculo paralelo
+
+**Alternativas consideradas:**
+1. Crear una nueva noción de "fecha de incorporación a NEXO" específica para
+   reportes (p. ej. leer solo `User.createdAt`).
+2. Reutilizar `computeEffectiveHistoryStart` (`analytics.ts`), ya construido
+   en el Analytics Engine v1.3.1 para el mismo problema conceptual
+   (excluir de Consistencia las semanas anteriores al historial real de un
+   colaborador) — cruza `kpiStartDate`, primera actividad, primera tarea
+   completada, primera imputación de horas y `createdAt`, quedándose con la
+   señal más reciente.
+
+**Decisión:** opción 2. **Justificación:** `computeEffectiveHistoryStart` ya
+resuelve exactamente "¿desde cuándo hay historial real de este colaborador?"
+con más señales que solo `createdAt` (un Administrador puede fijar
+`kpiStartDate` manualmente, o un colaborador puede tener su cuenta creada
+mucho antes de empezar a usar NEXO activamente) — crear un cálculo paralelo
+habría sido una duplicación explícitamente prohibida por el sprint.
+**Impacto:** la Base Horaria Efectiva y la exclusión de historial de
+Consistencia usan ahora, literalmente, la misma función — un cambio futuro a
+esa lógica se refleja automáticamente en ambos lugares.
+
+**Decisión derivada — proration por rango, no mes a mes, en informes
+multi-mes:** `range/route.ts` calcula la base compartida del equipo mes a
+mes (para que un cambio de configuración a mitad del rango se refleje
+correctamente en el TOTAL del equipo). Extender esa misma granularidad a la
+proration individual por colaborador habría duplicado ese recorrido mensual
+solo para un caso adicional (alguien que se incorpora a mitad de un rango
+de varios meses). Se optó por una tarifa única (la vigente al inicio del
+rango completo) para la proration individual — un colaborador que se
+incorpora a mitad de un rango de 6 meses obtiene su base correctamente
+recortada, aunque la tarifa horas/día usada sea la del inicio del rango en
+vez de la vigente mes a mes. Edge case documentado, no resuelto con
+complejidad adicional (ver `docs/DECISIONS.md`).
+
+### Decisión 2 — Estado Operativo/Principal Hallazgo fuera del mes en curso: aproximación, no el motor completo
+
+**Alternativas consideradas:**
+1. Invocar `computeHealthScore(userId, now)` con `now` = fecha de cierre del
+   período del informe, para CUALQUIER período (mes pasado, rango), no solo
+   el mes en curso — daría el Equilibrio Operativo "real" de ese período.
+2. Reutilizar el Equilibrio Operativo real solo cuando el informe es del mes
+   calendario en curso (igual que el Índice Ejecutivo, Sprint Reportes
+   Ejecutivos 2.0); para cualquier otro período, derivar una aproximación
+   0-100 a partir de datos que el informe ya calcula (cumplimiento, zona de
+   carga, vencidas) y clasificarla con los mismos 5 tramos de
+   `classifyEstadoOperativo`.
+
+**Decisión:** opción 2. **Justificación:** Equilibrio Operativo incluye
+Capacidad Futura, una proyección **hacia adelante desde `now`**
+(`capacityForecast.ts`) — invocarla con un `now` histórico no es un uso
+validado de esa función en ningún otro punto del sistema, y el sprint pide
+explícitamente no tocar el Analytics Engine ni introducir usos nuevos no
+probados de sus piezas. Mantener el mismo criterio que el Índice Ejecutivo
+(ya documentado y aceptado en Sprint Reportes Ejecutivos 2.0) evita crear un
+segundo precedente distinto para el mismo problema. **Impacto:** todo
+informe muestra Estado y Hallazgo para el 100% de los colaboradores (nunca
+"—"), pero el significado exacto de "Estado" difiere ligeramente entre el
+mes en curso (Equilibrio Operativo real) y cualquier otro período
+(aproximación) — diferencia documentada en el código y en
+`docs/DECISIONS.md`, no expuesta como ambigüedad silenciosa.
+
+### Decisión 3 — Generador Inteligente: un endpoint nuevo solo para fechas que no calzan con meses
+
+**Alternativas consideradas:**
+1. Construir un motor de reportes completamente nuevo, de granularidad
+   diaria, y migrar los 7 presets de período a él (incluyendo mes
+   actual/anterior/trimestre/semestre/año).
+2. Detectar qué presets calzan exactamente con límites de mes calendario
+   (mes actual, mes anterior, trimestre, semestre, año — los 5 primeros) y
+   reutilizar `/api/reports/generate`/`/api/reports/range` ya existentes
+   para esos; construir un endpoint nuevo (`/api/reports/custom-range`) SOLO
+   para los 2 presets que sí necesitan granularidad de día ("Últimos 30
+   días", "Rango personalizado").
+
+**Decisión:** opción 2. **Justificación:** el sprint exige explícitamente
+"reutilizar componentes existentes siempre que sea posible" y "no duplicar
+cálculos" — reescribir un motor ya probado (con sus queries, agregaciones y
+casos borde ya cubiertos por tests) para presets que YA funcionan
+perfectamente con la granularidad de mes existente habría sido trabajo
+puramente redundante y un riesgo de regresión innecesario en rutas
+estables. **Impacto:** `custom-range/route.ts` es deliberadamente más
+pequeño de lo que un "motor unificado" habría sido — cubre exactamente el
+gap real (fechas arbitrarias), nada más.
+
+### Decisión 4 — PDF Ejecutivo vs. PDF Completo: un set de secciones fijo, no negociable por checkboxes
+
+**Decisión:** el PDF Ejecutivo siempre incluye exactamente Resumen, KPIs,
+Equilibrio Operativo, Ranking, Hallazgos y Recomendaciones — intersección
+con lo tildado por el usuario, nunca una sección fuera de ese set, sin
+importar qué se haya marcado en el asistente. El PDF Completo sí respeta
+la selección de secciones tal cual. **Justificación:** el propósito
+declarado de tener dos variantes de PDF es que una sea "ejecutiva" (rápida
+de leer, predecible para dirección) y la otra "completa" (todo lo que el
+usuario pidió) — si el Ejecutivo pudiera terminar con 10 secciones según lo
+que alguien tildó, dejaría de cumplir su propósito y ambas variantes
+colapsarían en una sola. **Impacto:** dirección siempre recibe el mismo
+formato condensado sin importar quién generó el informe ni qué olvidó
+destildar.
+
+### Alcance no implementado (documentado, no una omisión silenciosa)
+
+- **Comparación de Equipos (Bloque 12):** solo arquitectura
+  (`src/lib/teamComparison.ts`, tipos + función placeholder) — el bloque lo
+  pide explícitamente ("no mostrar todavía esta funcionalidad"). Sin cambios
+  de schema: NEXO no tiene hoy un campo de área/equipo/coordinación/zona en
+  `User`.
+- **"Capacidad limitada" como Principal Hallazgo:** el catálogo de
+  hallazgos del Bloque 10 lo menciona, pero requeriría invocar
+  `computeCapacityForecast` (forward-looking) para cada colaborador en
+  cualquier período — mismo problema que Decisión 2. Se omitió esa regla
+  específica en vez de forzar el mismo compromiso ya documentado una
+  tercera vez; el resto del catálogo (Sobrecarga/Subutilización/Retrasos
+  recurrentes/Consistencia baja/Sin tareas vencidas/Carga equilibrada) sí
+  está implementado.
+- **Filtro rápido "Solo colaboradores activos":** NEXO no tiene un concepto
+  de colaborador inactivo/desactivado (la baja de un usuario es eliminación
+  física, ver `UsersManager.tsx`) — el filtro existe en la UI (pedido
+  explícito del Bloque 5) pero equivale a "Seleccionar todos".
+
+**Verificación:** `npx tsc --noEmit` sin errores nuevos, `npx eslint` limpio
+en los 10 archivos tocados/nuevos, suite completa de Vitest en verde (962
+tests, incluyendo `reports.test.ts` con mocks ampliados para las nuevas
+dependencias de Prisma que introduce `computeEffectiveMemberBases`).
+
+**Aprobado por:** Anthony Jácome (dueño de producto).
+
+---
+
 ## 2026-07-24 — Sprint Reportes Ejecutivos 2.0: Inteligencia Organizacional en el Informe Consolidado
 
 **Problema:** el Informe Mensual Consolidado (`MonthlyReports.tsx` +

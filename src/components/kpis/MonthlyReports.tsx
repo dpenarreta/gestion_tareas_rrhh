@@ -7,7 +7,9 @@ import {
 } from "recharts";
 import type { Role } from "@/generated/prisma/client";
 import { ROLE_LABEL } from "@/lib/roles";
-import type { MonthlyReportSummary, MonthlyReportFull, ReportData, RangeReportData, WorkloadColor } from "./types";
+import type { MonthlyReportSummary, MonthlyReportFull, ReportData, RangeReportData, WorkloadColor, EstadoOperativoResult } from "./types";
+import { ReportWizardModal } from "./reports/ReportWizardModal";
+import { Sparkles } from "lucide-react";
 import * as XLSX from "xlsx";
 import { formatDate } from "@/lib/utils";
 import { hoursToDisplay } from "@/lib/timeFormat";
@@ -74,6 +76,57 @@ const KPI_COLOR_DOT: Record<WorkloadColor, string> = {
   red: "bg-danger",
 };
 
+// ── Sprint Analytics 2.1 (Bloque 3) — celda "Horas (real/base)" con % de utilización ──
+
+function horasCellText(real: number, base: number): string {
+  const pct = base > 0 ? Math.round((real / base) * 100) : 0;
+  return `${hoursToDisplay(real)}h / ${hoursToDisplay(base)}h — ${pct}%`;
+}
+
+function HorasCell({ real, base }: { real: number; base: number }) {
+  const pct = base > 0 ? Math.round((real / base) * 100) : 0;
+  return (
+    <div className="text-xs leading-tight whitespace-nowrap">
+      <div className="text-main">{hoursToDisplay(real)}h / {hoursToDisplay(base)}h</div>
+      <div className="text-disabled font-medium">{pct}%</div>
+    </div>
+  );
+}
+
+// ── Sprint Analytics 2.1 (Bloque 9) — Estado del Colaborador ──────────────────
+
+const ESTADO_BADGE_CLASS: Record<EstadoOperativoResult["color"], string> = {
+  green: "bg-success/[.15] text-success",
+  blue: "bg-primary-surface text-primary",
+  yellow: "bg-warning/[.15] text-warning",
+  orange: "bg-orange-500/[.15] text-orange-600 dark:text-orange-400",
+  red: "bg-danger/[.15] text-danger",
+};
+
+function EstadoBadge({ estado }: { estado?: EstadoOperativoResult }) {
+  if (!estado) return <span className="text-disabled text-xs">—</span>;
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium whitespace-nowrap ${ESTADO_BADGE_CLASS[estado.color]}`}>
+      {estado.emoji} {estado.estado}
+    </span>
+  );
+}
+
+// ── Sprint Analytics 2.1 (Bloque 2) — nota de Base Horaria Efectiva ───────────
+
+function BaseEfectivaNote({ members }: { members: Array<{ baseWasProrated?: boolean }> }) {
+  if (!members.some((m) => m.baseWasProrated)) return null;
+  return (
+    <div className="bg-primary-surface/60 border border-primary/20 rounded-xl px-4 py-3 text-xs text-secondary leading-relaxed">
+      <strong className="text-primary">Base Horaria Efectiva:</strong> para colaboradores marcados con{" "}
+      <span className="inline-block px-1.5 py-0.5 rounded bg-primary/10 text-primary font-medium">*</span> en la tabla, la
+      base horaria utilizada corresponde únicamente al período en que tuvieron disponibilidad real para registrar
+      actividades en NEXO — no al período completo. Esto evita comparar su % de utilización contra una base que no
+      pudieron cumplir.
+    </div>
+  );
+}
+
 // ── Excel export ──────────────────────────────────────────────────────────────
 
 function downloadReportExcel(report: MonthlyReportFull) {
@@ -94,6 +147,9 @@ function downloadReportExcel(report: MonthlyReportFull) {
     ["Carga laboral del equipo", `${data.teamSummary.avgCargaPct}% (${hoursToDisplay(data.teamSummary.totalCargaRealHours)}h de ${hoursToDisplay(data.teamSummary.totalCargaBaseHours)}h base)`],
     ["Rango óptimo configurado (por persona)", `${hoursToDisplay(data.teamSummary.cargaRangeMin)}h a ${hoursToDisplay(data.teamSummary.cargaRangeMax)}h`],
     ["Total consultas SEGUIMIENTO", data.teamSummary.totalConsultas],
+    ...(data.indiceEjecutivo
+      ? [[""], ["ÍNDICE EJECUTIVO DEL EQUIPO", ""], ["Valor", `${data.indiceEjecutivo.valor}/100 — ${data.indiceEjecutivo.nivel}`], ["Explicación", data.indiceEjecutivo.explicacion]]
+      : []),
     [""],
     ["ALERTAS", ""],
     ...data.alerts.map((a) => [
@@ -116,9 +172,9 @@ function downloadReportExcel(report: MonthlyReportFull) {
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rankingRows), "Ranking");
 
-  // Sheet 3: Detail per person
+  // Sheet 3: Detail per person (Bloques 1, 3, 9, 10 — Sprint Analytics 2.1)
   const detailRows = [
-    ["Nombre", "Cargo", "Score", "Cumplimiento%", "Carga%", "Carga (rango)", "Tareas", "Completadas", "Vencidas", "Horas reales", "Base (h)", "Consultas"],
+    ["Nombre", "Cargo", "Score", "Cumplimiento%", "Carga%", "Carga (rango)", "Tareas", "Completadas", "Vencidas", "Horas reales", "Base efectiva (h)", "Base prorrateada", "Consultas", "Estado", "Principal Hallazgo"],
     ...data.members.map((m) => [
       m.name,
       ROLE_LABEL[m.role as Role] ?? m.role,
@@ -131,7 +187,10 @@ function downloadReportExcel(report: MonthlyReportFull) {
       m.overdueCount,
       hoursToDisplay(m.cargaRealHours),
       hoursToDisplay(m.cargaBaseHours),
+      m.baseWasProrated ? "Sí" : "No",
       m.seguimientoTotal,
+      m.estadoOperativo ? `${m.estadoOperativo.emoji} ${m.estadoOperativo.estado}` : "",
+      m.principalHallazgo ?? "",
     ]),
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(detailRows), "Detalle");
@@ -139,17 +198,59 @@ function downloadReportExcel(report: MonthlyReportFull) {
   // Sheet 4: Consultas by reason
   if (data.consultasByReason.length > 0) {
     const consultasRows = [
-      ["Motivo", "Total Consultas", "Total Minutos"],
+      ["Motivo", "Total Consultas", "%", "Tendencia", "Interpretación"],
       ...data.consultasByReason.map((r) => [
         REASON_LABEL[r.reason] ?? r.reason,
         r.count,
-        r.totalMinutes,
+        typeof r.pct === "number" ? `${r.pct}%` : "",
+        typeof r.trendPct === "number" ? `${r.trendPct > 0 ? "+" : ""}${r.trendPct}%` : "",
+        r.interpretation ?? "",
       ]),
     ];
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(consultasRows), "Consultas");
   }
 
-  // Sheet 5: AI Analysis
+  // Sheet 5: Hallazgos y Recomendaciones (paridad con PDF — Sprint Analytics 2.1)
+  if ((data.findings && data.findings.length > 0) || (data.recommendations && data.recommendations.length > 0)) {
+    const rows = [
+      ["HALLAZGOS", ""],
+      ...(data.findings ?? []).map((f) => ["", f.text]),
+      [""],
+      ["RECOMENDACIONES", ""],
+      ...(data.recommendations ?? []).map((r) => [r.priority === "alta" ? "Prioridad alta" : "Prioridad media", r.text]),
+    ];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), "Hallazgos y Recomendaciones");
+  }
+
+  // Sheet 6: Mapa de Riesgo
+  if (data.riskQuadrant && data.riskQuadrant.length > 0) {
+    const quadrantLabel: Record<string, string> = { criticos: "Crítico", "atencion-carga": "Atención (carga)", "atencion-cumplimiento": "Atención (cumplimiento)", saludables: "Saludable" };
+    const riskRows = [
+      ["Colaborador", "Cumplimiento%", "Carga%", "Cuadrante"],
+      ...data.riskQuadrant.map((p) => [p.name, p.completedPct, p.cargaPct, quadrantLabel[p.quadrant] ?? p.quadrant]),
+    ];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(riskRows), "Mapa de Riesgo");
+  }
+
+  // Sheet 7: Tendencias e Insights
+  if (data.trends || (data.insights && data.insights.length > 0)) {
+    const rows = [
+      ...(data.trends
+        ? [
+            ["TENDENCIAS", "", "", ""],
+            ["Comparación", "Actual", "Referencia", "Variación"],
+            ...[data.trends.mesAnterior, data.trends.trimestre, data.trends.semestre].map((t) => [
+              t.label, `${t.currentValue}%`, t.compareValue !== null ? `${t.compareValue}%` : "—", t.delta !== null ? `${t.delta >= 0 ? "+" : ""}${t.delta} pp` : "Sin datos",
+            ]),
+            [""],
+          ]
+        : []),
+      ...(data.insights && data.insights.length > 0 ? [["INSIGHTS", "", "", ""], ...data.insights.map((i) => ["", i, "", ""])] : []),
+    ];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), "Tendencias e Insights");
+  }
+
+  // Sheet 8: AI Analysis
   if (report.aiAnalysis) {
     const aiRows = [["Análisis IA"], [report.aiAnalysis]];
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aiRows), "Análisis IA");
@@ -186,11 +287,17 @@ function downloadReportPDF(report: MonthlyReportFull) {
       <td>${m.cargaPct}%</td>
       <td>${m.completedTasks}/${m.totalTasks}</td>
       <td>${m.overdueCount}</td>
-      <td>${hoursToDisplay(m.cargaRealHours)}h/${hoursToDisplay(m.cargaBaseHours)}h</td>
+      <td>${horasCellText(m.cargaRealHours, m.cargaBaseHours)}${m.baseWasProrated ? " *" : ""}</td>
       <td>${m.seguimientoTotal}</td>
+      <td>${m.estadoOperativo ? `${m.estadoOperativo.emoji} ${m.estadoOperativo.estado}` : "—"}</td>
+      <td style="font-size:11px">${m.principalHallazgo ?? "—"}</td>
     </tr>`,
     )
     .join("");
+  const anyBaseProrated = data.members.some((m) => m.baseWasProrated);
+  const baseEfectivaNoteHtml = anyBaseProrated
+    ? `<p style="font-size:11px;color:#64748b;margin-top:6px"><strong>*</strong> Base Horaria Efectiva: la base de este colaborador corresponde únicamente al período en que tuvo disponibilidad real para registrar actividades en NEXO, no al período completo.</p>`
+    : "";
 
   const alertsHtml =
     data.alerts.length > 0
@@ -357,11 +464,12 @@ function downloadReportPDF(report: MonthlyReportFull) {
     <thead>
       <tr>
         <th>Nombre</th><th>Cargo</th><th>Score</th><th>Cumpl%</th><th>Carga%</th>
-        <th>Compl/Total</th><th>Vencidas</th><th>Horas (real/base)</th><th>Consultas</th>
+        <th>Compl/Total</th><th>Vencidas</th><th>Horas (real / base — %)</th><th>Consultas</th><th>Estado</th><th>Principal Hallazgo</th>
       </tr>
     </thead>
     <tbody>${memberRows}</tbody>
   </table>
+  ${baseEfectivaNoteHtml}
 
   <h2>Distribución por Motivo</h2>
   ${consultasHtml}
@@ -498,24 +606,55 @@ function downloadRangeExcel(data: RangeReportData) {
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rankingRows), "Ranking");
 
-  // Sheet 4: Detail per person
+  // Sheet 4: Detail per person (Bloques 1, 3, 9, 10 — Sprint Analytics 2.1)
   const detailRows = [
-    ["Nombre", "Cargo", "Score prom.", "Cumpl.%", "Carga%", "Carga (rango)", "Tareas", "Compl.", "Horas reales", "Base (h)", "Consultas"],
+    ["Nombre", "Cargo", "Score prom.", "Cumpl.%", "Carga%", "Carga (rango)", "Tareas", "Compl.", "Horas reales", "Base efectiva (h)", "Base prorrateada", "Consultas", "Estado", "Principal Hallazgo"],
     ...data.aggregated.members.map((m) => [
       m.name, ROLE_LABEL[m.role as Role] ?? m.role, m.score, m.completedPct,
-      m.cargaPct, m.cargaLabel, m.totalTasks, m.completedTasks, hoursToDisplay(m.cargaRealHours), hoursToDisplay(m.cargaBaseHours), m.seguimientoTotal,
+      m.cargaPct, m.cargaLabel, m.totalTasks, m.completedTasks, hoursToDisplay(m.cargaRealHours), hoursToDisplay(m.cargaBaseHours),
+      m.baseWasProrated ? "Sí" : "No", m.seguimientoTotal,
+      m.estadoOperativo ? `${m.estadoOperativo.emoji} ${m.estadoOperativo.estado}` : "",
+      m.principalHallazgo ?? "",
     ]),
   ];
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(detailRows), "Detalle");
 
   if (data.aggregated.consultasByReason.length > 0) {
     const consultasRows = [
-      ["Motivo", "Total consultas", "Total minutos"],
+      ["Motivo", "Total consultas", "%", "Tendencia", "Interpretación"],
       ...data.aggregated.consultasByReason.map((r) => [
-        REASON_LABEL[r.reason] ?? r.reason, r.count, r.totalMinutes,
+        REASON_LABEL[r.reason] ?? r.reason, r.count,
+        typeof r.pct === "number" ? `${r.pct}%` : "",
+        typeof r.trendPct === "number" ? `${r.trendPct > 0 ? "+" : ""}${r.trendPct}%` : "",
+        r.interpretation ?? "",
       ]),
     ];
     XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(consultasRows), "Consultas");
+  }
+
+  // Sheet: Hallazgos, Recomendaciones, Riesgo, Insights (paridad con PDF)
+  if ((data.aggregated.findings?.length ?? 0) > 0 || (data.aggregated.recommendations?.length ?? 0) > 0) {
+    const rows = [
+      ["HALLAZGOS", ""],
+      ...(data.aggregated.findings ?? []).map((f) => ["", f.text]),
+      [""],
+      ["RECOMENDACIONES", ""],
+      ...(data.aggregated.recommendations ?? []).map((r) => [r.priority === "alta" ? "Prioridad alta" : "Prioridad media", r.text]),
+    ];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(rows), "Hallazgos y Recomendaciones");
+  }
+
+  if (data.aggregated.riskQuadrant && data.aggregated.riskQuadrant.length > 0) {
+    const quadrantLabel: Record<string, string> = { criticos: "Crítico", "atencion-carga": "Atención (carga)", "atencion-cumplimiento": "Atención (cumplimiento)", saludables: "Saludable" };
+    const riskRows = [
+      ["Colaborador", "Cumplimiento%", "Carga%", "Cuadrante"],
+      ...data.aggregated.riskQuadrant.map((p) => [p.name, p.completedPct, p.cargaPct, quadrantLabel[p.quadrant] ?? p.quadrant]),
+    ];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(riskRows), "Mapa de Riesgo");
+  }
+
+  if (data.aggregated.insights && data.aggregated.insights.length > 0) {
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([["INSIGHTS"], ...data.aggregated.insights.map((i) => [i])]), "Insights");
   }
 
   if (data.aiAnalysis) {
@@ -549,6 +688,30 @@ function downloadRangePDF(data: RangeReportData) {
       <td>${m.avgCumplimiento}%</td>
     </tr>`,
   ).join("");
+
+  // Sprint Analytics 2.1 (Bloques 1, 3, 9, 10) — Detalle por Colaborador,
+  // ausente hasta ahora en la versión impresa del informe de rango (solo
+  // vivía en la hoja "Detalle" del Excel).
+  const detailMemberRows = data.aggregated.members
+    .map(
+      (m) => `<tr>
+      <td>${m.name}</td>
+      <td style="font-size:11px">${ROLE_LABEL[m.role as Role] ?? m.role}</td>
+      <td><strong>${m.score}</strong></td>
+      <td>${m.completedPct}%</td>
+      <td>${m.cargaPct}%</td>
+      <td>${m.completedTasks}/${m.totalTasks}</td>
+      <td>${horasCellText(m.cargaRealHours, m.cargaBaseHours)}${m.baseWasProrated ? " *" : ""}</td>
+      <td>${m.seguimientoTotal}</td>
+      <td>${m.estadoOperativo ? `${m.estadoOperativo.emoji} ${m.estadoOperativo.estado}` : "—"}</td>
+      <td style="font-size:11px">${m.principalHallazgo ?? "—"}</td>
+    </tr>`,
+    )
+    .join("");
+  const rangeAnyBaseProrated = data.aggregated.members.some((m) => m.baseWasProrated);
+  const rangeBaseEfectivaNoteHtml = rangeAnyBaseProrated
+    ? `<p style="font-size:11px;color:#64748b;margin-top:6px"><strong>*</strong> Base Horaria Efectiva: la base de este colaborador corresponde únicamente al período en que tuvo disponibilidad real para registrar actividades en NEXO, no al período completo.</p>`
+    : "";
 
   const alertsHtml = data.aggregated.alerts.length > 0
     ? data.aggregated.alerts.map((a) =>
@@ -637,6 +800,13 @@ function downloadRangePDF(data: RangeReportData) {
   <table><thead><tr><th>Mes</th><th>Cumpl.%</th><th>Tareas compl/total</th><th>Carga (real/base)</th><th>Consultas</th></tr></thead>
   <tbody>${evoRows}</tbody></table>
 
+  <h2>Detalle por Colaborador</h2>
+  <table>
+    <thead><tr><th>Nombre</th><th>Cargo</th><th>Score</th><th>Cumpl%</th><th>Carga%</th><th>Compl/Total</th><th>Horas (real / base — %)</th><th>Consultas</th><th>Estado</th><th>Principal Hallazgo</th></tr></thead>
+    <tbody>${detailMemberRows}</tbody>
+  </table>
+  ${rangeBaseEfectivaNoteHtml}
+
   <h2>Ranking del Período</h2>
   <table><thead><tr><th>#</th><th>Nombre</th><th>Cargo</th><th>Score prom.</th><th>Cumpl. prom.</th></tr></thead>
   <tbody>${rankingRows}</tbody></table>
@@ -664,6 +834,7 @@ type Props = {
 export default function MonthlyReports({ currentUserRole }: Props) {
   const { showToast } = useToast();
   const [viewMode, setViewMode] = useState<"individual" | "range">("individual");
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   // ── Individual month state ─────────────────────────────────────────────────
   const [reports, setReports] = useState<MonthlyReportSummary[]>([]);
@@ -778,21 +949,34 @@ export default function MonthlyReports({ currentUserRole }: Props) {
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Mode toggle */}
-      <div className="flex gap-1 bg-black/5 dark:bg-white/5 rounded-xl p-1 w-fit self-start">
-        <button
-          onClick={() => setViewMode("individual")}
-          className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${viewMode === "individual" ? "bg-surface text-title shadow-sm" : "text-secondary hover:text-main"}`}
-        >
-          Mes individual
-        </button>
-        <button
-          onClick={() => setViewMode("range")}
-          className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${viewMode === "range" ? "bg-surface text-title shadow-sm" : "text-secondary hover:text-main"}`}
-        >
-          Rango personalizado
-        </button>
+      {/* Mode toggle + Generador Inteligente */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex gap-1 bg-black/5 dark:bg-white/5 rounded-xl p-1 w-fit">
+          <button
+            onClick={() => setViewMode("individual")}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${viewMode === "individual" ? "bg-surface text-title shadow-sm" : "text-secondary hover:text-main"}`}
+          >
+            Mes individual
+          </button>
+          <button
+            onClick={() => setViewMode("range")}
+            className={`px-4 py-2 text-sm font-medium rounded-lg transition-all ${viewMode === "range" ? "bg-surface text-title shadow-sm" : "text-secondary hover:text-main"}`}
+          >
+            Rango personalizado
+          </button>
+        </div>
+        <Button variant="secondary" size="sm" onClick={() => setWizardOpen(true)}>
+          <Sparkles className="w-4 h-4" strokeWidth={2} />
+          Generador Inteligente de Reportes
+        </Button>
       </div>
+
+      <ReportWizardModal
+        open={wizardOpen}
+        onClose={() => setWizardOpen(false)}
+        currentUserRole={currentUserRole as Role}
+        referenceMembers={data?.members ?? rangeReport?.aggregated.members ?? []}
+      />
 
       {/* ── RANGE VIEW ──────────────────────────────────────────────────────── */}
       {viewMode === "range" && (
@@ -975,6 +1159,58 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                             {" "}({hoursToDisplay(ms.totalCargaRealHours)}h/{hoursToDisplay(ms.totalCargaBaseHours)}h)
                           </Td>
                           <Td>{ms.totalConsultas}</Td>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+
+              {/* Bloque 2 — nota de Base Horaria Efectiva */}
+              <BaseEfectivaNote members={rangeReport.aggregated.members} />
+
+              {/* Detalle por Colaborador (acumulado del rango) — Bloques 1, 3, 9, 10 */}
+              <div className="bg-surface rounded-2xl border border-border p-5">
+                <h3 className="text-sm font-semibold text-main uppercase tracking-wider mb-4">Detalle por Colaborador</h3>
+                <div className="-mx-5 px-5">
+                  <Table className="min-w-[900px]">
+                    <TableHead>
+                      <TableRow>
+                        {["Colaborador", "Score prom.", "Cumpl. prom.", "Carga", "Tareas", "Horas (real/base)", "Consultas", "Estado", "Principal Hallazgo"].map((h) => (
+                          <Th key={h}>{h}</Th>
+                        ))}
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {rangeReport.aggregated.members.map((m) => (
+                        <TableRow key={m.id}>
+                          <Td>
+                            <p className="text-sm font-semibold text-title">{m.name}</p>
+                            <p className="text-[11px] text-disabled">{ROLE_LABEL[m.role as Role] ?? m.role}</p>
+                          </Td>
+                          <Td className="font-bold text-main">{m.score}<span className="text-disabled font-normal">/100</span></Td>
+                          <Td>
+                            <span className="flex items-center gap-1.5">
+                              <div className={`w-2 h-2 rounded-full ${colorDot(m.completedPct)}`} />
+                              {m.completedPct}%
+                            </span>
+                          </Td>
+                          <Td>
+                            <span className="flex items-center gap-1.5" title={`Rango óptimo ${hoursToDisplay(m.cargaRangeMin)}-${hoursToDisplay(m.cargaRangeMax)}h`}>
+                              <div className={`w-2 h-2 rounded-full ${KPI_COLOR_DOT[m.cargaColor]}`} />
+                              {m.cargaPct}% <span className="text-disabled font-normal">· {m.cargaLabel}</span>
+                            </span>
+                          </Td>
+                          <Td>{m.completedTasks}/{m.totalTasks}</Td>
+                          <Td>
+                            <span className="inline-flex items-baseline gap-1">
+                              <HorasCell real={m.cargaRealHours} base={m.cargaBaseHours} />
+                              {m.baseWasProrated && <span className="text-primary font-semibold" title="Base Horaria Efectiva: recortada al período de disponibilidad real">*</span>}
+                            </span>
+                          </Td>
+                          <Td>{m.seguimientoTotal}</Td>
+                          <Td><EstadoBadge estado={m.estadoOperativo} /></Td>
+                          <Td className="text-xs text-secondary">{m.principalHallazgo ?? "—"}</Td>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -1288,16 +1524,19 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                 </div>
               </div>
 
+              {/* Bloque 2 — nota de Base Horaria Efectiva */}
+              <BaseEfectivaNote members={data.members} />
+
               {/* Detail table */}
               <div className="bg-surface rounded-2xl border border-border p-5">
                 <h3 className="text-sm font-semibold text-main uppercase tracking-wider mb-4">
                   Detalle por Colaborador
                 </h3>
                 <div className="-mx-5 px-5">
-                  <Table className="min-w-[700px]">
+                  <Table className="min-w-[900px]">
                     <TableHead>
                       <TableRow>
-                        {["Colaborador", "Score", "Cumpl.", "Carga", "Tareas", "Vencidas", "Horas", "Consultas"].map((h) => (
+                        {["Colaborador", "Score", "Cumpl.", "Carga", "Tareas", "Vencidas", "Horas (real/base)", "Consultas", "Estado", "Principal Hallazgo"].map((h) => (
                           <Th key={h}>
                             {h}
                           </Th>
@@ -1332,8 +1571,15 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                               <span className="text-disabled">—</span>
                             )}
                           </Td>
-                          <Td className="text-xs">{hoursToDisplay(m.cargaRealHours)}h/{hoursToDisplay(m.cargaBaseHours)}h</Td>
+                          <Td>
+                            <span className="inline-flex items-baseline gap-1">
+                              <HorasCell real={m.cargaRealHours} base={m.cargaBaseHours} />
+                              {m.baseWasProrated && <span className="text-primary font-semibold" title="Base Horaria Efectiva: recortada al período de disponibilidad real">*</span>}
+                            </span>
+                          </Td>
                           <Td>{m.seguimientoTotal}</Td>
+                          <Td><EstadoBadge estado={m.estadoOperativo} /></Td>
+                          <Td className="text-xs text-secondary">{m.principalHallazgo ?? "—"}</Td>
                         </TableRow>
                       ))}
                     </TableBody>

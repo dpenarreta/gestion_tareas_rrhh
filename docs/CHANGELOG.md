@@ -23,6 +23,115 @@
 
 ---
 
+## v1.18.0 — 2026-07-24
+
+**Tipo:** FEATURE / ANALYTICS
+**Módulo:** Sprint Analytics 2.1 — Mejora del Reporte Ejecutivo y Calidad de la Comparabilidad
+
+Fortalece el Informe Consolidado (`/kpis` → Informes) construido en Sprint
+Reportes Ejecutivos 2.0: comparabilidad correcta entre colaboradores
+(Base Horaria Efectiva), un asistente de configuración antes de generar
+(Generador Inteligente de Reportes), y dos columnas nuevas por colaborador
+(Estado Operativo, Principal Hallazgo). **No modifica el Analytics Engine**
+(`src/lib/analytics.ts`) ni ninguna fórmula/peso/KPI existente — todo lo
+nuevo reutiliza cálculos ya hechos por `analytics.ts`/`workload.ts` o los
+compone en `reportInsights.ts`. Ver `docs/AUDIT_LOG.md` § Sprint Analytics
+2.1 para el detalle de decisiones y `docs/DECISIONS.md` para el índice.
+
+- **FEATURE — Base Horaria Efectiva (Bloque 1):** la base horaria de cada
+  colaborador en el informe ya no asume el período completo — se recorta al
+  tramo `[max(inicio del período, inicio efectivo del colaborador),
+  fin del período]`, reutilizando `computeEffectiveHistoryStart`
+  (`analytics.ts`, ya usado por Consistencia desde el Analytics Engine
+  v1.3.1: cruza `kpiStartDate`/primera actividad/primera tarea completada/
+  primera imputación de horas/`createdAt`, la señal más reciente gana).
+  Nueva función `computeEffectiveMemberBases` (`reportInsights.ts`) y
+  `businessBaseForRange` (`workload.ts`, generalización de
+  `monthlyBusinessBase` a fechas arbitrarias). Para informes de rango
+  (trimestre/semestre/año/personalizado) se usa la tarifa vigente al inicio
+  del rango completo, no mes a mes — simplificación deliberada, ver
+  `docs/AUDIT_LOG.md`.
+- **UX — nota informativa de Base Horaria Efectiva (Bloque 2):**
+  `BaseEfectivaNote` en `MonthlyReports.tsx`, visible solo cuando algún
+  colaborador del informe tiene su base recortada; cada fila afectada se
+  marca con `*` en la tabla y en las exportaciones PDF/Excel.
+- **UX — nueva visualización de horas (Bloque 3):** la columna "Horas
+  (real/base)" pasa de `126.0h/149.3h` a `126.0h / 149.3h` + `84%` en dos
+  líneas (`HorasCell`), tanto en pantalla como en PDF/Excel.
+- **FEATURE — Generador Inteligente de Reportes (Bloques 4-8):** nuevo
+  asistente (`ReportWizardModal.tsx`) antes de exportar — selección de
+  colaboradores (checkboxes + 6 filtros rápidos: todos/mi equipo/con
+  actividad/con riesgo operativo/destacados/activos), selección de período
+  (7 presets: mes actual, mes anterior, últimos 30 días, trimestre,
+  semestre, año, rango personalizado), selección de secciones (10
+  bloques activables) y formato de exportación (PDF Ejecutivo — versión
+  condensada fija para dirección; PDF Completo; Excel). Nuevo endpoint
+  `GET /api/reports/custom-range` para los presets de fecha arbitraria
+  (últimos 30 días/rango personalizado, día-granularidad, no calzan con
+  límites de mes calendario); los presets de mes completo reutilizan
+  `/api/reports/generate` y `/api/reports/range` ya existentes (ambos ahora
+  aceptan `userIds` opcional). Nuevo módulo `src/components/kpis/reports/
+  wizardExport.ts` normaliza las 3 formas de datos (mes/rango de
+  meses/rango de fechas) y arma la exportación sin recalcular ningún KPI.
+- **FEATURE — Estado del Colaborador (Bloque 9):** columna nueva en la
+  tabla de detalle (🟢 Equilibrio Óptimo / 🔵 Equilibrio Estable / 🟡
+  Requiere Atención / 🟠 Riesgo Operativo / 🔴 Desequilibrio Crítico).
+  Reutiliza literalmente `classifyEstadoOperativo` (`analytics.ts`): con el
+  Equilibrio Operativo real cuando el informe es del mes calendario en
+  curso, o una aproximación derivada de cumplimiento/carga/vencidas para
+  cualquier otro período (mismo criterio que el Índice Ejecutivo — Capacidad
+  Futura no es representativa para un período ya cerrado, ver
+  `docs/DECISIONS.md` § Sprint Reportes Ejecutivos 2.0). Nueva función
+  `deriveEstadoOperativo` en `reportInsights.ts`.
+- **FEATURE — Principal Hallazgo (Bloque 10):** columna nueva, reglas fijas
+  sin IA (`computePrincipalHallazgo`, `reportInsights.ts`) sobre carga,
+  cumplimiento, vencidas y consistencia (esta última solo cuando está
+  disponible, mes en curso): Sobrecarga → Subutilización → Retrasos
+  recurrentes → Consistencia baja → Sin tareas vencidas → Carga equilibrada.
+- **FEATURE — Interpretación de Consultas en informes de rango (Bloque
+  11):** los informes de rango (`/api/reports/range`,
+  `/api/reports/custom-range`) ahora calculan tendencia por motivo vs. un
+  "período anterior equivalente" (misma duración en días, terminando el día
+  previo al inicio del rango) — nueva función `previousEquivalentPeriod`
+  (`reportInsights.ts`). Antes solo el informe de un mes tenía tendencia
+  (cierra el ítem pendiente de `docs/ROADMAP.md` § Sprint Reportes
+  Ejecutivos 2.0, Bloque 6).
+- **FEATURE — preparación de arquitectura para Comparación de Equipos
+  (Bloque 12):** `src/lib/teamComparison.ts` — tipos y función placeholder
+  (`computeTeamComparison`, no implementada). Sin cambios de schema (NEXO no
+  tiene hoy un campo de área/equipo/zona en `User`) y sin UI — solo deja
+  preparada la forma de los datos para un sprint futuro.
+- **PERFORMANCE — paridad Excel/PDF:** `downloadReportExcel`/
+  `downloadRangeExcel` (`MonthlyReports.tsx`) ganan las hojas que solo
+  existían en PDF desde Sprint Reportes Ejecutivos 2.0 (Índice Ejecutivo,
+  Hallazgos y Recomendaciones, Mapa de Riesgo, Tendencias e Insights) y las
+  columnas Estado/Principal Hallazgo/Base prorrateada; el PDF de rango gana
+  una tabla "Detalle por Colaborador" que antes solo existía en Excel.
+
+**Archivos afectados:** `src/lib/workload.ts` (`businessBaseForRange`,
+`sumWeightedLimit` exportado), `src/lib/reportInsights.ts`
+(`computeEffectiveMemberBases`, `deriveEstadoOperativo`,
+`computePrincipalHallazgo`, `previousEquivalentPeriod`), `src/lib/
+teamComparison.ts` (nuevo), `src/app/api/reports/generate/route.ts`,
+`src/app/api/reports/range/route.ts`, `src/app/api/reports/custom-range/
+route.ts` (nuevo), `src/components/kpis/types.ts`, `src/components/kpis/
+MonthlyReports.tsx`, `src/components/kpis/reports/ReportWizardModal.tsx`
+(nuevo), `src/components/kpis/reports/wizardExport.ts` (nuevo),
+`src/__tests__/api/reports.test.ts` (mocks ampliados para las nuevas
+dependencias de Prisma).
+
+**Impacto:** los informes ejecutivos comparan colaboradores de forma justa
+sin importar cuándo empezaron a usar NEXO, permiten generar exactamente el
+informe que Coordinadores/Jefe Nacional/Gerencia necesitan (colaboradores,
+período y secciones a medida) en 3 formatos, y cada colaborador muestra un
+estado operativo y un hallazgo principal identificables de un vistazo —
+mejora directa de interpretación y toma de decisiones sin tocar ningún
+cálculo del Analytics Engine.
+
+**Autor:** Claude Code
+
+---
+
 ## v1.17.0 — 2026-07-24
 
 **Tipo:** FEATURE / ANALYTICS

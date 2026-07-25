@@ -6,17 +6,27 @@ const monthlyReportFindUnique = vi.fn();
 const monthlyReportFindMany = vi.fn();
 const monthlyReportUpsert = vi.fn();
 const userFindMany = vi.fn();
+const userFindUnique = vi.fn();
 const taskFindMany = vi.fn();
+const taskFindFirst = vi.fn();
 const taskActivityFindMany = vi.fn();
+const taskActivityFindFirst = vi.fn();
 const activityReasonFindMany = vi.fn().mockResolvedValue([]);
+const specialStatusFindMany = vi.fn();
+const holidayFindMany = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     monthlyReport: { findUnique: monthlyReportFindUnique, findMany: monthlyReportFindMany, upsert: monthlyReportUpsert },
-    user: { findMany: userFindMany },
-    task: { findMany: taskFindMany },
-    taskActivity: { findMany: taskActivityFindMany },
+    user: { findMany: userFindMany, findUnique: userFindUnique },
+    task: { findMany: taskFindMany, findFirst: taskFindFirst },
+    taskActivity: { findMany: taskActivityFindMany, findFirst: taskActivityFindFirst },
     activityReason: { findMany: activityReasonFindMany },
+    // Sprint Analytics 2.1 — computeEffectiveMemberBases (Base Horaria
+    // Efectiva) consulta SpecialStatus/Holiday directamente (no a través del
+    // mock de workload.ts, que solo reemplaza monthlyBusinessBase).
+    specialStatus: { findMany: specialStatusFindMany },
+    holiday: { findMany: holidayFindMany },
   },
 }));
 
@@ -71,9 +81,18 @@ function resetAll() {
   monthlyReportFindMany.mockReset();
   monthlyReportUpsert.mockReset();
   userFindMany.mockReset().mockResolvedValue([]);
+  // Sprint Analytics 2.1 — computeEffectiveHistoryStart (Base Horaria
+  // Efectiva) cruza estas señales; createdAt fijo en el pasado hace que
+  // ningún colaborador de estos tests aparezca "prorrateado" (mismo
+  // comportamiento que antes del sprint, salvo que un test lo sobrescriba).
+  userFindUnique.mockReset().mockResolvedValue({ kpiStartDate: null, createdAt: new Date("2000-01-01") });
   taskFindMany.mockReset().mockResolvedValue([]);
+  taskFindFirst.mockReset().mockResolvedValue(null);
   taskActivityFindMany.mockReset().mockResolvedValue([]);
+  taskActivityFindFirst.mockReset().mockResolvedValue(null);
   activityReasonFindMany.mockReset().mockResolvedValue([]);
+  specialStatusFindMany.mockReset().mockResolvedValue([]);
+  holidayFindMany.mockReset().mockResolvedValue([]);
   monthlyBusinessBase.mockReset().mockImplementation(async (year: number, month: number) => ({
     start: new Date(Date.UTC(year, month - 1, 1)),
     end: new Date(Date.UTC(year, month, 1) - 1),

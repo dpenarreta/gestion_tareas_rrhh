@@ -81,6 +81,11 @@
 | Tendencias mes/trimestre/semestre (Bloque 9) usan `computeSimpleScore`, no el motor completo | Seguro para cualquier mes pasado (sin Capacidad Futura); evita 6+ llamadas extra al motor por miembro solo para 3 tarjetas comparativas. | `AUDIT_LOG.md` § Sprint Reportes Ejecutivos 2.0 |
 | Índice Ejecutivo y tendencias mes/trimestre/semestre no se agregan al informe de Rango | Un rango de N meses no tiene un "mes en curso" al cual gatear el índice; el rango ya expone su propia evolución mes a mes, que cubre el mismo propósito. | `AUDIT_LOG.md` § Sprint Reportes Ejecutivos 2.0 |
 | `computeTeamMonthlySnapshots` no reemplaza la lógica ya existente en `kpis/executive/route.ts` | Refactorizar una ruta ya estable como efecto colateral de este sprint introduce riesgo no solicitado; la unificación queda en `docs/ROADMAP.md`. | `AUDIT_LOG.md` § Sprint Reportes Ejecutivos 2.0 |
+| Base Horaria Efectiva en rangos multi-mes usa la tarifa vigente al INICIO del rango, no mes a mes | Recorrer mes a mes duplicaría la lógica que `range/route.ts` ya tiene para otro propósito (base compartida del equipo); el caso que cambia de tarifa a mitad de un rango prorrateado es un edge case raro, documentado en vez de resuelto con complejidad adicional. | `AUDIT_LOG.md` § Sprint Analytics 2.1 |
+| Estado Operativo/Principal Hallazgo para períodos que no son el mes en curso: aproximación derivada, no el motor real | Mismo criterio que el Índice Ejecutivo (Capacidad Futura no es representativa de un período cerrado) — evita invocar `computeHealthScore` con una fecha `now` histórica, un uso del motor nunca validado para ese caso. | `AUDIT_LOG.md` § Sprint Analytics 2.1 |
+| PDF Ejecutivo del Generador Inteligente ignora la selección de secciones fuera de un set fijo | "Ejecutivo" implica una versión condensada y predecible para dirección — dejar que cualquier combinación de checkboxes lo alterara contradice el propósito de tener dos variantes de PDF distintas. | `AUDIT_LOG.md` § Sprint Analytics 2.1 |
+| Wizard nunca persiste como `MonthlyReport` cuando se pide un subconjunto de colaboradores | El modelo `MonthlyReport` asume siempre el equipo completo (única clave `[month, year, scope]`); persistir un subconjunto rompería ese invariante o exigiría una migración de schema no justificada para un caso de uso ad-hoc. | `src/app/api/reports/generate/route.ts` |
+| Comparación de Equipos: solo tipos y stub, sin campo de schema nuevo | NEXO no tiene hoy una dimensión de área/equipo/zona en `User` (solo `role`); inventar un campo sin una decisión de producto explícita sobre qué dimensión usar sería adivinar. | `src/lib/teamComparison.ts` |
 
 ---
 
@@ -93,4 +98,4 @@ significativa como para merecer un análisis completo de alternativas
 evaluadas, agregar también una entrada en `docs/AUDIT_LOG.md` y enlazarla
 desde la columna "Detalle completo".
 
-_Última actualización: 2026-07-24._
+_Última actualización: 2026-07-24 (Sprint Analytics 2.1)._
