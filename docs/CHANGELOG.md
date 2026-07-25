@@ -23,6 +23,65 @@
 
 ---
 
+## v1.16.0 — 2026-07-24
+
+**Tipo:** ANALYTICS / FEATURE
+**Módulo:** Sprint Analytics 2.0 — Inteligencia Explicable e Interpretación Ejecutiva
+
+Revive `computeHealthScore` (congelado desde Sprint 5 §S5-A) como indicador
+estrella bajo el nombre **Equilibrio Operativo** y le agrega una capa
+completa de explicabilidad automática — cada resultado ahora responde
+automáticamente 4 preguntas: ¿qué significa?/¿por qué?/¿qué impacto
+tiene?/¿qué puedo hacer? Ver `docs/AUDIT_LOG.md` § Sprint Analytics 2.0 para
+el detalle completo de decisiones y `docs/ANALYTICS_FORMULAS.md` §3 para la
+referencia técnica.
+
+- **ANALYTICS — rename de marca "Score de Salud Laboral" → "Equilibrio
+  Operativo":** todo texto visible al usuario (tarjetas, tooltips,
+  `ExplainModal`, narrativas de Nova, Ajustes) y la prosa de documentación
+  técnica. **Deliberadamente no renombrado:** los símbolos de código
+  (`computeHealthScore`/`HealthScoreResult`/`HealthFactor`) ni el valor
+  persistido `AnalyticsAuditLog.kind = "health_score"` (miles de filas
+  históricas) — ver `docs/DECISIONS.md`.
+- **FEATURE — nueva identidad visual:** la tarjeta ahora siempre muestra
+  score + Estado Operativo (5 niveles: 🟢 Equilibrio Óptimo / 🔵 Equilibrio
+  Estable / 🟡 Requiere Atención / 🟠 Riesgo Operativo / 🔴 Desequilibrio
+  Crítico) + tendencia + variación vs. hace 30 días, con la escala completa
+  de interpretación siempre visible (no en un modal).
+- **FEATURE — motor de interpretación automática, 100% determinístico (sin
+  IA):** nuevas funciones en `insightsEngine.ts`
+  (`computeEquilibrioInsights`/`explainEquilibrioFactor`/
+  `explainEquilibrioMeaning`/`explainEquilibrioImpact`) generan, sobre las 5
+  dimensiones ya calculadas: párrafo de significado, explicación por
+  dimensión, fortalezas reales, aspectos a mejorar (con motivo),
+  narrativa de impacto operativo y recomendaciones basadas en reglas fijas
+  por dimensión — nunca texto generado por IA.
+- **ANALYTICS (único cambio de fórmula) — normalización progresiva de
+  Capacidad Futura:** `capacityToScore` reemplaza el salto abrupto anterior
+  (cualquier sobrecarga proyectada caía a 0) por una curva lineal
+  (`score = 100 + 2×disponiblePct`, acotada a [0,100]) activada por
+  `estado === "sobrecarga"`. `FORMULA_VERSIONS.capacidadDisponible`/
+  `equilibrioOperativo` → `"1.1"`; `FORMULA_SET_VERSION` `4.3` → `4.4`.
+  Afecta solo a usuarios con capacidad futura negativa proyectada.
+- **ANALYTICS — auto-explicación de Consistencia "Variable"/"Muy variable":**
+  nuevo campo `ConsistencyResult.explain.impactNote` con la frase de impacto
+  cualitativo ("...reduciendo la estabilidad operativa" / "...afectando
+  significativamente la previsibilidad operativa").
+- **ANALYTICS — calidad del cálculo ampliada:** el detalle de cálculo de
+  Equilibrio Operativo (`GET /api/analytics/equilibrio/[userId]`, nuevo)
+  ahora expone también tiempo de procesamiento, registros utilizados/
+  descartados y advertencias, además de calidad del dato/confiabilidad/
+  versión/fecha/origen que ya existían.
+- **Archivos nuevos:** `src/app/api/analytics/equilibrio/[userId]/route.ts`,
+  `src/components/kpis/EquilibrioOperativoCard.tsx`.
+- **No modifica** ningún otro KPI, peso, rol ni permiso existente — la única
+  fórmula tocada es la descrita arriba (autorizada explícitamente por el
+  alcance del sprint). Verificación: `tsc --noEmit` (2 errores preexistentes
+  sin relación), `eslint .` limpio (3 warnings preexistentes sin relación),
+  `vitest run` 936/936 (919 previos + 17 nuevos), `next build` exitoso.
+
+---
+
 ## v1.15.1 — 2026-07-24
 
 **Tipo:** UX / ANALYTICS (calidad del dato) / DOCUMENTATION

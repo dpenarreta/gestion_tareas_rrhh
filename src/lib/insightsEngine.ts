@@ -15,9 +15,12 @@ import {
   type EngineAlert,
   type KpiTrends,
   type DataQualityResult,
+  type HealthScoreResult,
+  type HealthFactor,
+  type EstadoOperativoResult,
 } from "@/lib/analytics";
 import type { CapacityForecast } from "@/lib/capacityForecast";
-import { scoreLevel } from "@/lib/analyticsExplain";
+import { scoreLevel, derivedNormalizedValue } from "@/lib/analyticsExplain";
 import { getFactorAuditHistory, closestFactorPoint, type AuditKind, type AuditFactorSnapshot } from "@/lib/analyticsAuditHistory";
 
 /**
@@ -284,6 +287,198 @@ export function computePerformanceInsights(performanceScore: PerformanceScoreRes
   return insights;
 }
 
+// ── Sprint Analytics 2.0: Motor de interpretación de Equilibrio Operativo ───
+// Mismo patrón exacto que computePerformanceInsights (arriba) — factor alto
+// = fortaleza, factor bajo = oportunidad con acción, "Medio" no genera
+// insight. HealthFactor no trae `normalizedValue` (a diferencia de
+// PerformanceFactor) — se deriva con `derivedNormalizedValue(points,weight)`,
+// mismo cálculo que ya usa ExplainFactorCard para mostrarlo. 3 de los 5
+// factores (Cumplimiento/Tareas vencidas/Consistencia) son compartidos con
+// Performance Score — se reutilizan sus mapas de explicación/acción en vez
+// de duplicar la copia; solo "Carga laboral"/"Capacidad futura" son nuevos.
+
+const EQUILIBRIO_FACTOR_EXPLANATION: Record<string, { high: string; low: string }> = {
+  ...PERFORMANCE_FACTOR_EXPLANATION,
+  "Carga laboral": {
+    high: "Las horas reales registradas este mes están dentro del rango óptimo de la base laboral.",
+    low: "Las horas reales registradas este mes están fuera del rango óptimo (subutilización o sobrecarga).",
+  },
+  "Capacidad futura": {
+    high: "Queda margen de capacidad proyectada para asumir trabajo nuevo el resto del mes.",
+    low: "Queda poco o ningún margen de capacidad proyectada para lo que resta del mes.",
+  },
+};
+
+const EQUILIBRIO_FACTOR_MAINTAIN: Record<string, string> = {
+  ...PERFORMANCE_FACTOR_MAINTAIN,
+  "Carga laboral": "Mantener el ritmo de horas dentro del rango óptimo actual.",
+  "Capacidad futura": "Mantener el margen de capacidad disponible antes de comprometer trabajo nuevo.",
+};
+
+const EQUILIBRIO_FACTOR_ACTION: Record<string, (f: HealthFactor) => Omit<SuggestedAction, "impact" | "impactNote">> = {
+  Cumplimiento: (f) => ({
+    what: "Completar las tareas pendientes de este mes, priorizando las más próximas a vencer.",
+    who: "El colaborador.",
+    howMuch: f.rawLabel,
+    when: "Antes de fin de mes.",
+  }),
+  "Tareas vencidas": (f) => ({
+    what: "Priorizar el cierre de las tareas vencidas, especialmente las de prioridad Alta.",
+    who: "El colaborador.",
+    howMuch: f.rawLabel,
+    when: "Esta semana.",
+  }),
+  Consistencia: (f) => ({
+    what: "Mantener un registro y un cumplimiento más parejo entre semanas, evitando picos y caídas fuertes.",
+    who: "El colaborador.",
+    howMuch: f.rawLabel,
+    when: "Las próximas semanas.",
+  }),
+  "Carga laboral": (f) => ({
+    what: "Registrar actividades diariamente y ajustar la asignación de trabajo hacia el rango óptimo.",
+    who: "El colaborador y su coordinador directo.",
+    howMuch: f.rawLabel,
+    when: "Esta semana.",
+  }),
+  "Capacidad futura": (f) => ({
+    what: "Evitar comprometer trabajo nuevo hasta liberar capacidad, o redistribuir tareas pendientes.",
+    who: "Quien asigna tareas al colaborador.",
+    howMuch: f.rawLabel,
+    when: "Antes de asignar trabajo nuevo.",
+  }),
+};
+
+const EQUILIBRIO_FACTOR_HALLAZGO: Record<string, (f: HealthFactor, high: boolean) => string> = {
+  Cumplimiento: (f, high) =>
+    high ? `Buen cumplimiento de tareas: ${f.rawLabel} completadas este mes.` : `Cumplimiento por debajo del objetivo: ${f.rawLabel} completadas este mes.`,
+  "Tareas vencidas": (f, high) => (high ? `Buen control de plazos: ${f.rawLabel} vencidas.` : `Acumulación de tareas vencidas: ${f.rawLabel}.`),
+  Consistencia: (f, high) =>
+    high ? `Ritmo de trabajo estable: consistencia ${f.rawLabel}.` : `Ritmo de trabajo irregular semana a semana: consistencia ${f.rawLabel}.`,
+  "Carga laboral": (f, high) => (high ? `Carga laboral equilibrada: ${f.rawLabel}.` : `Carga laboral fuera del rango óptimo: ${f.rawLabel}.`),
+  "Capacidad futura": (f, high) => (high ? `Buen margen de capacidad disponible: ${f.rawLabel}.` : `Poco margen de capacidad disponible: ${f.rawLabel}.`),
+};
+
+/**
+ * Sprint Analytics 2.0 (Bloques 5, 6, 8) — mismo patrón que
+ * `computePerformanceInsights`, aplicado a `HealthScoreResult.factors` (5
+ * dimensiones de Equilibrio Operativo). Fortalezas (Bloque 5) = insights con
+ * `tone: "positive"`; aspectos a mejorar (Bloque 6) = `tone: "risk"`, cada
+ * uno con su `accion` (recomendación, Bloque 8) ya embebida — la UI extrae
+ * cada sección filtrando por `tone`, mismo patrón que
+ * `StrengthsSection`/`OpportunitiesSection` en `InsightsPanel.tsx`.
+ */
+export function computeEquilibrioInsights(healthScore: HealthScoreResult, baseConfidence: Confidence): Insight[] {
+  const insights: Insight[] = [];
+  for (const factor of healthScore.factors) {
+    const normalizedValue = derivedNormalizedValue(factor.points, factor.weight);
+    const level = scoreLevel(normalizedValue);
+    if (level === "Medio") continue;
+    const high = level === "Alto" || level === "Muy alto";
+
+    const explanationPair = EQUILIBRIO_FACTOR_EXPLANATION[factor.name];
+    const explicacion = explanationPair ? (high ? explanationPair.high : explanationPair.low) : "Relación observada entre esta dimensión y el Equilibrio Operativo actual.";
+    const hallazgoBuilder = EQUILIBRIO_FACTOR_HALLAZGO[factor.name];
+    const hallazgo = hallazgoBuilder ? hallazgoBuilder(factor, high) : factor.detail;
+    const evidencia: EvidenceItem[] = [
+      { label: factor.name, before: "—", after: factor.rawLabel },
+      { label: "Aporte al Equilibrio Operativo", before: `${factor.weight}% de peso`, after: `${factor.points} pts` },
+    ];
+
+    if (high) {
+      insights.push({
+        id: `equilibrio-factor:${factor.name}:fortaleza`,
+        tone: "positive",
+        hallazgo,
+        explicacion,
+        evidencia,
+        accion: {
+          what: EQUILIBRIO_FACTOR_MAINTAIN[factor.name] ?? "Mantener las prácticas actuales.",
+          who: "El colaborador.",
+          howMuch: "Sin cambios necesarios.",
+          when: "Continuo.",
+          impact: null,
+          impactNote: "Impacto no estimable con los datos actuales.",
+        },
+        confidence: baseConfidence,
+      });
+      continue;
+    }
+
+    const maxUpsidePts = Math.round((factor.weight - factor.points) * 100) / 100;
+    const actionBuilder = EQUILIBRIO_FACTOR_ACTION[factor.name];
+    const accion: SuggestedAction | null = actionBuilder
+      ? {
+          ...actionBuilder(factor),
+          impact: maxUpsidePts > 0 ? [{ metric: "Equilibrio Operativo", delta: maxUpsidePts, unit: "pts" }] : null,
+          impactNote: maxUpsidePts > 0 ? "" : "Impacto no estimable con los datos actuales.",
+        }
+      : null;
+
+    insights.push({
+      id: `equilibrio-factor:${factor.name}:oportunidad`,
+      tone: "risk",
+      hallazgo,
+      explicacion,
+      evidencia,
+      accion,
+      confidence: baseConfidence,
+    });
+  }
+  return insights;
+}
+
+/**
+ * Sprint Analytics 2.0 (Bloque 4) — explicación de UNA dimensión de
+ * Equilibrio Operativo, sin pasar por `computeEquilibrioInsights` (que solo
+ * genera un Insight para factores Alto/Bajo, no "Medio") — así las 5
+ * dimensiones muestran explicación siempre, no solo cuando cruzan el umbral
+ * de insight.
+ */
+export function explainEquilibrioFactor(name: string, normalizedValue: number): string {
+  const level = scoreLevel(normalizedValue);
+  const high = level === "Alto" || level === "Muy alto";
+  const pair = EQUILIBRIO_FACTOR_EXPLANATION[name];
+  return pair ? (high ? pair.high : pair.low) : "Relación observada entre esta dimensión y el Equilibrio Operativo actual.";
+}
+
+// ── Bloque 3: "¿Qué significa este resultado?" — párrafo auto-generado ─────
+// Una plantilla determinística por nivel de Estado Operativo (Bloques 11/12)
+// — nunca texto libre/IA. Incorpora la tendencia cuando está disponible.
+
+const EQUILIBRIO_MEANING_TEMPLATE: Record<EstadoOperativoResult["estado"], string> = {
+  "Equilibrio Óptimo": "El colaborador mantiene un equilibrio operativo óptimo, con un desempeño sólido en cumplimiento, carga y capacidad. No requiere intervención. No requiere seguimiento adicional más allá del habitual.",
+  "Equilibrio Estable": "El colaborador mantiene una operación saludable, con un buen balance entre cumplimiento, carga laboral y capacidad. No requiere intervención inmediata. El seguimiento de rutina es suficiente.",
+  "Requiere Atención": "El colaborador mantiene un desempeño adecuado, aunque existen factores operativos que podrían afectar su rendimiento si las condiciones actuales continúan. No requiere intervención inmediata. Sí requiere seguimiento.",
+  "Riesgo Operativo": "El colaborador presenta señales de desequilibrio operativo que ya están afectando su rendimiento. Es conveniente intervenir para corregir el rumbo antes de que la situación se agrave. Requiere seguimiento cercano.",
+  "Desequilibrio Crítico": "El colaborador presenta un desequilibrio operativo crítico que requiere atención inmediata. Se recomienda una revisión inmediata de su situación junto a su coordinador directo.",
+};
+
+const TREND_PHRASE: Record<ScoreTrendExplanation["direction"], string> = {
+  mejora: "La tendencia de los últimos 30 días es de mejora.",
+  empeoro: "La tendencia de los últimos 30 días es de deterioro.",
+  estable: "La tendencia de los últimos 30 días es estable.",
+};
+
+export function explainEquilibrioMeaning(estado: EstadoOperativoResult, trend: ScoreTrendExplanation | null): string {
+  const base = EQUILIBRIO_MEANING_TEMPLATE[estado.estado];
+  if (trend?.available) return `${base} ${TREND_PHRASE[trend.direction]}`;
+  return base;
+}
+
+// ── Bloque 7: "¿Qué impacto tiene este resultado?" — plantilla fija por nivel ─
+
+const EQUILIBRIO_IMPACT_TEMPLATE: Record<EstadoOperativoResult["estado"], string> = {
+  "Equilibrio Óptimo": "Puede asumir nuevos proyectos.",
+  "Equilibrio Estable": "Se recomienda mantener la carga actual.",
+  "Requiere Atención": "Existe riesgo moderado de retrasos.",
+  "Riesgo Operativo": "No se recomienda incrementar responsabilidades.",
+  "Desequilibrio Crítico": "No se recomienda incrementar responsabilidades — se recomienda una revisión inmediata de la situación.",
+};
+
+export function explainEquilibrioImpact(estado: EstadoOperativoResult): string {
+  return EQUILIBRIO_IMPACT_TEMPLATE[estado.estado];
+}
+
 const FACTOR_INSIGHT_THRESHOLD_PTS = 2;
 
 /**
@@ -410,7 +605,7 @@ export async function computeInsights(
   return insights;
 }
 
-// ── Sprint A: Explicación de tendencias (Performance Score / Score de Salud) ─
+// ── Sprint A: Explicación de tendencias (Performance Score / Equilibrio Operativo) ─
 // Nunca recalcula un score: compara `factors[]` YA CALCULADOS de dos
 // instantes en el tiempo (el actual vs. un snapshot histórico de
 // `AnalyticsAuditLog`, leído a través de `analyticsAuditHistory.ts` — capa de

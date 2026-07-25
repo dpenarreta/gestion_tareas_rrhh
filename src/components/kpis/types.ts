@@ -163,6 +163,9 @@ export type {
   Prediction,
   HealthFactor,
   HealthScoreResult,
+  EstadoOperativo,
+  EstadoOperativoColor,
+  EstadoOperativoResult,
   PerformanceFactor,
   PerformanceScoreResult,
   RiskFactor,
@@ -185,7 +188,7 @@ export type { RoleTarget } from "@/lib/systemConfig";
 
 /** Respuesta de GET /api/analytics/[userId] — ver Analytics § motor centralizado. */
 export type AnalyticsBundle = {
-  /** LEGACY — ver Sprint 5 § S5-A. Convive con performanceScore hasta que este último quede validado y se retire en un sprint futuro. */
+  /** Equilibrio Operativo (antes "Score de Salud Laboral" — ver docs/DECISIONS.md § Sprint Analytics 2.0). Convive con performanceScore — miden cosas distintas (ejecución vs. equilibrio integral). */
   healthScore: import("@/lib/analytics").HealthScoreResult;
   performanceScore: import("@/lib/analytics").PerformanceScoreResult;
   alerts: import("@/lib/analytics").EngineAlert[];

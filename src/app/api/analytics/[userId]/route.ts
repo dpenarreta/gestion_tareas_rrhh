@@ -8,7 +8,7 @@ import { cached, runAnalyticsPipeline, ANALYTICS_ENGINE_VERSION, FORMULA_SET_VER
 type Ctx = { params: Promise<{ userId: string }> };
 
 /**
- * Paquete completo de Analytics para UN colaborador (Score de Salud, alertas,
+ * Paquete completo de Analytics para UN colaborador (Equilibrio Operativo, alertas,
  * tendencias, consistencia, anomalías, predicción, calidad de datos) — un
  * solo fetch para toda la vista individual, cacheado como unidad (ver
  * Analytics § Caché y performance). El cálculo en sí sigue el pipeline único

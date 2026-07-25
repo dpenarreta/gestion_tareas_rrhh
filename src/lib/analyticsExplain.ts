@@ -119,7 +119,7 @@ export const MIN_PEER_SAMPLE = 3;
 export const CONSISTENCY_FALLBACK_NOTE =
   "Actualmente no hay suficientes semanas con datos válidos para calcular la Consistencia real. Se utiliza temporalmente un puntaje neutro de 70/100 mientras se acumula historial. Este valor será reemplazado automáticamente cuando exista historial suficiente.";
 
-/** Umbrales de clasificación compartidos por Performance Score y Score de Salud Laboral — mismo texto usado como "Referencia utilizada" en ambos audit summaries. */
+/** Umbrales de clasificación compartidos por Performance Score y Equilibrio Operativo — mismo texto usado como "Referencia utilizada" en ambos audit summaries. */
 export const SCORE_CLASSIFICATION_REFERENCE = "Clasificación por umbrales configurados: Excelente ≥90 · Bueno ≥75 · Riesgo ≥60 · Crítico <60";
 
 // ── Sprint A: Ayuda contextual de 4 partes por indicador ─────────────────────
@@ -142,10 +142,10 @@ export const INDICATOR_HELP: Record<string, IndicatorHelp> = {
     whyItMatters: "Cuando sube a Alto o Crítico, se notifica automáticamente a los superiores — ayuda a decidir si conviene redistribuir trabajo antes de que se convierta en un problema.",
     bestPractices: ["Evitar acumular tareas de prioridad Alta vencidas.", "Definir el Tiempo Objetivo de las tareas antes de iniciarlas.", "Evitar horas extra sostenidas en fines de semana.", "Mantener un ritmo de trabajo estable."],
   },
-  scoreSalud: {
-    meaning: "Puntaje general de bienestar/desempeño que combina cumplimiento, carga laboral, tareas vencidas, consistencia y capacidad futura en un solo número.",
-    howCalculated: "5 factores, cada uno convertido a un puntaje 0-100 y ponderado — a diferencia del Performance Score, sí incluye carga laboral y capacidad futura.",
-    whyItMatters: "Es un indicador legado, mantenido porque pantallas y reportes existentes ya lo muestran — para ejecución pura, el Performance Score es más específico.",
+  equilibrioOperativo: {
+    meaning: "El equilibrio entre cumplimiento, carga laboral, gestión de tiempos, consistencia operativa y capacidad futura, en un solo número. No representa variables médicas, psicológicas ni psicosociales — es un indicador puramente operativo.",
+    howCalculated: "5 dimensiones, cada una convertida a un puntaje 0-100 y ponderada — a diferencia del Performance Score, sí incluye carga laboral y capacidad futura.",
+    whyItMatters: "Es el indicador más completo del motor: a diferencia del Performance Score (solo ejecución) combina también carga y capacidad, para dar una lectura integral de la operación.",
     bestPractices: ["Mantener la carga laboral dentro del rango óptimo.", "Cerrar tareas dentro del plazo.", "Conservar margen de capacidad para asumir trabajo nuevo."],
   },
   cargaLaboral: {

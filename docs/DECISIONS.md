@@ -70,6 +70,11 @@
 | Motivo huérfano y retroactivo inconsistente: chequeos reales, no defensivos | A diferencia de "sin propietario"/"huérfanos" (protegidos por FK, siempre 0), `TaskActivity.reason` es un String libre sin FK — es el único punto donde un chequeo nuevo de Calidad del Dato podía encontrar datos reales, no solo confirmar una garantía estructural ya existente. | `src/app/api/settings/data-quality/route.ts` |
 | Ventana de 90 días para los chequeos de actividades del panel de Calidad del Dato | Mismo valor ya usado por el chequeo de solapamiento; un click bajo demanda de Administrador no debe escanear el historial completo de actividades (a diferencia de Tarea/Proyecto/Fase, de volumen mucho menor). | `src/app/api/settings/data-quality/route.ts` |
 | `Button`/`EmptyState`/`Spinner` migrados en Ideas/Reuniones/Proyectos sin cambiar ningún `onClick`/lógica de validación | El objetivo es visual/markup — se preservó cada handler y cada condición de `disabled` exactamente igual, solo cambió el componente que envuelve el markup. | `AUDIT_LOG.md` § Sprint D (continuación) |
+| Rename "Score de Salud Laboral" → "Equilibrio Operativo": solo marca visible + prosa de docs, no símbolos de código ni `AnalyticsAuditLog.kind` | `kind: "health_score"` está persistido en miles de filas históricas y prohibido tocar por las restricciones del sprint ("no tocar historial/auditoría"); renombrar símbolos TS es refactor mecánico sin beneficio funcional. | `AUDIT_LOG.md` § Sprint Analytics 2.0 |
+| `capacityToScore` progresivo se activa por `estado === "sobrecarga"`, no por `disponiblePct < 0` | Una sobrecarga leve puede redondear `disponiblePct` a 0 exacto (`disponible` en horas sigue siendo negativo); condicionar por el signo del porcentaje redondeado reintroducía el mismo salto abrupto que el Bloque 9 buscaba eliminar, justo en ese borde. | `AUDIT_LOG.md` § Sprint Analytics 2.0 |
+| `NormalizationEngine` no se usa para la curva progresiva de Capacidad Futura | Su curva `capacidad` ya configurable en Ajustes es código muerto y mal calibrada para los anclajes de este sprint; migrarla íntegra habría tocado también el lado positivo, fuera del único cambio matemático autorizado. Queda en `docs/ROADMAP.md`. | `AUDIT_LOG.md` § Sprint Analytics 2.0 |
+| `classifyEstadoOperativo` (5 niveles) es una capa de presentación adicional, no reemplaza la clasificación inline de 4 niveles de `HealthScoreResult` | `WhatIfSimulator`/`TeamWorkloadCards`/nova-insights ya hacen pattern-matching sobre `classification`/`classificationColor` — cambiarlos habría sido un refactor no pedido por el sprint. | `docs/ANALYTICS_FORMULAS.md` §3 |
+| Bloque 13 ("estándar de explicabilidad para todos los KPIs") acotado a Equilibrio Operativo esta pasada | Confirmado con el usuario vía pregunta explícita; sus 5 dimensiones ya cubren Cumplimiento/Carga/Consistencia/Capacidad. Extender a tarjetas standalone queda en `docs/ROADMAP.md` con el patrón ya construido como plantilla. | `AUDIT_LOG.md` § Sprint Analytics 2.0 |
 
 ---
 
@@ -82,4 +87,4 @@ significativa como para merecer un análisis completo de alternativas
 evaluadas, agregar también una entrada en `docs/AUDIT_LOG.md` y enlazarla
 desde la columna "Detalle completo".
 
-_Última actualización: 2026-07-23._
+_Última actualización: 2026-07-24._

@@ -130,7 +130,7 @@ export async function setRecoveryRetentionHours(hours: number, userId: string): 
 // incluido gratis por `setConfigValue` — no hace falta una tabla de auditoría
 // aparte para los cambios de configuración.
 export const ANALYTICS_CONFIG_DEFAULTS = {
-  // Score de Salud Laboral (LEGACY, ver Sprint 5 § S5-A) — ponderaciones (deben sumar 100).
+  // Equilibrio Operativo (antes "Score de Salud Laboral" — Sprint Analytics 2.0) — ponderaciones (deben sumar 100).
   healthWeightCumplimiento: 25,
   healthWeightCarga: 25,
   healthWeightVencidas: 20,

@@ -833,7 +833,7 @@ export default function KpisModule({ currentUserId: _uid, currentUserRole }: Pro
               {/* ── 3. Insights de Nova ─────────────────────────────────────── */}
               <NovaInsightsCard userId={kpi.user.id} month={month} />
 
-              {/* ── 4. Analytics avanzado: Score de Salud, alertas, tendencias, consistencia, anomalías, predicción ── */}
+              {/* ── 4. Analytics avanzado: Equilibrio Operativo, alertas, tendencias, consistencia, anomalías, predicción ── */}
               <AdvancedAnalyticsPanel userId={kpi.user.id} />
 
               {/* ── Índice de Riesgo Operativo (gerencia) ───────────────────── */}

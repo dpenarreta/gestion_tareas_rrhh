@@ -7,11 +7,11 @@ import { Button } from "@/components/ui/Button";
 
 // ── Tipos — reflejan src/lib/insightsEngine.ts (Sprint 6 — Decision Intelligence Engine) ──
 
-type Confidence = { stars: 1 | 2 | 3 | 4 | 5; label: string };
-type EvidenceItem = { label: string; before: string; after: string };
-type ActionImpact = { metric: string; delta: number; unit: string };
-type SuggestedAction = { what: string; who: string; howMuch: string; when: string; impact: ActionImpact[] | null; impactNote: string };
-type Insight = {
+export type Confidence = { stars: 1 | 2 | 3 | 4 | 5; label: string };
+export type EvidenceItem = { label: string; before: string; after: string };
+export type ActionImpact = { metric: string; delta: number; unit: string };
+export type SuggestedAction = { what: string; who: string; howMuch: string; when: string; impact: ActionImpact[] | null; impactNote: string };
+export type Insight = {
   id: string;
   tone: "risk" | "positive" | "neutral";
   hallazgo: string;
@@ -74,7 +74,7 @@ const REEVAL_STYLE: Record<Reevaluation["status"], { text: string; emoji: string
   "sin-datos": { text: "text-disabled", emoji: "⏳" },
 };
 
-function EvidenceTable({ evidencia }: { evidencia: EvidenceItem[] }) {
+export function EvidenceTable({ evidencia }: { evidencia: EvidenceItem[] }) {
   if (evidencia.length === 0) return null;
   return (
     <div className="rounded-lg border border-border bg-background p-2.5 space-y-1">
@@ -91,7 +91,7 @@ function EvidenceTable({ evidencia }: { evidencia: EvidenceItem[] }) {
   );
 }
 
-function ActionBlock({ accion }: { accion: SuggestedAction }) {
+export function ActionBlock({ accion }: { accion: SuggestedAction }) {
   return (
     <div className="rounded-lg border border-primary/20 bg-primary-surface/40 p-2.5 space-y-1">
       <p className="text-xs text-title"><strong>Qué:</strong> {accion.what}</p>
@@ -120,7 +120,7 @@ function ActionBlock({ accion }: { accion: SuggestedAction }) {
   );
 }
 
-function InsightCard({ insight }: { insight: Insight }) {
+export function InsightCard({ insight }: { insight: Insight }) {
   const style = TONE_STYLE[insight.tone];
   return (
     <div className={`rounded-xl border ${style.border} ${style.bg} p-3.5 space-y-2.5`}>

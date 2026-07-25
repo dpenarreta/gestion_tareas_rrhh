@@ -37,7 +37,7 @@ import { getOfficialTargetTime, isTargetTimeValidated, computePrecisionPct, prec
  * vivían en workload.ts/capacityForecast.ts/priorityCompliance.ts (base
  * laboral, semáforo de carga, capacidad proyectada, cumplimiento por
  * prioridad) NO se reimplementan aquí — este motor las reutiliza y construye
- * los indicadores nuevos (§3 Score de Salud, §13 Riesgo Operativo, tendencias,
+ * los indicadores nuevos (§3 Equilibrio Operativo, §13 Riesgo Operativo, tendencias,
  * consistencia, anomalías, predicción, calidad de datos, alertas) encima.
  */
 export const ANALYTICS_ENGINE_VERSION = "1.5.0";
@@ -50,7 +50,7 @@ export const ANALYTICS_ENGINE_VERSION = "1.5.0";
  * Administrador reconoce como paquete (ANALYTICS_ENGINE_VERSION=motor,
  * FORMULA_SET_VERSION=paquete de fórmulas vigente dentro de ese motor).
  */
-export const FORMULA_SET_VERSION = "4.3";
+export const FORMULA_SET_VERSION = "4.4";
 
 export { PREDICTION_MAX_DAYS };
 
@@ -62,10 +62,15 @@ export { PREDICTION_MAX_DAYS };
 // exclusivamente al Administrador en el panel de Diagnóstico del Motor.
 export const FORMULA_VERSIONS = {
   cargaLaboral: "1.0",
-  // Score de Salud Laboral (LEGACY, ver Sprint 5 § S5-A) — fórmula sin tocar.
-  scoreSalud: "1.0",
+  // Equilibrio Operativo (antes "Score de Salud Laboral" — Sprint Analytics
+  // 2.0 lo revive y renombra; ver docs/DECISIONS.md). v1.1: normalización
+  // progresiva de Capacidad Futura (§Sprint Analytics 2.0 Bloque 9) cambia el
+  // resultado para usuarios con capacidad negativa.
+  equilibrioOperativo: "1.1",
   scoreSimple: "1.0",
-  capacidadDisponible: "1.0",
+  // v1.1: normalización progresiva del rango negativo (antes un salto
+  // abrupto a 0) — ver Sprint Analytics 2.0 Bloque 9.
+  capacidadDisponible: "1.1",
   // Riesgo Operativo — Sprint 5 § S5-C prohíbe modificar reglas/pesos/alertas.
   riesgoOperativo: "1.0",
   // Sprint 1 cambió el resultado de estas tres — versión real, no cosmética.
@@ -97,7 +102,7 @@ export const KPI_PRIORITY = {
   cumplimiento: "alta",
   capacidadDisponible: "alta",
   riesgoOperativo: "alta",
-  scoreSalud: "media",
+  equilibrioOperativo: "media",
   performanceScore: "media",
   consistencia: "media",
   trazabilidad: "media",
@@ -115,7 +120,7 @@ export type KpiPriority = (typeof KPI_PRIORITY)[keyof typeof KPI_PRIORITY];
 // carga por tareas — existían duplicados byte-por-byte en 7 y 5 API routes
 // respectivamente (kpis/[userId], kpis/me, kpis/me/range, kpis/team,
 // kpis/executive, reports/generate, reports/range, dashboard). Es un cálculo
-// DISTINTO del "Score de Salud Laboral" del motor (computeHealthScore) — se
+// DISTINTO del "Equilibrio Operativo" del motor (computeHealthScore) — se
 // muestra en rankings/reportes, no en el panel de Analytics avanzado; no se
 // fusionan porque cambiaría números ya validados en esas pantallas. Única
 // fuente ahora: esta función.
@@ -148,7 +153,7 @@ export function computeEstimatedVsRealRatio(totalReal: number, totalEstimated: n
  * `emptyValue` es el resultado cuando `tasks` está vacío — dos usos
  * legítimamente distintos coexistían antes de esta función: `0` para
  * pantallas de reporte/ranking/histórico (sin tareas = sin dato que
- * mostrar) y `100` para el Score de Salud/Performance (sin tareas asignadas
+ * mostrar) y `100` para el Equilibrio Operativo/Performance (sin tareas asignadas
  * ese mes no debe penalizar el score).
  */
 export function computeCompletedPctAny(tasks: { status: string }[], emptyValue: 0 | 100 = 0): number {
@@ -161,7 +166,7 @@ export function computeCompletedPctAny(tasks: { status: string }[], emptyValue: 
  * Puntos ponderados = rawScore(0-100) × weight% / 100, redondeado a 2
  * decimales — convierte un sub-score/porcentaje ya calculado (crudo o
  * normalizado) en su aporte de puntos dentro de una suma ponderada. Usada por
- * el Score de Salud, Performance Score y el Índice de Riesgo Operativo (cada
+ * el Equilibrio Operativo, Performance Score y el Índice de Riesgo Operativo (cada
  * uno con sus propios factores/pesos) y por el simulador de escenarios
  * (`/api/analytics/simulate`), que antes reimplementaba esta misma línea
  * localmente (ver Analytics Calculation Registry § D8). Única fuente ahora.
@@ -284,7 +289,7 @@ export function formatIsoDate(d: Date): string {
 
 /** kind de AnalyticsAuditLog → fórmula(s) de negocio involucradas (§Sprint 4 S4-D). */
 const AUDIT_KIND_FORMULAS: Record<string, FormulaName[]> = {
-  health_score: ["scoreSalud", "cargaLaboral", "cumplimiento", "consistencia", "capacidadDisponible"],
+  health_score: ["equilibrioOperativo", "cargaLaboral", "cumplimiento", "consistencia", "capacidadDisponible"],
   performance_score: ["performanceScore", "cumplimiento", "consistencia", "trazabilidad"],
   operational_risk: ["riesgoOperativo"],
   alerts: [],
@@ -598,6 +603,8 @@ export type ConsistencyResult =
         periodsUsed: string[];
         periodsExcluded: ExcludedPeriod[];
         steps: string[];
+        /** Frase de impacto cualitativo cuando level es "variable"/"muy-variable" (Sprint Analytics 2.0 Bloque 10); null en los demás niveles. */
+        impactNote: string | null;
       };
     };
 
@@ -619,6 +626,21 @@ const CV_INTERPRETATION: Record<ConsistencyLevel, string> = {
   "consistente": "Variabilidad baja entre semanas.",
   "variable": "Variabilidad moderada entre semanas.",
   "muy-variable": "Variabilidad alta entre semanas.",
+};
+
+/**
+ * Sprint Analytics 2.0 (Bloque 10) — frase de impacto cualitativo, solo para
+ * los niveles "variable"/"muy-variable" (null en los otros dos — no hay nada
+ * que auto-explicar cuando la consistencia ya es buena). El resto de los
+ * datos del párrafo (% de variación, semanas afectadas, motivo) ya existían
+ * en `coefficientOfVariation`/`weeksAnalyzed`/`explain.periodsExcluded` — la
+ * UI compone el párrafo completo, esto solo agrega la pieza que faltaba.
+ */
+const CONSISTENCY_IMPACT_NOTE: Record<ConsistencyLevel, string | null> = {
+  "muy-consistente": null,
+  "consistente": null,
+  "variable": "reduciendo la estabilidad operativa",
+  "muy-variable": "afectando significativamente la previsibilidad operativa",
 };
 
 /** Confiabilidad de la muestra — depende SOLO del tamaño (§Analytics Engine v1.3.1 §3): 2-4 semanas baja, 5-8 media, 9-12 alta, >12 muy alta. Función pura, testeable sin BD. */
@@ -726,6 +748,7 @@ export async function computeConsistency(userId: string, now: Date = new Date())
       periodsUsed,
       periodsExcluded,
       steps,
+      impactNote: CONSISTENCY_IMPACT_NOTE[level],
     },
   };
 }
@@ -889,7 +912,7 @@ export async function computePrediction(userId: string, now: Date = new Date()):
   };
 }
 
-// ── Score de Salud Laboral (§3) ─────────────────────────────────────────────────
+// ── Equilibrio Operativo (§3, antes "Score de Salud Laboral" — ver docs/DECISIONS.md) ──
 
 export type HealthFactor = { name: string; rawLabel: string; weight: number; points: number; detail: string };
 export type HealthScoreResult = {
@@ -923,11 +946,27 @@ function consistencyToScore(consistency: ConsistencyResult): number {
   }
 }
 
+/**
+ * Sprint Analytics 2.0 (Bloque 9) — único cambio matemático autorizado de
+ * este sprint. Antes, el estado `sobrecarga` (`disponible < 0` horas, ver
+ * `classifyCapacity` en `capacityForecast.ts`) caía directo a 0, sin
+ * gradación — un salto abrupto que trataba -1% igual que -90%. Ahora decrece
+ * linealmente: `score = 100 + 2 × pct`, acotado a [0,100] — reproduce
+ * exactamente los anclajes del spec: 0%→100, -5%→90, -10%→80, -20%→60,
+ * -30%→40, -40%→20, -50%→0, más allá de -50%→0. Se activa por `estado ===
+ * "sobrecarga"` (no por `disponiblePct < 0`): una sobrecarga leve puede
+ * redondear a 0% exacto (ej. -0.4h sobre una base grande) y aun así debe
+ * entrar a la curva progresiva — condicionar por el signo crudo de
+ * `disponiblePct` reintroducía el mismo salto abrupto justo en ese borde. El
+ * lado positivo (`alta`/`limitada`/`sin-planificacion`) NO cambia — el spec
+ * solo ejemplifica el rango negativo (ver docs/AUDIT_LOG.md § Sprint
+ * Analytics 2.0).
+ */
 export function capacityToScore(estado: string, disponiblePct: number): number {
   if (estado === "alta") return 100;
   if (estado === "limitada") return 70;
   if (estado === "sin-planificacion") return 70;
-  if (disponiblePct < 0) return 0;
+  if (estado === "sobrecarga") return Math.max(0, Math.round(100 + 2 * disponiblePct));
   return 40;
 }
 
@@ -1001,6 +1040,42 @@ export async function computeHealthScore(userId: string, now: Date = new Date(),
     result
   );
   return result;
+}
+
+// ── Estado Operativo — 5 niveles (Sprint Analytics 2.0 Bloque 11/12) ────────
+// Capa de PRESENTACIÓN adicional sobre HealthScoreResult.score — no
+// reemplaza `classification`/`classificationColor` (que HealthScoreResult
+// conserva con sus 4 valores de siempre, para no romper consumidores
+// existentes: WhatIfSimulator, TeamWorkloadCards, nova-insights). Es una
+// escala genuinamente nueva: ningún clasificador existente (Health 4-tier,
+// Performance 4-tier, Riesgo 4-tier) tenía cortes en 90/75/60/40.
+
+export type EstadoOperativo = "Equilibrio Óptimo" | "Equilibrio Estable" | "Requiere Atención" | "Riesgo Operativo" | "Desequilibrio Crítico";
+export type EstadoOperativoColor = "green" | "blue" | "yellow" | "orange" | "red";
+
+export type EstadoOperativoResult = {
+  estado: EstadoOperativo;
+  color: EstadoOperativoColor;
+  emoji: string;
+  rango: string;
+  explicacionEjecutiva: string;
+};
+
+const ESTADO_OPERATIVO_TIERS: { min: number; estado: EstadoOperativo; color: EstadoOperativoColor; emoji: string; rango: string; explicacionEjecutiva: string }[] = [
+  { min: 90, estado: "Equilibrio Óptimo", color: "green", emoji: "🟢", rango: "90–100", explicacionEjecutiva: "Puede asumir nuevos desafíos." },
+  { min: 75, estado: "Equilibrio Estable", color: "blue", emoji: "🔵", rango: "75–89", explicacionEjecutiva: "Operación saludable." },
+  { min: 60, estado: "Requiere Atención", color: "yellow", emoji: "🟡", rango: "60–74", explicacionEjecutiva: "Se recomienda seguimiento." },
+  { min: 40, estado: "Riesgo Operativo", color: "orange", emoji: "🟠", rango: "40–59", explicacionEjecutiva: "Es conveniente intervenir." },
+  { min: 0, estado: "Desequilibrio Crítico", color: "red", emoji: "🔴", rango: "0–39", explicacionEjecutiva: "Se recomienda una revisión inmediata." },
+];
+
+/** Escala de interpretación completa (Bloque 12) — para mostrarla siempre visible, no solo el nivel del score actual. */
+export const ESCALA_INTERPRETACION_EQUILIBRIO = ESTADO_OPERATIVO_TIERS;
+
+export function classifyEstadoOperativo(score: number): EstadoOperativoResult {
+  const tier = ESTADO_OPERATIVO_TIERS.find((t) => score >= t.min) ?? ESTADO_OPERATIVO_TIERS[ESTADO_OPERATIVO_TIERS.length - 1];
+  const { min: _min, ...rest } = tier;
+  return rest;
 }
 
 // ── Performance Score (§Sprint 5 S5-B) ──────────────────────────────────────────
@@ -1674,7 +1749,7 @@ export async function getResolvedAlertsHistory(userId: string, currentAlerts: En
 // .disponible < 0) con quién tiene capacidad disponible (.disponible > 0) y
 // sugiere una redistribución concreta. El impacto esperado (pts de Score,
 // pts de Riesgo) se calcula recomponiendo el factor "Capacidad futura" del
-// Score de Salud y el factor "Sobrecarga proyectada" del Riesgo Operativo con
+// Equilibrio Operativo y el factor "Sobrecarga proyectada" del Riesgo Operativo con
 // las MISMAS fórmulas del motor (capacityToScore/classifyCapacity), evaluadas
 // antes/después del movimiento hipotético — no son números inventados, pero
 // tampoco vuelven a correr el pipeline completo por persona (sería costoso

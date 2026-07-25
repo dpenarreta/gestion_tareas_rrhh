@@ -335,7 +335,7 @@ function SimulatorPanel({ member, onClose }: { member: CapacityMember; onClose: 
                 <span className="text-secondary">Carga: <strong className="text-main">{result.before.cargaLabel} ({result.before.cargaPct}%)</strong></span>
                 <span className="text-secondary">Capacidad: <strong className="text-main">{result.before.capacidadDisponiblePct}%</strong></span>
                 <span className="text-secondary">Cumplimiento: <strong className="text-main">{result.before.cumplimientoPct}%</strong></span>
-                <span className="text-secondary">Score Salud: <strong className={HEALTH_CLASS_TEXT[result.before.healthClassification]}>{result.before.healthScore}</strong></span>
+                <span className="text-secondary">Equilibrio: <strong className={HEALTH_CLASS_TEXT[result.before.healthClassification]}>{result.before.healthScore}</strong></span>
               </div>
             </div>
             <div className="flex justify-center text-disabled">
@@ -349,7 +349,7 @@ function SimulatorPanel({ member, onClose }: { member: CapacityMember; onClose: 
                 <span className="text-secondary">Carga: <strong className={CARGA_COLOR_TEXT[result.after.cargaColor]}>{result.after.cargaLabel} ({result.after.cargaPct}%)</strong></span>
                 <span className="text-secondary">Capacidad: <strong className="text-main">{result.after.capacidadDisponiblePct}%</strong></span>
                 <span className="text-secondary">Cumplimiento: <strong className="text-main">{result.after.cumplimientoPct}%</strong></span>
-                <span className="text-secondary">Score Salud: <strong className={HEALTH_CLASS_TEXT[result.after.healthClassification]}>{result.after.healthScore} ({result.after.healthClassification})</strong></span>
+                <span className="text-secondary">Equilibrio: <strong className={HEALTH_CLASS_TEXT[result.after.healthClassification]}>{result.after.healthScore} ({result.after.healthClassification})</strong></span>
               </div>
             </div>
           </div>

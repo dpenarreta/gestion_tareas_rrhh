@@ -8,13 +8,13 @@
 
 | Componente | Versión | Notas |
 |---|---|---|
-| **NEXO** (producto) | **v1.15.1** | Ver `docs/CHANGELOG.md` para el detalle de qué introdujo cada versión |
-| **Analytics Engine** | v1.5.0 | `ANALYTICS_ENGINE_VERSION` en `src/lib/analytics.ts` — sin cambios (el fix de `isCompletedOnTime` vive en `priorityCompliance.ts`, fuera del motor central) |
-| **Formulas Set** | v4.3 | `FORMULA_SET_VERSION` en `src/lib/analytics.ts` — sube por la corrección de `isCompletedOnTime` (2026-07-24, `FORMULA_VERSIONS.completadoATiempo`) |
+| **NEXO** (producto) | **v1.16.0** | Ver `docs/CHANGELOG.md` para el detalle de qué introdujo cada versión |
+| **Analytics Engine** | v1.5.0 | `ANALYTICS_ENGINE_VERSION` en `src/lib/analytics.ts` — sin cambios (Sprint Analytics 2.0 amplía la capa de interpretación en `insightsEngine.ts` y ajusta 2 fórmulas, no la versión del motor central) |
+| **Formulas Set** | v4.4 | `FORMULA_SET_VERSION` en `src/lib/analytics.ts` — sube por la normalización progresiva de Capacidad Futura (2026-07-24, `FORMULA_VERSIONS.capacidadDisponible`/`equilibrioOperativo` → `"1.1"`, Sprint Analytics 2.0 Bloque 9) |
 | **API** | Sin versionado explícito (rutas internas de Next.js, no una API pública versionada) | Ver `docs/ARCHITECTURE.md` |
 | **Prisma Schema** | Sin campo de versión propio — el historial de migraciones en `prisma/migrations/` es la fuente de verdad de su evolución | — |
 
-**Última actualización:** 2026-07-24 (v1.15.1 — Sprint D continuación: UX, Calidad del Dato ampliada, validación de efectos secundarios)
+**Última actualización:** 2026-07-24 (v1.16.0 — Sprint Analytics 2.0: Equilibrio Operativo, interpretación automática, normalización progresiva de Capacidad Futura)
 **Autor:** Claude Code
 
 ---
@@ -80,7 +80,8 @@ hacia adelante):
 | v1.14.2 | 2026-07-24 | **Migración histórica única — backfill `Task.completedAt`**: regulariza 33 tareas `COMPLETADA` con `completedAt = NULL` (limitación del modelo de datos anterior a 2026-07-07) asignando `completedAt = endDate`; "completadas a tiempo" pasa de 57/121 a 90/121. Cierra además un gap de prevención en `POST /api/tasks` (crear una tarea ya Completada no fijaba `completedAt`). Migración de datos de una sola ejecución, no un cambio de fórmula; ver `docs/AUDIT_LOG.md` § 2026-07-24 |
 | v1.14.3 | 2026-07-24 | **Fix — cierra condición de carrera en `migrateFijaHistoryIfNeeded`**: la migración perezosa de historial de tareas Fijas ahora corre `count()`/`upsert()`/`create()` dentro de una transacción `Serializable`, evitando que dos peticiones concurrentes dupliquen la actividad migrada (riesgo teórico, nunca observado en producción); ver `docs/AUDIT_LOG.md` § 2026-07-24 |
 | v1.15.0 | 2026-07-24 | **Sprint D — Optimización y Refinamiento**: auditoría integral de los 10 módulos (~40 hallazgos), cierra un IDOR real en 5 subrecursos de tareas + crash al eliminar usuarios, consolida ~10 duplicaciones de código, agrupa consultas del Dashboard en `Promise.all`, memoiza gráficos de KPIs, agrega buscador a Usuarios, y suma un panel de Calidad del Dato en Ajustes (fechas inválidas, horas duplicadas, registros sin propietario) — cero módulos nuevos, cero cambios de fórmula, alcance acotado a "solo lo seguro" (hallazgos de negocio quedaron en backlog); ver `docs/AUDIT_LOG.md` § Sprint D |
-| **v1.15.1** | 2026-07-24 | **Sprint D (continuación) — UX, Calidad del Dato ampliada, validación de efectos secundarios**: 10 fixes de UX (spinners/aria-labels/EmptyState/tabla responsive/botones compartidos/normalización visual) de una auditoría dedicada; 2 verificaciones nuevas de Calidad del Dato (motivo huérfano, retroactivo inconsistente); informe de validación de efectos secundarios (Bloque 11) confirmando por `git diff` que Sprint D no tocó Analytics/KPIs/Timeline ni perdió invalidación de caché — ver `docs/AUDIT_LOG.md` § Sprint D (continuación) |
+| v1.15.1 | 2026-07-24 | **Sprint D (continuación) — UX, Calidad del Dato ampliada, validación de efectos secundarios**: 10 fixes de UX (spinners/aria-labels/EmptyState/tabla responsive/botones compartidos/normalización visual) de una auditoría dedicada; 2 verificaciones nuevas de Calidad del Dato (motivo huérfano, retroactivo inconsistente); informe de validación de efectos secundarios (Bloque 11) confirmando por `git diff` que Sprint D no tocó Analytics/KPIs/Timeline ni perdió invalidación de caché — ver `docs/AUDIT_LOG.md` § Sprint D (continuación) |
+| **v1.16.0** | 2026-07-24 | **Sprint Analytics 2.0 — Inteligencia Explicable e Interpretación Ejecutiva**: revive `computeHealthScore` (congelado desde Sprint 5) como "Equilibrio Operativo" con capa de explicabilidad automática (qué significa/por qué/impacto/qué hacer, 100% determinística sin IA), Estado Operativo de 5 niveles con escala siempre visible, normalización progresiva de Capacidad Futura (único cambio de fórmula, elimina el salto abrupto de sobrecarga), auto-explicación de Consistencia "Variable" — rename de marca sin tocar símbolos de código ni `AnalyticsAuditLog.kind` persistido; ver `docs/AUDIT_LOG.md` § Sprint Analytics 2.0 |
 
 Ver `docs/CHANGELOG.md` para el detalle completo de cada versión (tipo de
 cambio, módulo, archivos afectados, impacto).

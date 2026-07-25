@@ -61,7 +61,14 @@
   conversión directa Nota→Tarea del sprint anterior, que nunca se usó en
   producción), archivado de notas con retención de 15 días y eliminación
   definitiva desde Archivadas, buscador único como overlay accesible desde
-  cualquier pestaña (v1.11.0 — este sprint).
+  cualquier pestaña (v1.11.0).
+- Sprint Analytics 2.0 — revive el Score de Salud Laboral (congelado desde
+  Sprint 5) como "Equilibrio Operativo", con capa de explicabilidad
+  automática 100% determinística (qué significa/por qué/impacto/qué
+  hacer), Estado Operativo de 5 niveles con escala siempre visible,
+  normalización progresiva de Capacidad Futura (único cambio de fórmula
+  de este sprint) y auto-explicación de Consistencia "Variable" (v1.16.0
+  — este sprint).
 
 ## En desarrollo
 
@@ -153,6 +160,24 @@ cierre de este sprint)._
 - `IdeaCard.tsx`: agregar activación por tecla Espacio (además de Enter) al
   `role="button"` de la tarjeta — toca manejo de teclado, no es un cambio
   de markup puro (`AUDIT_LOG.md` § Sprint D — continuación, Bloque 7).
+- Extender el estándar de explicabilidad (Sprint Analytics 2.0 — "qué
+  significa/por qué/impacto/qué hacer") de Equilibrio Operativo a las
+  tarjetas standalone de Cumplimiento, Carga Laboral, Capacidad
+  Disponible, Trazabilidad, Predicción y Smart Benchmark. El patrón
+  reutilizable ya existe (`computeEquilibrioInsights`/
+  `explainEquilibrioFactor`/`explainEquilibrioMeaning`/
+  `explainEquilibrioImpact` en `src/lib/insightsEngine.ts`, más
+  `EquilibrioOperativoCard.tsx` como plantilla de composición) — alcance
+  confirmado explícitamente con el usuario para no ampliar ese sprint.
+- Migrar `capacityToScore` (`src/lib/analytics.ts`) íntegro al
+  `NormalizationEngine` (`src/lib/normalizationEngine.ts`) ya existente y
+  configurable en Ajustes — hoy la curva `capacidad` de ese motor está
+  definida pero es código muerto (ningún cálculo real la usa) y sus
+  puntos de control no coinciden con los anclajes agregados por Sprint
+  Analytics 2.0 (Bloque 9) para el rango negativo. La migración
+  completa tocaría también el lado positivo (`alta`/`limitada`/
+  `sin-planificacion` → 100/70/70), fuera del único cambio matemático
+  autorizado en ese sprint.
 
 ## Ideas futuras
 
@@ -172,4 +197,4 @@ cierre de este sprint)._
 
 ---
 
-_Última actualización: 2026-07-23._
+_Última actualización: 2026-07-24._

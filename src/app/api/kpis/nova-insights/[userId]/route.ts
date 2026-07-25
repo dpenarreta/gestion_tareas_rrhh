@@ -156,7 +156,7 @@ async function generateAnalytical(userId: string, sensitivity: Sensitivity, canS
   const ctx = {
     nombre: targetUser?.name ?? "Colaborador",
     rol: targetUser ? (ROLE_LABEL[targetUser.role as Role] ?? targetUser.role) : "",
-    scoreSalud: {
+    equilibrioOperativo: {
       valor: healthScore.score,
       clasificacion: healthScore.classification,
       factores: healthScore.factors.map((f) => ({ nombre: f.name, detalle: f.detail })),
@@ -185,7 +185,7 @@ async function generateAnalytical(userId: string, sensitivity: Sensitivity, canS
   const riesgosRaw = alerts.filter((a) => a.severity === "red" || a.severity === "orange").map((a) => a.message);
   const positivosRaw: string[] = [];
   if (healthScore.classification === "Excelente" || healthScore.classification === "Bueno") {
-    positivosRaw.push(`Score de Salud Laboral: ${healthScore.score}/100 (${healthScore.classification}).`);
+    positivosRaw.push(`Equilibrio Operativo: ${healthScore.score}/100 (${healthScore.classification}).`);
   }
   if (trends.cumplimiento.mesAnterior.available && trends.cumplimiento.mesAnterior.direction === "mejora") {
     positivosRaw.push(`Cumplimiento mejoró ${trends.cumplimiento.mesAnterior.absoluteDiff}pp vs. el mes anterior.`);
@@ -224,7 +224,7 @@ async function generateAnalytical(userId: string, sensitivity: Sensitivity, canS
   }
   if (!hallazgoPrincipal || riesgos.length === 0 || aspectosPositivos.length === 0) {
     const fb = fallbackAnalytical({
-      hallazgoPrincipal: `Score de Salud Laboral: ${healthScore.score}/100 (${healthScore.classification}), cumplimiento del ${healthScore.factors.find((f) => f.name === "Cumplimiento")?.rawLabel ?? "—"}.`,
+      hallazgoPrincipal: `Equilibrio Operativo: ${healthScore.score}/100 (${healthScore.classification}), cumplimiento del ${healthScore.factors.find((f) => f.name === "Cumplimiento")?.rawLabel ?? "—"}.`,
       riesgosRaw,
       positivosRaw,
       recomendacionesRaw,
@@ -248,7 +248,7 @@ async function generateMotivational(userId: string): Promise<MotivationalCacheEn
 
   const ctx = {
     nombre: targetUser?.name ?? "Colaborador",
-    scoreSalud: { valor: healthScore.score, clasificacion: healthScore.classification },
+    equilibrioOperativo: { valor: healthScore.score, clasificacion: healthScore.classification },
     cumplimientoPct: completedPct,
   };
 

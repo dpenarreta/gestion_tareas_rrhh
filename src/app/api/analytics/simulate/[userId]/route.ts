@@ -58,7 +58,7 @@ function isValidScenario(body: unknown): body is Scenario {
  * classifyCapacity/normalize/weightedPoints/classifyPerformanceScore), con el
  * escenario hipotético aplicado como un ajuste aritmético — nunca se escribe
  * en la base de datos. Los 4 escenarios originales (asign_task/daily_hours/
- * vacation/permiso) solo afectan Carga/Capacidad/Score de Salud, por diseño
+ * vacation/permiso) solo afectan Carga/Capacidad/Equilibrio Operativo, por diseño
  * el Performance Score no pondera horas ni capacidad — se mantiene idéntico
  * al valor real en esos casos (no es un error, es la separación de
  * responsabilidades ya documentada en computePerformanceScore). Los 4
@@ -113,7 +113,7 @@ export async function POST(request: Request, ctx: Ctx) {
     performanceScoreClass: performanceScore.classification,
   };
 
-  // Factor "Capacidad futura" y "Carga laboral" del Score de Salud — se
+  // Factor "Capacidad futura" y "Carga laboral" del Equilibrio Operativo — se
   // recalculan con el escenario aplicado y se reinsertan en la suma total,
   // sin volver a consultar el resto de factores (no cambian en ningún escenario).
   const capacityFactor = healthScore.factors.find((f) => f.name === "Capacidad futura")!;

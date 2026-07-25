@@ -8,7 +8,6 @@ import type {
   ConsistencyResult,
   AnomalyResult,
   Prediction,
-  HealthScoreResult,
   PerformanceScoreResult,
   DataQualityResult,
   EngineAlert,
@@ -19,12 +18,12 @@ import { isFeatureEnabled } from "@/lib/featureFlags";
 import { Button } from "@/components/ui/Button";
 import { SmartBenchmarkPanel } from "./SmartBenchmark";
 import TargetTimePrecisionCard from "./TargetTimePrecisionCard";
+import { EquilibrioOperativoCard } from "./EquilibrioOperativoCard";
 import {
   scoreLevel,
   scoreLevelExplanation,
   confidenceLabel,
   reliabilityPctFromStars,
-  derivedNormalizedValue,
   maturityFromWeeks,
   CONFIDENCE_TOOLTIPS,
   CONSISTENCY_FALLBACK_NOTE,
@@ -403,7 +402,9 @@ export function ExplainModal({
   );
 }
 
-// ── Score de Salud Laboral (§3) ────────────────────────────────────────────────
+// ── Clasificación compartida 4-tier (Excelente/Bueno/Riesgo/Crítico) — usada
+// por PerformanceScoreCard. Equilibrio Operativo tiene su propia escala de 5
+// niveles, ver EquilibrioOperativoCard.tsx. ──────────────────────────────────
 
 const CLASS_TEXT: Record<string, string> = { Excelente: "text-success", Bueno: "text-success", Riesgo: "text-warning", Crítico: "text-danger" };
 const CLASS_RING: Record<string, string> = { Excelente: "ring-success/25", Bueno: "ring-success/25", Riesgo: "ring-warning/25", Crítico: "ring-danger/25" };
@@ -434,39 +435,6 @@ export function ScoreZoneBar({ score }: { score: number }) {
   );
 }
 
-export function HealthScoreCard({ result, onExplain }: { result: HealthScoreResult; onExplain: () => void }) {
-  return (
-    <div className="bg-surface rounded-[14px] border border-border shadow-[var(--shadow)] p-5">
-      <div className="flex items-center justify-between mb-1">
-        <h3 className="text-sm font-semibold text-main uppercase tracking-wider flex items-center gap-1.5">
-          Score de Salud Laboral <HelpPopover title="Score de Salud Laboral" help={INDICATOR_HELP.scoreSalud} />
-        </h3>
-        <Button variant="tertiary" size="sm" onClick={onExplain}>¿Cómo se obtuvo este resultado?</Button>
-      </div>
-      <p className="text-[10px] font-semibold text-disabled bg-surface2 inline-block px-2 py-0.5 rounded-full mb-3">
-        Versión anterior — será retirada en una versión futura
-      </p>
-      <div className="flex items-center gap-4 mb-3">
-        <div className={`w-20 h-20 rounded-full ring-4 ${CLASS_RING[result.classification]} bg-background flex flex-col items-center justify-center shrink-0`}>
-          <span className="text-2xl font-extrabold text-title leading-none">{Math.round(result.score)}</span>
-          <span className="text-[10px] text-disabled leading-none mt-0.5">/100</span>
-        </div>
-        <p className={`text-lg font-bold ${CLASS_TEXT[result.classification]}`}>{CLASS_EMOJI[result.classification]} {result.classification}</p>
-      </div>
-      <div className="mb-4">
-        <ScoreZoneBar score={result.score} />
-      </div>
-      <div className="space-y-1.5">
-        {result.factors.map((f) => (
-          <div key={f.name} className="flex items-center justify-between text-xs">
-            <span className="text-secondary">{f.name} <span className="text-disabled">({f.rawLabel})</span></span>
-            <span className="font-semibold text-main">{f.points} pts</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
 
 // ── Performance Score (§Sprint 5 S5-B) ──────────────────────────────────────────
 // Responde una sola pregunta: "¿qué tan bien está ejecutando su trabajo?" — NO
@@ -827,7 +795,6 @@ export function AdvancedAnalyticsPanel({ userId }: { userId: string }) {
   const [data, setData] = useState<AnalyticsBundle | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const [explainLegacyOpen, setExplainLegacyOpen] = useState(false);
   const [explainPerfOpen, setExplainPerfOpen] = useState(false);
 
   useEffect(() => {
@@ -869,15 +836,6 @@ export function AdvancedAnalyticsPanel({ userId }: { userId: string }) {
     factors.map((f) => (f.name === "Consistencia" && f.rawLabel === "Sin historial suficiente" ? { ...f, fallbackNote: CONSISTENCY_FALLBACK_NOTE } : f));
 
   const performanceFactors = withFallbackNote(data.performanceScore.factors);
-  const healthFactors: ExplainFactor[] = withFallbackNote(
-    data.healthScore.factors.map((f) => ({
-      name: f.name,
-      rawLabel: f.rawLabel,
-      normalizedValue: derivedNormalizedValue(f.points, f.weight),
-      weight: f.weight,
-      points: f.points,
-    }))
-  );
 
   return (
     <div className="space-y-5">
@@ -908,10 +866,11 @@ export function AdvancedAnalyticsPanel({ userId }: { userId: string }) {
         </div>
       )}
 
-      <div id="score" className="scroll-mt-16 grid grid-cols-1 lg:grid-cols-2 gap-5">
+      <div id="score" className="scroll-mt-16">
         <PerformanceScoreCard result={data.performanceScore} onExplain={() => setExplainPerfOpen(true)} confidence={sharedConfidence} />
-        <HealthScoreCard result={data.healthScore} onExplain={() => setExplainLegacyOpen(true)} />
       </div>
+
+      <EquilibrioOperativoCard userId={userId} />
 
       <SmartBenchmarkPanel userId={userId} />
 
@@ -936,23 +895,6 @@ export function AdvancedAnalyticsPanel({ userId }: { userId: string }) {
         <TargetTimePrecisionCard userId={userId} />
       </div>
 
-      {explainLegacyOpen && (
-        <ExplainModal
-          title="Score de Salud Laboral (Versión anterior)"
-          formula={data.healthScore.explain.formula}
-          steps={data.healthScore.explain.steps}
-          factors={healthFactors}
-          dataUsed={data.healthScore.factors.map((f) => `${f.name}: ${f.rawLabel}`)}
-          resultValue={Math.round(data.healthScore.score)}
-          resultInterpretation={data.healthScore.classification}
-          engineVersion={data.engineVersion}
-          lastUpdated={data.lastUpdated}
-          dataSource="Tareas del mes en curso, carga horaria, consistencia semanal y capacidad proyectada"
-          referenceUsed={SCORE_CLASSIFICATION_REFERENCE}
-          confidence={sharedConfidence}
-          onClose={() => setExplainLegacyOpen(false)}
-        />
-      )}
       {explainPerfOpen && (
         <ExplainModal
           title="Performance Score"

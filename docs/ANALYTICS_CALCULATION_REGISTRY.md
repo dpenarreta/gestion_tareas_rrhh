@@ -8,7 +8,7 @@ Alcance: solo lectura/documentación. No se modificó Prisma, APIs públicas, co
 
 ## FASE 1 — Inventario de cálculos
 
-### 1.1 Motor central (`src/lib/analytics.ts`, v1.5.0 / `FORMULA_SET_VERSION` 4.2)
+### 1.1 Motor central (`src/lib/analytics.ts`, v1.5.0 / `FORMULA_SET_VERSION` 4.4)
 
 | Indicador | Función | Dependencias | Origen de datos |
 |---|---|---|---|
@@ -21,7 +21,7 @@ Alcance: solo lectura/documentación. No se modificó Prisma, APIs públicas, co
 | Consistencia (CV semanal) | `computeConsistency` (+ `consistencyLevelFromCv`, `consistencyPctFromCv`, `consistencyReliabilityFromWeeks`) | `computeWeeklyHistory`, `computeEffectiveHistoryStart`, `getLeaveMinutesByDay`, `getHolidaySet`, `isWorkingDay` | `Task`, `TaskActivity`, `LeaveRecord` |
 | Detección de anomalías | `detectAnomalies` | `computeMonthlyHistory`, `getEffectiveAnalyticsConfig` | histórico mensual |
 | Predicción (próxima semana / cierre de mes) | `computePrediction` (+ `computePredictionConfidencePct`, `computeMonthlyCompliancePace`) | `computeWeeklyHistory`, `computeCargaTiempo`, `computeConsistency`, `getEffectiveAnalyticsConfig` | `Task` (regresión lineal simple sobre horas semanales), `computeCargaTiempo` |
-| Score de Salud Laboral (LEGACY) | `computeHealthScore` (+ `cargaHealthScore`, `consistencyToScore`, `capacityToScore`) | `computeCargaTiempo`, `computeCapacityForecast`, `computeConsistency`, `monthlyBusinessBase`, `getEffectiveAnalyticsConfig` | `Task` del mes en curso + los 3 anteriores |
+| Equilibrio Operativo (antes "Score de Salud Laboral", ver Sprint Analytics 2.0) | `computeHealthScore` (+ `cargaHealthScore`, `consistencyToScore`, `capacityToScore`) + interpretación: `classifyEstadoOperativo`, `computeEquilibrioInsights` (`insightsEngine.ts`) | `computeCargaTiempo`, `computeCapacityForecast`, `computeConsistency`, `monthlyBusinessBase`, `getEffectiveAnalyticsConfig` | `Task` del mes en curso + los 3 anteriores |
 | Performance Score | `computePerformanceScore` (+ `computeTrazabilidadRaw`) | `computeConsistency`, `computeWeeklyHistory`, `normalize` (NormalizationEngine), `getEffectiveCurve`, `getEffectiveAnalyticsConfig` | `Task`, `Comment`, `TaskActivity` del mes en curso |
 | Índice de Riesgo Operativo | `computeOperationalRisk` (+ `computeSeguimientoConcentration`, `classifyOperationalRisk`) | `computeCapacityForecast`, `computeTrends`, `computeConsistency`, `computeCargaTiempo`, `getEffectiveAnalyticsConfig` | `Task` abiertas, `TaskActivity` de tipo SEGUIMIENTO |
 | Tendencia de score (semana/mes/6m) | `getScoreTrendHistory` (+ `getScoredAuditHistory`, `closestScoredPoint`) | `AnalyticsAuditLog` (kind `performance_score`/`operational_risk`) | tabla de auditoría, no recalcula |
@@ -175,7 +175,7 @@ completo y el informe de validación.
 
 **Corrección aplicada:** se extrajo `classifyPerformanceScore(score)` en `analytics.ts` (mismo patrón que `classifyOperationalRisk` — función pura, sin acceso a BD) y ambos sitios la usan ahora: `computePerformanceScore` la aplica al score individual, `kpis/executive/route.ts` la aplica al promedio del equipo. Un cambio futuro en las bandas de clasificación solo requiere tocar un lugar.
 
-**Nota de alcance:** `computeHealthScore` (Score de Salud Laboral, LEGACY) tiene una clasificación inline con los mismos umbrales/colores — no se tocó a propósito: es un KPI separado y congelado por diseño (ver Sprint 5 § S5-A), y fusionarlo con `classifyPerformanceScore` acoplaría dos scores que el propio motor mantiene deliberadamente independientes. Fuera de alcance de D7, que solo trataba sobre Performance Score.
+**Nota de alcance:** `computeHealthScore` (Equilibrio Operativo, antes "Score de Salud Laboral") tiene una clasificación inline con los mismos umbrales/colores — no se tocó a propósito, ni siquiera al revivir el indicador en Sprint Analytics 2.0 (2026-07-24): es un KPI separado y su clasificación inline se mantiene deliberadamente independiente de `classifyPerformanceScore` (fusionarlas acoplaría dos scores que el motor separa a propósito). Fuera de alcance de D7, que solo trataba sobre Performance Score. La escala de 5 niveles que Equilibrio Operativo sí ganó en Sprint Analytics 2.0 (`classifyEstadoOperativo`, 🟢/🔵/🟡/🟠/🔴) es una capa de presentación *adicional* sobre el mismo `score`, no un reemplazo de esta clasificación inline — ver `docs/ANALYTICS_FORMULAS.md` §3.
 
 **Verificación:** `tsc --noEmit`/`eslint` limpios; suite completa 840/842 (mismos 2 fallos preexistentes de `kpis-executive.test.ts`, no relacionados). Sin cambios de comportamiento visibles — los umbrales/colores resultantes son idénticos a los de antes, solo se consolidó su fuente.
 
@@ -251,7 +251,7 @@ flowchart TB
     CONS["Consistencia (CV semanal)<br/>computeConsistency"]
     ANOM["Anomalías<br/>detectAnomalies"]
     PRED["Predicción<br/>computePrediction"]
-    HEALTH["Score de Salud (legacy)<br/>computeHealthScore"]
+    HEALTH["Equilibrio Operativo<br/>computeHealthScore"]
     PERF["Performance Score<br/>computePerformanceScore"]
     RISK["Índice de Riesgo Operativo<br/>computeOperationalRisk"]
     DQ["Calidad de datos<br/>computeDataQuality"]
@@ -349,7 +349,7 @@ flowchart TB
 - **Target Time** — calcula: referencia oficial, desviación, precisión. Consume: campos de `Task`. Devuelve: valores puros reutilizados por Capacity Engine y por `computeTargetTimePrecision`.
 - **Normalization Engine** — calcula: interpolación lineal por tramos. Consume: curvas configurables. Devuelve: score 0-100 normalizado. Usado solo por Performance Score.
 - **Risk Alerts (legado)** — calcula: alertas simples de riesgo. Consume: tareas abiertas + último registro de actividad. Devuelve: `RiskAlert[]`. **Paralelo e independiente** del Motor de alertas del core (ver D2).
-- **Analytics Engine central** — orquesta histórico → tendencias/consistencia/anomalías/predicción → Score de Salud/Performance/Riesgo → alertas → Benchmark. Devuelve el `AnalyticsBundle` que consume `/api/analytics/[userId]`.
+- **Analytics Engine central** — orquesta histórico → tendencias/consistencia/anomalías/predicción → Equilibrio Operativo/Performance/Riesgo → alertas → Benchmark. Devuelve el `AnalyticsBundle` que consume `/api/analytics/[userId]`.
 - **Capa de decisión (insightsEngine.ts)** — calcula: interpretación y priorización ENCIMA de KPIs ya calculados. No accede a fórmulas de negocio nuevas, solo relaciona/prioriza/compara con historial (`AnalyticsAuditLog`).
 - **Explicabilidad (analyticsExplain.ts)** — pura presentación: traduce valores ya calculados a niveles/etiquetas ejecutivas. Nunca recalcula.
 - **Auditoría** — persiste snapshots de `health_score`/`performance_score`/`operational_risk`/`alerts`/`smart_benchmark`/`validation_failure`; es la fuente de todo "historial personal" (Benchmark Personal, Evolución Personal, tendencias de score).
@@ -362,7 +362,7 @@ flowchart TB
 
 | KPI | ¿Fuente única? | Fuente oficial | Otras implementaciones detectadas |
 |---|---|---|---|
-| Score de Salud Laboral (legacy) | ✅ Sí | `computeHealthScore` (analytics.ts) | ninguna — `analytics/simulate` reutiliza sus factores, no los recalcula |
+| Equilibrio Operativo (antes "Score de Salud Laboral") | ✅ Sí | `computeHealthScore` (analytics.ts) | ninguna — `analytics/simulate` reutiliza sus factores, no los recalcula |
 | Performance Score | ✅ Sí | `computePerformanceScore` (analytics.ts) | ninguna |
 | Índice de Riesgo Operativo | ✅ Sí | `computeOperationalRisk` (analytics.ts) | ninguna — `kpis/executive` lo reutiliza vía caché compartida (`risk-bench:`) |
 | Capacidad Disponible / Comprometido futuro | ✅ Sí | `computeTeamCapacityForecast`/`computeCapacityForecast` (capacityForecast.ts) | ninguna — `analytics/simulate` recompone solo los factores afectados con las mismas funciones (`classifyCapacity`), no reimplementa |

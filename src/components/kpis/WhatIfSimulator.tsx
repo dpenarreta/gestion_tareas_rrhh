@@ -53,11 +53,11 @@ const SCENARIO_NOTE: Record<ScenarioType, string> = {
   complete_task: "Afecta el Performance Score (factor Cumplimiento).",
   reduce_overdue: "Afecta el Performance Score (factor Tareas vencidas).",
   increase_consistency: "Afecta el Performance Score (factor Consistencia).",
-  register_hours: "Afecta la Carga Laboral y el Score de Salud — el Performance Score no pondera horas trabajadas directamente.",
-  assign_task: "Afecta la Capacidad Disponible y el Score de Salud.",
-  daily_hours: "Afecta la Carga Laboral, la Capacidad Disponible y el Score de Salud.",
-  vacation: "Afecta la Capacidad Disponible y el Score de Salud.",
-  permiso: "Afecta la Carga Laboral, la Capacidad Disponible y el Score de Salud.",
+  register_hours: "Afecta la Carga Laboral y el Equilibrio Operativo — el Performance Score no pondera horas trabajadas directamente.",
+  assign_task: "Afecta la Capacidad Disponible y el Equilibrio Operativo.",
+  daily_hours: "Afecta la Carga Laboral, la Capacidad Disponible y el Equilibrio Operativo.",
+  vacation: "Afecta la Capacidad Disponible y el Equilibrio Operativo.",
+  permiso: "Afecta la Carga Laboral, la Capacidad Disponible y el Equilibrio Operativo.",
 };
 
 type Snapshot = {
@@ -229,14 +229,14 @@ export default function WhatIfSimulator({ userId }: { userId: string }) {
             <div className="rounded-xl border border-primary/30 bg-primary-surface/40 p-3">
               <p className="text-[11px] font-semibold text-primary uppercase tracking-wider mb-1.5">Impacto estimado</p>
               <DiffRow label="Performance Score" before={result.before.performanceScorePts} after={result.after.performanceScorePts} unit=" pts" />
-              <DiffRow label="Score de Salud" before={result.before.healthScore} after={result.after.healthScore} unit=" pts" />
+              <DiffRow label="Equilibrio Operativo" before={result.before.healthScore} after={result.after.healthScore} unit=" pts" />
             </div>
 
             <div className="rounded-xl border border-border bg-background p-3 space-y-1.5">
               <p className="text-[11px] font-semibold text-disabled uppercase tracking-wider mb-1">Antes</p>
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <span className="text-secondary">Performance: <strong className="text-main">{result.before.performanceScorePts} ({result.before.performanceScoreClass})</strong></span>
-                <span className="text-secondary">Score Salud: <strong className={HEALTH_CLASS_TEXT[result.before.healthClassification]}>{result.before.healthScore}</strong></span>
+                <span className="text-secondary">Equilibrio: <strong className={HEALTH_CLASS_TEXT[result.before.healthClassification]}>{result.before.healthScore}</strong></span>
                 <span className="text-secondary">Carga: <strong className="text-main">{result.before.cargaLabel} ({result.before.cargaPct}%)</strong></span>
                 <span className="text-secondary">Capacidad: <strong className="text-main">{result.before.capacidadDisponiblePct}%</strong></span>
               </div>
@@ -250,7 +250,7 @@ export default function WhatIfSimulator({ userId }: { userId: string }) {
               <p className="text-[11px] font-semibold text-primary uppercase tracking-wider mb-1">Simulado</p>
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <span className="text-secondary">Performance: <strong className="text-main">{result.after.performanceScorePts} ({result.after.performanceScoreClass})</strong></span>
-                <span className="text-secondary">Score Salud: <strong className={HEALTH_CLASS_TEXT[result.after.healthClassification]}>{result.after.healthScore}</strong></span>
+                <span className="text-secondary">Equilibrio: <strong className={HEALTH_CLASS_TEXT[result.after.healthClassification]}>{result.after.healthScore}</strong></span>
                 <span className="text-secondary">Carga: <strong className={CARGA_COLOR_TEXT[result.after.cargaColor]}>{result.after.cargaLabel} ({result.after.cargaPct}%)</strong></span>
                 <span className="text-secondary">Capacidad: <strong className="text-main">{result.after.capacidadDisponiblePct}%</strong></span>
               </div>

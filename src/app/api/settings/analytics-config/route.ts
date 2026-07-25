@@ -100,7 +100,7 @@ export async function PATCH(request: NextRequest) {
 
   const healthSum = HEALTH_WEIGHT_KEYS.reduce((s, k) => s + merged[k], 0);
   if (HEALTH_WEIGHT_KEYS.some((k) => k in body) && Math.round(healthSum) !== 100) {
-    return NextResponse.json({ error: `Las ponderaciones del Score de Salud deben sumar 100 (suman ${healthSum})` }, { status: 400 });
+    return NextResponse.json({ error: `Las ponderaciones del Equilibrio Operativo deben sumar 100 (suman ${healthSum})` }, { status: 400 });
   }
   const perfSum = PERF_WEIGHT_KEYS.reduce((s, k) => s + merged[k], 0);
   if (PERF_WEIGHT_KEYS.some((k) => k in body) && Math.round(perfSum) !== 100) {

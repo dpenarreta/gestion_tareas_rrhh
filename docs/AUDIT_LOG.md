@@ -15,6 +15,125 @@
 
 ---
 
+## 2026-07-24 — Sprint Analytics 2.0: Inteligencia Explicable e Interpretación Ejecutiva
+
+**Problema:** `computeHealthScore` (Score de Salud Laboral) llevaba congelado
+desde Sprint 5 §S5-A — candidato a retiro, sin ninguna capa de explicación
+propia, mientras Performance Score y Riesgo Operativo ya habían ganado
+interpretación automática (fortalezas/oportunidades/tendencias) en Sprint A y
+Sprint 6. Además, ninguno de los indicadores actuales respondía
+automáticamente 4 preguntas ejecutivas básicas (¿qué significa?/¿por
+qué?/¿qué impacto tiene?/¿qué hacer?), y `capacityToScore` tenía un salto
+abrupto real: cualquier sobrecarga proyectada, desde -1% hasta -90%, caía
+igual a 0 puntos.
+
+### Decisión 1 — Alcance del rename "Salud Laboral" → "Equilibrio Operativo"
+
+**Alternativas consideradas:**
+1. Renombrar todo, incluidos los símbolos de código
+   (`computeHealthScore`/`HealthScoreResult`) y el valor persistido
+   `AnalyticsAuditLog.kind = "health_score"`.
+2. Renombrar solo texto visible al usuario y prosa de documentación,
+   dejando intactos los símbolos de código y el valor persistido.
+
+**Decisión:** opción 2. **Justificación:** `AnalyticsAuditLog.kind =
+"health_score"` está escrito en miles de filas históricas y es leído por
+`getResolvedAlertsHistory`/`computeRecommendationReevaluation`/
+`getScoreTrendExplanation` — renombrarlo rompería esas lecturas contra
+historial ya persistido, y las restricciones explícitas de este sprint
+prohibían tocar "historial"/"auditoría". Los símbolos TypeScript son
+identificadores internos sin costo de negocio en mantenerlos; renombrarlos
+habría sido un refactor mecánico grande sin beneficio funcional. La única
+excepción: la clave `FORMULA_VERSIONS.scoreSalud` → `equilibrioOperativo` sí
+se renombró, porque es solo una clave de lookup en código (usada por
+`AUDIT_KIND_FORMULAS` para versionar auditorías *futuras*), nunca un dato ya
+escrito en BD.
+
+**Impacto:** cero riesgo de romper lecturas de historial; el usuario nunca
+ve "Score de Salud"/"scoreSalud" en ninguna pantalla, tooltip, reporte o
+narrativa de Nova.
+
+### Decisión 2 — Normalización progresiva de Capacidad Futura (único cambio matemático autorizado)
+
+**Problema:** `capacityToScore` mapeaba cualquier sobrecarga proyectada
+(`disponible < 0` horas) directo a 0 puntos, sin gradación — -1% de
+sobrecarga puntuaba igual que -90%.
+
+**Decisión:** reemplazar esa rama por una curva lineal
+`score = clamp(round(100 + 2×disponiblePct), 0, 100)`, activada por
+`estado === "sobrecarga"` (no por el signo de `disponiblePct`). Reproduce
+los 7 anclajes exactos pedidos: 0%→100, -5%→90, -10%→80, -20%→60, -30%→40,
+-40%→20, -50%→0 (y más allá, acotado en 0).
+
+**Corrección encontrada durante la implementación:** la primera versión
+condicionaba por `disponiblePct < 0` en vez de `estado === "sobrecarga"`. Una
+sobrecarga leve puede redondear a `disponiblePct = 0` exacto (ej. `-0.4h`
+sobre una base grande — `classifyCapacity` ya la clasifica `"sobrecarga"`
+porque mira `disponible < 0` en horas crudas, no el porcentaje redondeado).
+Con la condición original, ese caso caía al valor plano `40` en vez de la
+curva progresiva — recreando exactamente el mismo salto abrupto que el
+Bloque 9 buscaba eliminar, solo desplazado al borde 0%. Se corrigió antes de
+cerrar el sprint (test agregado: `capacityToScore("sobrecarga", 0)` →
+`100`).
+
+**Por qué no se migró todo `capacityToScore` al `NormalizationEngine`
+existente:** ya existe una curva `capacidad` configurable en Ajustes, pero
+es código muerto (ningún cálculo real la consume) y sus puntos de control no
+coinciden con los anclajes de este sprint. Migrar el lado positivo
+(`alta`/`limitada`/`sin-planificacion` → 100/70/70) habría ampliado el único
+cambio matemático autorizado más allá de lo pedido — diferido a
+`docs/ROADMAP.md`.
+
+**Impacto numérico (ejemplo real, ver `docs/ANALYTICS_FORMULAS.md` §3):** un
+colaborador con `estado="sobrecarga"`, `disponiblePct=-30` pasa de
+`capacityToScore=0` (score total Equilibrio Operativo: 69.00) a
+`capacityToScore=40` (score total: 75.00) — cambia su Estado Operativo de
+"Requiere Atención" a "Equilibrio Estable" en el ejemplo dado. Afecta
+únicamente a usuarios con capacidad futura negativa proyectada.
+`FORMULA_VERSIONS.capacidadDisponible`/`equilibrioOperativo` suben a `"1.1"`;
+`FORMULA_SET_VERSION` sube de `4.3` a `4.4` (de paso corrige una
+desincronización preexistente: el código ya estaba en 4.3 desde el fix de
+`isCompletedOnTime`, 2026-07-24, pero `docs/ANALYTICS_FORMULAS.md` seguía
+documentando 4.2).
+
+### Decisión 3 — Alcance del Bloque 13 ("aplicar el estándar a todos los KPIs")
+
+Confirmado explícitamente con el usuario (`AskUserQuestion`): esta pasada
+cubre **Equilibrio Operativo completo**, cuyas 5 dimensiones ya explican
+Cumplimiento/Carga/Consistencia/Capacidad como parte de su propia tarjeta.
+Extender el mismo patrón a las tarjetas standalone (Cumplimiento, Carga
+Laboral, Capacidad Disponible, Trazabilidad, Predicción, Smart Benchmark)
+queda como backlog priorizado en `docs/ROADMAP.md`, con el patrón ya
+construido (`computeEquilibrioInsights`/`explainEquilibrioFactor` en
+`insightsEngine.ts`) como plantilla reutilizable — no se tocó su código en
+esta pasada.
+
+### Motor de interpretación nuevo
+
+`insightsEngine.ts` gana `computeEquilibrioInsights`/`explainEquilibrioFactor`/
+`explainEquilibrioMeaning`/`explainEquilibrioImpact`, mismo patrón
+100% determinístico (sin IA) que ya regía `computePerformanceInsights` —
+plantillas fijas por Estado Operativo/dimensión, nunca texto generado. Nuevo
+clasificador `classifyEstadoOperativo` (5 niveles: 🟢 Equilibrio Óptimo
+90-100 / 🔵 Equilibrio Estable 75-89 / 🟡 Requiere Atención 60-74 / 🟠 Riesgo
+Operativo 40-59 / 🔴 Desequilibrio Crítico 0-39) es una capa de presentación
+**adicional** sobre `HealthScoreResult.score` — no reemplaza la
+clasificación inline de 4 niveles (`classification`/`classificationColor`)
+que `WhatIfSimulator`/`TeamWorkloadCards`/nova-insights siguen leyendo sin
+cambios.
+
+**Verificación:** `tsc --noEmit` (2 errores preexistentes sin relación),
+`eslint .` (0 errores, 3 warnings preexistentes sin relación), `vitest run`
+(936/936 — 919 previos + 17 nuevos para `capacityToScore`/
+`classifyEstadoOperativo`/`computeEquilibrioInsights`/
+`explainEquilibrioMeaning`/`explainEquilibrioImpact`), `next build`
+exitoso (incluye la nueva ruta `/api/analytics/equilibrio/[userId]`).
+
+**Aprobado por:** Anthony Jácome (autorización explícita: "proceed sprint
+analytics 2.0"). Pendiente de aprobación expresa para commit/push.
+
+---
+
 ## 2026-07-24 — Sprint D (continuación): UX, Calidad del Dato ampliada, validación de efectos secundarios
 
 Versión más detallada del mismo Sprint D (entrada siguiente, v1.15.0) —

@@ -153,7 +153,7 @@ export default function AnalyticsConfigSection() {
   return (
     <SectionCard title="Configuración de Analytics">
       <p className="text-xs text-secondary">
-        Umbrales y ponderaciones del motor de Analytics (Score de Salud Laboral, Índice de Riesgo Operativo, motor de
+        Umbrales y ponderaciones del motor de Analytics (Equilibrio Operativo, Índice de Riesgo Operativo, motor de
         alertas, predicción y caché). Cada cambio queda registrado en el historial de configuración con usuario, fecha
         y valor anterior. El límite máximo de predicción está fijo en {predictionMaxDays ?? 30} días — la precisión cae
         demasiado más allá de ese horizonte.
@@ -174,7 +174,7 @@ export default function AnalyticsConfigSection() {
 
         <div>
           <div className="flex items-center justify-between mb-1">
-            <h4 className="text-sm font-semibold text-title">Score de Salud Laboral (Legacy) — ponderaciones</h4>
+            <h4 className="text-sm font-semibold text-title">Equilibrio Operativo — ponderaciones</h4>
             <span className={`text-xs font-medium ${Math.round(healthSum) === 100 ? "text-success" : "text-danger"}`}>Suma: {Math.round(healthSum * 10) / 10}%</span>
           </div>
           <div className="divide-y divide-border">

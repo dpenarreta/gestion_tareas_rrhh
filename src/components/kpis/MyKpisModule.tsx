@@ -869,7 +869,7 @@ export default function MyKpisModule({ currentUserId, currentUserName, currentUs
                 />
               )}
 
-              {/* ── 4. Analytics avanzado: Score de Salud, alertas, tendencias, consistencia, anomalías, predicción ── */}
+              {/* ── 4. Analytics avanzado: Equilibrio Operativo, alertas, tendencias, consistencia, anomalías, predicción ── */}
               <AdvancedAnalyticsPanel userId={currentUserId} />
 
               {/* ── Sprint 6: Decision Intelligence Engine ──────────────────── */}

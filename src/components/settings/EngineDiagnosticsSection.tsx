@@ -25,7 +25,7 @@ type Diagnostics = {
 
 const FORMULA_LABEL: Record<string, string> = {
   cargaLaboral: "Carga laboral",
-  scoreSalud: "Score de Salud (Legacy)",
+  equilibrioOperativo: "Equilibrio Operativo",
   performanceScore: "Performance Score",
   scoreSimple: "Score simple",
   capacidadDisponible: "Capacidad disponible",

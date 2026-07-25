@@ -2,7 +2,7 @@
 
 Este documento es la **referencia de fórmulas** del motor de Analytics de Nexo: para cada KPI/indicador expone la fórmula matemática exacta, sus variables, sus pesos configurables, su normalización (si aplica) y un ejemplo numérico resuelto paso a paso. Es complementario a `docs/ANALYTICS_CALCULATION_REGISTRY.md` — ese documento es la **auditoría de duplicación** (qué funciones existen, dónde se reimplementan, qué se consolidó); este documento es el **libro de fórmulas** (cómo se calcula cada cosa, con qué números). Mantenerlos sincronizados: cualquier cambio de fórmula que suba una versión en `FORMULA_VERSIONS` (`src/lib/analytics.ts`) debe reflejarse aquí en la sección "Versión" del indicador correspondiente.
 
-Motor central: `src/lib/analytics.ts` — `ANALYTICS_ENGINE_VERSION = "1.5.0"`, `FORMULA_SET_VERSION = "4.2"`.
+Motor central: `src/lib/analytics.ts` — `ANALYTICS_ENGINE_VERSION = "1.5.0"`, `FORMULA_SET_VERSION = "4.4"`.
 
 ---
 
@@ -10,7 +10,7 @@ Motor central: `src/lib/analytics.ts` — `ANALYTICS_ENGINE_VERSION = "1.5.0"`, 
 
 1. [Performance Score](#1-performance-score)
 2. [Índice de Riesgo Operativo](#2-índice-de-riesgo-operativo)
-3. [Score de Salud Laboral (legacy)](#3-score-de-salud-laboral-legacy)
+3. [Equilibrio Operativo](#3-equilibrio-operativo)
 4. [Carga Laboral](#4-carga-laboral)
 5. [Capacidad Disponible](#5-capacidad-disponible--capacity-forecast)
 6. [Cumplimiento](#6-cumplimiento)
@@ -30,7 +30,7 @@ Motor central: `src/lib/analytics.ts` — `ANALYTICS_ENGINE_VERSION = "1.5.0"`, 
 **Función:** `computePerformanceScore` (`src/lib/analytics.ts`)
 
 ### Objetivo
-Responder una sola pregunta: "¿qué tan bien está ejecutando su trabajo un colaborador este mes?". A diferencia del Score de Salud (legacy), **nunca** incluye carga laboral, capacidad futura ni riesgo operativo — esos viven exclusivamente en el Índice de Riesgo Operativo.
+Responder una sola pregunta: "¿qué tan bien está ejecutando su trabajo un colaborador este mes?". A diferencia de Equilibrio Operativo (§3), **nunca** incluye carga laboral ni capacidad futura — esos son dimensiones propias de Equilibrio Operativo.
 
 ### Fórmula
 ```
@@ -92,7 +92,7 @@ Mes en curso, colaborador con 20 tareas (16 `COMPLETADA`), 3 tareas vencidas (1 
 
 ### Casos borde
 - Sin tareas asignadas el mes → `computeCompletedPctAny(tasks, 100)` devuelve **100%** (no penaliza a quien no tiene tareas ese mes; distinto del criterio de reportes/rankings, que usan `emptyValue=0`).
-- Consistencia no disponible (historial insuficiente) → `consistencyRaw = 70` (neutro), igual criterio que `consistencyToScore` del Score de Salud.
+- Consistencia no disponible (historial insuficiente) → `consistencyRaw = 70` (neutro), igual criterio que `consistencyToScore` de Equilibrio Operativo.
 - Ninguna semana con `businessDays > 0` para Trazabilidad → `registroPct = 0`.
 
 ### Reglas de negocio
@@ -183,19 +183,21 @@ Colaborador con: `disponible=-5h` (sobrecarga), `disponiblePct=-8%`; 1 tarea cr�
 
 ---
 
-## 3. Score de Salud Laboral (legacy)
+## 3. Equilibrio Operativo
 
-**Función:** `computeHealthScore` (+ `cargaHealthScore`, `consistencyToScore`, `capacityToScore`) (`src/lib/analytics.ts`)
+**Función:** `computeHealthScore` (+ `cargaHealthScore`, `consistencyToScore`, `capacityToScore`) (`src/lib/analytics.ts`); capa de interpretación: `classifyEstadoOperativo`, `computeEquilibrioInsights`, `explainEquilibrioFactor`, `explainEquilibrioMeaning`, `explainEquilibrioImpact` (`src/lib/insightsEngine.ts`).
 
 ### Objetivo
-Score general de bienestar/desempeño combinando 5 dimensiones (cumplimiento, carga, vencidas, consistencia, capacidad futura) en un solo número 0-100. **Estado: LEGACY** — mantenido sin tocar (Sprint 5 §S5-A) y candidato a retirarse en favor de Performance Score + Operational Risk, que separaron sus responsabilidades (ejecución vs. riesgo/carga) de forma más limpia. Sigue en producción porque pantallas/reportes existentes ya muestran este número validado.
+Score integral de equilibrio operativo combinando 5 dimensiones (cumplimiento, carga, vencidas, consistencia, capacidad futura) en un solo número 0-100. **No representa variables médicas, psicológicas ni psicosociales** — es un indicador puramente operativo (cumplimiento/carga/gestión de tiempos/consistencia/capacidad futura).
+
+**Antes "Score de Salud Laboral (legacy)"** — hasta Sprint Analytics 2.0 (2026-07-24) esta función estaba congelada (Sprint 5 §S5-A) como candidata a retiro en favor de Performance Score + Operational Risk. Ese sprint la revive como indicador estrella bajo el nombre **Equilibrio Operativo** y le agrega una capa completa de explicabilidad automática (qué significa el resultado, por qué se obtuvo, qué impacto tiene, qué hacer para mejorarlo — ver "Interpretación automática" abajo), sin tocar su fórmula salvo por la normalización de Capacidad Futura descrita en "Versión". El rename es **solo de marca** (texto visible al usuario y prosa de documentación): los símbolos de código (`computeHealthScore`/`HealthScoreResult`/`HealthFactor`) y el valor persistido `AnalyticsAuditLog.kind = "health_score"` no cambiaron — ver `docs/DECISIONS.md` § Sprint Analytics 2.0.
 
 ### Fórmula
 ```
 score = Σ weightedPoints(rawScore_i, weight_i)   para 5 factores
 ```
 
-| Factor | rawScore | Peso (config) |
+| Factor (dimensión) | rawScore | Peso (config) |
 |---|---|---|
 | Cumplimiento | `computeCompletedPctAny(tasks, 100)` | `healthWeightCumplimiento` |
 | Carga laboral | `cargaHealthScore(realHours, baseHours, limitHigh, limitOverload)` | `healthWeightCarga` |
@@ -212,7 +214,15 @@ si no (real>limitHigh)      → overBy=real-limitHigh; span=max((limitOverload-l
                                → round(max(0, 100 - overBy/span×100))
 ```
 `consistencyToScore`: muy-consistente→100, consistente→80, variable→55, muy-variable→25, no disponible→70.
-`capacityToScore`: alta→100, limitada/sin-planificacion→70, disponible<0→0, si no→40.
+
+`capacityToScore` (Sprint Analytics 2.0, Bloque 9 — normalización progresiva, ver "Versión"):
+```
+estado="alta"                → 100
+estado="limitada"/"sin-planificacion" → 70
+estado="sobrecarga"          → clamp(round(100 + 2×disponiblePct), 0, 100)
+si no ("no-asignar")          → 40
+```
+Se activa por `estado === "sobrecarga"` (el que ya calcula `classifyCapacity`, §5, cuando `disponible<0` horas) y no por el signo de `disponiblePct` — una sobrecarga leve puede redondear a `disponiblePct=0` exacto (ej. `-0.4h` sobre una base grande) y aun así debe entrar a la curva progresiva.
 
 ### Variables
 Igual set que Performance Score (tareas del mes, `CargaTiempo`, `CapacityForecast`, `ConsistencyResult`) más `monthlyBusinessBase` (límites reales en horas del mes: `limitBaseHours`, `limitHighHours`, `limitOverloadHours`).
@@ -221,7 +231,29 @@ Igual set que Performance Score (tareas del mes, `CargaTiempo`, `CapacityForecas
 `healthWeightCumplimiento=25`, `healthWeightCarga=25`, `healthWeightVencidas=20`, `healthWeightConsistencia=15`, `healthWeightCapacidad=15` (suman 100, configurables en Ajustes).
 
 ### Normalización
-No usa NormalizationEngine — cada `rawScore` es una fórmula propia (ver arriba), ya acotada 0-100. Clasificación: `≥90 Excelente`, `≥75 Bueno`, `≥60 Riesgo`, si no `Crítico`. Color: `≥75 green`, `≥60 yellow`, si no `red` (idénticos umbrales a Performance Score, pero **no** comparten función — ver Notas).
+No usa NormalizationEngine — cada `rawScore` es una fórmula propia (ver arriba), ya acotada 0-100. Clasificación interna (`HealthScoreResult.classification`, sin cambios): `≥90 Excelente`, `≥75 Bueno`, `≥60 Riesgo`, si no `Crítico`; color `≥75 green`, `≥60 yellow`, si no `red` (idénticos umbrales a Performance Score, pero **no** comparten función — ver Notas).
+
+**Estado Operativo (presentación, Sprint Analytics 2.0, Bloques 11-12)** — capa adicional sobre el mismo `score`, NO un reemplazo de la clasificación interna de arriba (que otros consumidores como `WhatIfSimulator`/`TeamWorkloadCards`/nova-insights siguen leyendo sin cambios). `classifyEstadoOperativo(score)`:
+
+| Rango | Estado | Color | Explicación ejecutiva |
+|---|---|---|---|
+| 90–100 | 🟢 Equilibrio Óptimo | green | Puede asumir nuevos desafíos |
+| 75–89 | 🔵 Equilibrio Estable | blue | Operación saludable |
+| 60–74 | 🟡 Requiere Atención | yellow | Se recomienda seguimiento |
+| 40–59 | 🟠 Riesgo Operativo | orange | Es conveniente intervenir |
+| 0–39 | 🔴 Desequilibrio Crítico | red | Se recomienda una revisión inmediata |
+
+Se muestra siempre completa (las 5 filas, no solo la vigente) en la UI de Equilibrio Operativo — "escala de interpretación permanente".
+
+### Interpretación automática (Sprint Analytics 2.0)
+Capa de explicabilidad sobre el resultado ya calculado, **100% determinística, sin IA** (mismo estándar que `insightsEngine.ts` completo — ver §14):
+- **¿Qué significa este resultado?** (`explainEquilibrioMeaning`): párrafo fijo por Estado Operativo, con la frase de tendencia (`getScoreTrendExplanation` contra `kind: "health_score"`, comparando la última auditoría vs. hace 30 días) agregada cuando hay historial disponible.
+- **Fortalezas / Aspectos a mejorar** (`computeEquilibrioInsights`): itera las 5 dimensiones, reutiliza `derivedNormalizedValue(points, weight)` y el mismo umbral de ruido que Performance Score (zona "Medio" no genera insight) — Alto/Muy alto → fortaleza (`tone: "positive"`); Bajo → oportunidad (`tone: "risk"`) con una acción sugerida embebida.
+- **Explicación por dimensión** (`explainEquilibrioFactor`): a diferencia de lo anterior, cubre las 5 dimensiones siempre (incluida la zona "Medio"), para que cada tarjeta de dimensión muestre explicación sin excepción.
+- **¿Qué impacto tiene este resultado?** (`explainEquilibrioImpact`): frase fija por Estado Operativo (ej. "Puede asumir nuevos proyectos" / "No se recomienda incrementar responsabilidades").
+- **¿Qué puedo hacer para mejorar?**: las acciones sugeridas de las oportunidades (`Insight.accion`) — reglas fijas por dimensión (`EQUILIBRIO_FACTOR_ACTION`), nunca generadas por IA.
+
+Expuesto en `GET /api/analytics/equilibrio/[userId]` y renderizado por `EquilibrioOperativoCard.tsx`.
 
 ### Ejemplo de cálculo
 Mes: 20 tareas, 16 completadas (`completedPct=80`). Carga: `realHours=120h`, `baseHours=110h`, `limitHigh=130h`, `limitOverload=145h` → `120` está entre `[110,130]` → `cargaScore=100`. Vencidas: 2 normales + 1 Alta → `overdueScore = max(0, 100-2×10-1×20) = 60`. Consistencia "consistente" → `80`. Capacidad `estado="limitada"`, `disponiblePct=15` → `capacityToScore=70`.
@@ -232,23 +264,33 @@ Mes: 20 tareas, 16 completadas (`completedPct=80`). Carga: `realHours=120h`, `ba
 4. Consistencia: `weightedPoints(80, 15) = 12.00`
 5. Capacidad: `weightedPoints(70, 15) = 10.50`
 
-**Total:** `score = 20.00+25.00+12.00+12.00+10.50 = 79.50` → clasificación **"Bueno"**, color `green`.
+**Total:** `score = 20.00+25.00+12.00+12.00+10.50 = 79.50` → clasificación interna **"Bueno"** (green); Estado Operativo (75-89) → **🔵 Equilibrio Estable**, "Operación saludable".
+
+**Antes/después de Capacidad Futura (Bloque 9)**, mismo colaborador con `estado="sobrecarga"` en vez de `"limitada"` y `disponiblePct=-30`:
+- **Antes** (fórmula original, cualquier `disponiblePct<0` → 0): `capacityToScore=0` → `weightedPoints(0, 15) = 0.00` → total `20.00+25.00+12.00+12.00+0.00 = 69.00`.
+- **Después** (curva progresiva, `-30%` es uno de los 7 anclajes del spec → `100+2×(-30)=40`): `capacityToScore=40` → `weightedPoints(40, 15) = 6.00` → total `20.00+25.00+12.00+12.00+6.00 = 75.00`.
+
+Una sobrecarga de -30% ya no se trata igual que una de -90% (ambas daban 0 antes); el score refleja la gradación real.
 
 ### Casos borde
 - `baseHours<=0` (mes sin días hábiles) → `cargaHealthScore` devuelve 100 directamente.
 - Sin tareas asignadas → `completedPct=100` (mismo criterio que Performance Score, vía `computeCompletedPctAny(tasks, 100)`).
-- Consistencia no disponible → `70` (neutro).
+- Consistencia no disponible → `70` (neutro); si el nivel es "Variable"/"Muy variable", `ConsistencyResult.explain.impactNote` agrega una frase de impacto cualitativo (Bloque 10, ver §8).
+- `disponiblePct` más allá de `-50%` se acota en `0`, nunca negativo (`Math.max(0, ...)`).
+- `estado="sobrecarga"` con `disponiblePct` redondeado a `0` (sobrecarga leve) entra a la curva progresiva (`100+2×0=100`), no al valor plano `40` de `"no-asignar"` — ver Fórmula.
 
 ### Reglas de negocio
-- **Congelada por decisión de producto** (Sprint 5 §S5-A) — "fórmula sin tocar"; los cambios de negocio van a Performance Score/Operational Risk en su lugar.
+- El rename a "Equilibrio Operativo" es exclusivamente de marca — ver "Objetivo" arriba y `docs/DECISIONS.md`.
 - Comparte el mismo `precomputedConsistency` que Performance Score dentro de `runAnalyticsPipeline` (una sola consulta de Consistencia reutilizada por ambos, no recalculada dos veces).
+- La interpretación automática (fortalezas/oportunidades/recomendaciones/significado/impacto) es reglas fijas, nunca texto generado por IA — mismo principio que rige todo `insightsEngine.ts` (§14).
 
 ### Versión
-`FORMULA_VERSIONS.scoreSalud = "1.0"` (sin cambios desde su creación).
+`FORMULA_VERSIONS.equilibrioOperativo = "1.1"` (antes `scoreSalud`, clave de código renombrada — no persistida en BD, ver `docs/DECISIONS.md`). `FORMULA_VERSIONS.capacidadDisponible = "1.1"`. Ambas subieron por la normalización progresiva de Capacidad Futura (Sprint Analytics 2.0, Bloque 9, 2026-07-24) — único cambio matemático de ese sprint, afecta únicamente a usuarios con capacidad negativa proyectada (`estado="sobrecarga"`). `FORMULA_SET_VERSION` 4.3 → 4.4.
 
 ### Notas
 - **D7** (registro de auditoría): su clasificación inline (`≥90/75/60`) **no** se fusionó con `classifyPerformanceScore()` a propósito — son dos scores que el motor mantiene deliberadamente independientes, aunque los umbrales numéricos coincidan hoy.
-- Candidato documentado para retiro futuro — mientras tanto sigue siendo la fuente única (`AnalyticsAuditLog kind: "health_score"`) para las pantallas que aún lo muestran.
+- `AnalyticsAuditLog.kind = "health_score"` sigue siendo el identificador persistido para este indicador (miles de filas históricas) — no se renombró junto con la marca, ver `docs/DECISIONS.md`.
+- El estándar de explicabilidad de este sprint no se extendió a las tarjetas standalone de Cumplimiento/Carga/Capacidad/Trazabilidad/Predicción/Benchmark (que Equilibrio Operativo ya cubre como *dimensiones*, no como tarjetas propias) — backlog documentado en `docs/ROADMAP.md`.
 
 ---
 
@@ -385,11 +427,11 @@ Confiabilidad: `tasksSinEstimar=0`, feriados configurados → `confiabilidadPct=
 - `classifyCapacity` es la única fuente del semáforo de capacidad — reutilizada por `computeTeamCapacityForecast`, `computeTeamRecommendations` y el simulador (Registro de auditoría, D5 confirmado sin duplicación).
 
 ### Versión
-`FORMULA_VERSIONS.capacidadDisponible = "1.0"`.
+`FORMULA_VERSIONS.capacidadDisponible = "1.1"` (subió desde `"1.0"` por la normalización progresiva de `capacityToScore` — Sprint Analytics 2.0, Bloque 9, ver §3 — que consume `classifyCapacity` tal cual, sin cambios en esta función; el bump documenta que el *consumidor* de su salida cambió, no `classifyCapacity` en sí).
 
 ### Notas
 - Riesgo de regresión (registro de auditoría): Medio — la hora de corte de jornada (17:00) está hardcodeada, no configurable; un cambio de horario de oficina requeriría tocar código, no Ajustes.
-- "Horas Comprometidas (futuro)" (`comprometidoEnProgreso`/`comprometidoPendiente`/`comprometidoFuturo`) no tiene función exportada propia — vive embebido en este cálculo, versionado junto con `capacidadDisponible: "1.0"`.
+- "Horas Comprometidas (futuro)" (`comprometidoEnProgreso`/`comprometidoPendiente`/`comprometidoFuturo`) no tiene función exportada propia — vive embebido en este cálculo, versionado junto con `capacidadDisponible`.
 
 ---
 
@@ -527,6 +569,14 @@ consistencyPct = round( 100 / (1 + avgCv/100), 1 )   // siempre en (0,100], nunc
 ```
 Clasificación por `avgCv`: `<10 muy-consistente`, `<20 consistente`, `<35 variable`, si no `muy-variable`.
 Confiabilidad (★) por **cantidad de semanas válidas** (no por el CV): `≤4 baja(2★)`, `≤8 media(3★)`, `≤12 alta(4★)`, `>12 muy-alta(5★)`.
+
+**Auto-explicación cuando el nivel es Variable (Sprint Analytics 2.0, Bloque 10)** — `ConsistencyResult.explain.impactNote` (nuevo campo, `string | null`):
+```
+muy-consistente / consistente → null   (sin nota — el nivel no lo amerita)
+variable                      → "reduciendo la estabilidad operativa"
+muy-variable                  → "afectando significativamente la previsibilidad operativa"
+```
+El resto de los datos del párrafo auto-generado (`% de variación` = `avgCv`, `semanas afectadas` = `weeksAnalyzed`, `motivo` = `explain.periodsExcluded[].reason`) ya existían — Bloque 10 solo agrega la frase de impacto cualitativo. Ejemplo (nivel "variable", `avgCv=37`): *"La distribución semanal presentó una variación del 37%, indicando diferencias importantes entre semanas que reducen la estabilidad operativa."*
 
 ### Variables
 - Se evalúan hasta `CONSISTENCY_LOOKBACK_WEEKS = 16` semanas hacia atrás (`computeWeeklyHistory`).
@@ -1027,4 +1077,4 @@ stars: 0.8983 >= 0.85 → 5 ("Muy alta")
 
 ---
 
-_Generado a partir de src/lib/analytics.ts (ANALYTICS_ENGINE_VERSION 1.5.0 / FORMULA_SET_VERSION 4.2) el 2026-07-22. Ampliado el 2026-07-23 (Sprint A)._
+_Generado a partir de src/lib/analytics.ts (ANALYTICS_ENGINE_VERSION 1.5.0 / FORMULA_SET_VERSION 4.4) el 2026-07-22. Ampliado el 2026-07-23 (Sprint A). Ampliado el 2026-07-24 (Sprint Analytics 2.0 — Equilibrio Operativo, curva progresiva de Capacidad Futura, corrige la desincronización de versión 4.2 vs. 4.3 vigente en código)._
