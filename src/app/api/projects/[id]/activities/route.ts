@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canViewProject, isProjectParticipant } from "@/lib/projectAccess";
-import { businessCalendarDay, businessDayRealRange, previousBusinessDays, parseDateOnly } from "@/lib/businessTime";
+import { businessCalendarDay, businessDayRealRange, retroactiveValidDates, parseDateOnly } from "@/lib/businessTime";
 import { timeToMinutes } from "@/lib/timeOverlap";
 import { logProjectHistory } from "@/lib/projectHistory";
 import { recalcProjectRealHours } from "@/lib/recalcHours";
@@ -139,12 +139,16 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     }
     const today = businessCalendarDay(new Date());
     if (parsedDate.getTime() !== today.getTime()) {
-      // Registro retroactivo (§6): misma ventana de 2 días hábiles que Task/Seguimiento.
-      const validDates = previousBusinessDays(today, 2);
+      // Registro retroactivo (§6): misma ventana de 2 días hábiles que Task/Seguimiento,
+      // más el fin de semana inmediato anterior si aún está disponible (ver businessTime.ts).
+      const validDates = retroactiveValidDates(today, 2);
       const isValidDate = validDates.some((d) => d.getTime() === parsedDate!.getTime());
       if (!isValidDate) {
         return NextResponse.json(
-          { error: "La fecha debe ser hoy o uno de los últimos 2 días laborables (no incluye fines de semana)" },
+          {
+            error:
+              "La fecha debe ser hoy, uno de los últimos 2 días laborables, o el sábado/domingo inmediato anterior si aún está disponible",
+          },
           { status: 400 }
         );
       }

@@ -5,7 +5,7 @@ import type { Role } from "@/generated/prisma/client";
 import type { Task } from "./types";
 import type { ActivityFormat } from "@/lib/activityFormat";
 import { fetchActivityReasons, selectableReasons, formatDuration, type ActivityReasonConfig } from "./activityReasons";
-import { businessCalendarDay, previousBusinessDays } from "@/lib/businessTime";
+import { businessCalendarDay, retroactiveValidDates } from "@/lib/businessTime";
 import { rangesOverlap } from "@/lib/timeOverlap";
 import { Modal, ModalHeader } from "@/components/ui/Modal";
 import TimeInput24 from "@/components/ui/TimeInput24";
@@ -52,7 +52,7 @@ type Props = {
 };
 
 export default function RetroactiveActivityModal({ task, currentUserRole, activityFormat = "duration", onClose, onSaved }: Props) {
-  const validDates = useMemo(() => previousBusinessDays(businessCalendarDay(new Date()), 2), []);
+  const validDates = useMemo(() => retroactiveValidDates(businessCalendarDay(new Date()), 2), []);
 
   const [activityDate, setActivityDate] = useState(validDates[0] ? dateToValue(validDates[0]) : "");
   const [reasons, setReasons] = useState<ActivityReasonConfig[]>([]);
@@ -177,7 +177,7 @@ export default function RetroactiveActivityModal({ task, currentUserRole, activi
       <ModalHeader title="Registro retroactivo de horas" onClose={onClose} />
       <div className="p-5 space-y-3">
         <p className="text-xs text-secondary">
-          Solo se pueden registrar horas de los últimos 2 días laborables (no incluye hoy ni fines de semana), para la tarea &ldquo;{task.title}&rdquo;.
+          Solo se pueden registrar horas de los últimos 2 días laborables (no incluye hoy), además del sábado y domingo inmediatos anteriores si aún están disponibles, para la tarea &ldquo;{task.title}&rdquo;.
         </p>
 
         {validDates.length === 0 ? (

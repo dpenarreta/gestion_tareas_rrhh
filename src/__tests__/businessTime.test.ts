@@ -1,5 +1,28 @@
 import { describe, expect, it } from "vitest";
-import { businessCalendarDay, businessDayRealRange, BUSINESS_TZ_OFFSET_HOURS } from "@/lib/businessTime";
+import {
+  businessCalendarDay,
+  businessDayRealRange,
+  BUSINESS_TZ_OFFSET_HOURS,
+  weekendGraceDays,
+  retroactiveValidDates,
+} from "@/lib/businessTime";
+
+// Semana de referencia: lunes 2024-01-08 a domingo 2024-01-14.
+const MON = new Date(Date.UTC(2024, 0, 8));
+const TUE = new Date(Date.UTC(2024, 0, 9));
+const WED = new Date(Date.UTC(2024, 0, 10));
+const THU = new Date(Date.UTC(2024, 0, 11));
+const FRI = new Date(Date.UTC(2024, 0, 12));
+const SAT = new Date(Date.UTC(2024, 0, 13));
+const SUN = new Date(Date.UTC(2024, 0, 14));
+const PREV_SAT = new Date(Date.UTC(2024, 0, 6));
+const PREV_SUN = new Date(Date.UTC(2024, 0, 7));
+const PREV_FRI = new Date(Date.UTC(2024, 0, 5));
+const PREV_THU = new Date(Date.UTC(2024, 0, 4));
+
+function isoDates(dates: Date[]): string[] {
+  return dates.map((d) => d.toISOString().slice(0, 10));
+}
 
 describe("BUSINESS_TZ_OFFSET_HOURS", () => {
   it("es 5 (UTC-5, sin horario de verano)", () => {
@@ -58,5 +81,47 @@ describe("businessDayRealRange", () => {
     const { start, end } = businessDayRealRange(calDay);
     expect(businessCalendarDay(start).getTime()).toBe(calDay.getTime());
     expect(businessCalendarDay(end).getTime()).toBe(calDay.getTime());
+  });
+});
+
+describe("weekendGraceDays", () => {
+  it("lunes: expone el sábado y domingo inmediatos anteriores (domingo primero)", () => {
+    expect(isoDates(weekendGraceDays(MON))).toEqual(["2024-01-07", "2024-01-06"]);
+  });
+
+  it("martes: expone el mismo fin de semana anterior que el lunes", () => {
+    expect(isoDates(weekendGraceDays(TUE))).toEqual(["2024-01-07", "2024-01-06"]);
+  });
+
+  it("miércoles en adelante: el fin de semana ya no está disponible", () => {
+    expect(weekendGraceDays(WED)).toEqual([]);
+    expect(weekendGraceDays(THU)).toEqual([]);
+    expect(weekendGraceDays(FRI)).toEqual([]);
+  });
+
+  it("sábado y domingo mismos no exponen ningún día (no son lunes/martes)", () => {
+    expect(weekendGraceDays(SAT)).toEqual([]);
+    expect(weekendGraceDays(SUN)).toEqual([]);
+  });
+});
+
+describe("retroactiveValidDates", () => {
+  it("lunes: 2 días laborables previos + fin de semana anterior, más reciente primero", () => {
+    const result = retroactiveValidDates(MON, 2);
+    expect(isoDates(result)).toEqual(["2024-01-07", "2024-01-06", "2024-01-05", "2024-01-04"]);
+    expect(result.map((d) => d.getTime())).toEqual([PREV_SUN, PREV_SAT, PREV_FRI, PREV_THU].map((d) => d.getTime()));
+  });
+
+  it("martes: incluye el lunes hábil más el fin de semana previo", () => {
+    expect(isoDates(retroactiveValidDates(TUE, 2))).toEqual(["2024-01-08", "2024-01-07", "2024-01-06", "2024-01-05"]);
+  });
+
+  it("miércoles: vuelve a ser solo la regla base de 2 días laborables, sin fin de semana", () => {
+    expect(isoDates(retroactiveValidDates(WED, 2))).toEqual(["2024-01-09", "2024-01-08"]);
+  });
+
+  it("jueves y viernes: solo la regla base de 2 días laborables", () => {
+    expect(isoDates(retroactiveValidDates(THU, 2))).toEqual(["2024-01-10", "2024-01-09"]);
+    expect(isoDates(retroactiveValidDates(FRI, 2))).toEqual(["2024-01-11", "2024-01-10"]);
   });
 });

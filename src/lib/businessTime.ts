@@ -54,6 +54,38 @@ export function previousBusinessDays(today: Date, count: number): Date[] {
 }
 
 /**
+ * El sábado y domingo del fin de semana inmediatamente anterior a `today`,
+ * pero solo cuando `today` es lunes o martes — a partir del miércoles esos
+ * dos días ya no deben aparecer como registrables. `today` debe ser un Date
+ * UTC-medianoche (ver businessCalendarDay). Devuelve más reciente primero
+ * (domingo, luego sábado), igual que `previousBusinessDays`.
+ */
+export function weekendGraceDays(today: Date): Date[] {
+  const dow = today.getUTCDay();
+  if (dow !== 1 && dow !== 2) return [];
+  const monday = new Date(today);
+  monday.setUTCDate(monday.getUTCDate() - (dow - 1));
+  const sunday = new Date(monday);
+  sunday.setUTCDate(sunday.getUTCDate() - 1);
+  const saturday = new Date(monday);
+  saturday.setUTCDate(saturday.getUTCDate() - 2);
+  return [sunday, saturday];
+}
+
+/**
+ * Motor único de validación para registro retroactivo: los `count` días
+ * laborables más recientes (ver `previousBusinessDays`) más, si aplica, el
+ * fin de semana inmediato anterior (ver `weekendGraceDays`). Usado tanto por
+ * el date-picker del cliente como por la validación del servidor, para que
+ * ambos lados acepten exactamente el mismo conjunto de fechas.
+ */
+export function retroactiveValidDates(today: Date, businessDayCount: number): Date[] {
+  return [...previousBusinessDays(today, businessDayCount), ...weekendGraceDays(today)].sort(
+    (a, b) => b.getTime() - a.getTime()
+  );
+}
+
+/**
  * "YYYY-MM-DD" (de un `<input type="date">`, sin componente horario) -> Date
  * UTC-medianoche. Antes de Sprint D estaba duplicado idéntico en el registro
  * retroactivo de Tareas y en las actividades de Proyectos — ver

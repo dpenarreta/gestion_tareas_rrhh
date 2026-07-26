@@ -23,6 +23,59 @@
 
 ---
 
+## v1.18.1 — 2026-07-26
+
+**Tipo:** FIX
+**Módulo:** Registro retroactivo de actividades (Seguimiento y Proyectos)
+
+Amplía la ventana de registro retroactivo para incluir el fin de semana
+inmediato anterior, sin tocar la regla base de 2 días laborables (48 horas
+hábiles). Antes, el sábado y domingo previos quedaban fuera de la ventana
+retroactiva de forma permanente; ahora están disponibles hasta el martes
+siguiente (inclusive) y desaparecen automáticamente a partir del miércoles.
+
+- **FIX — motor único de validación (`src/lib/businessTime.ts`):** nuevas
+  funciones `weekendGraceDays(today)` (devuelve sábado/domingo del fin de
+  semana inmediato anterior, solo si `today` es lunes o martes) y
+  `retroactiveValidDates(today, count)` (combina `previousBusinessDays` +
+  `weekendGraceDays`, orden más reciente primero). `previousBusinessDays`
+  no se modificó — la regla de 2 días hábiles queda intacta.
+- Los 4 puntos de la plataforma que calculaban la ventana retroactiva de
+  forma independiente ahora llaman a `retroactiveValidDates` en vez de
+  `previousBusinessDays` directamente: `RetroactiveActivityModal.tsx`
+  (tareas de Seguimiento), `ProjectActivitiesTab.tsx` (Proyectos), y sus
+  dos rutas de API correspondientes (`POST /api/tasks/[id]/activities/
+  retroactive`, `POST /api/projects/[id]/activities`) — sin duplicar
+  lógica de fechas entre cliente y servidor.
+- **Alcance deliberado — Tareas Fijas quedan fuera:** el pedido original
+  mencionaba Tareas Fijas como parte del alcance, pero Fija nunca tuvo
+  registro retroactivo (decisión explícita del sprint de unificación del
+  2026-07-21, ver `docs/DECISIONS.md`) — solo registra "hoy" vía
+  `ActivityPanel`. Confirmado con el usuario antes de implementar: no se
+  agrega retroactivo a Fija en este cambio: ver `docs/AUDIT_LOG.md` §
+  2026-07-26.
+- No se tocó Analytics, KPIs, Auditoría, historial de actividades, ni el
+  cálculo de horas — la única superficie de cambio es qué fechas son
+  seleccionables/aceptadas para un registro retroactivo.
+
+**Archivos:** `src/lib/businessTime.ts`,
+`src/components/tasks/RetroactiveActivityModal.tsx`,
+`src/components/projects/ProjectActivitiesTab.tsx`,
+`src/app/api/tasks/[id]/activities/retroactive/route.ts`,
+`src/app/api/projects/[id]/activities/route.ts`,
+`src/__tests__/businessTime.test.ts` (tests nuevos para
+`weekendGraceDays`/`retroactiveValidDates`, cubriendo los 7 días de la
+semana según la tabla del pedido).
+
+**Impacto:** colaboradores pueden registrar horas del sábado/domingo
+inmediato anterior hasta el martes siguiente; miércoles en adelante la
+ventana vuelve a ser exactamente la de antes (2 días hábiles). Sin cambios
+para tareas Fijas.
+
+**Autor:** Claude Code
+
+---
+
 ## v1.18.0 — 2026-07-24
 
 **Tipo:** FEATURE / ANALYTICS

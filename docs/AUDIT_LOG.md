@@ -15,6 +15,89 @@
 
 ---
 
+## 2026-07-26 — Ventana de registro retroactivo: excepción de fin de semana
+
+**Problema:** la regla de registro retroactivo (48 horas hábiles / últimos 2
+días laborables, `previousBusinessDays()` en `src/lib/businessTime.ts`)
+nunca incluía sábado ni domingo, porque solo cuenta días lun-vie. Un
+colaborador que trabajó el fin de semana no tenía forma de registrar esas
+horas una vez pasado el lunes siguiente, salvo pedir una edición manual a un
+Administrador.
+
+**Restricción explícita del pedido:** mantener intacta la regla de 2 días
+laborables; no crear una lógica paralela de fechas; reutilizar el mismo
+componente/motor existente en todos los puntos de la plataforma que lo usan;
+no tocar Analytics/KPIs/Auditoría/Historial/Registro de horas.
+
+### Decisión 1 — Alcance real: Seguimiento y Proyectos, no Tareas Fijas
+
+**Hallazgo durante la exploración previa a implementar:** el pedido
+enumeraba "Tareas Fijas" como parte del alcance, pero Fija nunca tuvo
+registro retroactivo — fue una decisión explícita del sprint de unificación
+de registro de actividades (2026-07-21, commit `11e9886`): `ActivityPanel`
+(usado por Fija) solo registra "hoy", sin selector de fecha, y `POST /api/
+tasks/[id]/activities/retroactive` rechaza con 400 cualquier tarea que no
+sea `SEGUIMIENTO`. Ese sprint documentó la exclusión como alcance
+deliberado, no un olvido (ver `docs/DECISIONS.md`).
+
+**Alternativas consideradas:**
+1. Interpretar "Tareas Fijas" literalmente y construir registro retroactivo
+   nuevo para Fija (UI + API), además de la excepción de fin de semana.
+2. Tratar la mención de Fija como una imprecisión del pedido — Fija no tenía
+   retroactivo antes de este cambio, así que no puede "ganar" la excepción
+   de fin de semana sobre una capacidad que no existe — y aplicar el cambio
+   solo donde el retroactivo ya existe (Seguimiento, Proyectos).
+
+**Decisión:** opción 2, confirmada explícitamente con el usuario antes de
+tocar código (no se asumió). Construir retroactivo nuevo para Fija habría
+sido una expansión de alcance no pedida por este cambio en particular —
+además de chocar con el límite de 2 registros máximo de Fija, una interacción
+que el pedido original no contemplaba y que ameritaría su propio diseño.
+
+**Impacto:** Fija sigue exactamente igual (solo "hoy"). Si en el futuro se
+pide extender retroactivo a Fija, el motor `retroactiveValidDates()`
+construido aquí ya queda listo para reutilizarse sin cambios.
+
+### Decisión 2 — Motor único: `weekendGraceDays()` + `retroactiveValidDates()` en `businessTime.ts`, no tocar `previousBusinessDays()`
+
+**Alternativas consideradas:**
+1. Modificar `previousBusinessDays()` para que cuente sábado/domingo como
+   "días laborables" condicionalmente — descartada: esa función se usa
+   también fuera del contexto retroactivo (p. ej. cálculo de carga laboral)
+   y redefinir qué es un "día laborable" ahí habría sido un cambio de mucho
+   mayor blast radius que lo pedido.
+2. Duplicar el cálculo de fechas válidas en cada uno de los 4 call sites
+   (2 componentes de cliente + 2 rutas de API) — descartada explícitamente
+   por el pedido ("no crear lógica paralela", "un único motor de
+   validación").
+3. **Elegida:** dos funciones nuevas y puras en `businessTime.ts` —
+   `weekendGraceDays(today)` (sábado/domingo del fin de semana inmediato
+   anterior, solo si `today` es lunes o martes; vacío el resto de la
+   semana) y `retroactiveValidDates(today, count)` (combina
+   `previousBusinessDays` + `weekendGraceDays`, ordenado más reciente
+   primero) — y todos los call sites migran de `previousBusinessDays` a
+   `retroactiveValidDates`. `previousBusinessDays()` queda sin cambios,
+   preservando cualquier otro consumidor.
+
+**Por qué el corte es "disponible hasta el martes, no más":** el pedido fue
+explícito ("no deberán mantenerse disponibles más allá de esa ventana") — la
+regla de negocio subyacente es que el fin de semana es una extensión
+temporal ligada a los 2 días hábiles siguientes (lunes y martes), no una
+ventana propia de fecha calendario. Se implementó comparando
+`today.getUTCDay()` contra lunes(1)/martes(2) en vez de una resta de días
+calendario, para que el corte del miércoles sea exacto sin casos borde
+alrededor de feriados o fin de mes.
+
+**Verificación:** `npx vitest run` (970/970, incluye 9 tests nuevos en
+`businessTime.test.ts` cubriendo los 7 días de la semana según la tabla del
+pedido), `npx tsc --noEmit` (2 errores preexistentes no relacionados),
+`npm run lint` (0 errores).
+
+**Aprobado por:** Anthony Jácome (confirmó explícitamente excluir Fija del
+alcance antes de implementar).
+
+---
+
 ## 2026-07-24 — Sprint Analytics 2.1: Mejora del Reporte Ejecutivo y Calidad de la Comparabilidad
 
 **Problema:** el Informe Ejecutivo (construido en Sprint Reportes Ejecutivos

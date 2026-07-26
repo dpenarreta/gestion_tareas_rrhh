@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Role } from "@/generated/prisma/client";
 import type { ProjectActivity, ProjectPhase } from "./types";
 import { DOCUMENT_CATEGORY_LABEL } from "./types";
-import { businessCalendarDay, previousBusinessDays } from "@/lib/businessTime";
+import { businessCalendarDay, retroactiveValidDates } from "@/lib/businessTime";
 import { useToast } from "@/components/ui/Toast";
 import { formatDuration } from "@/lib/utils";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -65,7 +65,7 @@ type Props = {
 export default function ProjectActivitiesTab({ projectId, phases, targetTimeHours, currentUserId, canRegister }: Props) {
   const { showToast } = useToast();
   const today = useMemo(() => businessCalendarDay(new Date()), []);
-  const validDates = useMemo(() => [today, ...previousBusinessDays(today, 2)], [today]);
+  const validDates = useMemo(() => [today, ...retroactiveValidDates(today, 2)], [today]);
 
   const [activities, setActivities] = useState<ProjectActivity[]>([]);
   const [loading, setLoading] = useState(true);

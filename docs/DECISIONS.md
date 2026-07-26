@@ -8,6 +8,7 @@
 
 | Decisión | Motivo técnico | Detalle completo |
 |---|---|---|
+| Excepción de fin de semana en registro retroactivo: solo Seguimiento/Proyectos, no Fija | Fija nunca tuvo registro retroactivo (decisión previa de 2026-07-21); extenderle una excepción sobre una capacidad que no existe habría sido una expansión de alcance no pedida. | `AUDIT_LOG.md` § 2026-07-26 |
 | Cambio de "Horas Estimadas" → "Tiempo Objetivo" | Separar la estimación subjetiva del colaborador de un estándar oficial que un líder puede validar, sin migrar la columna física de Prisma. | `AUDIT_LOG.md` § 2026-07-21 |
 | Unificación de registro Fija/Seguimiento vía `TaskActivity` | Las tareas Fijas no tenían historial ni auditoría de horas; reutilizar el modelo de Seguimiento evita mantener dos sistemas de registro con reglas distintas. | `AUDIT_LOG.md` § 2026-07-21 |
 | Migración de historial de Fijas: perezosa, no un script masivo | La base de datos compartida es producción — una migración bajo demanda evita una escritura global irreversible sin necesidad real de serlo. | `AUDIT_LOG.md` § 2026-07-21 |

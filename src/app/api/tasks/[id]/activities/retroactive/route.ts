@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canAccessTask } from "@/lib/taskAccess";
 import { formatDate } from "@/lib/utils";
-import { businessCalendarDay, businessDayRealRange, previousBusinessDays, parseDateOnly } from "@/lib/businessTime";
+import { businessCalendarDay, businessDayRealRange, retroactiveValidDates, parseDateOnly } from "@/lib/businessTime";
 import { getNotificationRules } from "@/lib/notificationRules";
 import { findOverlappingActivity, overlapMessage } from "@/lib/activityOverlap";
 import { timeToMinutes } from "@/lib/timeOverlap";
@@ -88,11 +88,14 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     }
 
     const today = businessCalendarDay(new Date());
-    const validDates = previousBusinessDays(today, 2);
+    const validDates = retroactiveValidDates(today, 2);
     const isValidDate = validDates.some((d) => d.getTime() === parsedDate.getTime());
     if (!isValidDate) {
       return NextResponse.json(
-        { error: "La fecha debe ser uno de los últimos 2 días laborables (no incluye hoy ni fines de semana)" },
+        {
+          error:
+            "La fecha debe ser uno de los últimos 2 días laborables (no incluye hoy), o el sábado/domingo inmediato anterior si aún está disponible",
+        },
         { status: 400 }
       );
     }
