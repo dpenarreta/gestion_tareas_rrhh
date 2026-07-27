@@ -26,6 +26,7 @@ Motor central: `src/lib/analytics.ts` — `ANALYTICS_ENGINE_VERSION = "1.5.0"`, 
 16. [Trend Engine](#16-trend-engine-sprint-e)
 17. [Predicciones Preventivas](#17-predicciones-preventivas-sprint-e)
 18. [Estabilidad Operativa](#18-estabilidad-operativa-sprint-e)
+19. [Motor de Recomendaciones Deterministas (Redistribución)](#19-motor-de-recomendaciones-deterministas-redistribución)
 
 ---
 
@@ -1334,4 +1335,51 @@ Distinto de "Consistencia Operativa" (uno de los 8 indicadores del Trend Engine,
 
 ---
 
-_Generado a partir de src/lib/analytics.ts (ANALYTICS_ENGINE_VERSION 1.5.0 / FORMULA_SET_VERSION 4.4) el 2026-07-22. Ampliado el 2026-07-23 (Sprint A). Ampliado el 2026-07-24 (Sprint Analytics 2.0 — Equilibrio Operativo, curva progresiva de Capacidad Futura, corrige la desincronización de versión 4.2 vs. 4.3 vigente en código). Ampliado el 2026-07-24 (Sprint Analytics 2.1 — Base Horaria Efectiva, capa de Reporte, sin cambios al Analytics Engine). Ampliado el 2026-07-26 (Sprint E — Trend Engine, Predicciones Preventivas, Estabilidad Operativa; nuevos motores en trendEngine.ts/predictionEngine.ts, cero cambios al Analytics Engine central)._
+## 19. Motor de Recomendaciones Deterministas (Redistribución)
+
+**Función:** `computeTeamRecommendations` (`src/lib/analytics.ts`, §S3-A, ampliado 2026-07-26 con compatibilidad organizacional)
+
+### Objetivo
+Sugerir redistribuciones concretas de horas entre colaboradores con exceso de carga y colaboradores con capacidad disponible — sin IA — y garantizar que toda sugerencia sea **operativamente viable**: nunca entre cargos jerárquicamente incompatibles.
+
+### Fórmula
+```
+overloaded  = miembros con capacidad.disponible < 0, ordenados por exceso descendente (máx. 5)
+availablePool = miembros con capacidad.disponible > 0, ordenados por horas libres descendente
+
+para cada persona en overloaded:
+  sameLevelPool = availablePool donde ROLE_LEVEL[candidato] === ROLE_LEVEL[persona]         // Regla 4, absoluto
+  compatibleRoles = MatrizCompatibilidad[persona.cargo] ?? []                                 // Ajustes → Analytics → Compatibilidad Operativa
+  eligiblePool = sameLevelPool donde candidato.cargo === persona.cargo (Regla 1, primero)
+                 O candidato.cargo ∈ compatibleRoles (Regla 2/3)
+  asignación greedy de eligiblePool (mismo cargo antes que compatible, luego por horas libres descendente)
+  si eligiblePool no cubre nada → mensaje de Regla 5, sin recomendación de redistribución
+```
+El impacto esperado (pts de Equilibrio Operativo, pts de Riesgo Operativo) se recalcula recomponiendo únicamente los factores "Capacidad futura"/"Sobrecarga proyectada" con las mismas fórmulas del motor (`capacityToScore`/`classifyCapacity`) — no se vuelve a correr el pipeline completo por persona.
+
+### Variables
+- `ROLE_LEVEL` (`src/lib/roles.ts`): 5=Administrador, 4=Jefe Nacional, 3=Coordinador Nacional, 2={Coordinador ZS, Analista CC, Analista Selección}, 1={Asistentes, Trabajo Social}.
+- **Matriz de Compatibilidad Operativa** (`getAllEffectiveRoleCompatibility`, `src/lib/systemConfig.ts`): configurable desde Ajustes → Analytics → Compatibilidad Operativa (solo `canManageUsers`). Por cargo, lista de cargos ADICIONALES (mismo nivel, siempre) con los que puede redistribuirse cuando no hay nadie del mismo cargo disponible. Direccional (no auto-simétrica): para compatibilidad mutua hay que configurar ambos lados. Vacía por defecto — sin configuración, solo el mismo cargo redistribuye (Regla 1 exclusivamente).
+- Solo colaboradores `isExecutorRole` (roles.ts) participan, como origen o destino — los de dirección (Jefe Nacional, Administrador) quedan excluidos desde Sprint 0A, sin cambios en este sprint.
+
+### Ejemplo de cálculo
+Asistente GH con 8h de exceso; sin otro Asistente GH disponible; Asistente Nómina con 10h libres, marcado compatible en la matriz (`ASISTENTE_GH → [ASISTENTE_NOMINA]`) → recomendación: "Redistribuir 8h de [nombre] entre [Asistente Nómina] (8h disp.)". Si en cambio el único candidato con capacidad fuera un Coordinador ZS (nivel 2, distinto del nivel 1 del Asistente GH), la Regla 4 lo descarta automáticamente sin importar la matriz → mensaje de Regla 5: "No existe actualmente un colaborador compatible para redistribuir esta carga operativa ([nombre])."
+
+### Casos borde
+- Regla 4 es un filtro absoluto evaluado ANTES de consultar la matriz — una matriz mal configurada nunca puede producir una recomendación vertical (además, `PATCH /api/settings/role-compatibility` rechaza con 400 cualquier intento de configurar un cargo de otro nivel — defensa en profundidad, no redundancia inútil).
+- Sin candidato compatible con capacidad → `hasCandidate: false`, `impactScorePts`/`impactRiskPts` en 0, nunca una sugerencia inventada (Regla 5).
+- Menos de 2 miembros en el equipo → `[]` (nada que recomendar).
+
+### Reglas de negocio
+- No modifica ningún cálculo de carga laboral, KPI, ni el resto del Analytics Engine — el único cambio es sobre QUÉ candidatos son elegibles como destino de redistribución.
+- `computeTeamRecommendations` no tiene entrada en `FORMULA_VERSIONS` (no es una fórmula de score/KPI) — ampliarla no requiere subir `FORMULA_SET_VERSION`.
+
+### Versión
+No versionada en `FORMULA_VERSIONS`. Ampliación de compatibilidad organizacional: 2026-07-26.
+
+### Notas
+Ver `docs/AUDIT_LOG.md` § 2026-07-26 (Compatibilidad Organizacional) para las decisiones de diseño (matriz direccional vs. simétrica, filtro de nivel duro vs. configurable, mensaje de Regla 5 vs. omitir silenciosamente).
+
+---
+
+_Generado a partir de src/lib/analytics.ts (ANALYTICS_ENGINE_VERSION 1.5.0 / FORMULA_SET_VERSION 4.4) el 2026-07-22. Ampliado el 2026-07-23 (Sprint A). Ampliado el 2026-07-24 (Sprint Analytics 2.0 — Equilibrio Operativo, curva progresiva de Capacidad Futura, corrige la desincronización de versión 4.2 vs. 4.3 vigente en código). Ampliado el 2026-07-24 (Sprint Analytics 2.1 — Base Horaria Efectiva, capa de Reporte, sin cambios al Analytics Engine). Ampliado el 2026-07-26 (Sprint E — Trend Engine, Predicciones Preventivas, Estabilidad Operativa; nuevos motores en trendEngine.ts/predictionEngine.ts, cero cambios al Analytics Engine central). Ampliado el 2026-07-26 (Compatibilidad Organizacional — Matriz de Compatibilidad Operativa, `computeTeamRecommendations` respeta jerarquía)._

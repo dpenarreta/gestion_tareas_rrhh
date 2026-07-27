@@ -17,6 +17,7 @@ import {
   getEffectiveHorasEfectivas,
   getEffectiveCurve,
   getEffectiveRoleTarget,
+  getAllEffectiveRoleCompatibility,
   CONFIG_KEY_HORAS_EFECTIVAS,
   type AnalyticsConfigKey,
   type RoleTarget,
@@ -25,6 +26,11 @@ import {
 import { normalize, type CurveName, type CurvePoint } from "@/lib/normalizationEngine";
 import type { DailyCargaPoint } from "@/components/kpis/types";
 import type { Role } from "@/generated/prisma/client";
+// Únicamente para la regla dura de "nunca redistribuir entre niveles
+// jerárquicos distintos" (§Sprint "Compatibilidad Organizacional",
+// computeTeamRecommendations) — no acopla ninguna fórmula de KPI a roles.ts,
+// solo el motor de recomendaciones (que no tiene entrada en FORMULA_VERSIONS).
+import { ROLE_LEVEL } from "@/lib/roles";
 import { getOfficialTargetTime, isTargetTimeValidated, computePrecisionPct, precisionClassification, type PrecisionClassification } from "@/lib/targetTime";
 
 /**
@@ -1743,7 +1749,9 @@ export async function getResolvedAlertsHistory(userId: string, currentAlerts: En
     .slice(0, 3);
 }
 
-// ── Motor de recomendaciones deterministas con impacto (§S3-A) ──────────────
+// ── Motor de recomendaciones deterministas con impacto (§S3-A, compatibilidad
+// organizacional agregada en el sprint "Mejora del Motor Determinista de
+// Recomendaciones — Compatibilidad Organizacional") ──────────────────────────
 //
 // Sin IA — cruza quién tiene exceso de horas comprometidas (capacityForecast
 // .disponible < 0) con quién tiene capacidad disponible (.disponible > 0) y
@@ -1754,6 +1762,18 @@ export async function getResolvedAlertsHistory(userId: string, currentAlerts: En
 // antes/después del movimiento hipotético — no son números inventados, pero
 // tampoco vuelven a correr el pipeline completo por persona (sería costoso
 // para una lista de sugerencias); solo el/los factor(es) que cambian.
+//
+// Compatibilidad organizacional (Reglas 1-5 del pedido):
+//   1. Mismo cargo siempre primero.
+//   2-3. Si no alcanza, cargos del MISMO nivel jerárquico marcados
+//        compatibles en la Matriz de Compatibilidad Operativa (Ajustes →
+//        Analytics → Compatibilidad Operativa, `systemConfig.ts`).
+//   4. Nunca entre niveles jerárquicos distintos — filtro ABSOLUTO por
+//      `ROLE_LEVEL` (roles.ts), no configurable, aplicado antes de mirar la
+//      matriz (una matriz mal configurada con un par de niveles distintos
+//      nunca puede producir una recomendación vertical).
+//   5. Sin candidato compatible con capacidad → mensaje explícito en vez de
+//      una recomendación (nunca se sugiere un destino incorrecto).
 
 export type TeamRecommendation = {
   priority: "alta" | "media";
@@ -1765,33 +1785,54 @@ export type TeamRecommendation = {
   affectedCount: number;
   /** Facilidad de implementación: menos asignaciones destino = más simple de ejecutar. Menor = más fácil. */
   easeRank: number;
+  /** false = Regla 5: no hay candidato compatible con capacidad — `text` es el mensaje explicativo, no una recomendación accionable. */
+  hasCandidate: boolean;
 };
 
 export async function computeTeamRecommendations(
-  members: Array<{ id: string; name: string }>,
+  members: Array<{ id: string; name: string; role: Role }>,
   now: Date = new Date()
 ): Promise<TeamRecommendation[]> {
   if (members.length < 2) return [];
   const config = await getEffectiveAnalyticsConfig(now);
   const capacityMap = await computeTeamCapacityForecast(members.map((m) => m.id), now);
   const nameOf = new Map(members.map((m) => [m.id, m.name]));
+  const roleOf = new Map(members.map((m) => [m.id, m.role]));
+  const compatibilityMatrix = await getAllEffectiveRoleCompatibility(
+    members.map((m) => m.role),
+    now
+  );
 
   const overloaded = [...capacityMap.entries()]
     .filter(([, c]) => c.disponible < 0)
-    .map(([id, c]) => ({ id, name: nameOf.get(id)!, excess: Math.round(-c.disponible * 100) / 100, capacity: c }))
+    .map(([id, c]) => ({ id, name: nameOf.get(id)!, role: roleOf.get(id)!, excess: Math.round(-c.disponible * 100) / 100, capacity: c }))
     .sort((a, b) => b.excess - a.excess);
 
   const availablePool = [...capacityMap.entries()]
     .filter(([, c]) => c.disponible > 0)
-    .map(([id, c]) => ({ id, name: nameOf.get(id)!, free: c.disponible }))
+    .map(([id, c]) => ({ id, name: nameOf.get(id)!, role: roleOf.get(id)!, free: c.disponible }))
     .sort((a, b) => b.free - a.free);
 
   const recommendations: TeamRecommendation[] = [];
 
   for (const person of overloaded.slice(0, 5)) {
+    const priority: "alta" | "media" = person.excess >= 10 || person.capacity.disponiblePct <= -30 ? "alta" : "media";
+
+    // Regla 4 (dura, no configurable): solo el mismo nivel jerárquico.
+    const sameLevelPool = availablePool.filter((a) => ROLE_LEVEL[a.role] === ROLE_LEVEL[person.role]);
+    // Regla 1 (mismo cargo, siempre primero) + Regla 2/3 (matriz de compatibilidad como respaldo).
+    const compatibleRoles = new Set(compatibilityMatrix[person.role] ?? []);
+    const eligiblePool = sameLevelPool
+      .filter((a) => a.role === person.role || compatibleRoles.has(a.role))
+      .sort((a, b) => {
+        const aSameRole = a.role === person.role ? 0 : 1;
+        const bSameRole = b.role === person.role ? 0 : 1;
+        return aSameRole !== bSameRole ? aSameRole - bSameRole : b.free - a.free;
+      });
+
     let remaining = person.excess;
     const allocations: Array<{ name: string; hours: number }> = [];
-    for (const avail of availablePool) {
+    for (const avail of eligiblePool) {
       if (remaining <= 0.01) break;
       const take = Math.round(Math.min(remaining, avail.free) * 100) / 100;
       if (take <= 0) continue;
@@ -1799,7 +1840,21 @@ export async function computeTeamRecommendations(
       avail.free = Math.round((avail.free - take) * 100) / 100;
       remaining = Math.round((remaining - take) * 100) / 100;
     }
-    if (allocations.length === 0) continue;
+
+    if (allocations.length === 0) {
+      // Regla 5 — nunca una recomendación incorrecta cuando no hay candidato compatible.
+      recommendations.push({
+        priority,
+        priorityColor: priority === "alta" ? "red" : "yellow",
+        text: `No existe actualmente un colaborador compatible para redistribuir esta carga operativa (${person.name}).`,
+        impactScorePts: 0,
+        impactRiskPts: 0,
+        affectedCount: 1,
+        easeRank: 99,
+        hasCandidate: false,
+      });
+      continue;
+    }
     const movedTotal = Math.round(allocations.reduce((s, a) => s + a.hours, 0) * 100) / 100;
 
     const before = person.capacity;
@@ -1815,7 +1870,6 @@ export async function computeTeamRecommendations(
     const afterSobrecargaPct = newDisponible < 0 ? Math.min(100, Math.abs(newDisponiblePct)) : 0;
     const impactRiskPts = Math.round((((afterSobrecargaPct - beforeSobrecargaPct) * config.riskWeightSobrecarga) / 100) * 100) / 100;
 
-    const priority: "alta" | "media" = person.excess >= 10 || before.disponiblePct <= -30 ? "alta" : "media";
     const allocationText = allocations.map((a) => `${a.name} (${a.hours}h disp.)`).join(" y ");
 
     recommendations.push({
@@ -1826,6 +1880,7 @@ export async function computeTeamRecommendations(
       impactRiskPts,
       affectedCount: allocations.length + 1,
       easeRank: allocations.length,
+      hasCandidate: true,
     });
   }
 

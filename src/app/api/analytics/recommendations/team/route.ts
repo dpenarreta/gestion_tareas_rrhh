@@ -23,7 +23,7 @@ export async function GET() {
   const subordinateRoles = getSubordinateRoles(session.role).filter(isExecutorRole);
   const subordinates = await prisma.user.findMany({
     where: { role: { in: subordinateRoles } },
-    select: { id: true, name: true },
+    select: { id: true, name: true, role: true },
     orderBy: { name: "asc" },
   });
 

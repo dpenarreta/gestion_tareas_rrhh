@@ -23,6 +23,63 @@
 
 ---
 
+## v1.20.0 — 2026-07-26
+
+**Tipo:** FIX / ANALYTICS
+**Módulo:** Motor Determinista de Recomendaciones — Compatibilidad Organizacional
+
+Corrige `computeTeamRecommendations` (motor determinista de redistribución
+de carga, §S3-A) para que respete la estructura organizacional de NEXO —
+antes optimizaba solo por disponibilidad/carga, pudiendo sugerir
+redistribuciones entre cargos jerárquicamente incompatibles (ej. Asistente →
+Coordinador). Sin cambios a cálculos de carga laboral, KPIs, ni al resto del
+Analytics Engine — ver `docs/AUDIT_LOG.md` § 2026-07-26.
+
+- **FIX — Regla 1 (redistribución horizontal):** el mismo cargo siempre se
+  prioriza como destino, aunque exista un cargo compatible con más capacidad
+  disponible.
+- **FEATURE — Matriz de Compatibilidad Operativa (Regla 2/3):** nueva
+  configuración en Ajustes → Analytics → Compatibilidad Operativa (solo
+  roles con gestión de usuarios) — qué cargos ADICIONALES del mismo nivel
+  jerárquico pueden recibir redistribución cuando no hay nadie disponible del
+  mismo cargo. `getEffectiveRoleCompatibility`/`setRoleCompatibility`
+  (`src/lib/systemConfig.ts`), `GET/PATCH /api/settings/role-compatibility`.
+  Vacía por defecto — sin configurar, solo el mismo cargo redistribuye.
+- **FIX — Regla 4 (prohibición vertical), filtro absoluto:** nunca se
+  sugiere redistribución entre niveles jerárquicos distintos —
+  `ROLE_LEVEL` (`roles.ts`) filtra los candidatos ANTES de consultar la
+  matriz, y `PATCH /api/settings/role-compatibility` rechaza con 400 (400,
+  no solo advertencia) cualquier intento de configurar un par de niveles
+  distintos. Defensa en profundidad, no una sola capa de protección.
+- **FIX — Regla 5 (sin candidato):** cuando no existe un colaborador
+  compatible con capacidad disponible, el motor devuelve el mensaje "No
+  existe actualmente un colaborador compatible para redistribuir esta carga
+  operativa (nombre)" en vez de omitir silenciosamente o sugerir algo
+  incorrecto (`TeamRecommendation.hasCandidate: false`).
+- **UI:** `TeamWorkloadCards.tsx` (`RecommendationItem`) muestra el mensaje
+  de Regla 5 sin la línea de "impacto esperado" (no aplica cuando no hay
+  redistribución real); nueva sección `RoleCompatibilitySection.tsx`.
+
+**Archivos:** `src/lib/analytics.ts` (`computeTeamRecommendations`,
+`TeamRecommendation`), `src/lib/systemConfig.ts`,
+`src/app/api/settings/role-compatibility/route.ts`,
+`src/app/api/analytics/recommendations/team/route.ts`,
+`src/components/settings/RoleCompatibilitySection.tsx`,
+`src/components/SettingsManager.tsx`, `src/components/kpis/TeamWorkloadCards.tsx`,
+`src/__tests__/team-recommendations-compatibility.test.ts`,
+`src/__tests__/api/role-compatibility.test.ts`.
+
+**Impacto:** las recomendaciones de redistribución que ya se mostraban en
+`/team` (Recomendaciones — motor determinista) ahora solo sugieren
+movimientos operativamente viables; en equipos donde nadie es compatible con
+un colaborador sobrecargado, se informa en vez de sugerir algo incorrecto.
+`npx tsc --noEmit` (2 errores preexistentes no relacionados), `npm run lint`
+(0 errores), `npx vitest run` (1039/1039), `npm run build` limpio.
+
+**Autor:** Claude Code
+
+---
+
 ## v1.19.0 — 2026-07-26
 
 **Tipo:** FEATURE / ANALYTICS

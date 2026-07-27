@@ -15,6 +15,7 @@ import AnalyticsConfigSection from "@/components/settings/AnalyticsConfigSection
 import PredictionWindowSection from "@/components/settings/PredictionWindowSection";
 import NormalizationCurvesSection from "@/components/settings/NormalizationCurvesSection";
 import RoleTargetsSection from "@/components/settings/RoleTargetsSection";
+import RoleCompatibilitySection from "@/components/settings/RoleCompatibilitySection";
 import WelcomeMessageSection from "@/components/settings/WelcomeMessageSection";
 import EngineDiagnosticsSection from "@/components/settings/EngineDiagnosticsSection";
 import DataQualitySection from "@/components/settings/DataQualitySection";
@@ -853,6 +854,7 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
       <PredictionWindowSection />
       <NormalizationCurvesSection />
       <RoleTargetsSection />
+      <RoleCompatibilitySection />
 
       <DocumentationSection />
 

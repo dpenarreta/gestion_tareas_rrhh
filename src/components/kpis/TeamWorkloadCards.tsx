@@ -375,26 +375,36 @@ type TeamRecommendation = {
   impactRiskPts: number;
   affectedCount: number;
   easeRank: number;
+  /** false = sin candidato compatible (Regla 5, compatibilidad organizacional) — `text` es el mensaje explicativo, no hay impacto que mostrar. */
+  hasCandidate?: boolean;
 };
 
 function RecommendationItem({ r }: { r: TeamRecommendation }) {
+  const noCandidate = r.hasCandidate === false;
   return (
     <div className={`rounded-xl p-3.5 border ${r.priorityColor === "red" ? "border-danger/30 bg-danger/[.05]" : "border-warning/30 bg-warning/[.06]"}`}>
       <p className={`text-xs font-bold uppercase tracking-wider mb-1.5 ${r.priorityColor === "red" ? "text-danger" : "text-warning"}`}>
         {r.priorityColor === "red" ? "🔴" : "🟡"} Prioridad {r.priority === "alta" ? "Alta" : "Media"}
       </p>
       <p className="text-sm text-title mb-2">{r.text}</p>
-      <p className="text-[11px] text-secondary">
-        Impacto esperado:{" "}
-        <strong className={r.impactScorePts >= 0 ? "text-success" : "text-danger"}>
-          {r.impactScorePts >= 0 ? "+" : ""}{r.impactScorePts} pts Score
-        </strong>{" "}
-        |{" "}
-        <strong className={r.impactRiskPts <= 0 ? "text-success" : "text-danger"}>
-          {r.impactRiskPts > 0 ? "+" : ""}{r.impactRiskPts} pts Riesgo Operativo
-        </strong>{" "}
-        · {r.affectedCount} {r.affectedCount === 1 ? "colaborador afectado" : "colaboradores afectados"}
-      </p>
+      {noCandidate ? (
+        <p className="text-[11px] text-disabled italic">
+          Sin colaborador compatible con capacidad disponible (mismo cargo o compatible según la Matriz de
+          Compatibilidad Operativa).
+        </p>
+      ) : (
+        <p className="text-[11px] text-secondary">
+          Impacto esperado:{" "}
+          <strong className={r.impactScorePts >= 0 ? "text-success" : "text-danger"}>
+            {r.impactScorePts >= 0 ? "+" : ""}{r.impactScorePts} pts Score
+          </strong>{" "}
+          |{" "}
+          <strong className={r.impactRiskPts <= 0 ? "text-success" : "text-danger"}>
+            {r.impactRiskPts > 0 ? "+" : ""}{r.impactRiskPts} pts Riesgo Operativo
+          </strong>{" "}
+          · {r.affectedCount} {r.affectedCount === 1 ? "colaborador afectado" : "colaboradores afectados"}
+        </p>
+      )}
     </div>
   );
 }

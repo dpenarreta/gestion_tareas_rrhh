@@ -15,6 +15,48 @@
 
 ---
 
+## 2026-07-26 — Compatibilidad Organizacional en el Motor Determinista de Recomendaciones
+
+**Problema:** `computeTeamRecommendations` (`analytics.ts`, §S3-A) sugiere redistribuir horas de un colaborador sobrecargado hacia colaboradores con capacidad disponible, pero solo cruzaba números de capacidad — sin ningún conocimiento de a qué cargo pertenece cada persona. Podía (y en la práctica probablemente lo hacía) sugerir mover trabajo de un Asistente a un Coordinador, o de un Analista a un Jefe Nacional — redistribuciones jerárquicamente incompatibles y operativamente inviables.
+
+**Restricciones explícitas del pedido:** no modificar cálculos de carga laboral, KPIs, ni el Analytics Engine — aplicar la validación únicamente al motor de recomendaciones.
+
+### Decisión 1 — Modificar `computeTeamRecommendations` en `analytics.ts` no viola "no modificar el Analytics Engine"
+
+**Aparente conflicto:** la función que había que corregir vive físicamente en `analytics.ts`, el mismo archivo que las restricciones dicen no tocar.
+
+**Resolución:** `computeTeamRecommendations` no tiene entrada en `FORMULA_VERSIONS` — no es un score/KPI (Performance Score, Equilibrio Operativo, Riesgo Operativo, Cumplimiento, Consistencia, Predicción), es la capa de sugerencias que consume esos cálculos ya hechos. La propia UI la etiqueta "motor determinista" (`TeamWorkloadCards.tsx`), literalmente el nombre del pedido. Se interpretó la restricción como "no tocar fórmulas de KPI", no "no tocar un solo byte del archivo" — mismo criterio ya aplicado en Sprint E al extender `systemConfig.ts` (infraestructura compartida, no una fórmula). Ningún peso, umbral o fórmula de score cambió — solo QUÉ candidatos son elegibles como destino.
+
+### Decisión 2 — Regla 4 (nunca vertical) es un filtro absoluto en código, no solo una validación de configuración
+
+**Alternativas consideradas:**
+1. Confiar en que la Matriz de Compatibilidad Operativa (configurable) nunca permita pares de niveles distintos, validado solo al guardar.
+2. Además de validar al guardar, filtrar por `ROLE_LEVEL` (roles.ts) dentro de `computeTeamRecommendations` mismo, antes de mirar la matriz — defensa en profundidad.
+
+**Decisión:** opción 2. El pedido dice "estas recomendaciones deberán descartarse automáticamente" — lenguaje de invariante del motor, no de validación de formulario. Si en el futuro la matriz se edita directamente en la base de datos, se importa desde otro sistema, o un bug de UI permite guardar un par inválido, el motor igual nunca produce una recomendación vertical. `analytics.ts` importa `ROLE_LEVEL` de `roles.ts` (import nuevo, de un módulo sin dependencias propias, de solo lectura) específicamente para este propósito.
+
+### Decisión 3 — Matriz direccional, no auto-simétrica
+
+**Alternativas consideradas:**
+1. Simétrica: marcar A compatible con B automáticamente marca B compatible con A.
+2. Direccional: cada cargo guarda su propia lista de cargos adicionales aceptados; para compatibilidad mutua, configurar ambos lados.
+
+**Decisión:** opción 2 — mismo patrón de almacenamiento que `getEffectiveRoleTarget`/`setRoleTarget` (un valor JSON por cargo en `SystemConfigHistory`, sin acoplar `systemConfig.ts` a `roles.ts`). Más simple de implementar y auditar (el historial de cambios de `setConfigValue` queda por cargo, no por par), a costa de que el Administrador debe pensar en ambas direcciones si quiere compatibilidad mutua — documentado explícitamente en la UI (`RoleCompatibilitySection.tsx`).
+
+### Decisión 4 — Regla 5: mensaje explícito como una "recomendación" más, no un estado de error aparte
+
+**Decisión:** cuando no hay candidato compatible con capacidad, `computeTeamRecommendations` sigue devolviendo un objeto `TeamRecommendation` (nuevo campo `hasCandidate: false`) con el mensaje pedido como `text`, en vez de omitir a esa persona silenciosamente o lanzar un error. Mantiene la forma de la lista (consumida por `prioritizeRecommendations`, `TeamWorkloadCards.tsx`) sin necesitar un tipo de respuesta paralelo — el consumidor solo necesita una rama condicional (`hasCandidate === false` → sin línea de impacto, ver `RecommendationItem`).
+
+### Decisión 5 — Validación duplicada de nivel en el API route (`/api/settings/role-compatibility`)
+
+Además del filtro absoluto en `computeTeamRecommendations` (Decisión 2), `PATCH /api/settings/role-compatibility` rechaza con 400 cualquier intento de guardar un cargo compatible de otro nivel — no por desconfianza del filtro de motor, sino para que el Administrador reciba el error inmediatamente al configurar, en vez de guardar silenciosamente algo que el motor simplemente ignorará después.
+
+**Verificación:** `npx tsc --noEmit` (2 errores preexistentes no relacionados), `npm run lint` (0 errores), `npx vitest run` (1039/1039 — 1026 preexistentes + 13 nuevos: `team-recommendations-compatibility.test.ts` cubre las 5 Reglas explícitamente, `api/role-compatibility.test.ts` cubre auth/validación del endpoint), `npm run build` limpio (`/api/settings/role-compatibility` y `/api/analytics/recommendations/team` registradas).
+
+**Aprobado por:** Anthony Jácome (pedido con reglas explícitas y criterio de aceptación claro — sin ambigüedad que ameritara una pregunta antes de implementar).
+
+---
+
 ## 2026-07-26 — Sprint E: Analytics Predictivo e Inteligencia Preventiva
 
 **Problema:** el pedido de Sprint E pedía un motor predictivo de 17 bloques (Trend Engine, 4 predicciones explicables, alertas preventivas, simulador de escenarios, gráficos de tendencia, ventana histórica configurable, 2 nuevos indicadores) — determinístico, sin IA generativa, sin tocar KPIs/fórmulas/historial/auditoría existentes. El pedido, sin embargo, chocaba en varios puntos con el estado real del código, y una de sus técnicas propuestas resultó tener un bug real detectado antes de implementar. Esta entrada documenta las 7 decisiones de alcance/diseño más significativas.

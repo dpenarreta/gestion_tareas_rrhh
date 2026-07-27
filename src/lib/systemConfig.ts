@@ -342,3 +342,43 @@ export async function getAllEffectiveRoleTargets(roles: Role[], asOf: Date = new
 export async function setRoleTarget(role: Role, target: RoleTarget, userId: string): Promise<void> {
   await setConfigValue(roleTargetConfigKey(role), JSON.stringify(target), userId);
 }
+
+// ── Matriz de Compatibilidad Operativa (motor determinista de recomendaciones) ──
+//
+// Cargos ADICIONALES (más allá del propio, siempre prioritario) con los que
+// un cargo puede redistribuir carga cuando no hay nadie disponible del mismo
+// cargo. Solo tiene efecto entre cargos del MISMO nivel jerárquico — esa
+// validación vive en el caller (que sí conoce `ROLE_LEVEL`, ver
+// `computeTeamRecommendations` en `analytics.ts`), deliberadamente fuera de
+// este módulo, mismo criterio que `getAllEffectiveRoleTargets` ("el caller
+// pasa la lista de roles, evita acoplar este módulo a roles.ts"). El sentido
+// de cada entrada es direccional (guardado por separado del lado de cada
+// cargo) — para compatibilidad mutua hay que configurar ambos lados.
+// Vacío por defecto: sin configuración explícita, un cargo solo redistribuye
+// con el mismo cargo (Regla 1), nunca se inventa compatibilidad.
+
+function roleCompatibilityConfigKey(role: Role): string {
+  return `analytics_role_compatibility_${role.toLowerCase()}`;
+}
+
+export async function getEffectiveRoleCompatibility(role: Role, asOf: Date = new Date()): Promise<Role[]> {
+  const raw = await getEffectiveConfigString(roleCompatibilityConfigKey(role), asOf, "");
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((r): r is Role => typeof r === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Matriz completa para varios cargos a la vez — el caller pasa la lista de roles (mismo criterio que `getAllEffectiveRoleTargets`). */
+export async function getAllEffectiveRoleCompatibility(roles: Role[], asOf: Date = new Date()): Promise<Record<Role, Role[]>> {
+  const uniqueRoles = [...new Set(roles)];
+  const entries = await Promise.all(uniqueRoles.map(async (role) => [role, await getEffectiveRoleCompatibility(role, asOf)] as const));
+  return Object.fromEntries(entries) as Record<Role, Role[]>;
+}
+
+export async function setRoleCompatibility(role: Role, compatibleRoles: Role[], userId: string): Promise<void> {
+  await setConfigValue(roleCompatibilityConfigKey(role), JSON.stringify(compatibleRoles), userId);
+}
