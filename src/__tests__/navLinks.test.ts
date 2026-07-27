@@ -36,10 +36,17 @@ describe("getNavLinks", () => {
     expect(hrefs("COORDINADOR_NACIONAL")).not.toContain("/settings");
   });
 
-  it("todos los roles ven el enlace de Nova al final", () => {
+  it("todos los roles ven Nova seguido de Inteligencia Preventiva al final (sección 'inteligencia')", () => {
     for (const role of ["ASISTENTE_GH", "COORDINADOR_ZS", "JEFE_NACIONAL", "ADMINISTRADOR"] as const) {
       const links = getNavLinks(role);
-      expect(links[links.length - 1].href).toBe("/assistant");
+      expect(links[links.length - 2].href).toBe("/assistant");
+      expect(links[links.length - 1].href).toBe("/inteligencia-preventiva");
+    }
+  });
+
+  it("todos los roles ven Inteligencia Preventiva (Sprint E) — visibilidad individual/equipo se decide dentro del módulo, no en la navegación", () => {
+    for (const role of ["ASISTENTE_GH", "COORDINADOR_ZS", "JEFE_NACIONAL", "ADMINISTRADOR"] as const) {
+      expect(hrefs(role)).toContain("/inteligencia-preventiva");
     }
   });
 

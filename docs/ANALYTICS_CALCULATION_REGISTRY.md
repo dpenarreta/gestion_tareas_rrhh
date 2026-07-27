@@ -63,6 +63,17 @@ Alcance: solo lectura/documentación. No se modificó Prisma, APIs públicas, co
 
 `AdvancedAnalytics.tsx`, `AnalyticsModule.tsx`, `InsightCards.tsx`, `InsightsPanel.tsx`, `OperationalRiskCard.tsx`, `SmartBenchmark.tsx` — se revisaron los ~2.100 líneas combinadas. Ninguno recalcula un KPI de negocio (score, riesgo, carga, capacidad) a partir de datos crudos — son presentación sobre props ya calculadas por `/api/analytics/*` y `/api/kpis/*`. Sí se detectaron, en una segunda pasada de verificación (agente de exploración independiente), pequeñas heurísticas de presentación reimplementadas en más de un componente — ver **D9** y **D10** en Fase 2.
 
+### 1.5 Capa predictiva (Sprint E, 2026-07-26 — módulo nuevo, sin recalcular KPIs)
+
+| Indicador | Archivo / función | Dependencias | Origen de datos |
+|---|---|---|---|
+| Trend Engine (8 indicadores, dirección/estabilidad) | `src/lib/trendEngine.ts` → `computeTrendEngine` (+ `classifyTrendDirection`, pura) | `computeWeeklyHistory`/`computeConsistency` (analytics.ts), `getScoreSeries`/`getFactorAuditHistory` (analyticsAuditHistory.ts), `getEffectivePredictionWindowWeeksNumber` (predictiveConfig.ts) | `AnalyticsAuditLog`, `TaskActivity`, `ProjectActivity` (2 agregaciones semanales nuevas: Proyectos/Actividades) |
+| Predicciones (Cumplimiento/Sobrecarga/Subutilización/Retrasos) | `src/lib/predictionEngine.ts` → `computeCumplimientoProjection`, `computeSobrecargaProbability`, `computeSubutilizacionPredictions`, `computeTaskDelayPrediction`, `computeProjectDelayPrediction` (+ `nearestHorizon`, `computePredictionConfidence`, `computeHistoricalReliability`, todas puras) | `computeCapacityForecast`/`computeTeamCapacityForecast`, `computeConsistency`, `computeDataQuality`, `computeWeeklyHistory`, `trendEngine.ts` | `Task`, `Project`, `ProjectParticipant` |
+| Estabilidad Operativa | `src/lib/predictionEngine.ts` → `computeOperationalStability` | `trendEngine.ts` (`computeTrendEngine`) | ninguno propio — deriva 100% del Trend Engine |
+| Inteligencia Preventiva (alertas priorizadas) | `src/lib/preventiveIntelligence.ts` → `computePreventiveAlerts`, `computeTeamPreventiveAlerts` | `trendEngine.ts`, `predictionEngine.ts` | ninguno propio — compone las dos capas anteriores |
+
+**Aislamiento deliberado respecto al motor central:** ningún archivo de esta capa importa `analytics.ts` para MODIFICAR nada — solo lo consume de solo lectura. Ninguna función de `analytics.ts`/`capacityForecast.ts`/`workload.ts`/`riskAlerts.ts`/`computeAlerts` fue tocada. Ver **D11** en Fase 2 para las dos duplicaciones deliberadas de matemática genérica que esto produjo (documentadas para no confundirse con drift accidental en una auditoría futura).
+
 ---
 
 ## FASE 2 — Duplicaciones detectadas
@@ -216,6 +227,17 @@ completo y el informe de validación.
 **Corrección aplicada:** se agregaron a `src/lib/analyticsExplain.ts` (el módulo ya designado como "helpers de presentación compartidos", puro, sin `server-only`) — `cumplimientoColor`, `resultBarClass` (ambos sobre un `scoreBand8060` interno compartido), `derivedNormalizedValue`, y se trasladaron `maturityFromCount`/`maturityFromWeeks` desde `AdvancedAnalytics.tsx`. Se actualizaron los 7 consumidores (`kpis/[userId]`, `kpis/me`, `kpis/executive`, `InsightCards.tsx`, `AdvancedAnalytics.tsx`, `OperationalRiskCard.tsx`, `KpisModule.tsx`, `MyKpisModule.tsx`) para importar desde `analyticsExplain.ts` en vez de reimplementar o reexportar vía un componente.
 
 **Verificación:** `tsc --noEmit`/`eslint` limpios en los 9 archivos tocados; sin tests dedicados a estos helpers de presentación (no hay tests de componente para `InsightCards`/`AdvancedAnalytics`/`OperationalRiskCard`); suite completa 840/842 (mismos 2 fallos preexistentes, no relacionados). Sin cambio de comportamiento — mismos colores, mismas estrellas, mismos valores normalizados, ahora desde una sola fuente por concepto.
+
+### 🟡 D11 — DELIBERADO, NO ACCIDENTAL (2026-07-26, Sprint E) — dos duplicaciones pequeñas de matemática genérica, para no tocar fórmulas protegidas
+
+Sprint E necesitaba (a) un clasificador de tendencia (OLS + CV) con ventana configurable, y (b) una proyección de cumplimiento con esa misma ventana configurable. Ambas ya existen en el motor central, pero con ventana FIJA y en funciones que el sprint tenía prohibido modificar:
+
+- `classifyTrendDirection` (`trendEngine.ts`) reimplementa una regresión OLS genérica — la misma idea matemática que la regresión inline de `computePrediction` (`analytics.ts`, ventana fija de 6 semanas), pero sin extraerla a un helper compartido, porque extraerla habría significado refactorizar un archivo de fórmulas protegido esta sesión.
+- `computeCumplimientoProjection` (`predictionEngine.ts`) reimplementa el pace/ritmo de cumplimiento — la misma idea que la función privada `computeMonthlyCompliancePace` (`analytics.ts`, ventana fija = mes en curso, no exportada), pero con ventana configurable por el Administrador.
+
+**Por qué no se resuelve fusionándolas:** ninguna de las dos reimplementaciones cambia el resultado de las funciones protegidas para sus callers existentes (`PredictionCard` en `AdvancedAnalytics.tsx`) — son matemática genérica (regresión/pace), no fórmulas de negocio con pesos/umbrales propios. Fusionarlas habría exigido parametrizar la ventana en `computePrediction`/`computeMonthlyCompliancePace`, cambiando su comportamiento para TODOS los callers existentes — un riesgo no autorizado por este sprint.
+
+**Severidad:** 🟡 Baja — matemática genérica de ~10-15 líneas cada una, documentada aquí explícitamente para que una auditoría futura no la marque como drift accidental.
 
 ### 🟢 D5 — Confirmado: sin duplicación en Carga Laboral / Capacidad / Riesgo / Consistencia / Benchmark
 
@@ -476,6 +498,18 @@ flowchart TB
 
 ---
 
+### Trend Engine / Predicciones Preventivas / Estabilidad Operativa (Sprint E, 2026-07-26)
+- **Motor:** Capa nueva y separada — `src/lib/trendEngine.ts`, `src/lib/predictionEngine.ts`, `src/lib/preventiveIntelligence.ts` (ver §1.5)
+- **Función:** `computeTrendEngine`, `compute{Cumplimiento,Sobrecarga,Subutilizacion,TaskDelay,ProjectDelay}*`, `computeOperationalStability`, `computePreventiveAlerts`/`computeTeamPreventiveAlerts`
+- **Entradas:** histórico ya calculado por el motor central (`computeWeeklyHistory`, `getScoreSeries`, `getFactorAuditHistory`, `computeConsistency`, `computeCapacityForecast`/`computeTeamCapacityForecast`, `computeDataQuality`) + 2 agregaciones semanales nuevas (Proyectos/Actividades)
+- **Salidas:** direcciones de tendencia (8 indicadores), 4 predicciones explicables con confianza/confiabilidad/horizonte, clasificación de Estabilidad Operativa, alertas preventivas priorizadas
+- **Dependencias:** ver tabla §1.5 arriba
+- **Versión de fórmula:** `TREND_ENGINE_VERSION = "1.0.0"`, `PREDICTION_ENGINE_VERSION = "1.0.0"` — módulo nuevo, no forma parte de `FORMULA_VERSIONS` (`analytics.ts`)
+- **Complejidad:** Media-Alta (regresión + CV de residuos, 4 predicciones con reglas propias, agregación batch de equipo)
+- **Riesgo de regresión:** Nulo sobre el motor central — módulo aislado, cero imports de escritura hacia `analytics.ts`/`capacityForecast.ts`/`workload.ts`; riesgo interno acotado por 1026 tests (971 preexistentes + tests nuevos de este sprint) y build de producción limpio
+
+---
+
 ## Resumen ejecutivo de hallazgos
 
 | # | Hallazgo | Severidad | Acción en este sprint |
@@ -490,6 +524,7 @@ flowchart TB
 | D9 | `riskAlerts.ts` contaba "días hábiles" sin excluir feriados, a diferencia de `countBusinessDays` | 🟡 Baja-Media | ✅ **Corregido** (2026-07-21) — ahora reutiliza `countBusinessDays` |
 | D10 | Umbral de color 80/60, `normalizedValue` derivado y `maturityFrom*` dispersos en varios componentes de UI | 🟡 Baja | ✅ **Corregido** (2026-07-21) — consolidados en `analyticsExplain.ts`; las 3 heurísticas de "confianza según historial" se documentaron como intencionalmente distintas, sin fusionar |
 | D5 | Carga/Capacidad/Riesgo/Consistencia/Benchmark/Normalización: sin duplicación — Single Source of Truth confirmado | ✅ — | Ninguna |
+| D11 | Sprint E: regresión OLS y pace de cumplimiento reimplementadas con ventana configurable, en paralelo a `computePrediction`/`computeMonthlyCompliancePace` (ventana fija, protegidas) | 🟡 Baja | 📝 **Documentado como deliberado** (2026-07-26) — no se fusiona: cambiar las funciones protegidas alteraría su comportamiento para callers existentes, riesgo no autorizado por ese sprint |
 
 **Nota de proceso:** los hallazgos D6-D10 surgieron de un segundo agente de exploración lanzado en paralelo como verificación cruzada sobre las mismas rutas/componentes; sus citas de línea más específicas (`dashboard/route.ts`, `kpis/executive` L230-231, `analytics/simulate` L110-112, `riskAlerts.ts` L23-31, componentes de UI) fueron releídas y confirmadas directamente antes de incorporarlas aquí.
 

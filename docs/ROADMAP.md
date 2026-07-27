@@ -83,7 +83,17 @@
   PDF Ejecutivo/Completo/Excel), Estado Operativo y Principal Hallazgo por
   colaborador en la tabla de detalle, interpretación de consultas extendida a
   informes de rango — cero cambios al Analytics Engine, cero cambios de
-  fórmulas/pesos/KPIs existentes (v1.18.0 — este sprint).
+  fórmulas/pesos/KPIs existentes (v1.18.0).
+- Sprint E — Analytics Predictivo e Inteligencia Preventiva: Trend Engine
+  (8 indicadores, dirección/estabilidad, sin IA), 4 predicciones explicables
+  (Cumplimiento/Sobrecarga/Subutilización/Retrasos) con confianza/
+  confiabilidad/horizonte, Estabilidad Operativa, alertas preventivas
+  priorizadas, simulador de escenarios (3 nuevos + 2 reutilizados de
+  `/api/analytics/simulate`), gráficos de Tendencias Históricas, ventana
+  histórica configurable por el Administrador (3/4/6/8/12 semanas,
+  `/inteligencia-preventiva`, módulo nuevo y autónomo — cero cambios a
+  Dashboard/Analytics/Reportes/Proyectos/Equipo, cero cambios al Analytics
+  Engine central (v1.19.0 — este sprint).
 
 ## En desarrollo
 
@@ -92,6 +102,18 @@ cierre de este sprint)._
 
 ## Planificado
 
+- Integración profunda del motor predictivo (Sprint E, v1.19.0) en Dashboard,
+  Analytics/KPIs, Reportes Inteligentes, Proyectos y Equipo — este sprint
+  deliberadamente construyó el motor y un módulo autónomo
+  (`/inteligencia-preventiva`) sin tocar esas pantallas existentes; conectar
+  predicciones/alertas preventivas directamente en ellas queda para un
+  sprint futuro. Ver `docs/AUDIT_LOG.md` § 2026-07-26 (Sprint E).
+- Indicador "Consultas" del Trend Engine (Sprint E) — no implementado: no
+  existe ninguna tabla que registre preguntas hechas a Nova (asistente
+  stateless por diseño). Requiere decidir explícitamente si vale la pena
+  agregar logging de conversaciones (con las implicaciones de privacidad/
+  LOPDP que eso conlleva) antes de construirlo. Ver `docs/AUDIT_LOG.md` §
+  2026-07-26 (Sprint E).
 - Resolver la inconsistencia documentada entre `computeEstimatedVsRealRatio`
   (usa `estimatedHours` crudo en 7 sitios) y `computeTargetTimePrecision`
   (respeta el Tiempo Objetivo validado) — requiere una decisión de negocio

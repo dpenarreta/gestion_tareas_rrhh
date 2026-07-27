@@ -23,6 +23,92 @@
 
 ---
 
+## v1.19.0 — 2026-07-26
+
+**Tipo:** FEATURE / ANALYTICS
+**Módulo:** Sprint E — Analytics Predictivo e Inteligencia Preventiva
+
+Nuevo motor predictivo, 100% determinístico (sin IA generativa), construido
+como capa aislada sobre el Analytics Engine existente — **cero cambios** a
+`analytics.ts`/`capacityForecast.ts`/`workload.ts`/`computeAlerts`/
+`riskAlerts.ts` ni a ninguna UI de Dashboard/Analytics(KPIs)/Reportes/
+Proyectos/Equipo. Vive en un módulo nuevo y autónomo,
+`/inteligencia-preventiva` — la integración profunda en esas pantallas
+queda para un sprint futuro (ver `docs/ROADMAP.md`). Decisiones completas en
+`docs/AUDIT_LOG.md` § 2026-07-26 (Sprint E).
+
+- **FEATURE — Trend Engine (`src/lib/trendEngine.ts`):** detecta dirección
+  (positiva/negativa/estable/variable/cambio brusco) de 8 indicadores
+  (Cumplimiento, Productividad, Horas registradas, Consistencia Operativa,
+  Capacidad Disponible, Equilibrio Operativo, Proyectos, Actividades) sobre
+  la ventana histórica configurada — regresión OLS + CV de residuos
+  (variabilidad neta de tendencia, no dispersión cruda). "Consultas" queda
+  fuera de alcance (sin fuente de datos — ver `docs/ROADMAP.md`).
+- **FEATURE — Ventana Histórica de Predicción configurable (Bloque 2):**
+  nuevo parámetro global en Ajustes → Configuración Predictiva (3/4/6/8/12
+  semanas, default 3, solo Administrador) — `src/lib/predictiveConfig.ts`,
+  `GET/PUT /api/settings/prediction-window`.
+- **FEATURE — 4 predicciones explicables (`src/lib/predictionEngine.ts`):**
+  Proyección de Cumplimiento (variación esperada vs. promedio de la
+  ventana), Predicción de Sobrecarga (probabilidad + nivel), Predicción de
+  Subutilización (vista de equipo, batch), Predicción de Retrasos (tareas y
+  proyectos, 3 factores: Sobrecarga/Baja consistencia/Retrasos recientes).
+  Cada una expone horizonte fijo (7/15/30/90 días), nivel de confianza y
+  confiabilidad del histórico como ejes explícitamente distintos, y
+  explicación de 4 partes (qué ocurrirá, por qué, qué datos, qué acciones).
+- **FEATURE — Estabilidad Operativa (Bloque 10):** nuevo indicador,
+  exclusivamente predictivo — clasifica la variabilidad conjunta de los 8
+  indicadores del Trend Engine (Muy Alta/Alta/Media/Baja/Muy Baja). No
+  modifica ningún KPI existente.
+- **FEATURE — Inteligencia Preventiva (`src/lib/preventiveIntelligence.ts`):**
+  alertas priorizadas 🔴 Acción inmediata / 🟠 Atención / 🟡 Seguimiento /
+  🟢 Sin riesgo, individuales y de equipo — separada de `computeAlerts` (motor
+  de 8 reglas) y de `riskAlerts.ts` (vestigial), ninguno de los dos tocado.
+- **FEATURE — Simulador de Escenarios (Bloque 8):** 5 escenarios (agregar
+  horas, cerrar tareas, redistribuir carga, modificar tiempo objetivo,
+  agregar participantes) — nunca persiste nada. Los 2 primeros reutilizan
+  `/api/analytics/simulate/[userId]` tal cual (sin modificarlo); los otros 3
+  son rutas nuevas (`/api/predictive/simulate/**`) porque no encajan en el
+  contrato de usuario único de esa ruta protegida, reutilizando sus mismas
+  funciones puras exportadas.
+- **FEATURE — Tendencias Históricas (Bloque 9):** gráficos de evolución con
+  ventanas independientes de la configuración global (3/4/8 semanas, 3/6
+  meses, 1 año) para 8 indicadores — reutiliza `recharts`/`useChartTheme`
+  ya usados en KPIs, sin nueva dependencia.
+- **UI — módulo nuevo:** `/inteligencia-preventiva`
+  (`src/components/inteligencia-preventiva/`), entrada de navegación en la
+  sección "Inteligencia" existente (junto a Nova). Visibilidad
+  individual/equipo compuesta con los mismos predicados que ya separan
+  `/my-kpis` de `/kpis` (`isExecutorRole`/`canViewTeam`) — sin gate de
+  navegación nuevo.
+
+**Fix incidental descubierto durante el propio desarrollo (no en
+producción):** el clasificador de "cambio brusco" del Trend Engine
+originalmente comparaba el último punto contra la media plana de los
+anteriores, generando un falso positivo en cualquier tendencia fuerte y
+perfectamente lineal; corregido para comparar contra el residuo de la recta
+de regresión (ver `docs/ANALYTICS_FORMULAS.md` §16).
+
+**Archivos:** `src/lib/{trendEngine,predictionEngine,preventiveIntelligence,predictiveConfig}.ts`,
+`src/lib/systemConfig.ts` (nueva clave `prediction_window_weeks`),
+`src/app/api/predictive/**` (9 rutas nuevas), `src/app/api/settings/prediction-window/route.ts`,
+`src/components/settings/PredictionWindowSection.tsx`, `src/components/SettingsManager.tsx`,
+`src/app/(protected)/inteligencia-preventiva/page.tsx`,
+`src/components/inteligencia-preventiva/**` (9 archivos), `src/lib/navLinks.ts`,
+`src/__tests__/{trendEngine,predictionEngine,predictiveConfig}.test.ts`,
+`src/__tests__/api/predictive-{settings,auth,simulate}.test.ts`, `src/__tests__/navLinks.test.ts` (extendido).
+
+**Impacto:** ningún cambio de comportamiento para usuarios existentes de
+Dashboard/KPIs/Reportes/Proyectos/Equipo. Usuarios autenticados ganan acceso
+a un nuevo módulo de predicción/prevención, con visibilidad individual/equipo
+compuesta por rol. `npx tsc --noEmit` (2 errores preexistentes no
+relacionados), `npm run lint` (0 errores), `npx vitest run` (1026/1026),
+`npm run build` limpio.
+
+**Autor:** Claude Code
+
+---
+
 ## v1.18.1 — 2026-07-26
 
 **Tipo:** FIX

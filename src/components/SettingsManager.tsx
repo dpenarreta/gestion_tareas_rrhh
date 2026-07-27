@@ -12,6 +12,7 @@ import LeaveRecordsSection from "@/components/settings/LeaveRecordsSection";
 import SpecialStatusSection from "@/components/settings/SpecialStatusSection";
 import KpiStartDateSection from "@/components/settings/KpiStartDateSection";
 import AnalyticsConfigSection from "@/components/settings/AnalyticsConfigSection";
+import PredictionWindowSection from "@/components/settings/PredictionWindowSection";
 import NormalizationCurvesSection from "@/components/settings/NormalizationCurvesSection";
 import RoleTargetsSection from "@/components/settings/RoleTargetsSection";
 import WelcomeMessageSection from "@/components/settings/WelcomeMessageSection";
@@ -849,6 +850,7 @@ export default function SettingsManager({ currentUserRole }: { currentUserRole: 
       <KpiStartDateSection />
 
       <AnalyticsConfigSection />
+      <PredictionWindowSection />
       <NormalizationCurvesSection />
       <RoleTargetsSection />
 

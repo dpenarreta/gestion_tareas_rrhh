@@ -15,6 +15,72 @@
 
 ---
 
+## 2026-07-26 — Sprint E: Analytics Predictivo e Inteligencia Preventiva
+
+**Problema:** el pedido de Sprint E pedía un motor predictivo de 17 bloques (Trend Engine, 4 predicciones explicables, alertas preventivas, simulador de escenarios, gráficos de tendencia, ventana histórica configurable, 2 nuevos indicadores) — determinístico, sin IA generativa, sin tocar KPIs/fórmulas/historial/auditoría existentes. El pedido, sin embargo, chocaba en varios puntos con el estado real del código, y una de sus técnicas propuestas resultó tener un bug real detectado antes de implementar. Esta entrada documenta las 7 decisiones de alcance/diseño más significativas.
+
+**Restricción explícita del sprint:** cero IA generativa; no modificar `analytics.ts`/`capacityForecast.ts`/`workload.ts`/`computeAlerts`/`riskAlerts.ts` ni ninguna UI de Dashboard/Analytics(KPIs)/Reportes/Proyectos/Equipo; toda predicción debe derivarse solo del histórico ya existente en NEXO.
+
+### Decisión 1 — "Consultas" (consultas a Nova) queda fuera de alcance
+
+**Hallazgo:** Bloque 1 pedía que el Trend Engine analizara 9 indicadores, incluyendo "Consultas" — pero no existe ninguna tabla en el schema que registre preguntas hechas a Nova (el asistente es stateless por diseño, sin historial de conversación).
+
+**Alternativas consideradas:**
+1. Agregar una tabla nueva de logging (timestamp + userId, sin contenido del mensaje, para no comprometer LOPDP) solo para que "Consultas" tuviera un dato real.
+2. Omitir "Consultas" del Trend Engine v1, implementar los otros 8 indicadores completos, documentar el hueco.
+
+**Decisión:** opción 2, confirmada explícitamente con el usuario antes de tocar código. Agregar logging de conversaciones es una pieza de producto en sí misma (con implicaciones de privacidad reales) — no algo a decidir de forma unilateral dentro de un sprint que pedía "no usar IA ni tocar historial/auditoría", no "agregar una tabla de auditoría nueva".
+
+**Impacto:** el Trend Engine cubre 8/9 indicadores. Ver `docs/ROADMAP.md` para el hueco documentado.
+
+### Decisión 2 — Módulo nuevo y autónomo, no integración en pantallas existentes
+
+**Hallazgo:** Bloque 15 dice explícitamente "no modificar todavía" Dashboard/Analytics/Reportes/Proyectos/Equipo, pero varios bloques (7, 8, 9) describen funcionalidad claramente visual ("crear un nuevo apartado", "agregar un simulador", "crear gráficos"). Los propios criterios de aceptación resuelven la aparente contradicción: "el motor predictivo quedará preparado para ser consumido... en los siguientes Sprints" — es decir, la UI de ESTE sprint debe existir, pero vivir aparte.
+
+**Decisión:** ruta nueva (`/inteligencia-preventiva`), entrada de navegación nueva (sección "Inteligencia" ya existente, junto a Nova), árbol de componentes nuevo (`src/components/inteligencia-preventiva/`). Cero archivos de Dashboard/KPIs(`AdvancedAnalytics.tsx`)/Reportes/Proyectos/Equipo tocados.
+
+**Confirmado explícitamente con el usuario** antes de implementar (ver también Decisión 1, misma ronda de preguntas).
+
+### Decisión 3 — Bug real detectado antes de implementar: Capacidad Disponible NO puede reconstruirse "retrocediendo `now`"
+
+**Hallazgo (durante la fase de diseño, antes de escribir código):** la técnica originalmente propuesta para reconstruir un histórico de Capacidad Disponible era llamar `computeCapacityForecast(userId, now)` con un `now` retrocedido N semanas, replicando cómo `computeConsistency` ya construye comparaciones "ventana actual vs. anterior". Para Consistencia esto es seguro: toda consulta subyacente (`TaskActivity.createdAt`, `Task.completedAt`/`endDate`, `LeaveRecord.date`) está acotada por un timestamp inmutable. Para Capacidad Disponible NO lo es: su cálculo de "comprometido futuro" filtra por `Task.status` — un campo **mutable, sin tabla de historial propia** (`TaskStatusHistory` no existe). Retroceder `now` solo desplaza la matemática de días hábiles/festivos, pero la consulta de "qué tareas están abiertas" sigue reflejando el estado de HOY: una tarea cerrada hace 2 semanas desaparecería de la "foto" de hace 2 semanas, y una tarea creada ayer aparecería como si ya existiera entonces.
+
+**Decisión:** en vez de la técnica de backdating, Capacidad Disponible en el Trend Engine usa `getFactorAuditHistory(userId, "health_score", now, windowDays)` filtrado al factor `"Capacidad futura"` — un dato genuinamente histórico, porque es lo que el motor realmente capturó en cada corrida pasada de `computeHealthScore`. Trade-off aceptado: granularidad oportunista (un punto por corrida no cacheada, no garantizado semanal) — para usuarios poco activos en la ventana, el indicador reporta `available: false` en vez de sintetizar un valor.
+
+**Por qué importa documentarlo:** de no haberse detectado, el sistema habría mostrado un "histórico" de Capacidad Disponible plausible pero silenciosamente incorrecto — el tipo de bug que pasa revisión visual sin problema.
+
+### Decisión 4 — Simulador: 3 rutas nuevas, no una extensión de la ruta protegida
+
+**Hallazgo:** de los 5 escenarios pedidos en Bloque 8, "agregar horas" y "cerrar tareas" ya existen tal cual en `/api/analytics/simulate/[userId]` (`register_hours`/`complete_task`). Los otros 3 ("redistribuir carga", "modificar tiempo objetivo", "agregar participantes") no encajan en el contrato de esa ruta: 2 son bi-usuario/proyecto (esa ruta es de un solo usuario), y extenderla habría significado cambiar la forma de respuesta para sus 2 consumidores existentes (`WhatIfSimulator.tsx`, `TeamWorkloadCards.tsx`), protegidos este sprint.
+
+**Decisión:** 3 rutas nuevas (`/api/predictive/simulate/[userId]` — tiempo objetivo; `/api/predictive/simulate/redistribute` — bi-usuario; `/api/predictive/simulate/project/[projectId]` — proyecto), todas reutilizando las funciones puras ya exportadas por el motor (`computeWorkloadRange`, `classifyCapacity`, `capacityToScore`, `weightedPoints`, `cargaHealthScore`) en vez de reimplementarlas. La UI nueva (`ScenarioSimulatorPanel.tsx`) llama a la ruta protegida existente SIN modificarla para los 2 escenarios que ya cubre, y a las 3 rutas nuevas para el resto — consumir una ruta protegida está permitido; modificarla no.
+
+**Llamada de alcance sobre "modificar tiempo objetivo":** el pedido no aclara si se refiere al Tiempo Objetivo de una Tarea o de un Proyecto (ambos existen en el modelo de datos). Se optó por **nivel de Tarea** — es el término más establecido de la plataforma (Sprint 6) y encaja en el contrato de usuario único junto a los otros 2 escenarios de Tarea, dejando "agregar participantes" (claramente de Proyecto) como el único escenario de ese nivel. Reversible sin gran esfuerzo si la intención real era a nivel de Proyecto.
+
+### Decisión 5 — "Ejecución en segundo plano" (Bloque 16) se interpreta como cálculo cacheado bajo demanda, no una cola de trabajos
+
+**Hallazgo:** Nexo no tiene infraestructura de cola de trabajos/jobs en segundo plano en ningún módulo — el motor central (`analytics.ts`) resuelve "rendimiento" con caché en memoria (`cached()`, TTL configurable) y computación bajo demanda en la ruta de API, nunca con un worker separado.
+
+**Decisión:** la capa predictiva sigue exactamente ese mismo patrón — cada ruta nueva envuelve su cálculo en `cached()` (TTL de 15 min por defecto para vistas individuales, igual que el resto del motor; TTL corto de 5 min para vistas de equipo/proyecto, ver Decisión 6). Construir una cola de jobs real habría sido una pieza de infraestructura nueva y no solicitada explícitamente, fuera de proporción para lo que el bloque realmente pedía (evitar bloquear al usuario con cálculos repetidos).
+
+### Decisión 6 — Caché de equipo/proyecto: TTL corto en vez de invalidación por evento
+
+**Hallazgo:** `invalidateAnalyticsCache(userId)` (motor central) borra únicamente claves de caché que terminan en `:${userId}`. Las cachés nuevas de equipo (`subutilization-team:${leaderId}`) y de proyecto (`project-delay:${projectId}`) están indexadas por un id que NO es el usuario cuyo dato cambió — cuando un miembro del equipo o participante de un proyecto crea/completa una tarea, esa mutación no invalida la caché del líder ni la del proyecto. Conectar esa invalidación real habría requerido tocar `src/app/api/tasks/**`/`src/app/api/projects/**`, fuera de alcance (Decisión 2).
+
+**Decisión:** TTL deliberadamente corto (5 min, vs. los 15 min por defecto) en las 2 cachés de equipo/proyecto — consistencia eventual aceptada y documentada, no un descuido.
+
+### Decisión 7 — Definiciones operativas para "Proyectos" y "Actividades" (Trend Engine)
+
+El pedido nombra estos 2 indicadores sin definirlos. Se optó por: **Actividades** = conteo semanal de `TaskActivity` (frecuencia de registro, distinto de "Horas registradas" que es por duración); **Proyectos** = suma semanal de `ProjectActivity.duration` (horas dedicadas a proyectos). Ambas son agregaciones nuevas pero simples (sin fórmula de negocio propia, sin pesos ni umbrales) — fácilmente ajustables si la intención real era otra.
+
+**Verificación:** `npx tsc --noEmit` (2 errores preexistentes no relacionados), `npm run lint` (0 errores), `npx vitest run` (1026/1026 — 971 preexistentes + 55 nuevos: `trendEngine.test.ts`, `predictionEngine.test.ts`, `predictiveConfig.test.ts`, `predictive-settings.test.ts`, `predictive-auth.test.ts`, `predictive-simulate.test.ts`, extensión de `navLinks.test.ts`), `npm run build` limpio (todas las rutas nuevas registradas). Smoke test con servidor de desarrollo real: `/inteligencia-preventiva` y las rutas `/api/predictive/**`/`/api/settings/prediction-window` responden 307 (redirect a login) sin sesión, sin errores 500 en el log del servidor. No se intentó una verificación visual autenticada — la base de datos de desarrollo de este proyecto ES la de producción con datos reales de personal (ver memoria de sesión), y las credenciales semilla documentadas ya no son válidas; forzar credenciales quedó descartado.
+
+**Un bug real fue encontrado y corregido durante la propia escritura de tests de este sprint** (no en producción): `hasAbruptChange` en `trendEngine.ts` originalmente comparaba el último punto contra la media PLANA de los anteriores, lo que clasificaba cualquier tendencia fuerte y perfectamente lineal como "cambio_brusco" (falso positivo). Corregido para comparar contra el residuo respecto a la recta de regresión — ver `docs/ANALYTICS_FORMULAS.md` §16 para el detalle. Esto también reveló que el CV debía calcularse sobre residuos (ruido tras remover la tendencia), no sobre el valor crudo alrededor de la media plana — de lo contrario cualquier tendencia fuerte se clasificaba como "variable" en vez de "positiva"/"negativa".
+
+**Aprobado por:** Anthony Jácome (confirmó explícitamente las Decisiones 1 y 2 antes de implementar).
+
+---
+
 ## 2026-07-26 — Ventana de registro retroactivo: excepción de fin de semana
 
 **Problema:** la regla de registro retroactivo (48 horas hábiles / últimos 2

@@ -11,6 +11,7 @@ import {
   Target,
   FolderKanban,
   StickyNote,
+  Radar,
   type LucideIcon,
 } from "lucide-react";
 import type { Role } from "@/generated/prisma/client";
@@ -66,6 +67,11 @@ export function getNavLinks(role: Role): NavLink[] {
   }
 
   links.push({ href: "/assistant", label: "Nova", icon: Sparkles, section: "inteligencia" });
+  // Sprint E — Analytics Predictivo: abierto a todos los roles autenticados,
+  // igual que Nova. La composición individual/equipo se decide DENTRO del
+  // módulo (isExecutorRole/canViewTeam), no con un predicado de navegación
+  // nuevo — ver docs/AUDIT_LOG.md § Sprint E.
+  links.push({ href: "/inteligencia-preventiva", label: "Inteligencia Preventiva", icon: Radar, section: "inteligencia" });
 
   return links;
 }

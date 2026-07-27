@@ -33,6 +33,17 @@ export const DEFAULT_RETENTION_KNOWLEDGE_DOCS = "indefinite";
 export const CONFIG_KEY_WELCOME_MESSAGE = "welcome_message";
 export const CONFIG_KEY_WELCOME_MESSAGE_ACTIVE = "welcome_message_active";
 
+// Ventana histórica del motor predictivo (Sprint E — Analytics Predictivo) —
+// semanas hacia atrás que Trend Engine/Prediction Engine usan como muestra.
+// Global, un único valor para toda la plataforma, editable solo por
+// Administrador (ver src/lib/predictiveConfig.ts).
+export const CONFIG_KEY_PREDICTION_WINDOW_WEEKS = "prediction_window_weeks";
+export const DEFAULT_PREDICTION_WINDOW_WEEKS = "3";
+
+export async function getEffectivePredictionWindowWeeks(asOf: Date = new Date()): Promise<string> {
+  return getEffectiveConfigString(CONFIG_KEY_PREDICTION_WINDOW_WEEKS, asOf, DEFAULT_PREDICTION_WINDOW_WEEKS);
+}
+
 // Centro de Recuperación (§14) — período de retención de la papelera antes de
 // la purga automática, en horas, para TODOS los módulos registrados (no hay
 // un valor por módulo: es una única política de plataforma). Mismo mecanismo

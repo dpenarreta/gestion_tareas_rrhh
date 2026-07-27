@@ -22,6 +22,10 @@ Motor central: `src/lib/analytics.ts` — `ANALYTICS_ENGINE_VERSION = "1.5.0"`, 
 12. [Alertas](#12-alertas)
 13. [NormalizationEngine](#13-normalizationengine)
 14. [Insights Engine / Decision Intelligence](#14-insights-engine--decision-intelligence)
+15. [Base Horaria Efectiva](#15-base-horaria-efectiva-sprint-analytics-21--capa-de-reporte-no-del-analytics-engine)
+16. [Trend Engine](#16-trend-engine-sprint-e)
+17. [Predicciones Preventivas](#17-predicciones-preventivas-sprint-e)
+18. [Estabilidad Operativa](#18-estabilidad-operativa-sprint-e)
 
 ---
 
@@ -1160,4 +1164,174 @@ duplicar.
 
 ---
 
-_Generado a partir de src/lib/analytics.ts (ANALYTICS_ENGINE_VERSION 1.5.0 / FORMULA_SET_VERSION 4.4) el 2026-07-22. Ampliado el 2026-07-23 (Sprint A). Ampliado el 2026-07-24 (Sprint Analytics 2.0 — Equilibrio Operativo, curva progresiva de Capacidad Futura, corrige la desincronización de versión 4.2 vs. 4.3 vigente en código). Ampliado el 2026-07-24 (Sprint Analytics 2.1 — Base Horaria Efectiva, capa de Reporte, sin cambios al Analytics Engine)._
+## 16. Trend Engine (Sprint E)
+
+**Función principal:** `computeTrendEngine` (`src/lib/trendEngine.ts`, `TREND_ENGINE_VERSION = "1.0.0"`)
+
+### Objetivo
+Detectar automáticamente la evolución (positiva/negativa/estable/variable/cambio brusco) de 8 indicadores, sin IA — capa de solo lectura sobre historial YA CALCULADO por `analytics.ts`/`analyticsAuditHistory.ts`, no un motor de KPIs nuevo. **No modifica ningún KPI existente ni sus fórmulas.**
+
+### Qué SÍ hace (composición sobre historial existente, no cálculo nuevo)
+| Indicador | Fuente de datos | ¿Nueva consulta? |
+|---|---|---|
+| Cumplimiento, Horas registradas | `computeWeeklyHistory(userId, windowWeeks, now)` | No — reuso directo |
+| Productividad | `getScoreSeries(userId, "performance_score", now, windowDays)` | No — reuso directo |
+| Equilibrio Operativo | `getScoreSeries(userId, "health_score", now, windowDays)` | No — reuso directo |
+| Consistencia Operativa | `computeConsistency(userId, now)` en dos cortes: `now` y `now - windowDays` (ventana actual vs. anterior) | No — misma función, 2 llamadas |
+| Capacidad Disponible | `getFactorAuditHistory(userId, "health_score", now, windowDays)`, filtrado al factor `"Capacidad futura"`, parseando su `rawLabel` (`"42%"` → `42`) | No — lectura de auditoría existente |
+| Proyectos | `SUM(ProjectActivity.duration)` por semana, autor = usuario | Sí — agregación semanal nueva, sin fórmula de negocio |
+| Actividades | `COUNT(TaskActivity)` por semana, autor = usuario | Sí — agregación semanal nueva, sin fórmula de negocio |
+
+**"Consultas" (consultas a Nova) queda fuera de alcance** — no existe ninguna tabla que registre preguntas hechas al asistente (Nova es stateless por diseño). Ver `docs/AUDIT_LOG.md` § Sprint E y `docs/ROADMAP.md`.
+
+### Fórmula — clasificador de dirección
+```
+slope(valores)  = pendiente OLS sobre índice de semana (x) vs. valor (y)   // regresión lineal simple
+residuo_i       = valor_i - (media(y) + slope × (x_i - media(x)))         // desviación respecto a la recta
+CV_residuos     = (desviación_estándar(residuos) / |media(y)|) × 100      // variabilidad NETA de tendencia
+
+cambio_brusco   = |residuo_último - media(residuos_anteriores)| > 2 × desviación_estándar(residuos_anteriores)   (requiere ≥4 puntos)
+variable        = CV_residuos >= 35   (si no es cambio_brusco)
+positiva/negativa = |slope / media(y) × 100| >= 3%/semana   (si no es variable ni cambio_brusco)
+estable         = ningún otro caso
+```
+**Por qué CV de residuos y no CV crudo:** una serie que sube en línea perfectamente recta tiene alta dispersión cruda alrededor de su media plana (eso es justamente la tendencia) pero residuo ≈ 0 en cada punto — usar CV crudo clasificaría cualquier tendencia fuerte y limpia como "variable", confundiendo "hay una tendencia clara" con "esto es ruidoso". El CV de residuos mide el ruido *después* de remover la tendencia, que es lo que "variable" debe significar.
+
+**Independiente de la regresión de `computePrediction`** (`analytics.ts`, protegida esta sesión) — duplicación pequeña y deliberada de matemática genérica (OLS/CV), no de ninguna fórmula de KPI. Ver `docs/AUDIT_LOG.md` § Sprint E.
+
+### Variables
+- `windowWeeks`: ventana histórica configurada por el Administrador (§Bloque 2, `src/lib/predictiveConfig.ts`, default 3 semanas) — o un override puntual para Tendencias Históricas (§17 abajo, Bloque 9), independiente de la configuración global.
+- `available`: `false` cuando hay menos de 2 puntos utilizables (o, para Proyectos/Actividades, siempre `true` — cero es un valor válido, no "sin dato").
+
+### Ejemplo de cálculo
+Cumplimiento con `windowWeeks=3`, valores semanales `[88, 82, 75]`: `slope ≈ -6.5`, media ≈ 81.7, `slope/media×100 ≈ -8%` (≥3% en magnitud) → `direction = "negativa"`.
+
+### Casos borde
+- Menos de 4 puntos → nunca se clasifica `cambio_brusco` (residuos previos insuficientes para una desviación estándar confiable).
+- Capacidad Disponible con 0-1 puntos de auditoría en la ventana (usuario poco activo, granularidad oportunista — un punto por corrida no-cacheada del motor) → `available: false`, nunca se sintetiza un valor.
+- `mean(y) === 0` → CV y pendiente relativa se reportan como 0 (evita división por cero).
+
+### Reglas de negocio
+- Nunca escribe en `AnalyticsAuditLog` con un `kind` que pueda confundirse con los 6 del motor oficial (`health_score`/`performance_score`/`operational_risk`/`alerts`/`validation_failure`/`smart_benchmark`).
+- No modifica `previousBusinessDays`, `computeWeeklyHistory`, `computeConsistency`, `getScoreSeries` ni ninguna otra función del motor central — solo las invoca.
+
+### Versión
+`TREND_ENGINE_VERSION = "1.0.0"` — módulo nuevo, no versionado dentro de `FORMULA_VERSIONS` (no es una fórmula de KPI, es una capa de detección de tendencia).
+
+### Notas
+- **Rechazado explícitamente:** "retroceder `now`" y volver a llamar `computeCapacityForecast(userId, now)` para reconstruir un histórico de Capacidad Disponible — `Task.status` no tiene tabla de historial propia, así que esa técnica mezclaría matemática de negocio del pasado con asignaciones de tareas de HOY. Detectado y corregido antes de implementar (ver `docs/AUDIT_LOG.md` § Sprint E) — por eso Capacidad Disponible usa el factor de auditoría de Equilibrio Operativo en vez de recalcular.
+- Ver §17/§18 para cómo Prediction Engine y Estabilidad Operativa consumen la salida de este motor.
+
+---
+
+## 17. Predicciones Preventivas (Sprint E)
+
+**Funciones:** `computeCumplimientoProjection`, `computeSobrecargaProbability`, `computeSubutilizacionPredictions`, `computeTaskDelayPrediction`, `computeProjectDelayPrediction` (`src/lib/predictionEngine.ts`, `PREDICTION_ENGINE_VERSION = "1.0.0"`)
+
+### Objetivo
+4 predicciones explicables (qué ocurrirá, cuándo, por qué, qué hacer), cada una con nivel de confianza, confiabilidad del histórico (eje distinto) y horizonte temporal fijo — reglas determinísticas sobre salidas ya calculadas de `analytics.ts`/`capacityForecast.ts`/`trendEngine.ts`. Sin IA.
+
+### Fórmula — horizonte y confianza (compartidos por las 4 predicciones)
+```
+horizonte = el más cercano de {7, 15, 30, 90} días a los días restantes reales   (§Bloque 11 — nunca fuera de este set)
+
+confidencePct = round(92 × (0.4×dataScore + 0.4×consistencyScore + 0.2×horizonScore))
+  dataScore        = min(1, semanasConDatos / ventanaConfigurada)
+  consistencyScore = muy-consistente→1, consistente→0.8, variable→0.5, muy-variable→0.25, sin-historial→0.5
+  horizonScore      = 1 - (horizonte / 90) × 0.4
+
+confiabilidadHistórico = composite(0.6×min(1,semanas/6) + 0.4×(dataQualityPct/100))
+  >= 0.75 → "alta"   |   >= 0.45 → "media"   |   si no → "baja"
+```
+**Misma filosofía de pesos que `computePredictionConfidencePct`** (`analytics.ts`, protegida) pero parametrizada contra el set fijo `{7,15,30,90}` en vez de la constante `PREDICTION_MAX_DAYS=30` — reusar la función protegida tal cual habría tratado todo horizonte >30 días de forma idéntica, perdiendo la distinción entre 30 y 90 días. `confidencePct` y `confiabilidadHistórico` son ejes deliberadamente distintos (§Bloque 13): el primero mide certeza de ESTA predicción puntual, el segundo mide volumen+calidad del histórico disponible — nunca se combinan en un solo número.
+
+### Fórmula por predicción
+
+**Cumplimiento** (Bloque 3): pace/ritmo, independiente de la privada `computeMonthlyCompliancePace` (ventana fija, no reutilizable para una ventana configurable sin tocar un archivo protegido):
+```
+cumplimientoEsperadoCierre = min(100, round(completadoHastaHoy% × (díasHábilesDelMes / díasHábilesTranscurridos)))
+variaciónEsperada          = cumplimientoEsperadoCierre - promedio(cumplimiento, últimas N semanas configuradas)
+```
+
+**Sobrecarga** (Bloque 4): probabilidad base por estado de capacidad, ajustada por tendencia y consistencia:
+```
+base = sobrecarga→90, no-asignar→65, limitada→35, sin-planificación→20, alta→10
++10 si Trend Engine.capacidad_disponible.direction === "negativa"  (-10 si "positiva")
++5  si consistencia === "muy-variable"
+nivel = probabilidad>=70→Alto, >=40→Medio, si no→Bajo
+```
+
+**Subutilización** (Bloque 5, vista de equipo — SIEMPRE batch vía `computeTeamCapacityForecast`, nunca en loop la función singular):
+```
+nivel = disponiblePct>=70→Alto, >=40→Medio, si no→Bajo
+```
+
+**Retrasos** (Bloque 6, tareas y proyectos) — exactamente los 3 factores del ejemplo del pedido ("Sobrecarga, Baja consistencia, Retrasos recientes"):
+```
++40 (o +15 si "limitada") si estado de capacidad del responsable es sobrecarga/no-asignar
++30 (o +15 si "variable") si consistencia del responsable es muy-variable
++min(30, tareasVencidas×10) si el responsable tiene tareas vencidas actuales
+[proyectos, además] +20 "Retrasos recientes" si el ritmo de ejecución va detrás del tiempo transcurrido (elapsedPct - executedPct >= 15)
+probabilidad = min(95, suma)
+```
+A nivel de proyecto, capacidad/consistencia se agregan sobre TODOS los participantes (peor caso de capacidad, presencia de variabilidad en cualquiera) — batcheado una vez por proyecto, no por participante.
+
+### Variables
+- `historicalWindowWeeks`: igual a Trend Engine (§16) — misma configuración global.
+- `motivos`: solo se listan los factores que efectivamente dispararon puntaje (nunca un motivo "por defecto").
+
+### Ejemplo de cálculo
+Sobrecarga: estado `"sobrecarga"` (base 90) + tendencia de capacidad `"negativa"` (+10, tope 100) + consistencia `"consistente"` (sin ajuste) → `probabilidadPct = 100`, `nivel = "Alto"`.
+
+### Casos borde
+- Tarea ya `COMPLETADA` o proyecto `COMPLETADO`/`CANCELADO` → `{available: false, reason}`, nunca una predicción sin sentido sobre algo cerrado.
+- Cero participantes en un proyecto → capacidad/consistencia quedan en sus valores neutros (`sin-planificacion`/`null`), solo el factor de ritmo puede disparar.
+
+### Reglas de negocio
+- Nunca reimplementa `computeCapacityForecast`, `computeConsistency`, `computeOperationalRisk` — siempre los invoca de solo lectura.
+- El simulador de escenarios nuevo (§Bloque 8, `src/app/api/predictive/simulate/**`) reutiliza las MISMAS funciones puras que `/api/analytics/simulate/[userId]` ya exporta (`computeWorkloadRange`, `classifyCapacity`, `normalize`, `weightedPoints`, `capacityToScore`, `cargaHealthScore`) — ruta nueva y separada (no se modifica la ruta protegida existente) porque 2 de los 3 escenarios nuevos (redistribuir carga, agregar participantes) son bi-usuario/proyecto y no encajan en el contrato de un solo usuario de esa ruta. Nunca persiste nada.
+
+### Versión
+`PREDICTION_ENGINE_VERSION = "1.0.0"`.
+
+### Notas
+Ver `docs/AUDIT_LOG.md` § Sprint E para la decisión completa de "modificar tiempo objetivo" como escenario de tarea (no de proyecto) y las demás decisiones de alcance de este sprint.
+
+---
+
+## 18. Estabilidad Operativa (Sprint E)
+
+**Función:** `computeOperationalStability` (`src/lib/predictionEngine.ts`)
+
+### Objetivo
+Indicador nuevo (Bloque 10), **exclusivamente predictivo — no modifica ningún KPI existente**: clasifica qué tan estables han sido, en conjunto, los 8 indicadores del Trend Engine (§16) en la ventana configurada.
+
+### Fórmula
+```
+CV_promedio = promedio(coefficientOfVariation) sobre los indicadores con available=true del Trend Engine
+clasificación = CV_promedio<10→"Muy Alta", <20→"Alta", <35→"Media", <50→"Baja", si no→"Muy Baja"
+basedOn = indicadores con CV_residuos >= 20, ordenados de mayor a menor variabilidad
+```
+Los umbrales reutilizan los mismos cortes que `consistencyLevelFromCv` (`analytics.ts`) como referencia conceptual (no como código compartido — evaluar 5 tramos en vez de 4 no encaja en esa función sin modificarla).
+
+### Variables
+Ninguna propia — deriva 100% de `IndicatorTrend.coefficientOfVariation` (§16), que ya calcula CV de residuos (no crudo).
+
+### Ejemplo de cálculo
+8 indicadores, 6 disponibles con CV `[5, 8, 12, 15, 9, 40]` → promedio ≈ 14.8 → `"Alta"`; `basedOn = ["<indicador con CV 40>"]` (único ≥20).
+
+### Casos borde
+- Ningún indicador disponible (usuario sin historial en absoluto) → `"Baja"` por defecto, `basedOn: []` — nunca revienta ni devuelve `NaN`.
+
+### Reglas de negocio
+- No escribe en `AnalyticsAuditLog`, no altera `computeConsistency` ni ningún score existente — es una lectura derivada, desechable, recalculada en cada petición (con caché estándar del motor).
+
+### Versión
+No versionada en `FORMULA_VERSIONS` — parte de `PREDICTION_ENGINE_VERSION = "1.0.0"`.
+
+### Notas
+Distinto de "Consistencia Operativa" (uno de los 8 indicadores del Trend Engine, §16, que compara solo dos ventanas de tiempo entre sí vía `computeConsistency`) — Estabilidad Operativa es un agregado de variabilidad **across** los 8 indicadores, no la consistencia de uno solo.
+
+---
+
+_Generado a partir de src/lib/analytics.ts (ANALYTICS_ENGINE_VERSION 1.5.0 / FORMULA_SET_VERSION 4.4) el 2026-07-22. Ampliado el 2026-07-23 (Sprint A). Ampliado el 2026-07-24 (Sprint Analytics 2.0 — Equilibrio Operativo, curva progresiva de Capacidad Futura, corrige la desincronización de versión 4.2 vs. 4.3 vigente en código). Ampliado el 2026-07-24 (Sprint Analytics 2.1 — Base Horaria Efectiva, capa de Reporte, sin cambios al Analytics Engine). Ampliado el 2026-07-26 (Sprint E — Trend Engine, Predicciones Preventivas, Estabilidad Operativa; nuevos motores en trendEngine.ts/predictionEngine.ts, cero cambios al Analytics Engine central)._

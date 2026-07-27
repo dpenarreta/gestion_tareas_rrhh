@@ -8,6 +8,10 @@
 
 | Decisión | Motivo técnico | Detalle completo |
 |---|---|---|
+| Sprint E: motor predictivo como módulo nuevo y autónomo (`/inteligencia-preventiva`), no integrado aún en Dashboard/Analytics/Reportes/Proyectos/Equipo | El pedido pide explícitamente no modificar esas pantallas todavía; la integración profunda queda para un sprint futuro. | `AUDIT_LOG.md` § 2026-07-26 (Sprint E) |
+| Sprint E: Capacidad Disponible histórica NO se reconstruye "retrocediendo `now`" — usa el factor de auditoría de Equilibrio Operativo | `Task.status` es mutable y sin tabla de historial; backdatear `now` mezclaría matemática de negocio del pasado con asignaciones de tareas de hoy — bug real detectado antes de implementar. | `AUDIT_LOG.md` § 2026-07-26 (Sprint E), `ANALYTICS_FORMULAS.md` §16 |
+| Sprint E: simulador de 3 escenarios nuevos vive en rutas separadas, no extiende `/api/analytics/simulate/[userId]` | 2 de los 3 escenarios nuevos son bi-usuario/proyecto y cambiarían el contrato de esa ruta para sus consumidores existentes, protegidos ese sprint. | `AUDIT_LOG.md` § 2026-07-26 (Sprint E) |
+| Sprint E: "Consultas" (consultas a Nova) fuera de alcance del Trend Engine | No existe tabla que registre preguntas a Nova; agregar ese logging es una pieza de producto/privacidad aparte, no una decisión unilateral dentro del sprint. | `AUDIT_LOG.md` § 2026-07-26 (Sprint E), `ROADMAP.md` |
 | Excepción de fin de semana en registro retroactivo: solo Seguimiento/Proyectos, no Fija | Fija nunca tuvo registro retroactivo (decisión previa de 2026-07-21); extenderle una excepción sobre una capacidad que no existe habría sido una expansión de alcance no pedida. | `AUDIT_LOG.md` § 2026-07-26 |
 | Cambio de "Horas Estimadas" → "Tiempo Objetivo" | Separar la estimación subjetiva del colaborador de un estándar oficial que un líder puede validar, sin migrar la columna física de Prisma. | `AUDIT_LOG.md` § 2026-07-21 |
 | Unificación de registro Fija/Seguimiento vía `TaskActivity` | Las tareas Fijas no tenían historial ni auditoría de horas; reutilizar el modelo de Seguimiento evita mantener dos sistemas de registro con reglas distintas. | `AUDIT_LOG.md` § 2026-07-21 |
