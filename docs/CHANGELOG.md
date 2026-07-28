@@ -23,6 +23,67 @@
 
 ---
 
+## v1.23.4 — 2026-07-28
+
+**Tipo:** FIX
+**Módulo:** Executive Reporting Engine — límite cliente/servidor (`src/lib/executiveReporting/indiceEjecutivo.ts` nuevo, `reportInsights.ts`, `estadoGeneral.ts`)
+
+Bug real reportado por el usuario: el fix de v1.23.3 (unificación del Estado
+General) NO se veía reflejado en producción — un Informe de Rango
+Personalizado seguía mostrando "Sin datos para el período" pese a que el
+snapshot tenía colaboradores/indicadores/recomendaciones completos.
+
+- **Causa raíz — no era el algoritmo, era el DEPLOY**: se instrumentó
+  `buildCustomRangeSnapshotData` contra la BD real con el período exacto
+  reportado (03 jul — 27 jul 2026, 9 colaboradores) y `resolveEstadoGeneral`/
+  `buildReportPages` ya calculaban correctamente "Excelente — 87/100" — el
+  código de v1.23.3 era correcto. `npx vercel ls` mostró que el deploy de
+  producción del commit `fc04525` (v1.23.3) había terminado en **● Error**
+  — Vercel seguía sirviendo el deploy anterior (previo al fix), por eso el
+  usuario seguía viendo el bug ya corregido.
+- **`npx vercel inspect <deploy> --logs`** reveló la causa real del build
+  roto: un panic de Rust en Turbopack (`crates/next-code-frame/src/
+  highlight.rs:1011` — "end byte index 94 is not a char boundary; it is
+  inside 'í'") al intentar renderizar el code frame de un diagnóstico de
+  build. Reproducido de forma determinista en local (`npx next build`, con
+  y sin `.next` cacheado).
+- **Causa raíz del panic**: `estadoGeneral.ts` (v1.23.3) importaba
+  `classifyIndiceEjecutivo` de `@/lib/reportInsights` — un archivo que
+  empieza con `import "server-only"` (Prisma, `getHolidaySet`, `analytics.ts`
+  transitivos). `estadoGeneral.ts` lo usa `documentModel.ts`, que a su vez
+  importan DIRECTAMENTE dos Client Components (`ReportWizardModal.tsx`/
+  `MonthlyReports.tsx`) para generar el PDF/Excel en el navegador (llaman a
+  `buildReportPages`/`buildExecutiveReportHtml` en el cliente). Ese import
+  real (no `import type`) arrastraba TODO `reportInsights.ts` al bundle de
+  cliente — una violación real que Next.js debe rechazar en build (y lo
+  hace, correctamente) — pero el diagnóstico de Turbopack que reporta esa
+  violación panickeaba al formatear el code frame de `holidays.ts` (un
+  comentario con "días" — la 'í' cae en un límite de byte no válido de
+  UTF-8 al truncar el preview), tumbando el build ENTERO en vez de mostrar
+  un error de build normal.
+- **Por qué solo afectaba a `documentModel.ts`/al reporte visible**: todos
+  los demás consumidores de `reportInsights.ts` dentro del motor de reportes
+  (`documentModel.ts`, `context.ts`, `snapshotData.ts`, `nova/*.ts`,
+  `components/kpis/types.ts`) ya usaban exclusivamente `import type` —
+  borrado en compilación, nunca dispara la guardia `"server-only"` (patrón
+  ya documentado explícitamente en `kpis/types.ts`). `estadoGeneral.ts` fue
+  el primer y único import de VALOR real cruzando esa frontera.
+- **Corregido extrayendo el clasificador puro a su propio módulo**:
+  `classifyIndiceEjecutivo`/`IndiceEjecutivoNivel`/`IndiceEjecutivoResult`
+  (Bloque 11) no tienen ninguna dependencia de I/O — no necesitaban vivir en
+  un archivo `"server-only"`. Se movieron a
+  `src/lib/executiveReporting/indiceEjecutivo.ts` (sin `"server-only"`,
+  cero dependencias); `reportInsights.ts` los reexporta para no romper a
+  `buildSnapshotData.ts`/`report-insights.test.ts`; `estadoGeneral.ts` ahora
+  importa directamente de `./indiceEjecutivo`, nunca de
+  `@/lib/reportInsights`. Cero cambio de fórmula/etiquetas/umbrales.
+- **Verificado el fix real**: `npx next build` local (con y sin `.next`
+  cacheado) completa sin panic — el error de Turbopack desaparece porque ya
+  no hay ninguna violación de frontera cliente/servidor que reportar.
+- Verificado: `tsc --noEmit`/`npm run lint` limpios, **1141/1141 tests**
+  (sin tests nuevos — el fix es de módulo/bundling, no de lógica; ya cubierto
+  por los tests de v1.23.3), `npx next build` de producción exitoso.
+
 ## v1.23.3 — 2026-07-28
 
 **Tipo:** FIX

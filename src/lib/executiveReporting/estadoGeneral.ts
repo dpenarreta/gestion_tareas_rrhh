@@ -31,14 +31,24 @@
 //      personalizado, o mes ya cerrado) → aproximación de respaldo,
 //      calculada EXCLUSIVAMENTE con números que el snapshot ya trae en
 //      `teamSummary` (cero Prisma, cero Analytics nuevo): reutiliza el mismo
-//      clasificador de bandas de `classifyIndiceEjecutivo` (Bloque 11 de
-//      reportInsights.ts) aplicado a Cumplimiento + proximidad de Carga
-//      Laboral al 100% ideal, en vez de Performance + Equilibrio. Mismas
-//      etiquetas (Excelente/Bueno/Atención/Crítico) y mismos umbrales
-//      (85/70/50) que el Índice Ejecutivo completo — nunca una escala
-//      paralela — pero la `explicacion` deja explícito que es una
-//      aproximación, no el Índice Ejecutivo completo.
-import { classifyIndiceEjecutivo, type IndiceEjecutivoNivel } from "@/lib/reportInsights";
+//      clasificador de bandas de `classifyIndiceEjecutivo` (Bloque 11,
+//      `executiveReporting/indiceEjecutivo.ts`) aplicado a Cumplimiento +
+//      proximidad de Carga Laboral al 100% ideal, en vez de Performance +
+//      Equilibrio. Mismas etiquetas (Excelente/Bueno/Atención/Crítico) y
+//      mismos umbrales (85/70/50) que el Índice Ejecutivo completo — nunca
+//      una escala paralela — pero la `explicacion` deja explícito que es
+//      una aproximación, no el Índice Ejecutivo completo.
+//
+// `classifyIndiceEjecutivo` se importa de `./indiceEjecutivo` (NUNCA de
+// `@/lib/reportInsights`, que empieza con `import "server-only"`) — este
+// módulo lo usa `documentModel.ts`, que a su vez importan Client Components
+// (`ReportWizardModal.tsx`/`MonthlyReports.tsx`) para generar el PDF/Excel
+// en el navegador. Importar del archivo "server-only" arrastraría Prisma/
+// `getHolidaySet`/etc. al bundle de cliente: Next.js lo rechaza en build
+// (correcto), pero un bug de Turbopack panicaba en vez de mostrar el error
+// con claridad — causa raíz real de un fallo de build en producción, ver
+// docs/AUDIT_LOG.md § Fix Índice Ejecutivo — límite cliente/servidor.
+import { classifyIndiceEjecutivo, type IndiceEjecutivoNivel } from "./indiceEjecutivo";
 import type { ExecutiveReportSnapshotData } from "./snapshotData";
 
 export type EstadoGeneralResolved = {

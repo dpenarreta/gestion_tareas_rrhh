@@ -331,6 +331,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-28: fix(reports): resuelve build de producción roto por límite cliente/servidor
 - 2026-07-28: fix(reports): unifica construcción del Estado General entre todos los tipos de reporte
 - 2026-07-28: fix(reports): reportes LEGACY_MIGRATION persistidos sin data.meta
 - 2026-07-28: refactor(reports): repunte completo al Executive Reporting Engine 2.0

@@ -15,6 +15,91 @@
 
 ---
 
+## 2026-07-28 — Fix: build de producción roto por límite cliente/servidor (Índice Ejecutivo)
+
+**Problema:** el usuario reportó que el fix de "Estado General inconsistente"
+(entrada anterior de este mismo documento) no se veía reflejado en
+producción — un Informe de Rango Personalizado seguía mostrando "Sin datos
+para el período" con datos completos, pidiendo explícitamente instrumentar
+el flujo real y descartar una causa raíz nueva antes de aplicar "otro
+parche".
+
+**Investigación:** se instrumentó `buildCustomRangeSnapshotData` contra la
+base de datos real, con el período exacto reportado por el usuario (03 jul —
+27 jul 2026, roster de 9 colaboradores), y se corrió `resolveEstadoGeneral`/
+`buildReportPages` sobre el snapshot resultante. Resultado: el código de la
+corrección anterior (v1.23.3) YA calculaba correctamente "Excelente —
+87/100" — no había ningún defecto de lógica. `npx vercel ls` (CLI ya
+autenticada en la sesión) mostró que el deploy de producción del commit
+`fc04525` (v1.23.3) había terminado en estado `● Error` — Vercel seguía
+sirviendo el deploy previo, anterior al fix, que es exactamente lo que el
+usuario seguía observando. `npx vercel inspect <deploy> --logs` reveló la
+causa: un panic de Rust dentro de Turbopack
+(`crates/next-code-frame/src/highlight.rs:1011` — "end byte index 94 is not
+a char boundary; it is inside 'í'") al intentar renderizar el code frame de
+un diagnóstico de build, reproducido de forma determinista en local
+(`npx next build`, con y sin caché de `.next`).
+
+**Causa raíz real:** `estadoGeneral.ts` (introducido en el fix anterior)
+importaba `classifyIndiceEjecutivo` desde `@/lib/reportInsights` — un
+archivo que empieza con `import "server-only"` (arrastra Prisma,
+`getHolidaySet`, `analytics.ts`, etc.). `estadoGeneral.ts` es usado por
+`documentModel.ts`, y `documentModel.ts` es importado DIRECTAMENTE por dos
+Client Components (`ReportWizardModal.tsx`/`MonthlyReports.tsx`, que llaman
+a `buildReportPages`/`buildExecutiveReportHtml` en el navegador para generar
+el PDF/Excel sin ida y vuelta al servidor). Ese import de VALOR real (no
+`import type`) arrastraba entonces todo `reportInsights.ts` al bundle de
+cliente — una violación real de la frontera cliente/servidor que Next.js
+debe rechazar en build (comportamiento correcto), pero cuyo mensaje de error
+Turbopack no lograba mostrar: el panic al formatear el code frame (un
+comentario con la palabra "días" en `holidays.ts`, cuya "í" cae en un límite
+de byte UTF-8 no válido al truncar el preview) tumbaba el proceso de build
+completo en su lugar, sin dejar un error de build legible. Todos los demás
+consumidores de `reportInsights.ts` dentro del motor de reportes
+(`context.ts`, `snapshotData.ts`, `nova/*.ts`, `components/kpis/types.ts`)
+ya usaban exclusivamente `import type` (borrado en compilación, nunca
+dispara la guardia `"server-only"` — patrón ya documentado explícitamente en
+`kpis/types.ts`) — `estadoGeneral.ts` fue el primer y único import real
+cruzando esa frontera.
+
+**Alternativas consideradas:**
+
+(a) **Suprimir el diagnóstico vía `turbopack.ignoreIssue`** (`next.config.ts`,
+opción nueva de Next 16.2). Descartada: solo oculta el mensaje/deja de
+panickear en la UI de `next dev`, no resuelve que el bundle de cliente
+seguiría intentando incluir código server-only real (Prisma, DB) — un
+riesgo de ejecución en runtime, no solo un diagnóstico molesto.
+
+(b) **Duplicar `classifyIndiceEjecutivo` dentro de `estadoGeneral.ts`** (copiar
+el cuerpo de la función). Descartada: crea dos copias de la misma regla de
+negocio que alguien tendría que mantener sincronizadas manualmente — el
+mismo riesgo que ya se evitó deliberadamente al diseñar la aproximación de
+respaldo del Estado General (ver entrada anterior de este documento).
+
+(c) **Extraer `classifyIndiceEjecutivo`/sus tipos a su propio módulo SIN
+`"server-only"`** (`executiveReporting/indiceEjecutivo.ts`), reexportado
+desde `reportInsights.ts` para no romper a sus consumidores actuales
+(`buildSnapshotData.ts`, `report-insights.test.ts`), e importado
+DIRECTAMENTE desde ese nuevo módulo por `estadoGeneral.ts`. Elegida.
+
+**Decisión:** (c). `classifyIndiceEjecutivo` no tiene ninguna dependencia de
+I/O — es una regla fija sobre 2 números ya promediados por el caller (mismo
+principio documentado desde su creación) — nunca necesitó vivir en un
+archivo `"server-only"`; solo estaba ahí por colocación histórica junto a
+funciones que sí usan Prisma. Extraerlo resuelve la causa raíz de raíz (el
+bundle de cliente ya no incluye ningún código server-only) en vez de
+esconder el síntoma.
+
+**Impacto:** el build de producción (`npx next build`) vuelve a completar
+sin panic, verificado localmente con y sin caché de `.next` antes de hacer
+push. Cero cambio de fórmula, umbrales o etiquetas del Índice Ejecutivo — es
+un movimiento de módulo, no un cambio de comportamiento. Deja documentado un
+patrón a vigilar hacia adelante: cualquier función nueva que
+`documentModel.ts`/`estadoGeneral.ts` necesiten reutilizar de
+`reportInsights.ts` debe evaluarse primero por si tiene dependencias reales
+de I/O — si no las tiene, debe extraerse (no importarse tal cual) para no
+volver a cruzar la guardia `"server-only"` hacia el cliente.
+
 ## 2026-07-28 — Fix: Estado General inconsistente entre tipos de reporte (Portada)
 
 **Problema:** un Informe Mensual (mes calendario en curso) mostraba en

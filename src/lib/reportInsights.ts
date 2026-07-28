@@ -20,34 +20,17 @@ import type { WorkloadLabel } from "@/components/kpis/types";
  */
 
 // ── Bloque 11 — Índice Ejecutivo del Equipo ─────────────────────────────────
-// Promedio simple de Performance Score + Equilibrio Operativo por miembro,
-// ya promediados por el caller — este archivo solo clasifica el resultado.
-// Solo tiene sentido para el mes calendario en curso (Equilibrio Operativo
-// incluye Capacidad Futura, una proyección hacia adelante desde "ahora";
-// recalcularla para un mes pasado no es representativo) — el caller decide
-// cuándo invocar esto, ver `reports/generate/route.ts`.
-
-export type IndiceEjecutivoNivel = "Excelente" | "Bueno" | "Atención" | "Crítico";
-export type IndiceEjecutivoResult = {
-  valor: number;
-  nivel: IndiceEjecutivoNivel;
-  color: "green" | "yellow" | "red";
-  explicacion: string;
-};
-
-export function classifyIndiceEjecutivo(avgPerformance: number, avgEquilibrio: number): IndiceEjecutivoResult {
-  const valor = Math.round(((avgPerformance + avgEquilibrio) / 2) * 10) / 10;
-  if (valor >= 85) {
-    return { valor, nivel: "Excelente", color: "green", explicacion: "El equipo mantiene un desempeño y equilibrio operativo sobresalientes. Puede asumir nuevos proyectos sin riesgo." };
-  }
-  if (valor >= 70) {
-    return { valor, nivel: "Bueno", color: "green", explicacion: "El equipo opera de forma saludable, con desempeño y equilibrio dentro de rangos aceptables." };
-  }
-  if (valor >= 50) {
-    return { valor, nivel: "Atención", color: "yellow", explicacion: "El equipo muestra señales que conviene atender antes de que se conviertan en un problema operativo mayor." };
-  }
-  return { valor, nivel: "Crítico", color: "red", explicacion: "El equipo requiere intervención inmediata — el desempeño y/o el equilibrio operativo están comprometidos." };
-}
+// El clasificador puro vive en `executiveReporting/indiceEjecutivo.ts` (SIN
+// "server-only" — no tiene I/O) para que un Client Component pueda
+// importarlo sin arrastrar este archivo completo (Prisma, `getHolidaySet`,
+// etc.) a su bundle — ver el comentario de ese archivo (causa raíz de un
+// fallo real de build, docs/AUDIT_LOG.md § Fix Índice Ejecutivo). Se
+// reexporta aquí solo para no romper a los consumidores existentes
+// (`buildSnapshotData.ts`, `report-insights.test.ts`) — código nuevo que
+// necesite `classifyIndiceEjecutivo` desde un contexto potencialmente
+// cliente debe importarlo de `executiveReporting/indiceEjecutivo.ts`
+// directamente, nunca de aquí.
+export { classifyIndiceEjecutivo, type IndiceEjecutivoNivel, type IndiceEjecutivoResult } from "@/lib/executiveReporting/indiceEjecutivo";
 
 // ── Bloque 9 — Tendencias (mes anterior / trimestre / semestre) ────────────
 // Snapshots mensuales livianos (cumplimiento/carga/consultas, vía

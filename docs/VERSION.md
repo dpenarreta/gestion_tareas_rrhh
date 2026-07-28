@@ -8,14 +8,14 @@
 
 | Componente | Versión | Notas |
 |---|---|---|
-| **NEXO** (producto) | **v1.23.3** | Ver `docs/CHANGELOG.md` para el detalle de qué introdujo cada versión |
+| **NEXO** (producto) | **v1.23.4** | Ver `docs/CHANGELOG.md` para el detalle de qué introdujo cada versión |
 | **Analytics Engine** | v1.5.0 | `ANALYTICS_ENGINE_VERSION` en `src/lib/analytics.ts` — sin cambios (Executive Reporting Engine 2.0 consume Analytics, no lo modifica) |
 | **Formulas Set** | v4.4 | `FORMULA_SET_VERSION` en `src/lib/analytics.ts` — sin cambios desde Sprint Analytics 2.0 (2026-07-24, `FORMULA_VERSIONS.capacidadDisponible`/`equilibrioOperativo` → `"1.1"`) |
 | **Executive Reporting Engine** | v2.0 | `EXECUTIVE_REPORTING_ENGINE_VERSION` en `src/lib/executiveReporting/version.ts` — nuevo en esta versión, versiona el motor de reportes ejecutivos independiente de Analytics |
 | **API** | Sin versionado explícito (rutas internas de Next.js, no una API pública versionada) | Ver `docs/ARCHITECTURE.md` |
 | **Prisma Schema** | Sin campo de versión propio — el historial de migraciones en `prisma/migrations/` es la fuente de verdad de su evolución | — |
 
-**Última actualización:** 2026-07-28 (v1.23.3 — fix: Estado General de Portada inconsistente entre tipos de reporte — un Informe de Rango Personalizado con datos completos mostraba "Sin datos para el período" solo porque el Índice Ejecutivo no aplica fuera del mes en curso; nuevo constructor único `resolveEstadoGeneral` en `estadoGeneral.ts`, usado por `documentModel.ts` y `context.ts`, sin cambios en los 3 builders de `buildSnapshotData.ts`)
+**Última actualización:** 2026-07-28 (v1.23.4 — fix: el build de producción del fix anterior (v1.23.3) fallaba en Vercel por un panic de Turbopack, causado por `estadoGeneral.ts` importando `classifyIndiceEjecutivo` desde un archivo `"server-only"` hacia Client Components; extraído a `executiveReporting/indiceEjecutivo.ts` sin esa guardia, cero cambio de fórmula, build de producción verificado localmente)
 **Autor:** Claude Code
 
 ---
