@@ -1,5 +1,5 @@
 import type { RiskAlert } from "@/lib/riskAlerts";
-import type { IndiceEjecutivoNivel, TrendComparison, RiskQuadrant, Finding, Recommendation, IndicatorExplanation } from "@/lib/reportInsights";
+import type { IndiceEjecutivoNivel } from "@/lib/reportInsights";
 import type { EstadoOperativoResult } from "@/lib/analytics";
 
 export type KpiColor = "green" | "yellow" | "red";
@@ -64,88 +64,6 @@ export type IndiceEjecutivoData = {
   variacion: number | null;
 } | null;
 
-export type ReportData = {
-  month: string;
-  scope: string;
-  teamSummary: {
-    avgCumplimiento: number;
-    avgCargaPct: number;
-    totalCargaRealHours: number;
-    totalCargaBaseHours: number;
-    totalCompletedTasks: number;
-    totalConsultas: number;
-    totalTasks: number;
-    hoursPerDay: number;
-    cargaRangeMin: number;
-    cargaRangeMax: number;
-  };
-  members: ReportMemberKpi[];
-  ranking: Array<{ id: string; name: string; role: string; score: number; completedPct: number }>;
-  consultasByReason: MotivoDistributionItem[];
-  alerts: Array<{ userId: string; name: string; type: "cumplimiento" | "sobrecarga"; value: number }>;
-  /** Todos opcionales — ausentes en informes generados antes de Sprint Reportes Ejecutivos 2.0. */
-  indiceEjecutivo?: IndiceEjecutivoData;
-  trends?: { mesAnterior: TrendComparison; trimestre: TrendComparison; semestre: TrendComparison };
-  riskQuadrant?: Array<{ id: string; name: string; completedPct: number; cargaPct: number; quadrant: RiskQuadrant }>;
-  findings?: Finding[];
-  recommendations?: Recommendation[];
-  insights?: string[];
-  indicatorExplanations?: { cumplimiento: IndicatorExplanation; carga: IndicatorExplanation; consultas: IndicatorExplanation };
-};
-
-/**
- * Sprint Analytics 2.1 (Generador Inteligente de Reportes) — informe de un
- * rango de fechas ARBITRARIO (no meses calendario completos, a diferencia de
- * RangeReportData), para los presets "Últimos 30 días" y "Rango
- * personalizado" — ver /api/reports/custom-range. Sin Índice Ejecutivo ni
- * Tendencias mes-trimestre-semestre (conceptos atados a meses calendario,
- * ver docs/DECISIONS.md) ni evolución mes a mes — solo el acumulado del
- * período, igual forma que ReportData.teamSummary/members.
- */
-export type PeriodReportData = {
-  from: string;
-  to: string;
-  periodLabel: string;
-  scope: string;
-  teamSummary: {
-    avgCumplimiento: number;
-    avgCargaPct: number;
-    totalCargaRealHours: number;
-    totalCargaBaseHours: number;
-    totalCompletedTasks: number;
-    totalConsultas: number;
-    totalTasks: number;
-    hoursPerDay: number;
-    cargaRangeMin: number;
-    cargaRangeMax: number;
-  };
-  members: ReportMemberKpi[];
-  ranking: Array<{ id: string; name: string; role: string; score: number; completedPct: number }>;
-  consultasByReason: MotivoDistributionItem[];
-  alerts: Array<{ userId: string; name: string; type: "cumplimiento" | "sobrecarga"; value: number }>;
-  riskQuadrant?: Array<{ id: string; name: string; completedPct: number; cargaPct: number; quadrant: RiskQuadrant }>;
-  findings?: Finding[];
-  recommendations?: Recommendation[];
-  insights?: string[];
-  indicatorExplanations?: { cumplimiento: IndicatorExplanation; carga: IndicatorExplanation; consultas: IndicatorExplanation };
-  aiAnalysis: string;
-};
-
-export type MonthlyReportSummary = {
-  id: string;
-  month: number;
-  year: number;
-  scope: string;
-  generatedBy: string;
-  createdAt: string;
-  updatedAt: string;
-};
-
-export type MonthlyReportFull = MonthlyReportSummary & {
-  data: ReportData;
-  aiAnalysis: string | null;
-};
-
 export type MonthSnapshot = {
   month: string;
   label: string;
@@ -166,43 +84,6 @@ export type MonthSnapshot = {
     score: number;
     totalTasks: number;
   }>;
-};
-
-export type RangeReportData = {
-  from: string;
-  to: string;
-  scope: string;
-  months: MonthSnapshot[];
-  aggregated: {
-    teamSummary: {
-      avgCumplimiento: number;
-      avgCargaPct: number;
-      totalCompletedTasks: number;
-      totalTasks: number;
-      totalCargaRealHours: number;
-      totalCargaBaseHours: number;
-      totalConsultas: number;
-      cargaRangeMin: number;
-      cargaRangeMax: number;
-    };
-    members: ReportMemberKpi[];
-    ranking: Array<{ id: string; name: string; role: string; avgScore: number; avgCumplimiento: number }>;
-    consultasByReason: MotivoDistributionItem[];
-    alerts: Array<{ userId: string; name: string; type: "cumplimiento" | "sobrecarga"; avgValue: number; monthsAffected: number }>;
-    problematicMonths: Array<{ month: string; label: string; teamAvgCumplimiento: number }>;
-    /** Todos opcionales — ausentes en informes generados antes de Sprint Reportes Ejecutivos 2.0. */
-    riskQuadrant?: Array<{ id: string; name: string; completedPct: number; cargaPct: number; quadrant: RiskQuadrant }>;
-    findings?: Finding[];
-    recommendations?: Recommendation[];
-    insights?: string[];
-  };
-  trends: {
-    cumplimientoTrend: "mejora" | "deterioro" | "estancamiento";
-    cumplimientoChange: number;
-    firstMonthAvgCumplimiento: number;
-    lastMonthAvgCumplimiento: number;
-  };
-  aiAnalysis: string;
 };
 
 export type TeamMemberKpi = {

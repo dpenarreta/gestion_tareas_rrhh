@@ -130,18 +130,26 @@
   `/api/reports/generate|range|custom-range`) se conserva intacto — el motor
   nuevo se integró de forma aditiva (botones "PDF/Excel Ejecutivo 2.0"), no
   reemplaza todavía la experiencia actual (v1.22.0).
+- Executive Reporting Engine 2.0 — repunte completo: `MonthlyReports.tsx` y
+  `ReportWizardModal.tsx` consumen EXCLUSIVAMENTE el endpoint unificado
+  (`POST /api/reports/executive` + `GET .../[reportId]` + `GET .../list`).
+  Retirados por ser código muerto tras el repunte: 4 rutas antiguas
+  (`/api/reports/generate|range|custom-range|route`), 7 componentes de
+  presentación (`ExecutiveSummarySection`/`FindingsSection`/
+  `RecommendationsSection`/`RiskMatrixChart`/`TrendsSection`/
+  `TeamInsightsSection`/`IndicatorInterpretation`), `wizardExport.ts`
+  completo, y los tipos `ReportData`/`RangeReportData`/`PeriodReportData`/
+  `MonthlyReportSummary`/`MonthlyReportFull` (`MonthlyReport`, el modelo
+  Prisma legacy, permanece intacto — ver `docs/DECISIONS.md`). La vista en
+  pantalla pasa a reutilizar el mismo render HTML del PDF (`buildReportPages`
+  + `buildExecutiveReportHtml`) en vez de una segunda implementación de
+  componentes; 3 campos del snapshot que el documento de 11 páginas fijas no
+  imprime (tendencias mes/trimestre/semestre, evolución mensual del rango,
+  alertas de gestión) se conservan como paneles complementarios en pantalla,
+  alimentados por el mismo snapshot congelado (v1.23.0).
 
 ## En desarrollo
 
-- Executive Reporting Engine 2.0 — repuntar `MonthlyReports.tsx`/
-  `ReportWizardModal.tsx`/`wizardExport.ts` al endpoint unificado
-  (`POST /api/reports/executive`) y retirar los renderers PDF/Excel
-  antiguos (`downloadReportPDF`/`downloadReportExcel`/`downloadWizardPDF`/
-  `downloadWizardExcel`) en favor de `renderReportHtml.ts`/
-  `renderReportExcel.ts`. Deliberadamente diferido del sprint que introdujo
-  el motor (v1.22.0) por ser un cambio de mayor riesgo sobre ~1600 líneas de
-  UI ya en uso — el motor nuevo convive hoy con el antiguo vía botones
-  aditivos ("PDF/Excel Ejecutivo 2.0").
 - Escenarios predictivos DE EQUIPO (Esperado/Preventivo/Optimista, FPS
   Executive Reporting Engine 2.0 Parte III) — no implementados: no existe
   todavía un motor de síntesis a nivel de equipo. La página "Analytics

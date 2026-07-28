@@ -7,18 +7,12 @@ import { Spinner } from "@/components/ui/Skeleton";
 import { useToast } from "@/components/ui/Toast";
 import { ROLE_LABEL, ROLE_LEVEL, getSubordinateRoles } from "@/lib/roles";
 import type { Role } from "@/generated/prisma/client";
-import type { ReportData, RangeReportData, PeriodReportData, ReportMemberKpi } from "../types";
-import {
-  ALL_WIZARD_SECTIONS,
-  WIZARD_SECTION_LABEL,
-  type WizardSectionKey,
-  type WizardFormat,
-  normalizeMonthReport,
-  normalizeRangeReport,
-  normalizeCustomReport,
-  downloadWizardPDF,
-  downloadWizardExcel,
-} from "./wizardExport";
+import type { ReportMemberKpi } from "../types";
+import { openReportWindow } from "../reportWindow";
+import { buildReportPages, type ReportPage } from "@/lib/executiveReporting/documentModel";
+import { buildExecutiveReportHtml, EXECUTIVE_REPORT_STYLES } from "@/lib/executiveReporting/renderReportHtml";
+import { downloadExecutiveReportExcel } from "@/lib/executiveReporting/renderReportExcel";
+import type { ExecutiveReportSnapshotData } from "@/lib/executiveReporting/snapshotData";
 
 type RosterUser = { id: string; name: string; role: Role };
 
@@ -34,7 +28,29 @@ const PERIOD_PRESET_LABEL: Record<PeriodPreset, string> = {
   personalizado: "Rango personalizado",
 };
 
-const DEFAULT_SECTIONS: WizardSectionKey[] = ["resumen", "kpis", "equilibrio", "ranking", "tendencias", "consultas", "hallazgos", "recomendaciones", "detalle", "anexos"];
+// ── Secciones exportables — mapean 1:1 a las páginas del documento unificado
+// (documentModel.ts). "cover" y "metadata" son estructurales y siempre se
+// incluyen; no son "secciones" que el usuario elija.
+type WizardPageKind = Exclude<ReportPage["kind"], "cover" | "metadata">;
+
+const WIZARD_PAGE_LABEL: Record<WizardPageKind, string> = {
+  executiveSummary: "Resumen Ejecutivo",
+  teamStatus: "Estado General del Equipo",
+  strategicIndicators: "Indicadores Estratégicos y Ranking",
+  memberDetail: "Detalle por Colaborador",
+  operationalDistribution: "Distribución Operativa",
+  insights: "Executive Insights",
+  assessment: "Executive Assessment (NOVA)",
+  recommendations: "Recomendaciones",
+  predictive: "Analytics Predictivo",
+};
+
+const ALL_WIZARD_PAGES = Object.keys(WIZARD_PAGE_LABEL) as WizardPageKind[];
+
+/** Páginas que siempre incluye el PDF Ejecutivo — versión condensada para dirección, sin importar qué haya tildado el usuario. */
+const PAGES_EJECUTIVO: WizardPageKind[] = ["executiveSummary", "teamStatus", "strategicIndicators", "recommendations"];
+
+type WizardFormat = "pdf-ejecutivo" | "pdf-completo" | "excel";
 
 function currentMonthParam() {
   const now = new Date();
@@ -59,39 +75,39 @@ function isoDate(d: Date) {
 }
 
 type ResolvedPeriod =
-  | { kind: "month"; month: string; label: string }
-  | { kind: "range"; from: string; to: string; label: string }
-  | { kind: "custom"; from: string; to: string; label: string };
+  | { tipoReporte: "MENSUAL"; month: string; label: string }
+  | { tipoReporte: "RANGO_MESES"; from: string; to: string; label: string }
+  | { tipoReporte: "RANGO_PERSONALIZADO"; from: string; to: string; label: string };
 
 function resolvePeriod(preset: PeriodPreset, customFrom: string, customTo: string): ResolvedPeriod | null {
   const current = currentMonthParam();
   switch (preset) {
     case "mes-actual":
-      return { kind: "month", month: current, label: monthParamLabel(current) };
+      return { tipoReporte: "MENSUAL", month: current, label: monthParamLabel(current) };
     case "mes-anterior": {
       const m = addMonthsToParam(current, -1);
-      return { kind: "month", month: m, label: monthParamLabel(m) };
+      return { tipoReporte: "MENSUAL", month: m, label: monthParamLabel(m) };
     }
     case "trimestre": {
       const from = addMonthsToParam(current, -2);
-      return { kind: "range", from, to: current, label: `${monthParamLabel(from)} — ${monthParamLabel(current)}` };
+      return { tipoReporte: "RANGO_MESES", from, to: current, label: `${monthParamLabel(from)} — ${monthParamLabel(current)}` };
     }
     case "semestre": {
       const from = addMonthsToParam(current, -5);
-      return { kind: "range", from, to: current, label: `${monthParamLabel(from)} — ${monthParamLabel(current)}` };
+      return { tipoReporte: "RANGO_MESES", from, to: current, label: `${monthParamLabel(from)} — ${monthParamLabel(current)}` };
     }
     case "año": {
       const from = addMonthsToParam(current, -11);
-      return { kind: "range", from, to: current, label: `${monthParamLabel(from)} — ${monthParamLabel(current)}` };
+      return { tipoReporte: "RANGO_MESES", from, to: current, label: `${monthParamLabel(from)} — ${monthParamLabel(current)}` };
     }
     case "ultimos-30": {
       const to = new Date();
       const from = new Date(to.getTime() - 29 * 86400000);
-      return { kind: "custom", from: isoDate(from), to: isoDate(to), label: `${isoDate(from)} a ${isoDate(to)}` };
+      return { tipoReporte: "RANGO_PERSONALIZADO", from: isoDate(from), to: isoDate(to), label: `${isoDate(from)} a ${isoDate(to)}` };
     }
     case "personalizado":
       if (!customFrom || !customTo) return null;
-      return { kind: "custom", from: customFrom, to: customTo, label: `${customFrom} a ${customTo}` };
+      return { tipoReporte: "RANGO_PERSONALIZADO", from: customFrom, to: customTo, label: `${customFrom} a ${customTo}` };
   }
 }
 
@@ -111,7 +127,7 @@ export function ReportWizardModal({ open, onClose, currentUserRole, referenceMem
   const [preset, setPreset] = useState<PeriodPreset>("mes-actual");
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
-  const [sections, setSections] = useState<Set<WizardSectionKey>>(new Set(DEFAULT_SECTIONS));
+  const [sections, setSections] = useState<Set<WizardPageKind>>(new Set(ALL_WIZARD_PAGES));
   const [format, setFormat] = useState<WizardFormat>("pdf-completo");
   const [generating, setGenerating] = useState(false);
 
@@ -177,7 +193,7 @@ export function ReportWizardModal({ open, onClose, currentUserRole, referenceMem
     });
   }
 
-  function toggleSection(key: WizardSectionKey) {
+  function toggleSection(key: WizardPageKind) {
     setSections((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -199,30 +215,31 @@ export function ReportWizardModal({ open, onClose, currentUserRole, referenceMem
     const allSelected = selectedIds.size === roster.length;
     const userIdsParam = allSelected ? "" : `&userIds=${[...selectedIds].join(",")}`;
 
+    const query =
+      resolved.tipoReporte === "MENSUAL"
+        ? `tipoReporte=MENSUAL&month=${resolved.month}`
+        : `tipoReporte=${resolved.tipoReporte}&from=${resolved.from}&to=${resolved.to}`;
+
     setGenerating(true);
     try {
-      let normalized;
-      if (resolved.kind === "month") {
-        const res = await fetch(`/api/reports/generate?month=${resolved.month}${userIdsParam}`, { method: "POST" });
-        if (!res.ok) throw new Error((await res.json()).error ?? "Error al generar el informe");
-        const { report } = (await res.json()) as { report: { data: ReportData } };
-        normalized = normalizeMonthReport(report.data, resolved.label);
-      } else if (resolved.kind === "range") {
-        const res = await fetch(`/api/reports/range?from=${resolved.from}&to=${resolved.to}${userIdsParam}`);
-        if (!res.ok) throw new Error((await res.json()).error ?? "Error al generar el informe");
-        const { report } = (await res.json()) as { report: RangeReportData };
-        normalized = normalizeRangeReport(report, resolved.label);
-      } else {
-        const res = await fetch(`/api/reports/custom-range?from=${resolved.from}&to=${resolved.to}${userIdsParam}`);
-        if (!res.ok) throw new Error((await res.json()).error ?? "Error al generar el informe");
-        const { report } = (await res.json()) as { report: PeriodReportData };
-        normalized = normalizeCustomReport(report);
-      }
+      const res = await fetch(`/api/reports/executive?${query}${userIdsParam}`, { method: "POST" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error ?? "Error al generar el informe");
+      const { snapshot } = (await res.json()) as { reportId: string; snapshot: ExecutiveReportSnapshotData };
+
+      const pages = buildReportPages(snapshot);
+      const includedKinds = new Set<ReportPage["kind"]>(["cover", "metadata", ...(format === "pdf-ejecutivo" ? PAGES_EJECUTIVO : [...sections])]);
+      const filteredPages = pages.filter((p) => includedKinds.has(p.kind));
 
       if (format === "excel") {
-        downloadWizardExcel(normalized, sections);
+        downloadExecutiveReportExcel(filteredPages, `Informe_Ejecutivo_${snapshot.meta.reportId}.xlsx`);
       } else {
-        downloadWizardPDF(normalized, sections, format === "pdf-ejecutivo" ? "ejecutivo" : "completo");
+        const variantLabel = format === "pdf-ejecutivo" ? "Ejecutivo" : "Completo";
+        openReportWindow({
+          title: `Informe ${variantLabel} — ${snapshot.meta.periodLabel}`,
+          styles: EXECUTIVE_REPORT_STYLES,
+          bodyHtml: buildExecutiveReportHtml(filteredPages),
+          pdfFileName: `Informe_${variantLabel}_${snapshot.meta.reportId}.pdf`,
+        });
       }
       showToast("Informe generado.", "success");
       onClose();
@@ -234,7 +251,6 @@ export function ReportWizardModal({ open, onClose, currentUserRole, referenceMem
   }
 
   const resolved = resolvePeriod(preset, customFrom, customTo);
-  const tendenciasDisabled = resolved?.kind !== "month";
 
   return (
     <Modal open={open} onClose={onClose} size="lg">
@@ -312,21 +328,17 @@ export function ReportWizardModal({ open, onClose, currentUserRole, referenceMem
         <section>
           <h3 className="text-sm font-semibold text-title mb-2">Secciones a incluir</h3>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            {ALL_WIZARD_SECTIONS.map((key) => {
-              const disabled = key === "tendencias" && tendenciasDisabled;
-              return (
-                <label key={key} className={`flex items-center gap-2 text-xs px-2 py-1.5 rounded-lg ${disabled ? "opacity-40" : "cursor-pointer hover:bg-surface2"}`}>
-                  <input
-                    type="checkbox"
-                    disabled={disabled}
-                    checked={sections.has(key) && !disabled}
-                    onChange={() => toggleSection(key)}
-                    className="rounded border-border"
-                  />
-                  <span className="text-main">{WIZARD_SECTION_LABEL[key]}</span>
-                </label>
-              );
-            })}
+            {ALL_WIZARD_PAGES.map((key) => (
+              <label key={key} className="flex items-center gap-2 text-xs px-2 py-1.5 rounded-lg cursor-pointer hover:bg-surface2">
+                <input
+                  type="checkbox"
+                  checked={sections.has(key)}
+                  onChange={() => toggleSection(key)}
+                  className="rounded border-border"
+                />
+                <span className="text-main">{WIZARD_PAGE_LABEL[key]}</span>
+              </label>
+            ))}
           </div>
         </section>
 
@@ -350,7 +362,7 @@ export function ReportWizardModal({ open, onClose, currentUserRole, referenceMem
             ))}
           </div>
           {format === "pdf-ejecutivo" && (
-            <p className="text-[11px] text-disabled mt-2">El PDF Ejecutivo siempre incluye Resumen, KPIs, Equilibrio, Ranking, Hallazgos y Recomendaciones (versión condensada para dirección), sin importar las secciones tildadas arriba.</p>
+            <p className="text-[11px] text-disabled mt-2">El PDF Ejecutivo siempre incluye Portada, Resumen Ejecutivo, Estado General, Indicadores Estratégicos, Recomendaciones y Metadatos (versión condensada para dirección), sin importar las secciones tildadas arriba.</p>
           )}
         </section>
       </div>

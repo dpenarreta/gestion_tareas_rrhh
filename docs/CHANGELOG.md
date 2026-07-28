@@ -23,6 +23,75 @@
 
 ---
 
+## v1.23.0 — 2026-07-28
+
+**Tipo:** REFACTOR / BREAKING CHANGE (interno)
+**Módulo:** Executive Reporting Engine — repunte de `MonthlyReports.tsx`/`ReportWizardModal.tsx` (`src/components/kpis/`)
+
+Cierre del ítem diferido en v1.22.0: `MonthlyReports.tsx` y
+`ReportWizardModal.tsx` dejan de tener una ruta de datos propia y pasan a
+consumir EXCLUSIVAMENTE el endpoint unificado del Executive Reporting Engine
+2.0. Investigación previa (agente de exploración) confirmó que los 7
+componentes de presentación legacy y las 4 rutas antiguas no tenían ningún
+otro consumidor en el sistema — seguro retirarlos por completo.
+
+- **`MonthlyReports.tsx` reescrito**: ambas vistas (mes individual / rango)
+  generan y leen ahora vía `POST /api/reports/executive`,
+  `GET /api/reports/executive/[reportId]` y `GET /api/reports/executive/list`
+  — el sidebar de "informes guardados" usa el historial real del snapshot
+  (incluye entradas `LEGACY_MIGRATION`, marcadas con una etiqueta "Legacy").
+  La vista en pantalla deja de tener una implementación de componentes
+  propia y reutiliza el MISMO render a HTML que alimenta el PDF
+  (`buildReportPages` + `buildExecutiveReportHtml`, inyectado vía
+  `dangerouslySetInnerHTML` sobre contenido ya escapado) — pantalla y PDF no
+  pueden volver a divergir en contenido.
+- **`ReportWizardModal.tsx` reescrito**: el selector de "secciones a
+  incluir" pasa de 10 claves ad-hoc a las 9 páginas reales del documento
+  unificado (`ReportPage["kind"]`, excluyendo Portada/Metadatos que son
+  siempre estructurales); el formato "PDF Ejecutivo" fuerza un subconjunto
+  fijo (Resumen/Estado General/Indicadores/Recomendaciones) igual que antes.
+  El preset "Rango personalizado"/"Últimos 30 días" del asistente ahora
+  llega de verdad a `tipoReporte=RANGO_PERSONALIZADO` del motor unificado
+  (antes llegaba a `/api/reports/custom-range`, un endpoint aparte con su
+  propia lógica).
+- **Retirado por ser código muerto tras el repunte** (verificado con grep de
+  cero importadores restantes, no solo por inspección): 4 rutas
+  (`/api/reports/generate`, `/api/reports/range`, `/api/reports/custom-range`,
+  `/api/reports` list/detail), 7 componentes de presentación
+  (`ExecutiveSummarySection`, `FindingsSection`, `RecommendationsSection`,
+  `RiskMatrixChart`, `TrendsSection`, `TeamInsightsSection`,
+  `IndicatorInterpretation`), `wizardExport.ts` completo (normalizadores +
+  builders de PDF/Excel — su lógica ya vivía duplicada en
+  `renderReportHtml.ts`/`renderReportExcel.ts`), los 4 `download*` de
+  `MonthlyReports.tsx` (`downloadReportPDF`/`downloadReportExcel`/
+  `downloadRangePDF`/`downloadRangeExcel`), los tipos `ReportData`/
+  `RangeReportData`/`PeriodReportData`/`MonthlyReportSummary`/
+  `MonthlyReportFull` de `kpis/types.ts`, y `src/__tests__/api/reports.test.ts`
+  (probaba directamente los handlers de las rutas eliminadas). `MonthSnapshot`
+  se conservó — lo sigue usando el motor nuevo (`monthlyEvolution`). El
+  modelo Prisma `MonthlyReport` NO se tocó — permanece como tabla legacy
+  inmutable, ya migrada por completo (ver v1.22.0/v1.22.2).
+- **Sin pérdida funcional real, con un ajuste de superficie documentado**:
+  el documento fijo de 11 páginas no imprime 3 campos que sí existen en el
+  snapshot (tendencias mes/trimestre/semestre, evolución mensual con
+  gráfico de línea por colaborador, alertas de gestión/persistentes) — se
+  agregaron como paneles complementarios en pantalla (`TrendsPanel`,
+  `RangeEvolutionPanel`, `AlertsPanel` en `MonthlyReports.tsx`), leyendo
+  directamente del mismo snapshot ya congelado, sin recalcular nada. Los
+  botones de exportación PDF/Excel ahora reutilizan el snapshot ya cargado
+  en pantalla en vez de generar uno nuevo en cada clic (antes,
+  `handleDownloadExecutiveV2Pdf`/`Excel` volvían a llamar a
+  `POST /api/reports/executive`, creando un snapshot inmutable adicional
+  por cada exportación) — corrige una duplicación de snapshots no
+  intencional del sprint anterior, no un cambio de comportamiento visible.
+- **Verificado**: `tsc --noEmit` limpio (solo los 2 errores preexistentes y
+  no relacionados de siempre), `npm run lint` limpio (0 errores),
+  `npx vitest run` en verde (83 archivos / 1130 tests — 14 menos que antes,
+  correspondientes exactamente a los tests eliminados de
+  `reports.test.ts`, sin ninguna prueba nueva fallando), `npm run build`
+  exitoso (el listado de rutas del build ya no incluye las 4 rutas
+  retiradas).
+
 ## v1.22.3 — 2026-07-28
 
 **Tipo:** FIX / DOCUMENTATION

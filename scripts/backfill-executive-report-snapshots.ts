@@ -19,9 +19,32 @@ import * as readline from "node:readline/promises";
 import { Prisma, PrismaClient } from "@/generated/prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { generateLegacyReportId } from "../src/lib/executiveReporting/reportId";
-import type { ReportData, ReportMemberKpi, MotivoDistributionItem } from "../src/components/kpis/types";
-import type { Finding, Recommendation, IndicatorExplanation, RiskQuadrant } from "../src/lib/reportInsights";
+import type { ReportMemberKpi, MotivoDistributionItem, IndiceEjecutivoData } from "../src/components/kpis/types";
+import type { Finding, Recommendation, IndicatorExplanation, RiskQuadrant, TrendComparison } from "../src/lib/reportInsights";
 import type { ExecutiveReportSnapshotData } from "../src/lib/executiveReporting/snapshotData";
+
+/**
+ * Forma congelada del `MonthlyReport.data` histórico (pre Executive
+ * Reporting Engine 2.0) — YA NO existe un tipo `ReportData` vivo en la app
+ * (el único endpoint que lo producía, /api/reports/generate, fue retirado al
+ * repuntar MonthlyReports.tsx al motor unificado). Se declara aquí, local al
+ * script, porque describe un esquema histórico archivado — no debe cambiar
+ * nunca, independientemente de cómo evolucione el tipo vivo del motor nuevo.
+ */
+type LegacyReportData = {
+  teamSummary: ExecutiveReportSnapshotData["teamSummary"];
+  members?: ReportMemberKpi[];
+  ranking?: Array<{ id: string; name: string; role: string; score: number; completedPct: number }>;
+  consultasByReason?: MotivoDistributionItem[];
+  alerts?: Array<{ userId: string; name: string; type: "cumplimiento" | "sobrecarga"; value: number }>;
+  indiceEjecutivo?: IndiceEjecutivoData;
+  trends?: { mesAnterior: TrendComparison; trimestre: TrendComparison; semestre: TrendComparison };
+  riskQuadrant?: Array<{ id: string; name: string; completedPct: number; cargaPct: number; quadrant: RiskQuadrant }>;
+  findings?: Finding[];
+  recommendations?: Array<{ text: string; priority: "alta" | "media" }>;
+  insights?: string[];
+  indicatorExplanations?: { cumplimiento: IndicatorExplanation; carga: IndicatorExplanation; consultas: IndicatorExplanation };
+};
 
 const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
 const prisma = new PrismaClient({ adapter });
@@ -36,7 +59,7 @@ const PLACEHOLDER_EXPLANATION: IndicatorExplanation = {
   action: "",
 };
 
-function buildLegacyMemberIndicatorExplanations(old: ReportData): { cumplimiento: IndicatorExplanation; carga: IndicatorExplanation; consultas: IndicatorExplanation } {
+function buildLegacyMemberIndicatorExplanations(old: LegacyReportData): { cumplimiento: IndicatorExplanation; carga: IndicatorExplanation; consultas: IndicatorExplanation } {
   return old.indicatorExplanations ?? { cumplimiento: PLACEHOLDER_EXPLANATION, carga: PLACEHOLDER_EXPLANATION, consultas: PLACEHOLDER_EXPLANATION };
 }
 
@@ -45,7 +68,7 @@ function withLegacyIds(recs: Array<{ text: string; priority: "alta" | "media" }>
   return (recs ?? []).map((r, i) => ({ id: `legacy-${i}`, text: r.text, priority: r.priority }));
 }
 
-function adaptLegacyReportData(old: ReportData): Omit<ExecutiveReportSnapshotData, "meta"> {
+function adaptLegacyReportData(old: LegacyReportData): Omit<ExecutiveReportSnapshotData, "meta"> {
   const members: ReportMemberKpi[] = old.members ?? [];
   const consultasByReason: MotivoDistributionItem[] = old.consultasByReason ?? [];
   const riskQuadrant: Array<{ id: string; name: string; completedPct: number; cargaPct: number; quadrant: RiskQuadrant }> = old.riskQuadrant ?? [];
@@ -127,7 +150,7 @@ async function main() {
   let failed = 0;
 
   for (const report of pending) {
-    const old = report.data as unknown as ReportData;
+    const old = report.data as unknown as LegacyReportData;
     const periodStart = new Date(report.year, report.month - 1, 1);
     const periodEnd = new Date(report.year, report.month, 0, 23, 59, 59, 999);
     const periodLabel = periodStart.toLocaleDateString("es-CL", { month: "long", year: "numeric" });
