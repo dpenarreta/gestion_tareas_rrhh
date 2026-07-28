@@ -157,19 +157,60 @@ async function main() {
 
     const adapted = adaptLegacyReportData(old);
 
-    // MonthlyReport.aiAnalysis vive en su propia columna, no en `data` — se
-    // anexa aparte (campo no tipado, exclusivo de filas LEGACY_MIGRATION)
-    // para no perder el texto libre que Groq generó en su momento.
-    const dataWithLegacyText = {
-      ...adapted,
-      legacyAiAnalysisText: (report as unknown as { aiAnalysis: string | null }).aiAnalysis ?? undefined,
-    };
-
     let attempt = 0;
     let inserted = false;
     while (attempt < 5 && !inserted) {
       attempt++;
       const reportId = generateLegacyReportId(report.createdAt);
+
+      // Bug real corregido 2026-07-28 (ver docs/AUDIT_LOG.md): esta corrida
+      // original (Fase D, v1.22.0) persistía `data` SIN `meta` —
+      // `adaptLegacyReportData` devuelve a propósito
+      // `Omit<ExecutiveReportSnapshotData, "meta">` porque `reportId` recién
+      // se conoce DENTRO de este loop (por el reintento ante colisión), pero
+      // nunca se volvía a adjuntar antes de insertar. Todo consumidor de
+      // `ExecutiveReportSnapshotData` (documentModel.ts, MonthlyReports.tsx)
+      // exige `data.meta.*` — se construye aquí, con los mismos valores que
+      // las columnas planas de abajo, para que `data` sea un
+      // ExecutiveReportSnapshotData realmente completo, no solo un
+      // Omit<..., "meta"> con campos sueltos duplicados a nivel de fila.
+      const meta = {
+        reportId,
+        origin: "LEGACY_MIGRATION" as const,
+        integrityFlag: "PARTIAL" as const,
+        type: "MENSUAL" as const,
+        // MonthlyReport nunca soportó roster filtrado por rol/colaborador —
+        // esa capacidad nace con ExecutiveReportFilters (Fase B) — valor
+        // correcto, no una suposición.
+        rosterKind: "CONSOLIDADO" as const,
+        scope: report.scope,
+        periodLabel,
+        periodStart: periodStart.toISOString(),
+        periodEnd: periodEnd.toISOString(),
+        fechaCorte: report.updatedAt.toISOString(),
+        periodStatus: "HISTORICO" as const,
+        collaboratorIds: adapted.members.map((m) => m.id),
+        collaboratorCount: adapted.members.length,
+        generatedBy: { userId: report.generatedBy, name: report.generator.name },
+        generatedAt: report.createdAt.toISOString(),
+        generationMs: 0,
+        versions: {
+          analyticsEngineVersion: "desconocida (pre Executive Reporting Engine 2.0)",
+          formulaSetVersion: "desconocida (pre Executive Reporting Engine 2.0)",
+          reportingEngineVersion: "legacy",
+          nexoVersion: "desconocida (pre Executive Reporting Engine 2.0)",
+        },
+      };
+
+      // MonthlyReport.aiAnalysis vive en su propia columna, no en `data` — se
+      // anexa aparte (campo no tipado, exclusivo de filas LEGACY_MIGRATION)
+      // para no perder el texto libre que Groq generó en su momento.
+      const dataWithLegacyText = {
+        ...adapted,
+        meta,
+        legacyAiAnalysisText: (report as unknown as { aiAnalysis: string | null }).aiAnalysis ?? undefined,
+      };
+
       try {
         await prisma.executiveReportSnapshot.create({
           data: {

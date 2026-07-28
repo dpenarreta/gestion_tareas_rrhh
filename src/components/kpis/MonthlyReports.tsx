@@ -257,17 +257,18 @@ function ReportCard({ report, selected, onClick }: { report: ExecutiveReportList
 
 function exportPdf(snapshot: ExecutiveReportSnapshotData) {
   const pages = buildReportPages(snapshot);
+  const reportId = snapshot.meta?.reportId ?? "sin-id";
   openReportWindow({
-    title: `Reporte Ejecutivo — ${snapshot.meta.periodLabel}`,
+    title: `Reporte Ejecutivo — ${snapshot.meta?.periodLabel ?? "Período no disponible"}`,
     styles: EXECUTIVE_REPORT_STYLES,
     bodyHtml: buildExecutiveReportHtml(pages),
-    pdfFileName: `Reporte_Ejecutivo_${snapshot.meta.reportId}.pdf`,
+    pdfFileName: `Reporte_Ejecutivo_${reportId}.pdf`,
   });
 }
 
 function exportExcel(snapshot: ExecutiveReportSnapshotData) {
   const pages = buildReportPages(snapshot);
-  downloadExecutiveReportExcel(pages, `Reporte_Ejecutivo_${snapshot.meta.reportId}.xlsx`);
+  downloadExecutiveReportExcel(pages, `Reporte_Ejecutivo_${snapshot.meta?.reportId ?? "sin-id"}.xlsx`);
 }
 
 // ── Main component ────────────────────────────────────────────────────────────
@@ -560,9 +561,10 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                 <div className="space-y-5">
                   <div className="bg-surface rounded-2xl border border-border px-5 py-4 flex flex-wrap items-center justify-between gap-4">
                     <div>
-                      <h2 className="text-xl font-bold text-title">{monthlySnapshot.meta.periodLabel}</h2>
+                      <h2 className="text-xl font-bold text-title">{monthlySnapshot.meta?.periodLabel ?? "Período no disponible"}</h2>
                       <p className="text-sm text-secondary">
-                        Generado por {monthlySnapshot.meta.generatedBy.name} el {formatDate(monthlySnapshot.meta.generatedAt)}
+                        Generado por {monthlySnapshot.meta?.generatedBy?.name ?? "—"}
+                        {monthlySnapshot.meta?.generatedAt ? ` el ${formatDate(monthlySnapshot.meta.generatedAt)}` : ""}
                       </p>
                     </div>
                     <div className="flex items-center gap-2 flex-wrap">

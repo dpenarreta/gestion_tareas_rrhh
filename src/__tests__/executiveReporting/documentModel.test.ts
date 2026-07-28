@@ -219,6 +219,30 @@ describe("buildReportPages", () => {
       expect(summary.situacionGeneral).toBe("No disponible.");
     }
   });
+
+  it("degrada con gracia cuando meta viene undefined (bug real: LEGACY_MIGRATION persistido sin meta) — nunca lanza TypeError", () => {
+    const brokenSnapshot = fixtureSnapshot({ meta: undefined as unknown as ExecutiveReportSnapshotData["meta"] });
+    expect(() => buildReportPages(brokenSnapshot)).not.toThrow();
+
+    const pages = buildReportPages(brokenSnapshot);
+    const cover = pages.find((p) => p.kind === "cover");
+    expect(cover?.kind).toBe("cover");
+    if (cover?.kind === "cover") {
+      expect(cover.periodLabel).toBe("Período no disponible");
+      expect(cover.reportId).toBe("—");
+      expect(cover.generatedByName).toBe("—");
+    }
+
+    const metadata = pages.find((p) => p.kind === "metadata");
+    expect(metadata?.kind).toBe("metadata");
+    if (metadata?.kind === "metadata") {
+      expect(metadata.periodLabel).toBe("Período no disponible");
+      expect(metadata.collaboratorCount).toBe(brokenSnapshot.members.length);
+    }
+
+    const strategic = pages.find((p) => p.kind === "strategicIndicators");
+    expect(strategic?.kind).toBe("strategicIndicators");
+  });
 });
 
 describe("buildExecutiveReportHtml", () => {

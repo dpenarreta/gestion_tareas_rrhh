@@ -228,6 +228,45 @@ describe("GET /api/reports/executive/[reportId]", () => {
     expect(body.report.reportId).toBe("NXR-1");
     expect(executiveReportAuditLogCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: "viewed" }) }));
   });
+
+  it("reconstruye data.meta cuando la fila persistida no lo trae (bug real: LEGACY_MIGRATION del backfill de Fase D quedó sin meta) — nunca deja periodLabel undefined", async () => {
+    mockSession({ role: "JEFE_NACIONAL" });
+    executiveReportSnapshotFindUnique.mockResolvedValue({
+      reportId: "NXR-LEGACY-20260601-7F3C",
+      type: "MENSUAL",
+      scope: "JEFE",
+      origin: "LEGACY_MIGRATION",
+      integrityFlag: "PARTIAL",
+      periodLabel: "junio de 2026",
+      periodStart: new Date("2026-06-01"),
+      periodEnd: new Date("2026-06-30"),
+      fechaCorte: new Date("2026-06-30"),
+      periodStatus: "HISTORICO",
+      collaboratorIds: ["u1", "u2"],
+      collaboratorCount: 2,
+      generatedBy: "u1",
+      generatedAt: new Date("2026-06-30"),
+      generationMs: 0,
+      analyticsEngineVersion: "desconocida (pre Executive Reporting Engine 2.0)",
+      formulaSetVersion: "desconocida (pre Executive Reporting Engine 2.0)",
+      reportingEngineVersion: "legacy",
+      nexoVersion: "desconocida (pre Executive Reporting Engine 2.0)",
+      // Forma real de las 4 filas migradas antes de este fix: sin `meta`.
+      data: { teamSummary: {}, members: [] },
+      nova: null,
+      novaDegraded: true,
+      dataQuality: { pct: 100, issues: [] },
+      generator: { name: "Ana" },
+    });
+    const res = await executiveGetById(getRequest("http://localhost/api/reports/executive/NXR-LEGACY-20260601-7F3C"), ctx("NXR-LEGACY-20260601-7F3C"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.report.data.meta).toBeDefined();
+    expect(body.report.data.meta.periodLabel).toBe("junio de 2026");
+    expect(body.report.data.meta.reportId).toBe("NXR-LEGACY-20260601-7F3C");
+    expect(body.report.data.meta.rosterKind).toBe("CONSOLIDADO");
+    expect(body.report.data.meta.generatedBy).toEqual({ userId: "u1", name: "Ana" });
+  });
 });
 
 describe("GET /api/reports/executive/list", () => {

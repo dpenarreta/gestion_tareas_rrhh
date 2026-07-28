@@ -15,6 +15,85 @@
 
 ---
 
+## 2026-07-28 — Fix: reportes LEGACY_MIGRATION persistidos sin `data.meta`
+
+**Problema:** tras el repunte de `MonthlyReports.tsx` al endpoint unificado
+(v1.23.0), la página Informes Mensuales empezó a fallar con `TypeError:
+Cannot read properties of undefined (reading 'periodLabel')`. Investigación:
+los 4 `ExecutiveReportSnapshot` con `origin: LEGACY_MIGRATION` (backfill de
+Fase D, v1.22.0) se persistieron con la columna `data` (el
+`ExecutiveReportSnapshotData` completo, en teoría) **sin el campo `meta`** —
+`scripts/backfill-executive-report-snapshots.ts` (`adaptLegacyReportData`)
+devolvía a propósito `Omit<ExecutiveReportSnapshotData, "meta">` porque el
+`reportId` definitivo solo se conocía dentro del loop de reintento por
+colisión (`generateLegacyReportId` se llama por intento), y el `meta`
+completo nunca se reconstruía después con ese `reportId` antes del
+`prisma.executiveReportSnapshot.create()`. El resto de campos equivalentes
+(`periodLabel`, `generatedAt`, versiones, etc.) sí se guardaron — pero solo
+como columnas Prisma sueltas del `ExecutiveReportSnapshot`, nunca anidados
+dentro del blob `data.meta` que `ExecutiveReportSnapshotData` exige. El
+defecto llevaba latente desde v1.22.0, invisible porque **ningún consumidor
+anterior leía `data.meta` de un reporte legacy** — antes del repunte, la
+única forma de generar/ver el motor nuevo eran los botones aditivos "PDF/
+Excel Ejecutivo 2.0", que siempre re-generaban un snapshot `GENERATED` fresco
+(con `meta` completo) en el momento del clic, nunca leían un histórico
+persistido por Report ID.
+
+**Alternativas consideradas para el fix:**
+
+(a) **Reparar las 4 filas escribiendo en la base compartida** (`UPDATE
+`ExecutiveReportSnapshot` SET data = ...` o re-ejecutar una variante del
+backfill) — requeriría el mismo protocolo de confirmación explícita que el
+backfill original (dry-run + "escribe 'si' para confirmar", ver memoria del
+proyecto: la BD local es producción). No solicitado por el usuario en este
+turno, y no era estrictamente necesario para resolver el bug.
+
+(b) **Reconstruir `meta` en el límite de lectura** (`GET /api/reports/
+executive/[reportId]`), a partir de las columnas que la propia fila ya tiene
+— sin ninguna escritura a la base de datos. Elegido. El GET ya hace
+`include: { generator: { select: { name: true } } }` y ya lee todas las
+columnas necesarias (`reportId`, `type`, `scope`, `origin`, `integrityFlag`,
+`periodLabel`, `periodStart/End`, `fechaCorte`, `periodStatus`,
+`collaboratorIds/Count`, `generatedBy`, `generatedAt`, `generationMs`, las 4
+versiones) — la única inferencia no derivable 1:1 de una columna es
+`rosterKind`, fijada en `"CONSOLIDADO"` porque `MonthlyReport` (el modelo
+legacy) nunca soportó roster filtrado por rol/colaborador (esa capacidad
+nace con `ExecutiveReportFilters`, Fase B) — un hecho verificable, no una
+suposición.
+
+**Decisión:** (b). Garantiza el fix sin abrir una ventana de escritura no
+solicitada en la base compartida, y dado que el `GET` ya reconstruye la
+respuesta campo por campo (no hace `return snapshot.data` directo), agregar
+la reconstrucción de `meta` ahí es coherente con el patrón ya existente, no
+una excepción nueva. Se corrigió TAMBIÉN el origen del defecto
+(`scripts/backfill-executive-report-snapshots.ts` ahora construye `meta`
+completo antes de insertar) para que una corrida futura del script contra
+datos legacy nuevos no reproduzca el mismo bug — aunque esto no repara
+retroactivamente las 4 filas ya migradas (las repara el fix de lectura).
+
+**Decisión complementaria — validaciones defensivas, no relajar el tipo.**
+Se consideró marcar `SnapshotMeta` como opcional (`meta?: SnapshotMeta`) en
+`ExecutiveReportSnapshotData` para forzar `?.` en todos los consumidores vía
+el compilador. Rechazado: debilitaría el contrato de tipos para el caso
+común (snapshots `GENERATED`, donde `meta` SIEMPRE está completo por
+construcción del Builder), obligando a `?.`/fallbacks innecesarios en
+decenas de sitios que hoy pueden confiar en el tipo. En su lugar, la defensa
+en runtime se concentra en el ÚNICO límite real de riesgo — donde JSON de
+una columna Postgres (sin chequeo de tipo en runtime) entra al sistema de
+tipos: `documentModel.ts` (`buildCoverPage`/`buildStrategicIndicatorsPage`/
+`buildMetadataPage`, con `?.` + fallback textual) y los puntos de
+exportación en `MonthlyReports.tsx`/`ReportWizardModal.tsx`. El tipo
+`SnapshotMeta` permanece obligatorio — es la garantía correcta para el 99%
+de los casos; la excepción se maneja en runtime, no debilitando el tipo para
+todos.
+
+**Impacto:** cero cambios a Analytics/fórmulas/Scores/`ExecutiveReportSnapshotData`
+como TIPO. Cero escritura a la base compartida. 2 tests de regresión nuevos
+(`documentModel.test.ts`, `reports-executive.test.ts`). Ver
+`docs/CHANGELOG.md` v1.23.2.
+
+---
+
 ## 2026-07-28 — Executive Reporting Engine 2.0
 
 **Problema:** el usuario entregó una Especificación Funcional de Producto

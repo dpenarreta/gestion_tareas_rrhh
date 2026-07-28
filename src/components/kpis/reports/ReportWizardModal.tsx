@@ -230,15 +230,16 @@ export function ReportWizardModal({ open, onClose, currentUserRole, referenceMem
       const includedKinds = new Set<ReportPage["kind"]>(["cover", "metadata", ...(format === "pdf-ejecutivo" ? PAGES_EJECUTIVO : [...sections])]);
       const filteredPages = pages.filter((p) => includedKinds.has(p.kind));
 
+      const reportId = snapshot.meta?.reportId ?? "sin-id";
       if (format === "excel") {
-        downloadExecutiveReportExcel(filteredPages, `Informe_Ejecutivo_${snapshot.meta.reportId}.xlsx`);
+        downloadExecutiveReportExcel(filteredPages, `Informe_Ejecutivo_${reportId}.xlsx`);
       } else {
         const variantLabel = format === "pdf-ejecutivo" ? "Ejecutivo" : "Completo";
         openReportWindow({
-          title: `Informe ${variantLabel} — ${snapshot.meta.periodLabel}`,
+          title: `Informe ${variantLabel} — ${snapshot.meta?.periodLabel ?? "Período no disponible"}`,
           styles: EXECUTIVE_REPORT_STYLES,
           bodyHtml: buildExecutiveReportHtml(filteredPages),
-          pdfFileName: `Informe_${variantLabel}_${snapshot.meta.reportId}.pdf`,
+          pdfFileName: `Informe_${variantLabel}_${reportId}.pdf`,
         });
       }
       showToast("Informe generado.", "success");

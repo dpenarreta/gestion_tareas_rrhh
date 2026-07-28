@@ -23,6 +23,60 @@
 
 ---
 
+## v1.23.2 — 2026-07-28
+
+**Tipo:** FIX
+**Módulo:** Executive Reporting Engine — lectura de reportes LEGACY_MIGRATION (`src/app/api/reports/executive/[reportId]/route.ts`)
+
+Bug real reportado en producción tras el repunte de `MonthlyReports.tsx`
+(v1.23.0): `TypeError: Cannot read properties of undefined (reading
+'periodLabel')` al abrir la página Informes Mensuales.
+
+- **Causa raíz**: los 4 `ExecutiveReportSnapshot` con `origin:
+  LEGACY_MIGRATION` (backfill de Fase D, v1.22.0) se persistieron con la
+  columna `data` **sin el campo `meta`** —
+  `scripts/backfill-executive-report-snapshots.ts` (`adaptLegacyReportData`)
+  devolvía a propósito `Omit<ExecutiveReportSnapshotData, "meta">` (el
+  `reportId` solo se conocía dentro del loop de reintento por colisión) y
+  nunca lo volvía a adjuntar antes de insertar; los campos equivalentes
+  quedaron solo como columnas Prisma sueltas. El defecto era invisible
+  porque ningún consumidor anterior leía `data.meta` de un reporte legacy —
+  el repunte de `MonthlyReports.tsx` fue el primer código en hacerlo
+  (`GET /api/reports/executive/[reportId]` → `body.report.data.meta.periodLabel`),
+  y ahí revienta.
+- **Corregido en el LÍMITE DE LECTURA, sin escribir en la base compartida**:
+  `GET /api/reports/executive/[reportId]/route.ts` gana `ensureSnapshotMeta`
+  — si `data.meta` falta, se reconstruye en runtime a partir de las columnas
+  propias de la fila (`reportId`, `type`, `scope`, `origin`,
+  `integrityFlag`, `periodLabel`, `periodStart/End`, `fechaCorte`,
+  `periodStatus`, `collaboratorIds/Count`, `generatedBy` + `generator.name`,
+  `generatedAt`, `generationMs`, las 4 versiones) — `rosterKind` se fija en
+  `CONSOLIDADO` (valor correcto, no una suposición: `MonthlyReport` nunca
+  soportó roster filtrado). Garantiza que `report.data` sea SIEMPRE un
+  `ExecutiveReportSnapshotData` completo, para ambos orígenes.
+- **Causa raíz también corregida en el origen**:
+  `scripts/backfill-executive-report-snapshots.ts` ahora construye `meta`
+  completo antes de insertar — no vuelve a reproducir el defecto si se
+  ejecuta contra nuevos datos legacy en el futuro (las 4 filas ya migradas
+  no se re-escriben — las corrige el fix de arriba en tiempo de lectura).
+- **Validaciones defensivas agregadas** (`documentModel.ts` —
+  `buildCoverPage`/`buildStrategicIndicatorsPage`/`buildMetadataPage` —, y
+  los puntos de exportación en `MonthlyReports.tsx`/`ReportWizardModal.tsx`):
+  optional chaining con fallback textual (`"Período no disponible"`, `"—"`)
+  en cada acceso a `snap.meta.*` — ningún snapshot incompleto, sea cual sea
+  su causa futura, puede volver a tumbar la página.
+- **No se restauró el contrato antiguo** ni se agregó una rama de código que
+  entienda "el formato viejo" — el fix hace que TODO snapshot que sale de
+  este endpoint cumpla el mismo contrato único (`ExecutiveReportSnapshotData`
+  completo), consistente con el principio "Analytics calcula una vez,
+  Executive Reporting consume una vez" ya establecido.
+- **Tests de regresión agregados**: `documentModel.test.ts` (un snapshot con
+  `meta: undefined` no lanza y produce los fallbacks esperados) y
+  `reports-executive.test.ts` (`GET /[reportId]` reconstruye `data.meta`
+  correctamente cuando la fila persistida no lo trae).
+- Verificado: `tsc --noEmit`/`npm run lint` limpios, **1132/1132 tests**
+  (2 nuevos).
+
 ## v1.23.1 — 2026-07-28
 
 **Tipo:** DOCUMENTATION

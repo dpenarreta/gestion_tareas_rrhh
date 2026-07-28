@@ -182,22 +182,31 @@ const ESTADO_GENERAL_COLOR: Record<IndiceEjecutivoNivel, "green" | "yellow" | "r
   Crítico: "red",
 };
 
+/**
+ * Validación defensiva — `meta` es un campo obligatorio del tipo
+ * `ExecutiveReportSnapshotData`, pero llega desde una columna Json de
+ * Postgres (sin chequeo de tipo en runtime); un snapshot persistido de forma
+ * incompleta (ver `ensureSnapshotMeta`, `/api/reports/executive/[reportId]`)
+ * nunca debe tumbar la página — se degrada a placeholders visibles en vez de
+ * lanzar `Cannot read properties of undefined`.
+ */
 function buildCoverPage(snap: ExecutiveReportSnapshotData): CoverPage {
-  const indice = snap.estadoGeneral.indiceEjecutivo;
+  const indice = snap.estadoGeneral?.indiceEjecutivo ?? null;
+  const meta = snap.meta;
   return {
     kind: "cover",
-    reportId: snap.meta.reportId,
-    tipoReporteLabel: TIPO_REPORTE_LABEL[snap.meta.type],
-    periodLabel: snap.meta.periodLabel,
-    fechaCorteLabel: formatDateLabel(snap.meta.fechaCorte),
-    generatedAtLabel: formatDateTimeLabel(snap.meta.generatedAt),
-    generatedByName: snap.meta.generatedBy.name,
+    reportId: meta?.reportId ?? "—",
+    tipoReporteLabel: meta?.type ? TIPO_REPORTE_LABEL[meta.type] : "Informe Ejecutivo",
+    periodLabel: meta?.periodLabel ?? "Período no disponible",
+    fechaCorteLabel: meta?.fechaCorte ? formatDateLabel(meta.fechaCorte) : "—",
+    generatedAtLabel: meta?.generatedAt ? formatDateTimeLabel(meta.generatedAt) : "—",
+    generatedByName: meta?.generatedBy?.name ?? "—",
     estadoGeneralLabel: indice?.nivel ?? "Sin datos para el período",
     estadoGeneralColor: indice ? ESTADO_GENERAL_COLOR[indice.nivel] : "gray",
     scoreGeneral: indice?.valor ?? null,
     semaforoLabel: indice?.explicacion ?? null,
-    analyticsEngineVersion: snap.meta.versions.analyticsEngineVersion,
-    formulaSetVersion: snap.meta.versions.formulaSetVersion,
+    analyticsEngineVersion: meta?.versions?.analyticsEngineVersion ?? "—",
+    formulaSetVersion: meta?.versions?.formulaSetVersion ?? "—",
   };
 }
 
@@ -246,7 +255,7 @@ function buildStrategicIndicatorsPage(snap: ExecutiveReportSnapshotData): Strate
     { label: "Cumplimiento", valor: `${teamSummary.avgCumplimiento}%`, sublabel: `${teamSummary.totalCompletedTasks}/${teamSummary.totalTasks} tareas` },
     { label: "Carga Laboral", valor: `${teamSummary.avgCargaPct}%`, sublabel: `${teamSummary.totalCargaRealHours}h / ${teamSummary.totalCargaBaseHours}h base` },
     { label: "Consultas", valor: `${teamSummary.totalConsultas}`, sublabel: "Seguimiento atendido" },
-    { label: "Colaboradores", valor: `${snap.meta.collaboratorCount}`, sublabel: snap.meta.rosterKind === "CONSOLIDADO" ? "Equipo consolidado" : snap.meta.rosterKind === "POR_AREA" ? "Por área/rol" : "Individual" },
+    { label: "Colaboradores", valor: `${snap.meta?.collaboratorCount ?? snap.members.length}`, sublabel: snap.meta?.rosterKind === "POR_AREA" ? "Por área/rol" : snap.meta?.rosterKind === "INDIVIDUAL" ? "Individual" : "Equipo consolidado" },
   ];
   return { kind: "strategicIndicators", kpis, ranking: snap.ranking };
 }
@@ -331,22 +340,23 @@ function buildPredictivePage(snap: ExecutiveReportSnapshotData): PredictivePage 
 }
 
 function buildMetadataPage(snap: ExecutiveReportSnapshotData): MetadataPage {
+  const meta = snap.meta;
   return {
     kind: "metadata",
-    reportId: snap.meta.reportId,
-    generatedByName: snap.meta.generatedBy.name,
-    generatedAtLabel: formatDateTimeLabel(snap.meta.generatedAt),
-    fechaCorteLabel: formatDateLabel(snap.meta.fechaCorte),
-    periodLabel: snap.meta.periodLabel,
-    tipoReporteLabel: TIPO_REPORTE_LABEL[snap.meta.type],
-    collaboratorCount: snap.meta.collaboratorCount,
-    analyticsEngineVersion: snap.meta.versions.analyticsEngineVersion,
-    formulaSetVersion: snap.meta.versions.formulaSetVersion,
-    reportingEngineVersion: snap.meta.versions.reportingEngineVersion,
-    nexoVersion: snap.meta.versions.nexoVersion,
-    dataQualityPct: snap.estadoGeneral.dataQuality.pct,
-    periodStatusLabel: PERIOD_STATUS_LABEL[snap.meta.periodStatus],
-    generationMsLabel: snap.meta.generationMs >= 1000 ? `${(snap.meta.generationMs / 1000).toFixed(1)} s` : `${snap.meta.generationMs} ms`,
+    reportId: meta?.reportId ?? "—",
+    generatedByName: meta?.generatedBy?.name ?? "—",
+    generatedAtLabel: meta?.generatedAt ? formatDateTimeLabel(meta.generatedAt) : "—",
+    fechaCorteLabel: meta?.fechaCorte ? formatDateLabel(meta.fechaCorte) : "—",
+    periodLabel: meta?.periodLabel ?? "Período no disponible",
+    tipoReporteLabel: meta?.type ? TIPO_REPORTE_LABEL[meta.type] : "Informe Ejecutivo",
+    collaboratorCount: meta?.collaboratorCount ?? snap.members.length,
+    analyticsEngineVersion: meta?.versions?.analyticsEngineVersion ?? "—",
+    formulaSetVersion: meta?.versions?.formulaSetVersion ?? "—",
+    reportingEngineVersion: meta?.versions?.reportingEngineVersion ?? "—",
+    nexoVersion: meta?.versions?.nexoVersion ?? "—",
+    dataQualityPct: snap.estadoGeneral?.dataQuality?.pct ?? 0,
+    periodStatusLabel: meta?.periodStatus ? PERIOD_STATUS_LABEL[meta.periodStatus] : "—",
+    generationMsLabel: meta?.generationMs === undefined ? "—" : meta.generationMs >= 1000 ? `${(meta.generationMs / 1000).toFixed(1)} s` : `${meta.generationMs} ms`,
   };
 }
 
