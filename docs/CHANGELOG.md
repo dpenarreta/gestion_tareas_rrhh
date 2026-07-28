@@ -23,6 +23,76 @@
 
 ---
 
+## v1.22.3 — 2026-07-28
+
+**Tipo:** FIX / DOCUMENTATION
+**Módulo:** Executive Reporting Engine — FPS Parte IV, Arquitectura Técnica/Calidad/Auditoría/Rendimiento (`src/lib/executiveReporting/`)
+
+Última parte del FPS. Auditar el código real de las Fases A-E contra el
+texto literal de la Parte IV encontró 3 brechas cerradas con código y 1
+hallazgo de rendimiento resuelto mediante 2 decisiones explícitas del
+usuario (documentadas en `docs/AUDIT_LOG.md` § Decisiones 8-9).
+
+- **Report ID en pie de página**: el FPS exige que aparezca en Portada,
+  Metadatos, pie de página y auditoría — solo estaba en los primeros dos.
+  `renderReportHtml.ts` ahora inyecta un footer (`NEXO · Executive
+  Reporting Engine · {reportId} · Página X de 11`) en las 11 páginas sin
+  tocar los 11 render<X>Page individuales. Se agregó además `@media print
+  { @page { size: A4; margin: 14mm } }`.
+- **Auditoría de generación incompleta**: `filtersApplied` existía en el
+  tipo `ReportAuditEntry` pero nunca se pasaba en la llamada `"generated"`
+  de `/api/reports/executive`. Corregido. Se agregó además una entrada
+  `generation_failed` en el catch (Report ID provisional generado al inicio
+  del intento — para poder auditar incluso si el builder falla antes de
+  generar el suyo propio —, paso del proceso, mensaje técnico) — el cliente
+  sigue recibiendo el mismo mensaje genérico de siempre, el detalle técnico
+  queda solo en el log de auditoría (FPS Parte IV §16).
+- **Benchmark real de rendimiento** (`scripts/bench-executive-report.ts`,
+  nuevo — llama a los builders directamente contra datos de producción, sin
+  necesitar HTTP/sesión, mismo patrón que el backfill): un reporte MENSUAL
+  del mes en curso con 9 colaboradores tomó ~22s, sobre el presupuesto de
+  15s del FPS §8. Se descartó a NOVA como causa corriendo el mismo
+  benchmark sin `GROQ_API_KEY` (cero llamadas de red) — tiempo idéntico. La
+  causa real: `computeHealthScore`/`computePerformanceScore`/
+  `computeCumplimientoProjection`/`computeSobrecargaProbability` se llaman
+  una vez POR COLABORADOR (36 llamadas para 9 personas) — funciones
+  diseñadas para uso individual, nunca antes invocadas en lote para un
+  equipo completo. Dentro de lo permitido (sin tocar `predictionEngine.ts`/
+  `analytics.ts`): se paralelizó el cómputo de Índice Ejecutivo y Analytics
+  Predictivo (antes secuenciales sin necesidad real) y se agregó `cached()`
+  (mismo patrón/TTL ya usado por el resto del motor) a las 2 llamadas de
+  predicción que no lo tenían — una 2ª generación del mismo reporte en el
+  mismo proceso bajó de ~22s a ~3.3s, dentro de presupuesto.
+- **Decisión explícita del usuario — limitación conocida, no un bug**: la
+  generación FRÍA del mes en curso queda documentada como limitación
+  conocida de v2.0 — no afecta la exactitud de los resultados (mismas
+  funciones, mismos valores, solo más lentas en serie); las regeneraciones
+  se benefician del caché ya implementado. `predictionEngine.ts`/
+  `analytics.ts` permanecen completamente intactos. Se registra como mejora
+  futura un **Sprint de Optimización del Analytics Engine** (único
+  objetivo: variantes batch para las 4 funciones, mismo patrón que
+  `computeTeamCapacityForecast`/`computeSubutilizacionPredictions` que ya
+  existen — cero cambio de fórmulas/resultados/comportamiento funcional).
+  Ver `docs/ROADMAP.md` § Planificado.
+- **Decisión explícita del usuario — Snapshot Integrity Validation
+  diferida**: la validación ACTIVA en tiempo de ejecución (re-consultar
+  Dashboard/Analytics al generar y registrar discrepancias como incidente,
+  FPS Parte IV §15) queda como mejora futura, no se implementa en esta
+  versión. La integridad ESTRUCTURAL ya se considera cumplida: el builder
+  canónico único (`buildSnapshotData.ts`) llama a las mismas funciones que
+  Dashboard/Analytics, y un único `ExecutiveReportSnapshotData` alimenta
+  todas las vistas — dos superficies no pueden divergir si comparten la
+  misma función y el mismo objeto.
+- Tests: +2 (`reports-executive.test.ts` — `filtersApplied` presente en la
+  auditoría, `generation_failed` auditado con mensaje técnico nunca
+  expuesto al cliente). Suite completa: 1144/1144 en verde, `tsc`/`lint`
+  limpios, `npm run build` exitoso.
+
+Con esta versión se completa la implementación funcional de las 4 partes
+del FPS Executive Reporting Engine 2.0 (Fases A-E de arquitectura +
+materialización de Partes I-IV), con 2 mejoras futuras registradas y
+documentadas en `docs/ROADMAP.md` § Planificado.
+
 ## v1.22.2 — 2026-07-28
 
 **Tipo:** FIX

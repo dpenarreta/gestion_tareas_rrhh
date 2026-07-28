@@ -89,6 +89,11 @@ export const EXECUTIVE_REPORT_STYLES = `
   .er-cover-meta{display:grid;grid-template-columns:repeat(2,1fr);gap:10px 32px;max-width:560px;margin:0 auto;text-align:left;font-size:12.5px;}
   .er-cover-meta div b{display:block;color:var(--er-ink-faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;font-weight:600;margin-bottom:2px;}
   .er-reportid{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--er-ink-faint);}
+  .er-footer{margin-top:26px;padding-top:12px;border-top:1px solid var(--er-border);font-size:10px;letter-spacing:.02em;color:var(--er-ink-faint);text-align:center;}
+  @media print{
+    @page{size:A4;margin:14mm;}
+    .er-page{border:none;box-shadow:none;}
+  }
 `;
 
 function renderCoverPage(p: CoverPage): string {
@@ -377,6 +382,27 @@ function renderPageHtml(page: ReportPage): string {
   }
 }
 
+/** Inserta el pie de página ANTES del cierre de `</section>` — evita tocar los 11 render<X>Page individuales. */
+function withFooter(pageHtml: string, footer: string): string {
+  const idx = pageHtml.lastIndexOf("</section>");
+  if (idx === -1) return pageHtml;
+  return pageHtml.slice(0, idx) + footer + pageHtml.slice(idx);
+}
+
+/**
+ * Report ID en el pie de CADA página (FPS Parte IV §4: "El Report ID deberá
+ * aparecer en: Portada. Metadatos. Pie de página. Registro de auditoría.") —
+ * no solo en Portada/Metadatos, que ya lo mostraban por su propio contenido.
+ */
 export function buildExecutiveReportHtml(pages: ReportPage[]): string {
-  return `<div class="er-doc">${pages.map(renderPageHtml).join("\n")}</div>`;
+  const cover = pages.find((p): p is CoverPage => p.kind === "cover");
+  const reportId = cover?.reportId ?? "";
+  const total = pages.length;
+  const body = pages
+    .map((page, i) => {
+      const footer = `<footer class="er-footer">NEXO · Executive Reporting Engine · ${esc(reportId)} · Página ${i + 1} de ${total}</footer>`;
+      return withFooter(renderPageHtml(page), footer);
+    })
+    .join("\n");
+  return `<div class="er-doc">${body}</div>`;
 }

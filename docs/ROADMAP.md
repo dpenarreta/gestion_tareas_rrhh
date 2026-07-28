@@ -153,6 +153,41 @@
 
 ## Planificado
 
+- **Sprint de Optimización del Analytics Engine — variantes batch para
+  cálculos masivos.** Limitación conocida documentada en v1.22.3: el
+  Executive Reporting Engine, al generar un reporte MENSUAL del mes
+  calendario en curso, llama a `computeHealthScore`/`computePerformanceScore`/
+  `computeCumplimientoProjection`/`computeSobrecargaProbability` **una vez
+  por cada colaborador del equipo** (medido: ~22s con 9 colaboradores, sobre
+  el presupuesto de 15s del FPS Parte IV §8) — estas funciones fueron
+  diseñadas para uso individual (página de KPIs personal), no para invocarse
+  en lote. **No afecta la exactitud de los resultados** — son las mismas
+  funciones, mismos valores, solo más lentas al ejecutarse en serie por
+  colaborador. Las regeneraciones del mismo reporte dentro de la ventana de
+  caché (`cached()`, mismo TTL configurable que ya usa el resto del motor)
+  bajan a ~3.3s, dentro de presupuesto — medido y verificado en
+  `scripts/bench-executive-report.ts`. El único objetivo de este sprint
+  futuro será incorporar variantes batch (mismo patrón que
+  `computeTeamCapacityForecast`/`computeSubutilizacionPredictions`, que ya
+  existen) a esas 4 funciones — **sin modificar fórmulas, resultados ni
+  comportamiento funcional**, solo la forma de invocarlas para un equipo
+  completo en una sola tanda de consultas. `predictionEngine.ts`/
+  `analytics.ts` se mantienen intactos hasta entonces — decisión explícita
+  del usuario. Ver `docs/AUDIT_LOG.md` § 2026-07-28 (Executive Reporting
+  Engine 2.0 — Parte IV).
+- **Snapshot Integrity Validation** — validación ACTIVA en tiempo de
+  ejecución que vuelva a consultar Dashboard/Analytics al momento de generar
+  un reporte y compare/registre cualquier discrepancia como incidente (FPS
+  Parte IV §15). La integridad ESTRUCTURAL ya se considera cumplida en
+  v1.22.3 — el Executive Reporting Engine usa un único Builder canónico
+  (`buildSnapshotData.ts`) que llama a las mismas funciones de Analytics que
+  Dashboard/Analytics ya usan, y un único objeto `ExecutiveReportSnapshotData`
+  del que se derivan todas las vistas — dos superficies no pueden divergir
+  si comparten la misma función y el mismo objeto. Por eso no se considera
+  necesaria una verificación adicional en esta versión; esta validación
+  activa queda como una capa de monitoreo futura, no una corrección
+  pendiente. Ver `docs/AUDIT_LOG.md` § 2026-07-28 (Executive Reporting
+  Engine 2.0 — Parte IV).
 - Integración profunda del motor predictivo (Sprint E, v1.19.0) en Dashboard,
   Analytics/KPIs, Reportes Inteligentes, Proyectos y Equipo — este sprint
   deliberadamente construyó el motor y un módulo autónomo

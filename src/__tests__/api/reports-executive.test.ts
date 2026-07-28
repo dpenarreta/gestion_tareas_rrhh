@@ -153,6 +153,25 @@ describe("POST /api/reports/executive", () => {
     expect(body.reportId).toMatch(/^NXR-\d{8}-\d{6}-/);
     expect(executiveReportSnapshotCreate).toHaveBeenCalledTimes(1);
     expect(executiveReportAuditLogCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: "generated" }) }));
+    // FPS Parte IV §9 — "filtros aplicados" es un campo de auditoría obligatorio, antes ausente.
+    const auditCall = executiveReportAuditLogCreate.mock.calls.find((c) => c[0].data.action === "generated");
+    expect(auditCall?.[0].data.filtersApplied).toMatchObject({ periodo: { tipoReporte: "MENSUAL", month: 6, year: 2026 } });
+  });
+
+  it("responde 500 y audita 'generation_failed' con mensaje técnico (nunca expuesto al cliente) ante un error inesperado", async () => {
+    mockSession({ role: "JEFE_NACIONAL", userId: "u1", name: "Ana" });
+    userFindMany.mockRejectedValue(new Error("db down"));
+    vi.spyOn(console, "error").mockImplementation(() => {});
+
+    const res = await executivePOST(getRequest("http://localhost/api/reports/executive?tipoReporte=MENSUAL&month=2026-06"));
+    expect(res.status).toBe(500);
+    const body = await res.json();
+    expect(body.error).toBe("Error al generar el informe");
+    expect(body.error).not.toContain("db down");
+
+    const failureCall = executiveReportAuditLogCreate.mock.calls.find((c) => c[0].data.action === "generation_failed");
+    expect(failureCall?.[0].data.message).toContain("db down");
+    expect(failureCall?.[0].data.reportId).toMatch(/^NXR-\d{8}-\d{6}-/);
   });
 });
 

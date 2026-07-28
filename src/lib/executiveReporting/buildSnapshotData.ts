@@ -10,6 +10,23 @@
 // metadatos de trazabilidad completos generados aquí mismo (Parte IV §3/§4/
 // §9/§10), e inmutabilidad en tiempo de ejecución (Object.freeze profundo).
 //
+// ── Integridad (FPS Parte IV §15) ────────────────────────────────────────────
+// El FPS exige que los valores del reporte coincidan exactamente con
+// Dashboard/Analytics para la misma fecha de corte, y que una discrepancia
+// quede registrada como incidente. Este builder resuelve la causa RAÍZ del
+// problema (antes de la Fase B, el reporte de equipo recalculaba KPIs con
+// consultas Prisma propias en vez de llamar a analytics.ts — la fuente real
+// de discrepancias históricas): todo cálculo pasa por las mismas funciones
+// canónicas que Dashboard/Analytics ya usan (computeHealthScore,
+// computePerformanceScore, computeDataQuality, etc.) — dos superficies no
+// pueden divergir si comparten la misma función. Lo que NO existe todavía es
+// un mecanismo de validación EN TIEMPO DE EJECUCIÓN que vuelva a consultar
+// Dashboard/Analytics al momento de generar y compare/registre una
+// discrepancia puntual — sería una funcionalidad nueva (qué comparar, con
+// qué tolerancia, dónde registrar el incidente), no una corrección de este
+// builder. Decisión explícita, no un olvido — ver docs/AUDIT_LOG.md § FPS
+// Parte IV.
+//
 // ── Fecha de corte (FPS Parte IV §5) ─────────────────────────────────────────
 // `filters.fechaCorte` acota qué información entra al cálculo. Se aplica en
 // dos frentes:
@@ -127,6 +144,70 @@ function earlier(a: Date, b: Date): Date {
  */
 function asOfFechaCorte<T extends { status: string; completedAt: Date | null }>(tasks: T[], cutoff: Date): T[] {
   return tasks.map((t) => (t.status === "COMPLETADA" && t.completedAt && t.completedAt.getTime() > cutoff.getTime() ? { ...t, status: "PENDIENTE" } : t));
+}
+
+/**
+ * FPS Parte II § Analytics Predictivo — integración visual del motor YA
+ * EXISTENTE (predictionEngine.ts, por colaborador), sin fórmulas nuevas ni
+ * motor de escenarios de equipo. Extraída como función independiente
+ * (Parte IV §8) para poder correr en PARALELO con el cómputo de Índice
+ * Ejecutivo — ambas son independientes entre sí; antes se esperaban una
+ * tras otra, casi duplicando el tiempo de generación del mes en curso.
+ */
+async function buildPredictivoForCurrentMonth(userIds: string[], members: ReportMemberKpi[], cutoff: Date, cacheTtlMinutes: number): Promise<SnapshotPredictivo> {
+  // cached() — mismo patrón/TTL que perf-bench/equilibrio-bench: no acorta la
+  // primera generación (miss real), pero evita recalcular en regeneraciones
+  // dentro de la ventana de caché (antes, estas 2 llamadas eran las únicas de
+  // la rama sin caché — ver hallazgo de rendimiento, FPS Parte IV §8).
+  const [cumplimientoResults, sobrecargaResults, subutilizacionMap] = await Promise.all([
+    Promise.all(userIds.map((id) => cached(`cumplimiento-proj:${id}`, cacheTtlMinutes, () => computeCumplimientoProjection(id, cutoff)).then((r) => r.value))),
+    Promise.all(userIds.map((id) => cached(`sobrecarga-prob:${id}`, cacheTtlMinutes, () => computeSobrecargaProbability(id, cutoff)).then((r) => r.value))),
+    computeSubutilizacionPredictions(userIds, cutoff),
+  ]);
+
+  const predictiveMembers: SnapshotPredictiveMember[] = userIds.map((id, i) => {
+    const member = members.find((m) => m.id === id);
+    const cumplimientoResult = cumplimientoResults[i];
+    const sobrecargaResult = sobrecargaResults[i];
+    const subutilizacionResult = subutilizacionMap.get(id);
+    return {
+      id,
+      name: member?.name ?? id,
+      cumplimiento: cumplimientoResult.available
+        ? { available: true, queOcurrira: cumplimientoResult.queOcurrira, porQue: cumplimientoResult.porQue, queHacer: cumplimientoResult.queHacer, confidencePct: cumplimientoResult.confidencePct }
+        : { available: false, queOcurrira: cumplimientoResult.reason, porQue: "", queHacer: [], confidencePct: 0 },
+      sobrecarga: sobrecargaResult.available
+        ? { available: true, queOcurrira: sobrecargaResult.queOcurrira, porQue: sobrecargaResult.porQue, nivel: sobrecargaResult.nivel, queHacer: sobrecargaResult.queHacer, confidencePct: sobrecargaResult.confidencePct }
+        : { available: false, queOcurrira: sobrecargaResult.reason, porQue: "", nivel: "Bajo", queHacer: [], confidencePct: 0 },
+      subutilizacion: subutilizacionResult ? { nivel: subutilizacionResult.nivel, queOcurrira: subutilizacionResult.queOcurrira, queHacer: subutilizacionResult.queHacer } : null,
+    };
+  });
+
+  const validCumplimientoPct: number[] = [];
+  let representativeHorizon: PredictionHorizon | null = null;
+  for (const r of cumplimientoResults) {
+    if (r.available) {
+      validCumplimientoPct.push(r.cumplimientoEsperadoCierrePct);
+      if (representativeHorizon === null) representativeHorizon = r.horizon;
+    }
+  }
+  if (representativeHorizon === null) {
+    for (const r of sobrecargaResults) {
+      if (r.available) {
+        representativeHorizon = r.horizon;
+        break;
+      }
+    }
+  }
+  const membersAtRiskSobrecarga = sobrecargaResults.filter((r) => r.available && r.nivel === "Alto").length;
+
+  return {
+    asOf: cutoff.toISOString(),
+    horizonDays: representativeHorizon ?? 30,
+    membersAtRiskSobrecarga,
+    avgCumplimientoEsperadoCierrePct: validCumplimientoPct.length > 0 ? Math.round(validCumplimientoPct.reduce((s, v) => s + v, 0) / validCumplimientoPct.length) : null,
+    members: predictiveMembers,
+  };
 }
 
 /**
@@ -349,89 +430,49 @@ export async function buildMonthlySnapshotData(params: BuildMonthlySnapshotDataP
 
   const isCurrentMonth = month === now.getMonth() + 1 && year === now.getFullYear();
   let indiceEjecutivo: IndiceEjecutivoData = null;
+  let predictivo: SnapshotPredictivo = null;
   const variableConsistencyMembers: string[] = [];
+
+  // Rendimiento (FPS Parte IV §8) — Índice Ejecutivo y Analytics Predictivo
+  // son computaciones INDEPENDIENTES entre sí (ninguna necesita el resultado
+  // de la otra); antes se esperaban una tras otra de forma secuencial, lo que
+  // en un equipo real casi duplicaba el tiempo del mes en curso (medido:
+  // ~22s, sobre el presupuesto de 15s de un reporte consolidado). Corren en
+  // paralelo — mismas llamadas, mismas fórmulas, solo reordenadas.
   if (isCurrentMonth && userIds.length > 0) {
+    // Config compartida por ambas ramas — antes se pedía dos veces (una por
+    // rama, cuando corrían secuenciales); una sola vez ahora que corren en paralelo.
     const analyticsConfig = await getEffectiveAnalyticsConfig();
-    const [perfResults, healthResults] = await Promise.all([
-      Promise.all(userIds.map((id) => cached(`perf-bench:${id}`, analyticsConfig.cacheTtlMinutes, () => computePerformanceScore(id, cutoff)).then((r) => r.value))),
-      Promise.all(userIds.map((id) => cached(`equilibrio-bench:${id}`, analyticsConfig.cacheTtlMinutes, () => computeHealthScore(id, cutoff)).then((r) => r.value))),
+    const [indiceResult, predictivoResult] = await Promise.all([
+      (async () => {
+        const [perfResults, healthResults] = await Promise.all([
+          Promise.all(userIds.map((id) => cached(`perf-bench:${id}`, analyticsConfig.cacheTtlMinutes, () => computePerformanceScore(id, cutoff)).then((r) => r.value))),
+          Promise.all(userIds.map((id) => cached(`equilibrio-bench:${id}`, analyticsConfig.cacheTtlMinutes, () => computeHealthScore(id, cutoff)).then((r) => r.value))),
+        ]);
+        const avgPerformance = Math.round((perfResults.reduce((s, r) => s + r.score, 0) / perfResults.length) * 10) / 10;
+        const avgEquilibrio = Math.round((healthResults.reduce((s, r) => s + r.score, 0) / healthResults.length) * 10) / 10;
+        const classified = classifyIndiceEjecutivo(avgPerformance, avgEquilibrio);
+
+        const prevReport = await prisma.monthlyReport.findUnique({ where: { month_year_scope: { month: prevMonth, year: prevYear, scope } } });
+        const prevIndiceValor = (prevReport?.data as { indiceEjecutivo?: { valor: number } | null } | null)?.indiceEjecutivo?.valor;
+        const variacion = typeof prevIndiceValor === "number" ? Math.round((classified.valor - prevIndiceValor) * 10) / 10 : null;
+
+        return { indiceEjecutivo: { ...classified, avgPerformance, avgEquilibrio, variacion }, healthResults };
+      })(),
+      buildPredictivoForCurrentMonth(userIds, members, cutoff, analyticsConfig.cacheTtlMinutes),
     ]);
-    const avgPerformance = Math.round((perfResults.reduce((s, r) => s + r.score, 0) / perfResults.length) * 10) / 10;
-    const avgEquilibrio = Math.round((healthResults.reduce((s, r) => s + r.score, 0) / healthResults.length) * 10) / 10;
-    const classified = classifyIndiceEjecutivo(avgPerformance, avgEquilibrio);
 
-    const prevReport = await prisma.monthlyReport.findUnique({ where: { month_year_scope: { month: prevMonth, year: prevYear, scope } } });
-    const prevIndiceValor = (prevReport?.data as { indiceEjecutivo?: { valor: number } | null } | null)?.indiceEjecutivo?.valor;
-    const variacion = typeof prevIndiceValor === "number" ? Math.round((classified.valor - prevIndiceValor) * 10) / 10 : null;
-
-    indiceEjecutivo = { ...classified, avgPerformance, avgEquilibrio, variacion };
+    indiceEjecutivo = indiceResult.indiceEjecutivo;
+    predictivo = predictivoResult;
 
     userIds.forEach((id, i) => {
       const member = members.find((m) => m.id === id);
-      if (member) member.equilibrioScore = healthResults[i].score;
-      const consistenciaFactor = healthResults[i].factors.find((f) => f.name === "Consistencia");
+      if (member) member.equilibrioScore = indiceResult.healthResults[i].score;
+      const consistenciaFactor = indiceResult.healthResults[i].factors.find((f) => f.name === "Consistencia");
       if (consistenciaFactor && (consistenciaFactor.rawLabel === "Variable" || consistenciaFactor.rawLabel === "Muy variable") && member) {
         variableConsistencyMembers.push(member.name);
       }
     });
-  }
-
-  // FPS Parte II § Analytics Predictivo — integración visual del motor YA
-  // EXISTENTE (predictionEngine.ts, por colaborador), sin fórmulas nuevas ni
-  // motor de escenarios de equipo. Mismo criterio de gateo que Índice
-  // Ejecutivo: solo tiene sentido proyectar hacia adelante para el mes
-  // calendario en curso.
-  let predictivo: SnapshotPredictivo = null;
-  if (isCurrentMonth && userIds.length > 0) {
-    const [cumplimientoResults, sobrecargaResults, subutilizacionMap] = await Promise.all([
-      Promise.all(userIds.map((id) => computeCumplimientoProjection(id, cutoff))),
-      Promise.all(userIds.map((id) => computeSobrecargaProbability(id, cutoff))),
-      computeSubutilizacionPredictions(userIds, cutoff),
-    ]);
-
-    const predictiveMembers: SnapshotPredictiveMember[] = userIds.map((id, i) => {
-      const member = members.find((m) => m.id === id);
-      const cumplimientoResult = cumplimientoResults[i];
-      const sobrecargaResult = sobrecargaResults[i];
-      const subutilizacionResult = subutilizacionMap.get(id);
-      return {
-        id,
-        name: member?.name ?? id,
-        cumplimiento: cumplimientoResult.available
-          ? { available: true, queOcurrira: cumplimientoResult.queOcurrira, porQue: cumplimientoResult.porQue, queHacer: cumplimientoResult.queHacer, confidencePct: cumplimientoResult.confidencePct }
-          : { available: false, queOcurrira: cumplimientoResult.reason, porQue: "", queHacer: [], confidencePct: 0 },
-        sobrecarga: sobrecargaResult.available
-          ? { available: true, queOcurrira: sobrecargaResult.queOcurrira, porQue: sobrecargaResult.porQue, nivel: sobrecargaResult.nivel, queHacer: sobrecargaResult.queHacer, confidencePct: sobrecargaResult.confidencePct }
-          : { available: false, queOcurrira: sobrecargaResult.reason, porQue: "", nivel: "Bajo", queHacer: [], confidencePct: 0 },
-        subutilizacion: subutilizacionResult ? { nivel: subutilizacionResult.nivel, queOcurrira: subutilizacionResult.queOcurrira, queHacer: subutilizacionResult.queHacer } : null,
-      };
-    });
-
-    const validCumplimientoPct: number[] = [];
-    let representativeHorizon: PredictionHorizon | null = null;
-    for (const r of cumplimientoResults) {
-      if (r.available) {
-        validCumplimientoPct.push(r.cumplimientoEsperadoCierrePct);
-        if (representativeHorizon === null) representativeHorizon = r.horizon;
-      }
-    }
-    if (representativeHorizon === null) {
-      for (const r of sobrecargaResults) {
-        if (r.available) {
-          representativeHorizon = r.horizon;
-          break;
-        }
-      }
-    }
-    const membersAtRiskSobrecarga = sobrecargaResults.filter((r) => r.available && r.nivel === "Alto").length;
-
-    predictivo = {
-      asOf: cutoff.toISOString(),
-      horizonDays: representativeHorizon ?? 30,
-      membersAtRiskSobrecarga,
-      avgCumplimientoEsperadoCierrePct: validCumplimientoPct.length > 0 ? Math.round(validCumplimientoPct.reduce((s, v) => s + v, 0) / validCumplimientoPct.length) : null,
-      members: predictiveMembers,
-    };
   }
 
   for (const member of members) {

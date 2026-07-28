@@ -331,6 +331,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-28: fix(reports): Executive Reporting Engine - FPS Parte IV (auditoria, rendimiento)
 - 2026-07-28: fix(reports): Executive Reporting Engine - FPS Parte III (NOVA completo)
 - 2026-07-28: fix(reports): Executive Reporting Engine - FPS Parte II (grafico + Predictivo real)
 - 2026-07-28: feat(reports): Executive Reporting Engine 2.0 (Fases A-E)

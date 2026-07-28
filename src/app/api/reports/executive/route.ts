@@ -13,6 +13,7 @@ import type { Role } from "@/generated/prisma/client";
 import { resolveReportRoster } from "@/lib/executiveReporting/resolveRoster";
 import { buildMonthlySnapshotData, buildRangeSnapshotData, buildCustomRangeSnapshotData } from "@/lib/executiveReporting/buildSnapshotData";
 import { createSnapshot, logReportAudit } from "@/lib/executiveReporting/snapshotStore";
+import { generateReportId } from "@/lib/executiveReporting/reportId";
 import type { ExecutiveReportFilters } from "@/lib/executiveReporting/filters";
 import type { ExecutiveReportSnapshotData } from "@/lib/executiveReporting/snapshotData";
 
@@ -90,6 +91,12 @@ export async function POST(request: NextRequest) {
   }
 
   const generatedBy = { userId: session.userId, name: session.name };
+  const serializedFilters = { ...filters, fechaCorte: filters.fechaCorte?.toISOString() } as unknown as Prisma.InputJsonValue;
+  const t0 = Date.now();
+  // Report ID "provisional" — solo para poder auditar una falla ANTES de que
+  // el builder llegue a generar el suyo propio (que sí queda en el Snapshot
+  // real cuando la generación tiene éxito). Nunca se persiste como snapshot.
+  const provisionalReportId = generateReportId();
 
   try {
     const roster = await resolveReportRoster(session, filters);
@@ -108,7 +115,7 @@ export async function POST(request: NextRequest) {
       periodEnd: new Date(snapshot.meta.periodEnd),
       fechaCorte: new Date(snapshot.meta.fechaCorte),
       periodStatus: snapshot.meta.periodStatus,
-      filters: { ...filters, fechaCorte: filters.fechaCorte?.toISOString() } as unknown as Prisma.InputJsonValue,
+      filters: serializedFilters,
       collaboratorIds: snapshot.meta.collaboratorIds,
       analyticsEngineVersion: snapshot.meta.versions.analyticsEngineVersion,
       formulaSetVersion: snapshot.meta.versions.formulaSetVersion,
@@ -127,6 +134,7 @@ export async function POST(request: NextRequest) {
       userId: generatedBy.userId,
       period: snapshot.meta.periodLabel,
       fechaCorte: new Date(snapshot.meta.fechaCorte),
+      filtersApplied: serializedFilters,
       collaboratorCount: snapshot.meta.collaboratorCount,
       generationMs: snapshot.meta.generationMs,
       analyticsEngineVersion: snapshot.meta.versions.analyticsEngineVersion,
@@ -136,11 +144,21 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ reportId: created.reportId, snapshot });
   } catch (err) {
-    // El registro detallado de fallas de generación (Report ID provisional,
-    // paso exacto, mensaje técnico) es trabajo de la Fase F
-    // (errorLogging.ts) — aquí, como en los 3 endpoints existentes, se
-    // registra en consola y se responde un error genérico.
+    // FPS Parte IV §16 — Registro de Errores: Report ID (provisional — la
+    // generación falló antes de que el builder llegara a construir el suyo),
+    // usuario, paso del proceso, mensaje técnico (SOLO en el log, nunca en la
+    // respuesta al cliente), tiempo transcurrido. Best-effort (logReportAudit
+    // nunca lanza) — un fallo de auditoría no debe enmascarar el error real.
     console.error("[POST /api/reports/executive]", err);
+    await logReportAudit({
+      reportId: provisionalReportId,
+      action: "generation_failed",
+      userId: generatedBy.userId,
+      step: "buildSnapshotForFilters",
+      message: err instanceof Error ? err.message : String(err),
+      filtersApplied: serializedFilters,
+      generationMs: Date.now() - t0,
+    });
     return NextResponse.json({ error: "Error al generar el informe" }, { status: 500 });
   }
 }
