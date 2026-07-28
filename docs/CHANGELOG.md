@@ -23,6 +23,75 @@
 
 ---
 
+## v1.23.3 — 2026-07-28
+
+**Tipo:** FIX
+**Módulo:** Executive Reporting Engine — unificación del Estado General (`src/lib/executiveReporting/estadoGeneral.ts` nuevo, `documentModel.ts`, `context.ts`)
+
+Bug real reportado: la Portada de un Informe de Rango Personalizado con
+colaboradores, indicadores, hallazgos, insights y recomendaciones completos
+mostraba igual "Estado General: Sin datos para el período", mientras que un
+Informe Mensual del mes en curso mostraba "Excelente — 89.7/100" con el
+mismo motor.
+
+- **Causa raíz**: `buildCoverPage` (`documentModel.ts`) derivaba
+  `estadoGeneralLabel`/`color`/`scoreGeneral` EXCLUSIVAMENTE de
+  `estadoGeneral.indiceEjecutivo` — `nivel ?? "Sin datos para el período"`.
+  El Índice Ejecutivo (Bloque 11, `reportInsights.ts`) es, por diseño
+  documentado desde su creación, exclusivo del mes calendario en curso:
+  incorpora Equilibrio Operativo → Capacidad Futura, una proyección hacia
+  adelante que no es representativa de un período ya cerrado o de un rango.
+  `buildRangeSnapshotData`/`buildCustomRangeSnapshotData` nunca lo calculan
+  (`indiceEjecutivo: null` fijo), y `buildMonthlySnapshotData` tampoco lo
+  calcula fuera del mes en curso — en los 3 casos, correcto y esperado. El
+  defecto real era tratar "Índice Ejecutivo ausente" como sinónimo de
+  "snapshot sin datos", cuando son dos cosas distintas.
+- **No era un problema de los 3 builders**: se comparó explícitamente cómo
+  `buildMonthlySnapshotData`/`buildRangeSnapshotData`/
+  `buildCustomRangeSnapshotData` construyen `meta`/`estadoGeneral`/
+  `teamSummary`/`dataQuality`/`periodStatus` — los tres usan exactamente el
+  mismo procedimiento y las mismas funciones compartidas
+  (`computeDataQuality`, `generateReportId`, `currentExecutiveReportVersions`,
+  `resolveMonthlyPeriodStatus`/`resolveCustomRangePeriodStatus`); la única
+  diferencia es el conjunto de datos analizado, como debe ser. El bug vivía
+  en la capa de PRESENTACIÓN, no en los builders.
+- **Corregido con un constructor único**: `estadoGeneral.ts`
+  (`resolveEstadoGeneral`) — la MISMA función para los 6 tipos de reporte
+  (Mensual/Rango de Meses/Rango Personalizado × Consolidado/Individual/Por
+  Área), sin ninguna rama por tipo:
+  1. Snapshot realmente vacío (`members.length === 0` y
+     `teamSummary.totalTasks === 0` y `teamSummary.totalConsultas === 0`) →
+     "Sin datos para el período" — el ÚNICO caso legítimo para ese mensaje.
+  2. `indiceEjecutivo` presente → se usa tal cual (sin cambios de fórmula).
+  3. Snapshot con datos pero sin `indiceEjecutivo` → aproximación de
+     respaldo, calculada EXCLUSIVAMENTE con `teamSummary.avgCumplimiento` +
+     proximidad de `avgCargaPct` al 100% ideal (ambos ya presentes en el
+     snapshot congelado — cero consulta a Prisma, cero recálculo de
+     Analytics), reutilizando el mismo clasificador `classifyIndiceEjecutivo`
+     y sus mismos umbrales/etiquetas (85/70/50 → Excelente/Bueno/Atención/
+     Crítico) — nunca una escala paralela.
+- **`buildCoverPage`** y **`deriveExecutiveReportContext`** (`context.ts`,
+  el resumen que NOVA recibe para generar/degradar su narrativa) ahora
+  llaman a `resolveEstadoGeneral` en vez de leer `indiceEjecutivo` cada uno
+  por su cuenta — antes divergían por accidente (ambos leían el mismo campo
+  `null`, pero de forma independiente); ahora divergir es estructuralmente
+  imposible porque comparten la misma función.
+- **Sin cambios en `buildSnapshotData.ts`**: los 3 builders siguen
+  calculando `estadoGeneral.indiceEjecutivo` exactamente igual que antes (no
+  se amplió su alcance a rango/mes cerrado — seguiría siendo una proyección
+  no representativa). `ESTADO_GENERAL_COLOR` (mapeo nivel→color redundante
+  con `IndiceEjecutivoResult.color`, ya existente) se eliminó de
+  `documentModel.ts` por quedar sin uso.
+- **Tests de regresión agregados**: `estadoGeneral.test.ts` (nuevo — 5 casos
+  sobre `resolveEstadoGeneral`: vacío real, Índice Ejecutivo presente,
+  aproximación de respaldo, simetría sobrecarga/subutilización, degradación
+  sin lanzar), 2 casos nuevos en `documentModel.test.ts` (Portada de un
+  Rango Personalizado con datos completos ya no muestra "Sin datos"; un
+  snapshot realmente vacío sí lo muestra, sin importar el tipo), y
+  `context.test.ts` (nuevo — NOVA recibe el mismo Estado General resuelto).
+- Verificado: `tsc --noEmit`/`npm run lint` limpios, **1141/1141 tests**
+  (9 nuevos).
+
 ## v1.23.2 — 2026-07-28
 
 **Tipo:** FIX

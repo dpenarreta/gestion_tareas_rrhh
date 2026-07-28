@@ -15,6 +15,91 @@
 
 ---
 
+## 2026-07-28 — Fix: Estado General inconsistente entre tipos de reporte (Portada)
+
+**Problema:** un Informe Mensual (mes calendario en curso) mostraba en
+Portada "Estado General: Excelente — 89.7/100", mientras que un Informe de
+Rango Personalizado — con colaboradores, indicadores, métricas,
+recomendaciones, insights y análisis completos en el mismo motor — mostraba
+"Estado General: Sin datos para el período". Se pidió explícitamente
+comparar `buildMonthlySnapshotData`/`buildRangeSnapshotData`/
+`buildCustomRangeSnapshotData` y unificar por completo la construcción del
+Estado General, sin lógica específica por tipo de reporte.
+
+**Investigación:** los 3 builders (`buildSnapshotData.ts`) construyen
+`meta`/`teamSummary`/`dataQuality`/`periodStatus` de forma ya idéntica
+(mismas funciones compartidas: `computeDataQuality`, `generateReportId`,
+`currentExecutiveReportVersions`, `resolveMonthlyPeriodStatus`/
+`resolveCustomRangePeriodStatus`) — ninguna diferencia real ahí. El único
+campo que diverge es `estadoGeneral.indiceEjecutivo`: es `null` en
+`buildRangeSnapshotData`/`buildCustomRangeSnapshotData` (nunca lo calculan)
+y también `null` en `buildMonthlySnapshotData` para cualquier mes que no sea
+el calendario en curso. Esto es correcto y deliberado desde que el Índice
+Ejecutivo existe (`components/kpis/types.ts::IndiceEjecutivoData`, comentario
+original): incorpora Equilibrio Operativo, que a su vez incluye Capacidad
+Futura — una proyección hacia adelante desde "ahora", no representativa de
+un período ya cerrado o de un rango de fechas. La causa raíz real estaba en
+la capa de presentación: `documentModel.ts::buildCoverPage` y
+`context.ts::deriveExecutiveReportContext` trataban "`indiceEjecutivo`
+ausente" como sinónimo de "snapshot sin datos" (`indice?.nivel ?? "Sin datos
+para el período"`), sin considerar que el resto del snapshot (miembros,
+tareas, consultas, hallazgos) sí tenía información completa.
+
+**Alternativas consideradas:**
+
+(a) **Calcular el Índice Ejecutivo completo también para rango/mes cerrado**
+(quitar la restricción `isCurrentMonth`, llamar a `computePerformanceScore`/
+`computeHealthScore` por colaborador con el `cutoff` de cada builder).
+Descartada: violaría una regla de negocio ya documentada y deliberada — la
+Capacidad Futura dentro de Equilibrio Operativo es una proyección desde
+"ahora" que no tiene sentido para un mes ya cerrado ni para un rango
+arbitrario de fechas; además el enunciado del propio pedido prohíbe
+explícitamente "volver a calcular Analytics" como parte de la construcción
+del Estado General.
+
+(b) **Solo cambiar el mensaje de fallback** ("Sin datos para el período" →
+algo más genérico) sin resolver la construcción. Descartada explícitamente
+por el usuario — el pedido es corregir la arquitectura, no el texto.
+
+(c) **Un constructor único de Estado General, en la capa de presentación,
+que decide en 3 pasos: (1) snapshot realmente vacío → "Sin datos"; (2)
+Índice Ejecutivo presente → usarlo tal cual; (3) snapshot con datos pero sin
+Índice Ejecutivo → aproximación de respaldo calculada exclusivamente con
+`teamSummary` ya presente en el snapshot (Cumplimiento + proximidad de Carga
+Laboral al 100% ideal), reutilizando el mismo clasificador
+`classifyIndiceEjecutivo` y sus mismos umbrales/etiquetas.** Elegida.
+
+**Decisión:** (c), implementada en `src/lib/executiveReporting/
+estadoGeneral.ts` (`resolveEstadoGeneral`) — llamada por `buildCoverPage` y
+por `deriveExecutiveReportContext` (el resumen que NOVA usa para narrar), de
+modo que ambos consumidores no puedan volver a divergir: comparten la misma
+función, no una copia paralela de la misma regla. Cero cambio en los 3
+builders de `buildSnapshotData.ts` (`estadoGeneral.indiceEjecutivo` sigue
+calculándose exactamente igual que antes — la regla de negocio del mes en
+curso no se tocó). Cero consulta nueva a Prisma, cero llamada nueva a
+`analytics.ts` — la aproximación de respaldo usa solo números que el
+snapshot congelado ya trae.
+
+**Justificación:** unifica el comportamiento visible (Portada nunca más
+muestra "Sin datos" si el snapshot tiene información) sin relajar ni
+duplicar la regla de negocio real del Índice Ejecutivo (que sigue siendo
+exclusiva del mes en curso, por una razón de fondo — Capacidad Futura no es
+retroactiva). Reutilizar `classifyIndiceEjecutivo` en vez de inventar una
+escala paralela evita una segunda tabla de umbrales/etiquetas que alguien
+tendría que mantener sincronizada con la primera.
+
+**Impacto:** Informes de Rango de Meses, Rango Personalizado, e Informes
+Mensuales de un mes ya cerrado ahora muestran un Estado General calculado
+(nivel + score + explicación) en vez de "Sin datos para el período", siempre
+que el snapshot tenga datos reales. El `estadoGeneralNivel`/`Valor` que NOVA
+recibe en su contexto también se corrige — antes era `null` para esos mismos
+casos, así que la narrativa de respaldo (`nova/fallbacks.ts`) omitía toda
+referencia al nivel general; ahora la incluye, igual que ya hacía para el
+mes en curso. `EstadoGeneralResolved.fromIndiceEjecutivo` deja explícito,
+para cualquier consumidor futuro, cuándo el valor mostrado es el Índice
+Ejecutivo completo y cuándo es la aproximación de respaldo — decisión
+explícita de no ocultar esa distinción.
+
 ## 2026-07-28 — Fix: reportes LEGACY_MIGRATION persistidos sin `data.meta`
 
 **Problema:** tras el repunte de `MonthlyReports.tsx` al endpoint unificado

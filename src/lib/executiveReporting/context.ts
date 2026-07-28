@@ -9,6 +9,7 @@
 import type { ExecutiveReportSnapshotData, SnapshotTeamAlert } from "./snapshotData";
 import type { MotivoDistributionItem, IndiceEjecutivoNivel } from "@/components/kpis/types";
 import type { Recommendation } from "@/lib/reportInsights";
+import { resolveEstadoGeneral } from "./estadoGeneral";
 
 export type ExecutiveReportContextMemberHighlight = {
   id: string;
@@ -68,6 +69,16 @@ export function deriveExecutiveReportContext(snapshot: ExecutiveReportSnapshotDa
     completedPct: m.completedPct,
   });
 
+  // Mismo constructor que la Portada (`documentModel.ts::buildCoverPage`) —
+  // ver estadoGeneral.ts. Antes este contexto leía `indiceEjecutivo` directo
+  // (siempre `null` fuera del mes en curso, ver docs/AUDIT_LOG.md § Fix
+  // Estado General), así que NOVA narraba un reporte de rango con datos
+  // completos como si no tuviera Estado General. "Sin datos para el
+  // período" se mapea a `null` para no ensanchar el tipo público de este
+  // campo — los fallbacks de NOVA (`nova/fallbacks.ts`) ya degradan con
+  // gracia cuando `estadoGeneralNivel` es `null`.
+  const estadoGeneral = resolveEstadoGeneral(snapshot);
+
   return {
     meta: {
       type: snapshot.meta.type,
@@ -82,8 +93,8 @@ export function deriveExecutiveReportContext(snapshot: ExecutiveReportSnapshotDa
       totalConsultas: snapshot.teamSummary.totalConsultas,
       totalTasks: snapshot.teamSummary.totalTasks,
       totalCompletedTasks: snapshot.teamSummary.totalCompletedTasks,
-      estadoGeneralNivel: snapshot.estadoGeneral.indiceEjecutivo?.nivel ?? null,
-      estadoGeneralValor: snapshot.estadoGeneral.indiceEjecutivo?.valor ?? null,
+      estadoGeneralNivel: estadoGeneral.nivel === "Sin datos para el período" ? null : estadoGeneral.nivel,
+      estadoGeneralValor: estadoGeneral.valor,
       dataQualityPct: snapshot.estadoGeneral.dataQuality.pct,
     },
     tendenciaMensual: snapshot.trends,

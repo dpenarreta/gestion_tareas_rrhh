@@ -12,6 +12,7 @@ import type { ExecutiveReportSnapshotData } from "./snapshotData";
 import type { ReportMemberKpi, MotivoDistributionItem, IndiceEjecutivoNivel } from "@/components/kpis/types";
 import type { RiskQuadrant, IndicatorExplanation } from "@/lib/reportInsights";
 import type { NovaRecommendationEnrichment } from "./nova/types";
+import { resolveEstadoGeneral } from "./estadoGeneral";
 
 export type CoverPage = {
   kind: "cover";
@@ -175,13 +176,6 @@ function formatDateTimeLabel(iso: string): string {
   return new Date(iso).toLocaleString("es-CL", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-const ESTADO_GENERAL_COLOR: Record<IndiceEjecutivoNivel, "green" | "yellow" | "red"> = {
-  Excelente: "green",
-  Bueno: "green",
-  Atención: "yellow",
-  Crítico: "red",
-};
-
 /**
  * Validación defensiva — `meta` es un campo obligatorio del tipo
  * `ExecutiveReportSnapshotData`, pero llega desde una columna Json de
@@ -191,7 +185,7 @@ const ESTADO_GENERAL_COLOR: Record<IndiceEjecutivoNivel, "green" | "yellow" | "r
  * lanzar `Cannot read properties of undefined`.
  */
 function buildCoverPage(snap: ExecutiveReportSnapshotData): CoverPage {
-  const indice = snap.estadoGeneral?.indiceEjecutivo ?? null;
+  const estado = resolveEstadoGeneral(snap);
   const meta = snap.meta;
   return {
     kind: "cover",
@@ -201,10 +195,10 @@ function buildCoverPage(snap: ExecutiveReportSnapshotData): CoverPage {
     fechaCorteLabel: meta?.fechaCorte ? formatDateLabel(meta.fechaCorte) : "—",
     generatedAtLabel: meta?.generatedAt ? formatDateTimeLabel(meta.generatedAt) : "—",
     generatedByName: meta?.generatedBy?.name ?? "—",
-    estadoGeneralLabel: indice?.nivel ?? "Sin datos para el período",
-    estadoGeneralColor: indice ? ESTADO_GENERAL_COLOR[indice.nivel] : "gray",
-    scoreGeneral: indice?.valor ?? null,
-    semaforoLabel: indice?.explicacion ?? null,
+    estadoGeneralLabel: estado.nivel,
+    estadoGeneralColor: estado.color,
+    scoreGeneral: estado.valor,
+    semaforoLabel: estado.explicacion,
     analyticsEngineVersion: meta?.versions?.analyticsEngineVersion ?? "—",
     formulaSetVersion: meta?.versions?.formulaSetVersion ?? "—",
   };

@@ -211,6 +211,44 @@ describe("buildReportPages", () => {
     expect(wb.SheetNames).toContain("Analytics Predictivo");
   });
 
+  it(
+    "bug real corregido: la Portada de un Informe de Rango Personalizado con datos completos ya NO muestra " +
+      "'Sin datos para el período' solo porque el Índice Ejecutivo no aplica fuera del mes en curso",
+    () => {
+      const pages = buildReportPages(
+        fixtureSnapshot({
+          meta: { ...fixtureSnapshot().meta, type: "RANGO_PERSONALIZADO" },
+          estadoGeneral: { indiceEjecutivo: null, dataQuality: { pct: 88, issues: [] } },
+        }),
+      );
+      const cover = pages.find((p) => p.kind === "cover");
+      expect(cover?.kind).toBe("cover");
+      if (cover?.kind === "cover") {
+        expect(cover.estadoGeneralLabel).not.toBe("Sin datos para el período");
+        expect(cover.estadoGeneralColor).not.toBe("gray");
+        expect(cover.scoreGeneral).not.toBeNull();
+      }
+    },
+  );
+
+  it('la Portada SÍ muestra "Sin datos para el período" cuando el snapshot está realmente vacío (sin importar el tipo de reporte)', () => {
+    const pages = buildReportPages(
+      fixtureSnapshot({
+        meta: { ...fixtureSnapshot().meta, type: "RANGO_PERSONALIZADO" },
+        estadoGeneral: { indiceEjecutivo: null, dataQuality: { pct: 0, issues: [] } },
+        members: [],
+        teamSummary: { ...fixtureSnapshot().teamSummary, totalTasks: 0, totalConsultas: 0 },
+      }),
+    );
+    const cover = pages.find((p) => p.kind === "cover");
+    expect(cover?.kind).toBe("cover");
+    if (cover?.kind === "cover") {
+      expect(cover.estadoGeneralLabel).toBe("Sin datos para el período");
+      expect(cover.estadoGeneralColor).toBe("gray");
+      expect(cover.scoreGeneral).toBeNull();
+    }
+  });
+
   it("degrada con gracia cuando nova es null (snapshot legacy) — nunca lanza", () => {
     const pages = buildReportPages(fixtureSnapshot({ nova: null }));
     const summary = pages.find((p) => p.kind === "executiveSummary");
