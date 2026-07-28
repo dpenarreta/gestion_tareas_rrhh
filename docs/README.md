@@ -25,6 +25,14 @@ para el procedimiento exacto.
 | [`ANALYTICS_CALCULATION_REGISTRY.md`](./ANALYTICS_CALCULATION_REGISTRY.md) | Auditoría técnica de duplicación de cálculos en el motor de Analytics (documento preexistente, complementario a `ANALYTICS_FORMULAS.md` — este es el ángulo "¿hay lógica repetida?", aquel es el ángulo "¿cómo se calcula cada cosa?"). |
 | [`RAT.md`](./RAT.md) | Registro de Actividades de Tratamiento (LOPDP) — documento de cumplimiento normativo, no de arquitectura. |
 | [`PENDIENTES_LEGALES.md`](./PENDIENTES_LEGALES.md) | Pendientes legales de cumplimiento LOPDP. |
+| [`REPORTING_STANDARDS.md`](./REPORTING_STANDARDS.md) | Estándar oficial del Executive Reporting Engine: filosofía, público objetivo, principios de diseño/interpretación/auditoría, y la Definition of Product Excellence (10 principios de madurez). |
+| [`REPORTING_NOVA_WRITING_GUIDE.md`](./REPORTING_NOVA_WRITING_GUIDE.md) | Guía de redacción de NOVA dentro del Executive Report: reglas obligatorias, lenguaje prohibido, estructura de las 4 secciones narrativas, niveles de confianza. |
+| [`REPORTING_DESIGN_SYSTEM.md`](./REPORTING_DESIGN_SYSTEM.md) | Identidad visual del documento Executive Report (paleta, tipografía, componentes, impresión) — distinto de `DESIGN_SYSTEM.md`, que cubre la UI general de NEXO. |
+| [`REPORTING_REFERENCE_LIBRARY.md`](./REPORTING_REFERENCE_LIBRARY.md) | Biblioteca de ejemplos ilustrativos de cada página del Executive Report, incluyendo reportes Consolidado/Por Área/Individual y reportes LEGACY. |
+| [`REPORTING_USE_CASES.md`](./REPORTING_USE_CASES.md) | 6 casos de uso oficiales del Executive Report (Gerencia General, Dirección Nacional, Coordinación Nacional, Auditoría, Gestión Humana, Planeación). |
+| [`REPORTING_AUDIT_MANUAL.md`](./REPORTING_AUDIT_MANUAL.md) | Manual completo de auditoría: Report ID, Snapshot, integridad, fecha de corte, versiones, calidad del dato/confiabilidad, reconstrucción histórica, procedimiento de auditoría. |
+| [`REPORTING_EDGE_CASES.md`](./REPORTING_EDGE_CASES.md) | Comportamiento documentado del motor ante 9 situaciones excepcionales (sin colaboradores, datos incompletos, períodos futuros, usuario sin permisos, etc.). |
+| [`REPORTING_QUALITY_BENCHMARK.md`](./REPORTING_QUALITY_BENCHMARK.md) | Criterios de aceptación de calidad del Executive Report y estado real del motor contra cada uno. |
 
 ## Cómo se lee esta documentación dentro de Nexo
 
@@ -49,4 +57,4 @@ independiente de este sistema y sigue funcionando sin cambios.
 
 ---
 
-_Última actualización: 2026-07-22._
+_Última actualización: 2026-07-28._

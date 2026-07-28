@@ -161,8 +161,8 @@
 
 ## Planificado
 
-- **Sprint de Optimización del Analytics Engine — variantes batch para
-  cálculos masivos.** Limitación conocida documentada en v1.22.3: el
+- **Sprint Q — Analytics Engine Performance (variantes batch para
+  cálculos masivos).** Limitación conocida documentada en v1.22.3: el
   Executive Reporting Engine, al generar un reporte MENSUAL del mes
   calendario en curso, llama a `computeHealthScore`/`computePerformanceScore`/
   `computeCumplimientoProjection`/`computeSobrecargaProbability` **una vez
@@ -183,19 +183,40 @@
   `analytics.ts` se mantienen intactos hasta entonces — decisión explícita
   del usuario. Ver `docs/AUDIT_LOG.md` § 2026-07-28 (Executive Reporting
   Engine 2.0 — Parte IV).
-- **Snapshot Integrity Validation** — validación ACTIVA en tiempo de
-  ejecución que vuelva a consultar Dashboard/Analytics al momento de generar
-  un reporte y compare/registre cualquier discrepancia como incidente (FPS
-  Parte IV §15). La integridad ESTRUCTURAL ya se considera cumplida en
-  v1.22.3 — el Executive Reporting Engine usa un único Builder canónico
-  (`buildSnapshotData.ts`) que llama a las mismas funciones de Analytics que
-  Dashboard/Analytics ya usan, y un único objeto `ExecutiveReportSnapshotData`
-  del que se derivan todas las vistas — dos superficies no pueden divergir
-  si comparten la misma función y el mismo objeto. Por eso no se considera
-  necesaria una verificación adicional en esta versión; esta validación
-  activa queda como una capa de monitoreo futura, no una corrección
-  pendiente. Ver `docs/AUDIT_LOG.md` § 2026-07-28 (Executive Reporting
+- **Sprint R — Snapshot Integrity Validation** — validación ACTIVA en tiempo
+  de ejecución que vuelva a consultar Dashboard/Analytics al momento de
+  generar un reporte y compare/registre cualquier discrepancia como
+  incidente (FPS Parte IV §15). La integridad ESTRUCTURAL ya se considera
+  cumplida en v1.22.3 — el Executive Reporting Engine usa un único Builder
+  canónico (`buildSnapshotData.ts`) que llama a las mismas funciones de
+  Analytics que Dashboard/Analytics ya usan, y un único objeto
+  `ExecutiveReportSnapshotData` del que se derivan todas las vistas — dos
+  superficies no pueden divergir si comparten la misma función y el mismo
+  objeto. Por eso no se considera necesaria una verificación adicional en
+  esta versión; esta validación activa queda como una capa de monitoreo
+  futura, no una corrección pendiente. No modifica la integridad estructural
+  existente. Ver `docs/AUDIT_LOG.md` § 2026-07-28 (Executive Reporting
   Engine 2.0 — Parte IV).
+- **Sprint S — Executive Benchmark**: comparativos automáticos entre meses,
+  áreas, equipos y tendencias — un salto desde "un reporte de un período" a
+  "comparar varios reportes entre sí" dentro del propio motor (hoy el único
+  mecanismo de comparación es la Evolución Mensual dentro de un mismo
+  `RANGO_MESES`, no una comparación entre dos reportes independientes o dos
+  áreas). Sin diseño técnico todavía — registrado como intención, no como
+  plan de implementación.
+- **Sprint T — Executive Presentation**: generación automática de
+  PowerPoint, presentación ejecutiva y resumen para comité a partir del
+  mismo `ExecutiveReportSnapshotData` ya congelado — un tercer formato de
+  salida junto a PDF/Excel, reutilizando el mismo principio de "un solo
+  snapshot, múltiples renders" que ya separa `renderReportHtml.ts` de
+  `renderReportExcel.ts`. Sin diseño técnico todavía.
+- **Sprint U — Conversational Executive Reporting**: integración completa
+  con NOVA para permitir consultas conversacionales sobre cualquier Snapshot
+  histórico ("¿por qué bajó el cumplimiento en marzo?", respondido contra el
+  `ExecutiveReportSnapshotData` real de ese Report ID, no contra datos en
+  vivo) — distinto de los 3 usos actuales de NOVA en el sistema (KPI
+  individual, saludo de Dashboard, narrativa del reporte ejecutivo mismo).
+  Sin diseño técnico todavía.
 - Integración profunda del motor predictivo (Sprint E, v1.19.0) en Dashboard,
   Analytics/KPIs, Reportes Inteligentes, Proyectos y Equipo — este sprint
   deliberadamente construyó el motor y un módulo autónomo

@@ -23,6 +23,56 @@
 
 ---
 
+## v1.23.1 — 2026-07-28
+
+**Tipo:** DOCUMENTATION
+**Módulo:** Executive Reporting Engine — FPS Parte V (`docs/`)
+
+Cierre documental del FPS del Executive Reporting Engine. La Parte V es
+explícitamente no-funcional: "no deberá alterar el comportamiento del
+Executive Reporting Engine implementado en las Partes I, II, III y IV" —
+esta entrada no toca ningún archivo de `src/`, solo agrega/actualiza
+documentación, grounded contra el código real de
+`src/lib/executiveReporting/` (no especulada).
+
+- **8 documentos nuevos** en `docs/`: `REPORTING_STANDARDS.md` (filosofía,
+  público objetivo, principios de diseño/interpretación/auditoría,
+  Definition of Product Excellence — 10 principios), 
+  `REPORTING_NOVA_WRITING_GUIDE.md` (reglas obligatorias de redacción de
+  NOVA, grounded contra `nova/prompts.ts`/`nova/confidence.ts` reales),
+  `REPORTING_DESIGN_SYSTEM.md` (identidad visual del documento, grounded
+  contra `EXECUTIVE_REPORT_STYLES` real — distinto de `DESIGN_SYSTEM.md`,
+  que cubre la UI general de NEXO), `REPORTING_REFERENCE_LIBRARY.md`
+  (ejemplos ilustrativos de las 11 páginas, 3 alcances y reportes LEGACY),
+  `REPORTING_USE_CASES.md` (6 casos de uso oficiales, honestos sobre que
+  solo 3 roles de NEXO acceden a reportes — los 6 casos son propósitos de
+  uso, no 6 roles inventados), `REPORTING_AUDIT_MANUAL.md` (Report ID,
+  Snapshot, integridad, fecha de corte, versiones, calidad del
+  dato/confiabilidad, reconstrucción histórica, y una tabla honesta de qué
+  acciones de `ExecutiveReportAuditLog` están realmente activas hoy vs. cuáles
+  existen solo como tipo declarado — `exported_pdf`/`exported_excel`/
+  `legacy_migrated` no se emiten desde ningún caller todavía),
+  `REPORTING_EDGE_CASES.md` (9 casos límite documentados contra el código
+  real — incluye 2 limitaciones conocidas no corregidas en esta entrega:
+  `resolveMonthlyPeriodStatus` no distingue un mes futuro de un histórico sin
+  cierre, y no hay validación de que `fechaCorte ≥ inicio del período`),
+  `REPORTING_QUALITY_BENCHMARK.md` (10 criterios de aceptación con el estado
+  real de cada uno, incluyendo las brechas conocidas ya registradas en
+  v1.22.3).
+- **`docs/ROADMAP.md` § Planificado**: los 2 sprints futuros ya registrados
+  en v1.22.3 ganan su nombre oficial del FPS (Sprint Q — Analytics Engine
+  Performance; Sprint R — Snapshot Integrity Validation) sin duplicarse.
+  3 sprints nuevos registrados como intención, sin diseño técnico: Sprint S
+  (Executive Benchmark — comparativos entre meses/áreas/equipos), Sprint T
+  (Executive Presentation — PowerPoint/resumen para comité), Sprint U
+  (Conversational Executive Reporting — consultas conversacionales sobre
+  cualquier Snapshot histórico vía NOVA).
+- **`docs/README.md`**: índice actualizado con los 8 documentos nuevos.
+- Sin cambios a `docs/AUDIT_LOG.md`/`docs/DECISIONS.md` — esta entrega no
+  modifica reglas de negocio ni arquitectura, solo las documenta (regla de
+  CLAUDE.md § Documentación: esas bitácoras registran decisiones, no
+  documentación descriptiva).
+
 ## v1.23.0 — 2026-07-28
 
 **Tipo:** REFACTOR / BREAKING CHANGE (interno)
