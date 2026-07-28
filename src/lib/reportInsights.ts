@@ -253,7 +253,12 @@ export function explainMotivoDistribution(reasonKey: string, label: string, pctO
 // ── Bloque 2 — Hallazgos Automáticos y Bloque 3 — Recomendaciones ──────────
 
 export type Finding = { text: string; tone: "positive" | "risk" | "neutral" };
-export type Recommendation = { text: string; priority: "alta" | "media" };
+/**
+ * `id` es estable por regla (no un cuid aleatorio) — Executive Reporting
+ * Engine 2.0 lo usa para que NOVA enriquezca 1:1 esta lista sin poder
+ * inventar recomendaciones nuevas (ver src/lib/executiveReporting/nova).
+ */
+export type Recommendation = { id: string; text: string; priority: "alta" | "media" };
 
 export type ReportInsightMember = {
   name: string;
@@ -314,21 +319,21 @@ export function computeRecommendations(input: {
   const bajoCumplimiento = input.members.filter((m) => m.completedPct < 60);
 
   if (sobrecargados.length > 0 && subutilizados.length > 0) {
-    recs.push({ text: `Redistribuir carga: ${sobrecargados.map((m) => m.name).join(", ")} está(n) en sobrecarga mientras ${subutilizados.map((m) => m.name).join(", ")} tiene(n) capacidad disponible.`, priority: "alta" });
+    recs.push({ id: "redistribuir-carga-mixta", text: `Redistribuir carga: ${sobrecargados.map((m) => m.name).join(", ")} está(n) en sobrecarga mientras ${subutilizados.map((m) => m.name).join(", ")} tiene(n) capacidad disponible.`, priority: "alta" });
   } else if (sobrecargados.length > 0) {
-    recs.push({ text: `Redistribuir carga de ${sobrecargados.map((m) => m.name).join(", ")} hacia colaboradores con capacidad disponible.`, priority: "alta" });
+    recs.push({ id: "redistribuir-carga-sobrecarga", text: `Redistribuir carga de ${sobrecargados.map((m) => m.name).join(", ")} hacia colaboradores con capacidad disponible.`, priority: "alta" });
   }
 
   if (bajoCumplimiento.length > 0) {
-    recs.push({ text: `Revisar proyectos/tareas de ${bajoCumplimiento.map((m) => m.name).join(", ")} — cumplimiento por debajo del 60%.`, priority: "alta" });
+    recs.push({ id: "revisar-bajo-cumplimiento", text: `Revisar proyectos/tareas de ${bajoCumplimiento.map((m) => m.name).join(", ")} — cumplimiento por debajo del 60%.`, priority: "alta" });
   }
 
   if (input.topReason && input.topReason.pct >= 30) {
-    recs.push({ text: `Evaluar capacitar o reforzar el proceso de "${input.topReason.label}" — concentra ${input.topReason.pct}% de las consultas del equipo.`, priority: "media" });
+    recs.push({ id: "reforzar-motivo-concentrado", text: `Evaluar capacitar o reforzar el proceso de "${input.topReason.label}" — concentra ${input.topReason.pct}% de las consultas del equipo.`, priority: "media" });
   }
 
   if (sobrecargados.length === 0 && bajoCumplimiento.length === 0 && input.avgCumplimiento >= 80) {
-    recs.push({ text: "Mantener la planificación actual — los indicadores del equipo están dentro de rangos saludables.", priority: "media" });
+    recs.push({ id: "mantener-planificacion", text: "Mantener la planificación actual — los indicadores del equipo están dentro de rangos saludables.", priority: "media" });
   }
 
   return recs;

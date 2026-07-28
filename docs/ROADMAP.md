@@ -110,11 +110,43 @@
   `SettingsManager.tsx` escondía todo detrás de un gate más estricto —
   ahora la ruta es consistentemente Administrador-only. Cero cambios al
   Analytics Engine (v1.21.0 — este sprint).
+- Executive Reporting Engine 2.0 — el Informe Mensual/de Rango pasa de
+  "exportación de tablas" a documento ejecutivo de 11 páginas (Portada,
+  Executive Summary, Estado General, Indicadores Estratégicos, Detalle por
+  Colaborador, Distribución Operativa, Executive Insights, Executive
+  Assessment by NOVA, Recomendaciones, Analytics Predictivo, Metadatos).
+  Snapshot inmutable con Report ID propio (`NXR-YYYYMMDD-HHMMSS-XXXX`),
+  fecha de corte real (filtra actividad/cumplimiento hasta esa fecha, no
+  solo etiqueta), filtros de dominio unificados (período/rol/área/
+  colaboradores), auditoría de generación/vista/degradación de NOVA, y
+  backfill certificado del histórico previo (`MonthlyReport` →
+  `ExecutiveReportSnapshot`, `origin=LEGACY_MIGRATION`). NOVA pasa de un
+  único bloque de texto libre sin caché a 4 secciones estructuradas
+  (Resumen/Insights/Assessment/Recomendaciones) con fallback determinista
+  garantizado (nunca bloquea ni queda en blanco) — los escenarios
+  predictivos de equipo quedan pendientes de una fase posterior (no existe
+  aún el motor de predicción a nivel de equipo). Cero cambios al Analytics
+  Engine ni a sus fórmulas; el flujo/UI existente (`MonthlyReports.tsx`,
+  `/api/reports/generate|range|custom-range`) se conserva intacto — el motor
+  nuevo se integró de forma aditiva (botones "PDF/Excel Ejecutivo 2.0"), no
+  reemplaza todavía la experiencia actual (v1.22.0).
 
 ## En desarrollo
 
-_(vacío al 2026-07-22 — no hay ninguna funcionalidad a medio implementar al
-cierre de este sprint)._
+- Executive Reporting Engine 2.0 — repuntar `MonthlyReports.tsx`/
+  `ReportWizardModal.tsx`/`wizardExport.ts` al endpoint unificado
+  (`POST /api/reports/executive`) y retirar los renderers PDF/Excel
+  antiguos (`downloadReportPDF`/`downloadReportExcel`/`downloadWizardPDF`/
+  `downloadWizardExcel`) en favor de `renderReportHtml.ts`/
+  `renderReportExcel.ts`. Deliberadamente diferido del sprint que introdujo
+  el motor (v1.22.0) por ser un cambio de mayor riesgo sobre ~1600 líneas de
+  UI ya en uso — el motor nuevo convive hoy con el antiguo vía botones
+  aditivos ("PDF/Excel Ejecutivo 2.0").
+- Escenarios predictivos de equipo (Esperado/Preventivo/Optimista, FPS
+  Executive Reporting Engine 2.0 Parte III) — no implementados: no existe
+  todavía un motor de predicción a nivel de EQUIPO (`predictionEngine.ts`
+  es por colaborador); `ExecutiveReportSnapshotData.predictivo` queda en
+  `null` hasta que ese motor exista.
 
 ## Planificado
 

@@ -273,9 +273,36 @@ El esquema completo vive en `prisma/schema.prisma`. Agrupado por dominio:
   `@xenova/transformers`), `pageNumber`/`chunkIndex` para citar la fuente exacta.
 
 ### Reportes
-- **`MonthlyReport`** — informe mensual por `scope` (`JEFE` | `COORDINADOR`), único por
-  `(month, year, scope)`; `data` (Json) es el snapshot calculado, `aiAnalysis` el texto
-  narrado por Nova sobre ese snapshot.
+- **`MonthlyReport`** — informe mensual LEGACY por `scope` (`JEFE` | `COORDINADOR`), único
+  por `(month, year, scope)`, sobrescrito en cada regeneración (`upsert`). Sigue siendo la
+  fuente de datos de `/api/reports` y de la UI actual (`MonthlyReports.tsx`) — no se borra
+  ni se le vuelve a escribir; su historial fue migrado (no removido) a
+  `ExecutiveReportSnapshot` vía backfill certificado (ver más abajo).
+- **`ExecutiveReportSnapshot`** (Executive Reporting Engine 2.0, `src/lib/executiveReporting/`)
+  — fuente OFICIAL de reportes ejecutivos hacia adelante: una fila INMUTABLE por
+  generación (nunca se sobrescribe), con `reportId` único (`NXR-YYYYMMDD-HHMMSS-XXXX`,
+  o `NXR-LEGACY-YYYYMMDD-XXXX` para filas migradas), `origin` (`GENERATED` |
+  `LEGACY_MIGRATION`), `integrityFlag` (`FULL` | `PARTIAL` — siempre `PARTIAL` para
+  filas legacy), `data` (Json = `ExecutiveReportSnapshotData`, el objeto de dominio
+  único calculado por `buildSnapshotData.ts` — se congela con `Object.freeze` profundo
+  antes de persistirse), `nova` (las 4 secciones estructuradas de NOVA, ver abajo),
+  versiones (`analyticsEngineVersion`/`formulaSetVersion`/`reportingEngineVersion`/
+  `nexoVersion`) y trazabilidad completa (generador, fecha de generación, fecha de
+  corte, tiempo de generación). Servido por `POST /api/reports/executive` (genera) y
+  `GET /api/reports/executive/[reportId]` (lectura inmutable, nunca recalcula) —
+  todavía no reemplaza a `/api/reports/generate|range|custom-range` en la UI (ver
+  `docs/ROADMAP.md` § En desarrollo).
+- **`ExecutiveReportAuditLog`** — auditoría append-only del motor (referencia suelta a
+  `reportId`, mismo patrón que `ActivityAuditLog`/`TargetTimeAuditLog`): un registro por
+  `generated`/`viewed`/`nova_degraded` (`generation_failed` queda para una fase
+  posterior de endurecimiento de errores).
+- **NOVA estructurado** (`src/lib/executiveReporting/nova/`) — reemplaza el bloque de
+  texto libre sin caché que generaba el reporte antiguo por 4 llamadas paralelas a Groq
+  (Executive Summary/Insights/Assessment/Enriquecimiento de Recomendaciones), cada una
+  con timeout independiente y fallback determinista garantizado (nunca en blanco, nunca
+  bloquea la generación). Grounded exclusivamente en `ExecutiveReportContext`
+  (`context.ts`), una vista derivada y condensada del snapshot — NOVA nunca toca Prisma
+  ni recalcula nada.
 
 ---
 

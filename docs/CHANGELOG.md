@@ -23,6 +23,82 @@
 
 ---
 
+## v1.22.0 — 2026-07-28
+
+**Tipo:** FEATURE
+**Módulo:** Executive Reporting Engine 2.0 (`src/lib/executiveReporting/`)
+
+El Informe Mensual/de Rango pasa de "exportación de tablas con un bloque de
+IA pegado" a un motor de reportes ejecutivos propio, independiente de
+Analytics, construido en 5 fases (A-E) sobre una especificación funcional de
+4 partes entregada por el usuario. Cero cambios al Analytics Engine ni a sus
+fórmulas — el motor nuevo consume `analytics.ts`/`reportInsights.ts` tal
+como están, nunca los modifica.
+
+- **Fase A — Fundación** (`prisma/schema.prisma`, `src/lib/executiveReporting/{reportId,version,snapshotStore}.ts`):
+  modelos `ExecutiveReportSnapshot`/`ExecutiveReportAuditLog` (migración
+  100% aditiva), generador de Report ID (`NXR-YYYYMMDD-HHMMSS-XXXX`, huso de
+  negocio, alfabeto sin caracteres ambiguos), auditoría best-effort.
+- **Fase B — Builder unificado** (`buildSnapshotData.ts`, `snapshotData.ts`,
+  `context.ts`, `filters.ts`, `resolveRoster.ts`, `periodStatus.ts`):
+  `ExecutiveReportSnapshotData` como objeto de dominio único — se calcula
+  UNA vez y alimenta Portada/Estado General/Detalle/Distribución/Insights/
+  Assessment/Recomendaciones/Metadatos sin que ningún consumidor vuelva a
+  tocar Prisma/Analytics. Las 3 rutas existentes (`generate`/`range`/
+  `custom-range`) se reescriben para delegar en este builder — mismas
+  fórmulas exactas, reubicadas, más `computeDataQuality` (antes ausente del
+  reporte de equipo) y estado de período (`EN_CURSO`/`CERRADO`/`HISTORICO`).
+  Fecha de corte real: acota consultas/carga por fecha y reconstruye el
+  estado de cumplimiento "a la fecha de corte" vía `completedAt` (NEXO no
+  lleva historial de `status` por tarea). `ExecutiveReportFilters` unificado
+  (período/tipo/fecha de corte/roles/áreas/colaboradores) y `resolveReportRoster`
+  reemplazan el filtro de roles duplicado en los 3 endpoints. Snapshot
+  congelado (`Object.freeze` profundo) antes de devolverse — inmutabilidad
+  real, no solo de tipo. `Recommendation`/`TeamRecommendation` ganan un
+  `id` estable (para el enriquecimiento de NOVA).
+- **Fase C — NOVA estructurado** (`nova/{types,confidence,prompts,fallbacks,generateNarrative,renderMarkdown}.ts`):
+  reemplaza `buildAiAnalysis`/`buildRangeAiAnalysis` (1 llamada de texto
+  libre a Groq, sin caché, en cada endpoint) por 4 llamadas paralelas
+  estructuradas (Executive Summary/Insights/Assessment/Enriquecimiento de
+  Recomendaciones), timeout por llamada (`Promise.race`, nunca bloquea la
+  generación), fallback determinista garantizado por sección (nunca en
+  blanco), y realineación estricta por `id` real en recomendaciones (Groq
+  nunca puede inventar ni perder una). `renderNovaAsMarkdown` adapta las 4
+  secciones al mismo bloque de texto que la UI actual ya sabe mostrar — cero
+  regresión visible, mismo aviso de "configura GROQ_API_KEY" de siempre.
+  Escenarios predictivos (5ª sección del FPS) quedan deliberadamente sin
+  implementar — no existe aún un motor de predicción de equipo sobre el que
+  narrar sin alucinar.
+- **Fase D — Persistencia inmutable** (`api/reports/executive/{route,[reportId]/route,list/route}.ts`,
+  `scripts/backfill-executive-report-snapshots.ts`): endpoint unificado de
+  generación (`POST /api/reports/executive`), lectura inmutable por Report
+  ID, historial paginado. Backfill de una sola corrida (dry-run por
+  defecto, `--execute` con confirmación interactiva) migró los 4
+  `MonthlyReport` históricos a `ExecutiveReportSnapshot`
+  (`origin=LEGACY_MIGRATION`, `integrityFlag=PARTIAL` siempre — ningún
+  reporte histórico registró calidad de dato/versiones/NOVA estructurado) —
+  `MonthlyReport` no se modificó ni se borró.
+- **Fase E — Documento de 11 páginas** (`documentModel.ts`,
+  `renderReportHtml.ts`, `renderReportExcel.ts`): Portada, Executive
+  Summary, Estado General del Equipo, Indicadores Estratégicos, Detalle por
+  Colaborador, Distribución Operativa, Executive Insights, Executive
+  Assessment by NOVA, Recomendaciones, Analytics Predictivo, Metadatos —
+  orden fijo en un único lugar. Vista en pantalla y PDF comparten el mismo
+  render a HTML (simplificación deliberada sobre el diseño original de dos
+  sistemas de presentación paralelos). Integrado a `MonthlyReports.tsx` de
+  forma ADITIVA — botones "PDF Ejecutivo 2.0"/"Excel Ejecutivo 2.0" nuevos,
+  junto a los existentes, sin retirar ni modificar el flujo actual.
+- **Pendiente, explícitamente diferido** (ver `docs/ROADMAP.md` § En
+  desarrollo): repuntar `MonthlyReports.tsx`/`ReportWizardModal.tsx`/
+  `wizardExport.ts` al endpoint unificado y retirar los renderers antiguos;
+  escenarios predictivos de equipo.
+- Tests: 82 tests nuevos a través de las 5 fases (`src/__tests__/executiveReporting/`,
+  `src/__tests__/api/reports-executive.test.ts`) — Report ID, inmutabilidad,
+  fecha de corte, roster/filtros, fallback de NOVA nunca en blanco,
+  degradación por timeout/error/JSON malformado, no-alucinación de
+  recomendaciones, orden fijo de páginas, escape anti-inyección en HTML.
+  Suite completa: 1142/1142 en verde, `tsc`/`lint` limpios.
+
 ## v1.21.0 — 2026-07-28
 
 **Tipo:** FEATURE

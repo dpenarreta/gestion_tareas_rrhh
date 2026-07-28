@@ -415,6 +415,9 @@ model User {
   deskNoteReplies   DeskNoteReply[]    @relation("DeskNoteReplyAuthor")
   personalReminders PersonalReminder[] @relation("PersonalReminderUser")
   deskAuditLogs     DeskAuditLog[]     @relation("DeskAuditUser")
+
+  executiveReportsGenerated ExecutiveReportSnapshot[] @relation("ExecutiveReportsGenerated")
+  executiveReportAudits     ExecutiveReportAuditLog[] @relation("ExecutiveReportAuditUser")
 }
 
 model ActivityReason {
@@ -859,6 +862,102 @@ model TargetTimeAuditLog {
   createdAt     DateTime               @default(now())
 
   @@index([taskId])
+}
+
+enum ExecutiveReportType {
+  MENSUAL
+  RANGO_MESES
+  RANGO_PERSONALIZADO
+}
+
+enum ExecutiveReportPeriodStatus {
+  EN_CURSO
+  CERRADO
+  HISTORICO
+}
+
+enum ExecutiveReportOrigin {
+  GENERATED
+  LEGACY_MIGRATION
+}
+
+enum ExecutiveReportIntegrity {
+  FULL
+  PARTIAL
+}
+
+// Executive Reporting Engine 2.0 — snapshot inmutable de un informe ejecutivo
+// generado. A diferencia de MonthlyReport (que se sobrescribe por
+// (month,year,scope) vía upsert), cada generación crea una fila nueva que
+// nunca se modifica ni se recalcula: `data`/`nova`/`dataQuality` son la
+// fotografía exacta del estado en `generatedAt`/`fechaCorte`. `collaboratorIds`
+// es el roster congelado — fuente de verdad del alcance, no `scope` (que
+// queda solo como etiqueta de visualización derivada del rol del generador).
+// Filas con `origin = LEGACY_MIGRATION` provienen del backfill de una sola
+// corrida desde MonthlyReport (ver scripts/backfill-executive-report-snapshots.ts);
+// MonthlyReport permanece intacta como tabla legacy, nunca se borra ni se
+// le vuelve a escribir.
+model ExecutiveReportSnapshot {
+  id                     String                       @id @default(cuid())
+  reportId               String                       @unique
+  type                   ExecutiveReportType
+  scope                  ReportScope
+  origin                 ExecutiveReportOrigin         @default(GENERATED)
+  integrityFlag          ExecutiveReportIntegrity      @default(FULL)
+  legacyMonthlyReportId  String?
+  migratedAt             DateTime?
+  generatedBy            String
+  generator              User                          @relation("ExecutiveReportsGenerated", fields: [generatedBy], references: [id])
+  generatedAt            DateTime                      @default(now())
+  periodLabel            String
+  periodStart            DateTime
+  periodEnd              DateTime
+  fechaCorte             DateTime
+  periodStatus           ExecutiveReportPeriodStatus
+  filters                Json
+  collaboratorIds        String[]
+  collaboratorCount      Int
+  analyticsEngineVersion String
+  formulaSetVersion      String
+  reportingEngineVersion String
+  nexoVersion            String
+  data                   Json
+  nova                   Json?
+  novaDegraded           Boolean                       @default(false)
+  dataQuality            Json
+  generationMs           Int
+  createdAt              DateTime                      @default(now())
+
+  @@index([generatedBy, createdAt])
+  @@index([type, periodStart, periodEnd])
+  @@index([origin])
+}
+
+// Auditoría del Executive Reporting Engine — referencia suelta (reportId como
+// String plano, sin FK), mismo patrón que ActivityAuditLog/TargetTimeAuditLog:
+// sobrevive aunque el snapshot referenciado se purgue en el futuro. Append-only,
+// nunca se sobrescribe — un registro por evento (generated/generation_failed/
+// nova_degraded/viewed/exported_pdf/exported_excel/legacy_migrated).
+model ExecutiveReportAuditLog {
+  id                     String    @id @default(cuid())
+  reportId               String
+  action                 String
+  userId                 String
+  user                   User      @relation("ExecutiveReportAuditUser", fields: [userId], references: [id], onDelete: Cascade)
+  step                   String?
+  message                String?
+  period                 String?
+  fechaCorte             DateTime?
+  filtersApplied         Json?
+  collaboratorCount      Int?
+  generationMs           Int?
+  analyticsEngineVersion String?
+  formulaSetVersion      String?
+  nexoVersion            String?
+  createdAt              DateTime  @default(now())
+
+  @@index([reportId])
+  @@index([userId, createdAt])
 }
 
 model MeetingInvitee {

@@ -15,6 +15,62 @@
 
 ---
 
+## 2026-07-28 — Executive Reporting Engine 2.0
+
+**Problema:** el usuario entregó una Especificación Funcional de Producto
+(FPS) de 4 partes pidiendo evolucionar el Informe Mensual/de Rango de
+"exportación de tablas con un bloque de IA" a un motor de reportes
+ejecutivos: documentos inmutables con Report ID, fecha de corte real, una
+arquitectura de razonamiento obligatoria para NOVA, y una estructura fija de
+11 páginas. Regla explícita del propio FPS: "el reporte deberá evolucionar,
+nunca reiniciarse" — toda funcionalidad existente debía conservarse.
+
+Exploración previa (agente Explore + lectura directa de los 3 endpoints)
+confirmó: lógica duplicada 3 veces entre `generate`/`range`/`custom-range`;
+`MonthlyReport` se sobrescribe por `upsert` (sin historial); `computeDataQuality`
+nunca se llamaba desde el reporte de equipo (violación real, no solo
+teórica, del FPS §11); no había bug de scoping de roles (verificado
+comparando `getVisibleRoles` contra el filtro inline existente — coincidían
+exactamente para los 3 roles habilitados a generar reportes).
+
+### Decisión 1 — `ExecutiveReportSnapshot` como modelo nuevo, no extensión de `MonthlyReport`
+
+**Alternativas:** (a) modelo nuevo en paralelo; (b) quitar el `@@unique([month,year,scope])` de `MonthlyReport` y convertirlo en append-only.
+
+**Decisión:** (a). El principio de inmutabilidad (una fila nueva por generación) es estructuralmente incompatible con la semántica actual de "el informe del mes X" como una sola fila que se actualiza — cambiarla habría roto el contrato que `MonthlyReport.upsert` ya tiene con sus llamadores. Un modelo nuevo además permite dar Snapshot+Report ID+auditoría a los reportes de rango/personalizado, que hoy no persisten en absoluto.
+
+### Decisión 2 — Backfill certificado, confirmado explícitamente por el usuario antes de ejecutar
+
+**Decisión:** `MonthlyReport` permanece intacta e inmutable para siempre; un script de una sola corrida (`--dry-run` por defecto) migra cada fila a `ExecutiveReportSnapshot` con `origin=LEGACY_MIGRATION`, Report ID propio (`NXR-LEGACY-YYYYMMDD-XXXX`) e `integrityFlag=PARTIAL` — **siempre** `PARTIAL`, nunca `FULL`, porque ningún `MonthlyReport` histórico registró calidad de dato, versión de motor/fórmulas ni narrativa NOVA estructurada; no hay forma de reconstruir esos campos 1:1 desde datos que nunca existieron. Ejecutado en producción con confirmación explícita del usuario tras revisar el dry-run: 4 migrados, 0 fallidos, verificado idempotente en una segunda corrida.
+
+### Decisión 3 — Fecha de corte real vía reconstrucción `completedAt`, con límite documentado
+
+**Problema:** el FPS exige que "fecha de corte" filtre datos de verdad, no sea solo una etiqueta — pedido explícitamente para esta fase (no diferido a una fase posterior como el plan original proponía).
+
+**Decisión:** las 3 fórmulas de builder acotan `TaskActivity.createdAt`/`Task.completedAt` (FIJA) al corte directamente (campos con marca de tiempo real, sin ambigüedad), y reconstruyen el cumplimiento "a la fecha de corte": una tarea `COMPLETADA` con `completedAt` posterior al corte se trata como no completada para ese snapshot — NEXO no lleva historial de `status` por tarea, así que esto es una aproximación conservadora explícitamente documentada, no una reconstrucción exacta. `computeHealthScore`/`computePerformanceScore` reciben el corte vía su parámetro `now` ya existente (sin tocar `analytics.ts`). **Límite aceptado:** `computeDataQuality` y las tendencias multi-mes no aceptan un parámetro de corte hoy — extenderlas exigiría modificar `analytics.ts`/`reportInsights.ts`, fuera de alcance de este sprint; quedan evaluadas sobre el estado actual, no "a la fecha de corte".
+
+### Decisión 4 — NOVA reutiliza `ExecutiveReportContext` (Fase B) en vez de un `groundingContext.ts` separado
+
+**Decisión:** el plan original de la Fase C proponía un módulo `groundingContext.ts` propio. Al llegar a la Fase C, `ExecutiveReportContext`/`deriveExecutiveReportContext` (creados en una ampliación de la Fase B pedida por el usuario) ya cumplían exactamente esa función — un segundo módulo habría sido duplicar la misma derivación sin ningún beneficio.
+
+### Decisión 5 — Escenarios predictivos (5ª sección de NOVA) diferidos, no implementados
+
+**Decisión:** el FPS condiciona los 3 escenarios (Esperado/Preventivo/Optimista) a que "Analytics Predictivo esté disponible". `ExecutiveReportSnapshotData.predictivo` sigue en `null` — no existe un motor de predicción a nivel de EQUIPO (`predictionEngine.ts` es por colaborador). Implementar el prompt de todas formas habría obligado a NOVA a narrar sobre datos inexistentes, violando la propia regla antialucinación del FPS Parte III.
+
+### Decisión 6 — Vista en pantalla y PDF comparten un solo render a HTML, no dos sistemas paralelos
+
+**Decisión:** el plan original de la Fase E pedía 11 componentes React (`pages/*.tsx`) para pantalla, más un renderer HTML separado para PDF — el mismo patrón que ya existe hoy en `MonthlyReports.tsx` (duplicación reconocida, no nueva). Se decidió que ambos formatos consuman el mismo `renderReportHtml.ts`, eliminando esa duplicación en el motor nuevo en vez de repetirla.
+
+### Decisión 7 — Fase E se integra de forma aditiva; NO se retiran los renderers antiguos todavía
+
+**Alternativas:** (a) integración aditiva (botones nuevos, flujo antiguo intacto); (b) repuntar `MonthlyReports.tsx`/`ReportWizardModal.tsx`/`wizardExport.ts` al endpoint unificado y retirar `downloadReportPDF`/`downloadReportExcel`/etc. en el mismo sprint.
+
+**Decisión:** (a). Reescribir ~1600 líneas de UI con funcionalidad en uso activo, sin poder verificar visualmente en navegador (ver nota de verificación abajo), es un riesgo que amerita su propio checkpoint — no empaquetarlo silenciosamente junto con la construcción del motor. Queda registrado en `docs/ROADMAP.md` § En desarrollo.
+
+**Nota de verificación:** todas las fases se verificaron con `tsc`/`lint`/suite completa de Vitest (1142/1142) en verde, y el backfill se ejecutó realmente contra la base compartida. La integración de UI de la Fase E NO se verificó visualmente en navegador — no había credenciales de sesión disponibles para esta sesión (la base compartida tiene datos reales de personal, no cuentas semilla; ver nota de "Shared dev DB" en la memoria del proyecto) y no se intentó adivinar credenciales.
+
+---
+
 ## 2026-07-28 — Sprint O: Centro de Configuración NEXO
 
 **Problema:** el pedido original pedía un módulo único que centralizara TODA la configuración de la plataforma en 10 categorías (Organización, Analytics, Trabajo, Proyectos, Escritorio Digital, Reportes, NOVA, Seguridad, Notificaciones, Parámetros Globales), con historial, restauración, búsqueda, favoritos y vista previa de impacto.

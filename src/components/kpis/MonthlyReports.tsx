@@ -27,6 +27,10 @@ import { RiskMatrixChart } from "./reports/RiskMatrixChart";
 import { TrendsSection } from "./reports/TrendsSection";
 import { TeamInsightsSection } from "./reports/TeamInsightsSection";
 import { IndicatorInterpretation } from "./reports/IndicatorInterpretation";
+import { buildReportPages } from "@/lib/executiveReporting/documentModel";
+import { buildExecutiveReportHtml, EXECUTIVE_REPORT_STYLES } from "@/lib/executiveReporting/renderReportHtml";
+import { downloadExecutiveReportExcel } from "@/lib/executiveReporting/renderReportExcel";
+import type { ExecutiveReportSnapshotData } from "@/lib/executiveReporting/snapshotData";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -844,6 +848,8 @@ export default function MonthlyReports({ currentUserRole }: Props) {
   const [detailLoading, setDetailLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [generateMonth, setGenerateMonth] = useState(currentMonthParam);
+  const [generatingV2Pdf, setGeneratingV2Pdf] = useState(false);
+  const [generatingV2Excel, setGeneratingV2Excel] = useState(false);
 
   // ── Range state ────────────────────────────────────────────────────────────
   const [rangeFrom, setRangeFrom] = useState(() => addMonths(currentMonthParam(), -5));
@@ -903,6 +909,55 @@ export default function MonthlyReports({ currentUserRole }: Props) {
       showToast("Informe generado.", "success");
     } finally {
       setGenerating(false);
+    }
+  }
+
+  // Executive Reporting Engine 2.0 (Fase E) — entrada NUEVA y aditiva: no
+  // reemplaza el informe consolidado de arriba (ExecutiveSummarySection y
+  // el resto de bloques siguen igual). Genera vía el endpoint unificado
+  // /api/reports/executive, arma las 11 páginas (documentModel.ts) y las
+  // exporta con los renderers compartidos — mismo mecanismo de PDF
+  // (openReportWindow, jsPDF/html2canvas vendorizados) que el resto de
+  // exportaciones del sistema.
+  async function fetchExecutiveV2Snapshot(): Promise<ExecutiveReportSnapshotData | null> {
+    if (!selectedSummary) return null;
+    const monthStr = `${selectedSummary.year}-${String(selectedSummary.month).padStart(2, "0")}`;
+    const res = await fetch(`/api/reports/executive?tipoReporte=MENSUAL&month=${monthStr}`, { method: "POST" });
+    if (!res.ok) {
+      const err: { error?: string } = await res.json().catch(() => ({}));
+      showToast(err.error ?? "Error al generar el Reporte Ejecutivo 2.0", "error");
+      return null;
+    }
+    const body: { reportId: string; snapshot: ExecutiveReportSnapshotData } = await res.json();
+    return body.snapshot;
+  }
+
+  async function handleDownloadExecutiveV2Pdf() {
+    setGeneratingV2Pdf(true);
+    try {
+      const snapshot = await fetchExecutiveV2Snapshot();
+      if (!snapshot) return;
+      const pages = buildReportPages(snapshot);
+      openReportWindow({
+        title: `Reporte Ejecutivo — ${snapshot.meta.periodLabel}`,
+        styles: EXECUTIVE_REPORT_STYLES,
+        bodyHtml: buildExecutiveReportHtml(pages),
+        pdfFileName: `Reporte_Ejecutivo_${snapshot.meta.reportId}.pdf`,
+      });
+    } finally {
+      setGeneratingV2Pdf(false);
+    }
+  }
+
+  async function handleDownloadExecutiveV2Excel() {
+    setGeneratingV2Excel(true);
+    try {
+      const snapshot = await fetchExecutiveV2Snapshot();
+      if (!snapshot) return;
+      const pages = buildReportPages(snapshot);
+      downloadExecutiveReportExcel(pages, `Reporte_Ejecutivo_${snapshot.meta.reportId}.xlsx`);
+    } finally {
+      setGeneratingV2Excel(false);
     }
   }
 
@@ -1376,6 +1431,14 @@ export default function MonthlyReports({ currentUserRole }: Props) {
                   <Button variant="primary" size="sm" onClick={() => downloadReportPDF(fullReport)}>
                     <FileText className="w-4 h-4" strokeWidth={2} />
                     PDF consolidado
+                  </Button>
+                  <Button variant="secondary" size="sm" onClick={handleDownloadExecutiveV2Excel} disabled={generatingV2Excel}>
+                    <Download className="w-4 h-4" strokeWidth={2} />
+                    {generatingV2Excel ? "Generando…" : "Excel Ejecutivo 2.0"}
+                  </Button>
+                  <Button variant="primary" size="sm" onClick={handleDownloadExecutiveV2Pdf} disabled={generatingV2Pdf}>
+                    <Sparkles className="w-4 h-4" strokeWidth={2} />
+                    {generatingV2Pdf ? "Generando…" : "PDF Ejecutivo 2.0"}
                   </Button>
                 </div>
               </div>

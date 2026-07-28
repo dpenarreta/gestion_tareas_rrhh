@@ -1776,6 +1776,8 @@ export async function getResolvedAlertsHistory(userId: string, currentAlerts: En
 //      una recomendación (nunca se sugiere un destino incorrecto).
 
 export type TeamRecommendation = {
+  /** userId de la persona sobrecargada que origina esta recomendación — estable, no un índice. Executive Reporting Engine 2.0 lo usa para que NOVA enriquezca 1:1 sin inventar recomendaciones nuevas. */
+  id: string;
   priority: "alta" | "media";
   priorityColor: "red" | "yellow";
   text: string;
@@ -1844,6 +1846,7 @@ export async function computeTeamRecommendations(
     if (allocations.length === 0) {
       // Regla 5 — nunca una recomendación incorrecta cuando no hay candidato compatible.
       recommendations.push({
+        id: person.id,
         priority,
         priorityColor: priority === "alta" ? "red" : "yellow",
         text: `No existe actualmente un colaborador compatible para redistribuir esta carga operativa (${person.name}).`,
@@ -1873,6 +1876,7 @@ export async function computeTeamRecommendations(
     const allocationText = allocations.map((a) => `${a.name} (${a.hours}h disp.)`).join(" y ");
 
     recommendations.push({
+      id: person.id,
       priority,
       priorityColor: priority === "alta" ? "red" : "yellow",
       text: `Redistribuir ${movedTotal}h de ${person.name} entre ${allocationText}`,

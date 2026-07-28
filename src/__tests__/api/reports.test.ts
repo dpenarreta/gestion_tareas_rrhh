@@ -14,6 +14,8 @@ const taskActivityFindFirst = vi.fn();
 const activityReasonFindMany = vi.fn().mockResolvedValue([]);
 const specialStatusFindMany = vi.fn();
 const holidayFindMany = vi.fn();
+const systemConfigHistoryCount = vi.fn();
+const monthClosureFindUnique = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -27,6 +29,11 @@ vi.mock("@/lib/prisma", () => ({
     // mock de workload.ts, que solo reemplaza monthlyBusinessBase).
     specialStatus: { findMany: specialStatusFindMany },
     holiday: { findMany: holidayFindMany },
+    // Executive Reporting Engine 2.0 (Fase B) — los 3 builders llaman a
+    // analytics.computeDataQuality (systemConfigHistory) y a
+    // resolvePeriodStatus (monthClosure).
+    systemConfigHistory: { count: systemConfigHistoryCount },
+    monthClosure: { findUnique: monthClosureFindUnique },
   },
 }));
 
@@ -93,6 +100,8 @@ function resetAll() {
   activityReasonFindMany.mockReset().mockResolvedValue([]);
   specialStatusFindMany.mockReset().mockResolvedValue([]);
   holidayFindMany.mockReset().mockResolvedValue([]);
+  systemConfigHistoryCount.mockReset().mockResolvedValue(1);
+  monthClosureFindUnique.mockReset().mockResolvedValue(null);
   monthlyBusinessBase.mockReset().mockImplementation(async (year: number, month: number) => ({
     start: new Date(Date.UTC(year, month - 1, 1)),
     end: new Date(Date.UTC(year, month, 1) - 1),
@@ -176,16 +185,36 @@ describe("POST /api/reports/generate", () => {
     mockSession({ role: "COORDINADOR_NACIONAL" });
     monthlyReportUpsert.mockResolvedValue({ id: "r1", month: 6, year: 2026, scope: "COORDINADOR", data: {}, aiAnalysis: "", generator: { name: "Ana" }, createdAt: new Date(), updatedAt: new Date() });
     await generatePOST(getRequest("http://localhost/api/reports/generate?month=2026-06"));
-    expect(userFindMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { role: { notIn: ["ADMINISTRADOR", "JEFE_NACIONAL"] } } })
-    );
+    // resolveReportRoster (Fase B) intersecta explícitamente contra
+    // getVisibleRoles en vez de excluir inline — para COORDINADOR_NACIONAL
+    // el resultado es el mismo roster (todos los roles no-liderazgo), solo
+    // que expresado como "in" (allowlist) en vez de "notIn" (exclusión).
+    const call = userFindMany.mock.calls[0][0];
+    const rolesQueried: string[] = call.where.role.in;
+    expect(rolesQueried).not.toContain("ADMINISTRADOR");
+    expect(rolesQueried).not.toContain("JEFE_NACIONAL");
+    expect(rolesQueried).toContain("COORDINADOR_NACIONAL");
+    expect(rolesQueried).toContain("ASISTENTE_GH");
   });
 
   it("genera y guarda (upsert) el informe consolidado, marcando alertas de bajo cumplimiento", async () => {
     mockSession({ role: "JEFE_NACIONAL", userId: "u1" });
     userFindMany.mockResolvedValue([{ id: "sub1", name: "Ana", role: "ASISTENTE_GH" }]);
     taskFindMany.mockResolvedValue([
-      { assignedToId: "sub1", createdById: "sub1", status: "PENDIENTE", endDate: new Date("2026-06-05"), progress: 0, type: "FIJA", frequency: "PUNTUAL", estimatedHours: 4, realHours: 0 },
+      {
+        assignedToId: "sub1",
+        createdById: "sub1",
+        status: "PENDIENTE",
+        startDate: new Date("2026-06-01"),
+        endDate: new Date("2026-06-05"),
+        progress: 0,
+        type: "FIJA",
+        frequency: "PUNTUAL",
+        estimatedHours: 4,
+        realHours: 0,
+        targetTimeValidated: null,
+        activities: [],
+      },
     ]);
     monthlyReportUpsert.mockImplementation(async ({ create }: { create: Record<string, unknown> }) => ({
       id: "r1", month: 6, year: 2026, scope: "JEFE", data: create.data, aiAnalysis: "",
