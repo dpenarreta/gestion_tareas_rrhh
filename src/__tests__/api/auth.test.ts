@@ -4,9 +4,15 @@ import type { SessionPayload } from "@/lib/session";
 
 const findUnique = vi.fn();
 const userUpdate = vi.fn();
+const systemConfigHistoryFindFirst = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
-  prisma: { user: { findUnique, update: userUpdate } },
+  prisma: {
+    user: { findUnique, update: userUpdate },
+    // getEffectivePasswordMinLength (Sprint O) consulta esto — sin registro
+    // guardado, cae al default (DEFAULT_PASSWORD_MIN_LENGTH = 6).
+    systemConfigHistory: { findFirst: systemConfigHistoryFindFirst },
+  },
 }));
 
 const getSession = vi.fn();
@@ -74,6 +80,7 @@ function resetAll() {
   clearAttempts.mockReset().mockResolvedValue(undefined);
   getBlockedMinutesRemaining.mockReset();
   cleanupExpiredLoginAttempts.mockReset().mockResolvedValue(0);
+  systemConfigHistoryFindFirst.mockReset().mockResolvedValue(null);
 }
 
 describe("POST /api/auth/login", () => {

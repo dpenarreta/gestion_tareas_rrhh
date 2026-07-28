@@ -5,9 +5,8 @@ import { isTaskOverdue } from "@/lib/utils";
 import { weekBounds, monthBounds } from "@/lib/dateRanges";
 import { computeCargaTiempo } from "@/lib/workload";
 import { isLeadershipRole } from "@/lib/roles";
+import { getEffectiveNovaCacheTtlMinutes } from "@/lib/systemConfig";
 import Groq from "groq-sdk";
-
-const CACHE_TTL_MS = 4 * 60 * 60 * 1000;
 
 const cache = new Map<string, { message: string; expiresAt: number; generatedAt: number }>();
 
@@ -55,6 +54,7 @@ export async function POST() {
   if (cached && cached.expiresAt > Date.now()) {
     return NextResponse.json({ message: cached.message, cached: true });
   }
+  const cacheTtlMs = (await getEffectiveNovaCacheTtlMinutes()) * 60 * 1000;
 
   const now = new Date();
   const { end: weekEnd } = weekBounds(now);
@@ -88,7 +88,7 @@ export async function POST() {
   const fallback = buildFallback(ctx);
 
   if (!process.env.GROQ_API_KEY) {
-    cache.set(session.userId, { message: fallback, expiresAt: Date.now() + CACHE_TTL_MS, generatedAt: Date.now() });
+    cache.set(session.userId, { message: fallback, expiresAt: Date.now() + cacheTtlMs, generatedAt: Date.now() });
     return NextResponse.json({ message: fallback, cached: false });
   }
 
@@ -120,10 +120,10 @@ export async function POST() {
 
     const message = completion.choices[0]?.message?.content?.trim() || fallback;
 
-    cache.set(session.userId, { message, expiresAt: Date.now() + CACHE_TTL_MS, generatedAt: Date.now() });
+    cache.set(session.userId, { message, expiresAt: Date.now() + cacheTtlMs, generatedAt: Date.now() });
     return NextResponse.json({ message, cached: false });
   } catch {
-    cache.set(session.userId, { message: fallback, expiresAt: Date.now() + CACHE_TTL_MS, generatedAt: Date.now() });
+    cache.set(session.userId, { message: fallback, expiresAt: Date.now() + cacheTtlMs, generatedAt: Date.now() });
     return NextResponse.json({ message: fallback, cached: false });
   }
 }

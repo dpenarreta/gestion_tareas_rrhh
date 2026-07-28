@@ -3,20 +3,11 @@ import { prisma } from "@/lib/prisma";
 import { businessCalendarDay, businessDayRealRange, BUSINESS_TZ_OFFSET_HOURS } from "@/lib/businessTime";
 import { getHolidaySet } from "@/lib/holidays";
 import { leaveHoursForDay, type DayLeaveInfo } from "@/lib/leaves";
-import { getEffectiveHorasEfectivas } from "@/lib/systemConfig";
+import { getEffectiveHorasEfectivas, getEffectiveWorkdayEndHour } from "@/lib/systemConfig";
 import { getTeamSpecialStatusDayMap, type SpecialStatusDayMap } from "@/lib/specialStatus";
 import { isWorkingDay, countBusinessDays, sumWeightedBaseHours } from "@/lib/workload";
 import { getOfficialTargetTime } from "@/lib/targetTime";
 
-/**
- * Hora local (huso de negocio, UTC-5) a la que se asume terminada la jornada
- * laboral del día — no hay un campo de "hora de fin de jornada" configurable
- * en el sistema (solo horas efectivas totales por día), así que se usa un
- * corte fijo típico de oficina en Ecuador. Antes de esta hora, "hoy" cuenta
- * como parcial (horas restantes = efectivas - ya trabajadas); después, la
- * proyección arranca desde el siguiente día laborable.
- */
-const WORKDAY_END_HOUR_LOCAL = 17;
 
 export type CapacityEstado = "alta" | "limitada" | "no-asignar" | "sobrecarga" | "sin-planificacion";
 
@@ -126,11 +117,14 @@ export async function computeTeamCapacityForecast(
   const tomorrow = addDays(today, 1);
 
   const localHour = new Date(now.getTime() - BUSINESS_TZ_OFFSET_HOURS * 3600000).getUTCHours();
-  const workdayEnded = localHour >= WORKDAY_END_HOUR_LOCAL;
 
-  const [hoursPerDay, holidays, holidaysThisYearCount, leaveRecords, specialMapByUser, openTasks, realHoursRecords] =
+  const [hoursPerDay, workdayEndHour, holidays, holidaysThisYearCount, leaveRecords, specialMapByUser, openTasks, realHoursRecords] =
     await Promise.all([
       getEffectiveHorasEfectivas(now),
+      // Hora local (huso de negocio) a la que se asume terminada la jornada — antes de
+      // esta hora "hoy" cuenta como parcial, después la proyección arranca desde el
+      // siguiente día laborable. Configurable desde Sprint O (antes: literal 17 fijo).
+      getEffectiveWorkdayEndHour(now),
       getHolidaySet(),
       prisma.holiday.count({ where: { year: today.getUTCFullYear() } }),
       prisma.leaveRecord.findMany({
@@ -176,6 +170,7 @@ export async function computeTeamCapacityForecast(
       })(),
     ]);
 
+  const workdayEnded = localHour >= workdayEndHour;
   const leaveMapByUser = buildLeaveMaps(leaveRecords);
   const holidaysConfigured = holidaysThisYearCount > 0;
 

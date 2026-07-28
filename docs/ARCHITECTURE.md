@@ -97,7 +97,7 @@ src/
     desk/                         # DeskBoard (Escritorio Digital: notas, recordatorios,
                                    #   calendario, búsqueda, Bandeja Hoy)
     ui/                           # Badge, Button, Card, Modal, TimeInput24 — primitivas compartidas
-    ConsentGate.tsx, NotificationBell.tsx, SettingsManager.tsx, ThemeProvider.tsx, ThemeToggle.tsx,
+    ConsentGate.tsx, NotificationBell.tsx, ThemeProvider.tsx, ThemeToggle.tsx,
     UsersManager.tsx              # componentes de nivel superior sin carpeta propia
   lib/
     prisma.ts                     # singleton PrismaClient con adapter pg
@@ -408,22 +408,58 @@ El esquema completo vive en `prisma/schema.prisma`. Agrupado por dominio:
   JSON de Analytics ya calculado (con caché de 4h) — nunca invoca lógica de negocio
   propia, garantía verificada y documentada en `ANALYTICS_CALCULATION_REGISTRY.md`.
 
-### Ajustes / Settings
-- **Ruta**: `settings/` (visibilidad no uniforme — ver riesgo residual documentado en
-  memoria del proyecto: `/settings` aún sin acceso para JEFE_NACIONAL a la fecha).
-  **API**: los 14 endpoints bajo `src/app/api/settings/*` (activity-reasons,
-  analytics-config, holidays, kpi-start-date, leave-records, login-attempts,
-  normalization-curves, notification-rules, retention-policy, role-targets,
-  special-status, system-info, welcome-message, workload-config).
-- **Componentes**: `src/components/settings/*` — una `SectionCard.tsx` (acordeón) por
-  bloque: `ActivityReasonsSection`, `AnalyticsConfigSection`, `EngineDiagnosticsSection`,
-  `HolidaysSection`, `KpiStartDateSection`, `LeaveRecordsSection`,
-  `NormalizationCurvesSection`, `NotificationRulesSection`, `RoleTargetsSection`,
-  `SpecialStatusSection`, `WelcomeMessageSection`. `SettingsManager.tsx` (en la raíz de
-  `components/`) es el contenedor de nivel superior.
+### Ajustes / Settings — Centro de Configuración NEXO (Sprint O, 2026-07-28)
+- **Ruta**: `settings/` — Administrador-only de forma consistente (route gate, gate
+  interno del componente y link de navegación coinciden; antes `page.tsx` también
+  dejaba pasar a Coordinador Nacional pero el contenido quedaba oculto igual, ver
+  `docs/AUDIT_LOG.md` § 2026-07-28).
+- **Shell**: `ConfigCenter.tsx` (reemplaza al extinto `SettingsManager.tsx`) organiza
+  las secciones por categoría (Organización/Analytics/Trabajo/Proyectos/Escritorio
+  Digital/Reportes/NOVA/Seguridad/Notificaciones/Parámetros Globales/Sistema) vía un
+  registro de metadatos puro (`src/components/settings/registry.ts` — id/label/
+  keywords/categoría/configKeys/defaults, SIN referencias a componentes, esas se
+  colocan directamente en el JSX de `ConfigCenter.tsx`). Capas transversales sobre
+  ese registro: búsqueda global (`SearchBox.tsx`/`searchSettings()`), favoritos
+  (`FavoritesSection.tsx`, reutiliza `User.viewPreferences` con prefijo
+  `CONFIG_FAVORITE:`, mismo patrón que el orden de tarjetas del Dashboard), historial
+  navegable (`history/SettingHistoryModal.tsx`, lee `SystemConfigHistory`
+  directamente) y restaurar-a-predeterminado (`history/RestoreDefaultButton.tsx`).
+  `ConfigSectionCard.tsx` envuelve cada sección existente con esa cromática sin tocar
+  su interior (cada sección sigue renderizando su propio `SectionCard.tsx`).
+- **API**: 23 endpoints bajo `src/app/api/settings/*` — los 14 preexistentes
+  (activity-reasons, analytics-config, holidays, kpi-start-date, leave-records,
+  login-attempts, normalization-curves, notification-rules, retention-policy,
+  role-targets, system-info, welcome-message, workload-config, documentation) más 9
+  nuevos del Sprint O: `config-history` (+`restore-default`), `favorites`,
+  `retroactive-window`, `snooze-presets` (alcanzables por cualquier usuario
+  autenticado, no solo Administrador — los consumen componentes cliente fuera de
+  `/settings`), `trabajo-avanzado`, `escritorio-digital-config`, `nova-cache`,
+  `seguridad-config`.
+- **Componentes**: `src/components/settings/*` — las secciones preexistentes sin
+  cambios internos (`ActivityReasonsSection`, `AnalyticsConfigSection`,
+  `EngineDiagnosticsSection`, `HolidaysSection`, `KpiStartDateSection`,
+  `LeaveRecordsSection`, `NormalizationCurvesSection`, `NotificationRulesSection`,
+  `RoleTargetsSection`, `RoleCompatibilitySection`, `SpecialStatusSection`,
+  `WelcomeMessageSection`, `DataQualitySection`, `DocumentationSection`) más las 6
+  extraídas 1:1 desde el extinto `SettingsManager.tsx` (`DataConsentSection`,
+  `PasswordManagementSection`, `SystemInfoSection`, `WorkloadConfigSection`,
+  `DataRequestsSection`, `RetentionPolicySection`, `KnowledgeBaseSection`) y 4
+  nuevas agrupadas por categoría (`TrabajoAvanzadoSection`,
+  `EscritorioDigitalConfigSection`, `NovaCacheSection`, `SeguridadConfigSection`).
+- **9 valores nuevos configurables** (mismo patrón `CONFIG_KEY_*`/`getEffective*`/
+  `set*` de `systemConfig.ts`, default = comportamiento anterior exacto): ventana de
+  registro retroactivo, hora de corte de jornada de Capacidad Proyectada, retención
+  de archivado/tope de respuestas/presets de posposición de Escritorio Digital, TTL
+  de caché de NOVA, longitud mínima de contraseña, duración de sesión (default/
+  recordarme), retención de intentos de login.
+- **Deliberadamente fuera de alcance** (ver `docs/ROADMAP.md`): SLA/riesgo de
+  Proyectos, plantillas/programación de Reportes, permisos especiales de Seguridad,
+  enums de Trabajo (prioridad/estado/tipo/días laborables) como listas editables,
+  idioma/moneda en Parámetros Globales — cada uno con tarjeta "Próximamente" en la UI.
 - Todo cambio de configuración se persiste en `SystemConfigHistory` (§3), nunca
   sobrescribe el valor anterior — permite reconstruir "qué configuración estaba vigente"
-  para cualquier fecha pasada.
+  para cualquier fecha pasada, y desde este sprint también se puede consultar ese
+  historial y restaurar el valor por defecto directamente desde la UI.
 
 ### Cumplimiento / LOPDP
 - **API**: `src/app/api/data-requests/*` (solicitudes de acceso/rectificación/

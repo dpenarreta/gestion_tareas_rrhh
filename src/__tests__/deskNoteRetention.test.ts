@@ -2,9 +2,15 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 
 const deskNoteFindMany = vi.fn();
 const deskNoteDelete = vi.fn();
+const systemConfigHistoryFindFirst = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
-  prisma: { deskNote: { findMany: deskNoteFindMany, delete: deskNoteDelete } },
+  prisma: {
+    deskNote: { findMany: deskNoteFindMany, delete: deskNoteDelete },
+    // getEffectiveDeskArchiveRetentionDays (Sprint O) consulta esto — sin registro
+    // guardado, cae al default (ver DEFAULT_DESK_ARCHIVE_RETENTION_DAYS).
+    systemConfigHistory: { findFirst: systemConfigHistoryFindFirst },
+  },
 }));
 
 const logDeskAudit = vi.fn();
@@ -16,6 +22,7 @@ beforeEach(() => {
   deskNoteFindMany.mockReset();
   deskNoteDelete.mockReset();
   logDeskAudit.mockReset();
+  systemConfigHistoryFindFirst.mockReset().mockResolvedValue(null);
 });
 
 describe("purgeExpiredArchivedNotes", () => {

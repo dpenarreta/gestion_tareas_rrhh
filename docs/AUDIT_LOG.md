@@ -15,6 +15,59 @@
 
 ---
 
+## 2026-07-28 — Sprint O: Centro de Configuración NEXO
+
+**Problema:** el pedido original pedía un módulo único que centralizara TODA la configuración de la plataforma en 10 categorías (Organización, Analytics, Trabajo, Proyectos, Escritorio Digital, Reportes, NOVA, Seguridad, Notificaciones, Parámetros Globales), con historial, restauración, búsqueda, favoritos y vista previa de impacto.
+
+**Exploración previa a cualquier código (Fase 1 del skill de planificación):** se auditó qué de esto ya existía antes de diseñar nada nuevo. Hallazgos clave:
+1. `src/lib/systemConfig.ts` ya era un almacén genérico clave/valor (`SystemConfigHistory`, con `validFrom`/`validUntil`/`updatedBy`) reutilizado por ~10 dominios (Analytics, curvas, objetivos de cargo, compatibilidad operativa, carga laboral, retenciones, mensaje de bienvenida, ventana predictiva) — ya daba auditoría completa gratis, solo sin UI para verla.
+2. `/settings` (`SettingsManager.tsx`) ya agrupaba ~21 secciones en un acordeón — el pedido de "centralizar" en gran parte ya estaba centralizado, solo disperso visualmente y sin capas transversales (búsqueda/favoritos/historial navegable/restaurar).
+3. Varias categorías del pedido NO existen como funcionalidad real: plantillas/logo/firmas/programación automática de Reportes (sin scheduler ni infraestructura de email en todo el repo), SLA/nivel de riesgo de Proyectos (no existe el campo), permisos especiales por usuario en Seguridad (toda la autorización es por `Role`, sin excepciones individuales), e idioma/moneda en Parámetros Globales (app 100% español hardcodeado, sin librería i18n, sin concepto de moneda en un sistema de RRHH). El propio pedido nombraba "Sprint K" y "Sprint F" para Proyectos/Reportes, confirmando que ya se sabía que eran sprints aparte.
+
+Dado el tamaño real (semanas de trabajo si se construyera todo, incluyendo subsistemas nuevos que ninguna restricción del pedido pedía realmente construir — "no modificar la seguridad existente" explícitamente contradice construir permisos especiales), se presentó un plan por fases al usuario con 3 preguntas de alcance antes de escribir código.
+
+### Decisión 1 — "Shell ahora, greenfield después" (confirmado por el usuario, opción recomendada)
+
+**Alternativas presentadas:** (a) shell completo + centralizar lo existente + agregar solo los valores hardcodeados de bajo riesgo, marcando lo demás "Próximamente"; (b) construir todo, incluyendo los subsistemas nuevos; (c) solo el shell, sin ningún valor nuevo.
+
+**Decisión:** (a). Se construyó el Centro de Configuración completo (categorías/búsqueda/favoritos/historial/restaurar) + se migraron las ~21+6 secciones existentes + se agregaron los 9 valores de bajo riesgo identificados en la exploración. Proyectos-SLA, Reportes-plantillas/programación y Seguridad-permisos-especiales quedaron como tarjetas "Próximamente" con entrada en `docs/ROADMAP.md`, en vez de UI editable sin ningún efecto real (configuración muerta).
+
+### Decisión 2 — Idioma/moneda fuera de Parámetros Globales (confirmado por el usuario)
+
+**Decisión:** solo se expone lo que ya tiene un consumidor real y bajo riesgo de exponer (nada, en este caso — ver Decisión 4). Idioma y moneda no se agregaron ni como campos "para el futuro", porque no hay ninguna pantalla que fuera a leerlos — habría sido, en palabras del usuario, "trabajo muerto".
+
+### Decisión 3 — Enums de Trabajo (prioridad/estado/tipo de tarea, días laborables) fuera de alcance (confirmado por el usuario)
+
+**Decisión:** se descartó migrar `TaskPriority`/`TaskStatus`/`TaskType` (enums de Prisma) y `isBusinessDay` (constante síncrona usada en decenas de sitios del motor de carga laboral/Analytics) a listas editables — el primero exige migración de esquema + tocar cada switch/chip/filtro/fórmula que depende de esos valores literales; el segundo exige un cambio de arquitectura sync→async en todo el núcleo de Analytics. Solo los MAPAS DE COLOR ya son técnicamente de bajo riesgo (`chipConfig.ts`), pero no se tocaron tampoco en este sprint por no haber sido parte de lo confirmado.
+
+### Decisión 4 — Parámetros Globales queda de solo lectura, no editable
+
+**Hallazgo durante la implementación (no una pregunta separada, una consecuencia directa de la Decisión 3):** zona horaria de negocio (`BUSINESS_TZ_OFFSET_HOURS`) y primer día de semana (`utcWeekStart` en `workload.ts`) se consultaron y resultaron tener EXACTAMENTE el mismo perfil de riesgo que "días laborables" — consumidas de forma síncrona en `analytics.ts`/`trendEngine.ts`/`workload.ts`/`insightsEngine.ts`/`capacityForecast.ts`. Por consistencia con la Decisión 3 (ya rechazada por el usuario para el mismo tipo de riesgo), `GlobalParamsSection.tsx` se implementó como solo-lectura (muestra los 3 valores fijos como hechos informativos), no como formulario editable — evita fabricar un control que aparentaría funcionar pero compartiría el mismo riesgo arquitectónico ya diferido.
+
+### Decisión 5 — Fix del role-gate de `/settings`: corregir `page.tsx`, no ampliar `SettingsManager`
+
+**Hallazgo:** `page.tsx` permitía `ADMINISTRADOR` y `COORDINADOR_NACIONAL` en el gate de ruta, pero `SettingsManager.tsx:141` (`isAdmin = role === "ADMINISTRADOR"`) escondía absolutamente todo el contenido detrás de un gate más estricto — Coordinador Nacional veía una página vacía. El link de navegación (`navLinks.ts:65`) también era Administrador-only.
+
+**Decisión:** 2 de 3 fuentes ya coincidían en Administrador-only — se corrigió la tercera (`page.tsx`) a ese mismo criterio, en vez de ampliar las otras dos para dar a Coordinador Nacional un acceso que nunca tuvo realmente (el contenido siempre estuvo oculto para ese rol en la práctica).
+
+### Decisión 6 — Vista previa de impacto: reutilizar el flujo existente, no construir un componente nuevo genérico
+
+**Decisión:** el único flujo hoy genuinamente destructivo (purga de retención, `RetentionPolicySection.tsx`) ya tenía un patrón preview→confirm→ejecutar (`GET` cuenta candidatos, dos `confirm()`, `POST {confirm:true}` ejecuta) — se conservó tal cual en la extracción, sin envolverlo en un componente `ImpactPreviewDialog` genérico nuevo. El campo `isHighImpact` sí se anotó en `registry.ts` para los settings que afectan cálculos ya en producción (pesos de Analytics, curvas, carga laboral, política de contraseña/sesión), mostrando una insignia visual, sin retrofit del diálogo de confirmación dentro de los `PUT` handlers de esas ~21 secciones existentes — hacerlo habría exigido tocar los internals de cada sección, contradiciendo el alcance de "reorganizar sin romper lógica de negocio".
+
+### Decisión 7 — Los 9 valores nuevos, uno por uno: mismo patrón exacto ya usado 10 veces
+
+Cada uno (`CONFIG_KEY_*`/`DEFAULT_*`/`getEffective*`/`set*`) sigue el ejemplo más limpio ya presente en `systemConfig.ts` (`CONFIG_KEY_RECOVERY_RETENTION_HOURS`/`getEffectiveRecoveryRetentionHours`/`setRecoveryRetentionHours`), sin inventar un mecanismo nuevo. Casos que requirieron una decisión puntual:
+- **Ventana de registro retroactivo y presets de posposición**, consumidos por componentes CLIENTE (`RetroactiveActivityModal.tsx`, `ProjectActivitiesTab.tsx`, `ReminderCard.tsx`) que no pueden importar `systemConfig.ts` (`"server-only"`) — se agregaron 2 endpoints `GET` alcanzables por CUALQUIER usuario autenticado (no solo Administrador), ya que Seguimiento/Proyectos/Escritorio Digital los usa cualquier rol.
+- **Longitud mínima de contraseña** en `profile/page.tsx`: el chequeo duplicado del lado cliente se ELIMINÓ (no se reemplazó por un fetch a un endpoint nuevo) — el servidor ya revalida y ya muestra el error vía `showToast`, así que exponer un endpoint público solo para ese pre-chequeo habría sido plumbing sin beneficio real.
+- **Retención de intentos de login**: `expiredAttemptsWhere()` (antes síncrona) se mantuvo síncrona, recibiendo `maxAgeMs` ya calculado por cada caller (`countExpiredLoginAttempts`/`cleanupExpiredLoginAttempts`), en vez de volverla `async` — evita empujar la resolución de config más profundo de lo necesario.
+- **TTL de caché de NOVA**: se creó un par dedicado (`nova_cache_ttl_minutes`) en vez de sumarlo a `ANALYTICS_CONFIG_DEFAULTS` — NOVA no es el motor de Analytics, aunque el patrón (`cacheTtlMinutes`) sea el mismo.
+
+**Verificación:** `npx tsc --noEmit` (2 errores preexistentes no relacionados, confirmados por `git diff --stat`), `npm run lint` (0 errores tras corregir 2 hallazgos propios: comillas sin escapar en JSX, `setState` síncrono dentro de un efecto — ambos con el mismo patrón `queueMicrotask` ya usado en el resto del código base), `npx vitest run` (suite completa, incluye tests nuevos para los 10 getters/setters de `systemConfig.ts`, `configFavorites.ts`, el registro de búsqueda y las 9 rutas API nuevas — más los ajustes de mocks de Prisma en 4 archivos de test existentes que ahora ejercitan `systemConfigHistory` indirectamente).
+
+**Aprobado por:** Anthony Jácome (pedido de alcance muy amplio; se presentó un plan por fases con 3 preguntas de alcance explícitas antes de implementar, todas respondidas con la opción recomendada).
+
+---
+
 ## 2026-07-28 — Fix: indicador "Carga Laboral" con fuente de datos distinta al resto de Analytics
 
 **Problema (reportado por el usuario):** en la misma pantalla de Analytics/KPIs, WorkloadCard mostraba "135.49h reales, rango óptimo 140-165h, Moderado" (validado, correcto) mientras el indicador "Carga Laboral" (SummaryCard + Donut + exportables) mostraba "113.28h reales, 206.18h base, 55%" para el mismo colaborador y el mismo mes — dos números incompatibles del mismo concepto.

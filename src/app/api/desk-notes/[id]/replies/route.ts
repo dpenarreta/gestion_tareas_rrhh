@@ -3,10 +3,10 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canUseDeskNotes } from "@/lib/roles";
 import { logDeskAudit } from "@/lib/deskAudit";
+import { getEffectiveDeskNoteMaxReplies } from "@/lib/systemConfig";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-const MAX_REPLIES = 2;
 const MAX_MESSAGE_LENGTH = 500;
 
 const replySelect = {
@@ -74,7 +74,8 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   if (otherPartyId === null) {
     return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
   }
-  if (note._count.replies >= MAX_REPLIES) {
+  const maxReplies = await getEffectiveDeskNoteMaxReplies();
+  if (note._count.replies >= maxReplies) {
     return NextResponse.json({ error: "Esta conversación alcanzó el límite permitido." }, { status: 409 });
   }
 

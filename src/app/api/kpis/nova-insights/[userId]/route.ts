@@ -14,9 +14,8 @@ import {
   computePrediction,
   computeDataQuality,
 } from "@/lib/analytics";
+import { getEffectiveNovaCacheTtlMinutes } from "@/lib/systemConfig";
 import type { Role } from "@/generated/prisma/client";
-
-const CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 horas — caché de la GENERACIÓN de Groq (más larga que la caché de cálculo de analytics.ts: es una llamada a IA, no una consulta a BD).
 
 type Mode = "full" | "insights-only" | "motivational";
 type Sensitivity = "full" | "restricted";
@@ -235,7 +234,8 @@ async function generateAnalytical(userId: string, sensitivity: Sensitivity, canS
     if (recomendaciones.length === 0) recomendaciones = fb.recomendaciones;
   }
 
-  return { hallazgoPrincipal, riesgos, aspectosPositivos, recomendaciones, generatedAt: Date.now(), expiresAt: Date.now() + CACHE_TTL_MS };
+  const cacheTtlMs = (await getEffectiveNovaCacheTtlMinutes()) * 60 * 1000;
+  return { hallazgoPrincipal, riesgos, aspectosPositivos, recomendaciones, generatedAt: Date.now(), expiresAt: Date.now() + cacheTtlMs };
 }
 
 async function generateMotivational(userId: string): Promise<MotivationalCacheEntry> {
@@ -275,7 +275,8 @@ async function generateMotivational(userId: string): Promise<MotivationalCacheEn
     messages = fallbackMotivational({ completedPct, totalTasks: 1 });
   }
 
-  return { messages, generatedAt: Date.now(), expiresAt: Date.now() + CACHE_TTL_MS };
+  const cacheTtlMs = (await getEffectiveNovaCacheTtlMinutes()) * 60 * 1000;
+  return { messages, generatedAt: Date.now(), expiresAt: Date.now() + cacheTtlMs };
 }
 
 type Ctx = { params: Promise<{ userId: string }> };

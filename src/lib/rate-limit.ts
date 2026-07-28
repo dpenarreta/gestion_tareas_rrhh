@@ -1,5 +1,6 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
+import { getEffectiveRetentionLoginAttempts } from "@/lib/systemConfig";
 
 const WINDOW_MS = 15 * 60 * 1000;
 const MAX_ATTEMPTS = 5;
@@ -51,26 +52,34 @@ export async function clearAttempts(ip: string): Promise<void> {
   await prisma.loginAttempt.deleteMany({ where: { ip } });
 }
 
-const CLEANUP_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
-
 // Registros ya no bloqueantes (sin blockedUntil o con blockedUntil vencido)
-// y con más de 30 días desde el último intento: ya no aportan nada al rate
-// limiting y se pueden purgar con seguridad.
-function expiredAttemptsWhere(now: Date) {
+// y con más antigüedad que la retención configurada (Sprint O — antes: literal
+// 30 días fijo, ver DEFAULT_RETENTION_LOGIN_ATTEMPTS en systemConfig.ts) desde
+// el último intento: ya no aportan nada al rate limiting y se pueden purgar
+// con seguridad. `maxAgeMs` se calcula una sola vez por cada caller (evita
+// hacer async este helper síncrono).
+function expiredAttemptsWhere(now: Date, maxAgeMs: number) {
   return {
     OR: [{ blockedUntil: null }, { blockedUntil: { lt: now } }],
-    lastAttemptAt: { lt: new Date(now.getTime() - CLEANUP_MAX_AGE_MS) },
+    lastAttemptAt: { lt: new Date(now.getTime() - maxAgeMs) },
   };
+}
+
+async function retentionMaxAgeMs(): Promise<number> {
+  const days = parseInt(await getEffectiveRetentionLoginAttempts(), 10);
+  return days * 24 * 60 * 60 * 1000;
 }
 
 /** Cuenta los registros de LoginAttempt elegibles para limpieza, sin borrar nada. */
 export async function countExpiredLoginAttempts(): Promise<number> {
-  return prisma.loginAttempt.count({ where: expiredAttemptsWhere(new Date()) });
+  const maxAgeMs = await retentionMaxAgeMs();
+  return prisma.loginAttempt.count({ where: expiredAttemptsWhere(new Date(), maxAgeMs) });
 }
 
-/** Elimina los registros de LoginAttempt expirados (no bloqueantes y con más de 30 días de antigüedad). */
+/** Elimina los registros de LoginAttempt expirados (no bloqueantes y más antiguos que la retención configurada). */
 export async function cleanupExpiredLoginAttempts(): Promise<number> {
-  const result = await prisma.loginAttempt.deleteMany({ where: expiredAttemptsWhere(new Date()) });
+  const maxAgeMs = await retentionMaxAgeMs();
+  const result = await prisma.loginAttempt.deleteMany({ where: expiredAttemptsWhere(new Date(), maxAgeMs) });
   return result.count;
 }
 

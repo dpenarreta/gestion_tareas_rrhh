@@ -314,10 +314,8 @@ export default function ProfilePage() {
       setPwError("Las contraseñas nuevas no coinciden");
       return;
     }
-    if (newPassword.length < 6) {
-      setPwError("La contraseña debe tener al menos 6 caracteres");
-      return;
-    }
+    // La longitud mínima es configurable (Sprint O, ver systemConfig.ts) — el
+    // servidor ya valida y devuelve el mensaje exacto, mostrado vía showToast abajo.
 
     setPwLoading(true);
     try {

@@ -16,12 +16,17 @@ import ReopenReminderModal from "./ReopenReminderModal";
 import DeskHistoryModal from "./DeskHistoryModal";
 import ConvertReminderToTaskModal from "./ConvertReminderToTaskModal";
 
-const SNOOZE_OPTIONS = [
-  { label: "15 minutos", ms: 15 * 60 * 1000 },
-  { label: "30 minutos", ms: 30 * 60 * 1000 },
-  { label: "1 hora", ms: 60 * 60 * 1000 },
-  { label: "Mañana, misma hora", ms: 24 * 60 * 60 * 1000 },
-];
+/** Default = DEFAULT_SNOOZE_PRESETS_MINUTES en systemConfig.ts (no importable aquí: es "server-only"). */
+const DEFAULT_SNOOZE_MINUTES = [15, 30, 60, 1440];
+
+/** Etiqueta legible para un preset arbitrario de minutos (admite valores configurados, no solo los 4 por defecto). */
+function formatSnoozeLabel(minutes: number): string {
+  if (minutes === 1440) return "Mañana, misma hora";
+  if (minutes < 60) return `${minutes} minutos`;
+  if (minutes % 1440 === 0) return `${minutes / 1440} días`;
+  if (minutes % 60 === 0) return minutes === 60 ? "1 hora" : `${minutes / 60} horas`;
+  return `${minutes} minutos`;
+}
 
 function timestampAfter(ms: number): string {
   return new Date(Date.now() + ms).toISOString();
@@ -36,9 +41,22 @@ type Props = {
   onEdit: (reminder: PersonalReminder) => void;
   onDelete: (id: string) => void;
   onConvertedToTask?: (id: string, taskId: string) => void;
+  /** Presets de posposición en minutos — el padre que lista los recordatorios los obtiene una sola vez (ver /api/settings/snooze-presets). */
+  snoozePresetsMinutes?: number[];
 };
 
-export default function ReminderCard({ reminder, onComplete, onPostpone, onReopen, onArchive, onEdit, onDelete, onConvertedToTask }: Props) {
+export default function ReminderCard({
+  reminder,
+  onComplete,
+  onPostpone,
+  onReopen,
+  onArchive,
+  onEdit,
+  onDelete,
+  onConvertedToTask,
+  snoozePresetsMinutes = DEFAULT_SNOOZE_MINUTES,
+}: Props) {
+  const SNOOZE_OPTIONS = snoozePresetsMinutes.map((m) => ({ label: formatSnoozeLabel(m), ms: m * 60 * 1000 }));
   const [showSnooze, setShowSnooze] = useState(false);
   const [customDate, setCustomDate] = useState("");
   const [showReopen, setShowReopen] = useState(false);

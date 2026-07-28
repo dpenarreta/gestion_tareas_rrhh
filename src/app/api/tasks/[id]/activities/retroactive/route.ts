@@ -4,6 +4,7 @@ import { getSession } from "@/lib/session";
 import { canAccessTask } from "@/lib/taskAccess";
 import { formatDate } from "@/lib/utils";
 import { businessCalendarDay, businessDayRealRange, retroactiveValidDates, parseDateOnly } from "@/lib/businessTime";
+import { getEffectiveRetroactiveWindowDays } from "@/lib/systemConfig";
 import { getNotificationRules } from "@/lib/notificationRules";
 import { findOverlappingActivity, overlapMessage } from "@/lib/activityOverlap";
 import { timeToMinutes } from "@/lib/timeOverlap";
@@ -87,14 +88,15 @@ export async function POST(request: NextRequest, ctx: Ctx) {
       return NextResponse.json({ error: "Fecha inválida" }, { status: 400 });
     }
 
+    const windowDays = await getEffectiveRetroactiveWindowDays();
     const today = businessCalendarDay(new Date());
-    const validDates = retroactiveValidDates(today, 2);
+    const validDates = retroactiveValidDates(today, windowDays);
     const isValidDate = validDates.some((d) => d.getTime() === parsedDate.getTime());
     if (!isValidDate) {
       return NextResponse.json(
         {
           error:
-            "La fecha debe ser uno de los últimos 2 días laborables (no incluye hoy), o el sábado/domingo inmediato anterior si aún está disponible",
+            `La fecha debe ser uno de los últimos ${windowDays} días laborables (no incluye hoy), o el sábado/domingo inmediato anterior si aún está disponible`,
         },
         { status: 400 }
       );

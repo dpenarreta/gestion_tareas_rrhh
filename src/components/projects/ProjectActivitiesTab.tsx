@@ -5,6 +5,7 @@ import type { Role } from "@/generated/prisma/client";
 import type { ProjectActivity, ProjectPhase } from "./types";
 import { DOCUMENT_CATEGORY_LABEL } from "./types";
 import { businessCalendarDay, retroactiveValidDates } from "@/lib/businessTime";
+import { fetchRetroactiveWindowDays } from "@/lib/retroactiveWindow";
 import { useToast } from "@/components/ui/Toast";
 import { formatDuration } from "@/lib/utils";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -65,7 +66,13 @@ type Props = {
 export default function ProjectActivitiesTab({ projectId, phases, targetTimeHours, currentUserId, canRegister }: Props) {
   const { showToast } = useToast();
   const today = useMemo(() => businessCalendarDay(new Date()), []);
-  const validDates = useMemo(() => [today, ...retroactiveValidDates(today, 2)], [today]);
+  // 2 = valor por defecto (ver DEFAULT_RETROACTIVE_WINDOW_DAYS en systemConfig.ts); se
+  // recalcula cuando fetchRetroactiveWindowDays() resuelve el valor configurado.
+  const [windowDays, setWindowDays] = useState(2);
+  useEffect(() => {
+    fetchRetroactiveWindowDays().then(setWindowDays);
+  }, []);
+  const validDates = useMemo(() => [today, ...retroactiveValidDates(today, windowDays)], [today, windowDays]);
 
   const [activities, setActivities] = useState<ProjectActivity[]>([]);
   const [loading, setLoading] = useState(true);

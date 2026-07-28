@@ -6,6 +6,7 @@ import type { Task } from "./types";
 import type { ActivityFormat } from "@/lib/activityFormat";
 import { fetchActivityReasons, selectableReasons, formatDuration, type ActivityReasonConfig } from "./activityReasons";
 import { businessCalendarDay, retroactiveValidDates } from "@/lib/businessTime";
+import { fetchRetroactiveWindowDays } from "@/lib/retroactiveWindow";
 import { rangesOverlap } from "@/lib/timeOverlap";
 import { Modal, ModalHeader } from "@/components/ui/Modal";
 import TimeInput24 from "@/components/ui/TimeInput24";
@@ -52,7 +53,16 @@ type Props = {
 };
 
 export default function RetroactiveActivityModal({ task, currentUserRole, activityFormat = "duration", onClose, onSaved }: Props) {
-  const validDates = useMemo(() => retroactiveValidDates(businessCalendarDay(new Date()), 2), []);
+  // 2 = valor por defecto (ver DEFAULT_RETROACTIVE_WINDOW_DAYS en systemConfig.ts); se
+  // recalcula cuando fetchRetroactiveWindowDays() resuelve el valor configurado.
+  const [windowDays, setWindowDays] = useState(2);
+  useEffect(() => {
+    fetchRetroactiveWindowDays().then(setWindowDays);
+  }, []);
+  const validDates = useMemo(
+    () => retroactiveValidDates(businessCalendarDay(new Date()), windowDays),
+    [windowDays]
+  );
 
   const [activityDate, setActivityDate] = useState(validDates[0] ? dateToValue(validDates[0]) : "");
   const [reasons, setReasons] = useState<ActivityReasonConfig[]>([]);

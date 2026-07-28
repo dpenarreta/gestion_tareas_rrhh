@@ -331,6 +331,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-07-28: feat(settings): Sprint O - Centro de Configuracion NEXO
 - 2026-07-28: fix(analytics): indicador Carga Laboral usa la misma fuente que WorkloadCard
 - 2026-07-27: fix(analytics): motor de recomendaciones respeta jerarquia organizacional
 - 2026-07-27: feat(analytics): Sprint E - Analytics Predictivo e Inteligencia Preventiva

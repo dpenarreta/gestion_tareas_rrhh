@@ -1,19 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { slugify } from "@/lib/textSearch";
 
 const STORAGE_PREFIX = "nexo-settings-accordion:";
-
-const DIACRITIC_RANGE = new RegExp("[\\u0300-\\u036f]", "g");
-
-function slugify(title: string): string {
-  return title
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(DIACRITIC_RANGE, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/(^-|-$)/g, "");
-}
 
 export default function SectionCard({ title, children }: { title: string; children: React.ReactNode }) {
   const storageKey = STORAGE_PREFIX + slugify(title);

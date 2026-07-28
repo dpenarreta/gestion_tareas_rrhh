@@ -40,6 +40,8 @@ export default function RemindersPanel({ onChanged }: { onChanged?: () => void }
   const [reminders, setReminders] = useState<PersonalReminder[] | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [editing, setEditing] = useState<PersonalReminder | null>(null);
+  // Se obtiene una sola vez para todas las tarjetas, no por ReminderCard (ver /api/settings/snooze-presets).
+  const [snoozePresetsMinutes, setSnoozePresetsMinutes] = useState<number[] | undefined>(undefined);
 
   const load = useCallback((v: View) => {
     setReminders(null);
@@ -52,6 +54,15 @@ export default function RemindersPanel({ onChanged }: { onChanged?: () => void }
   useEffect(() => {
     queueMicrotask(() => load(view));
   }, [view, load]);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      fetch("/api/settings/snooze-presets")
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => data?.minutes && setSnoozePresetsMinutes(data.minutes))
+        .catch(() => {});
+    });
+  }, []);
 
   async function complete(id: string) {
     setReminders((prev) => prev?.filter((r) => r.id !== id) ?? prev);
@@ -151,6 +162,7 @@ export default function RemindersPanel({ onChanged }: { onChanged?: () => void }
                 onEdit={setEditing}
                 onDelete={remove}
                 onConvertedToTask={convertedToTask}
+                snoozePresetsMinutes={snoozePresetsMinutes}
               />
             ))}
           </AnimatePresence>

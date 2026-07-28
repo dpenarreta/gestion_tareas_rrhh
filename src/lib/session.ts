@@ -3,6 +3,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import type { Role } from "@/generated/prisma/client";
 import { SESSION_SECRET } from "@/lib/session-secret";
+import { getEffectiveSessionDurationDefaultHours, getEffectiveSessionDurationRememberHours } from "@/lib/systemConfig";
 
 export type SessionPayload = {
   userId: string;
@@ -14,8 +15,6 @@ export type SessionPayload = {
 
 const COOKIE_NAME = "nexo-session";
 const secret = new TextEncoder().encode(SESSION_SECRET);
-const DURATION_DEFAULT_MS = 7 * 24 * 60 * 60 * 1000;
-const DURATION_REMEMBER_MS = 30 * 24 * 60 * 60 * 1000;
 
 async function encrypt(payload: Omit<SessionPayload, "expiresAt">, durationMs: number) {
   const expiresAt = new Date(Date.now() + durationMs).toISOString();
@@ -42,7 +41,12 @@ export async function createSession(
   data: Omit<SessionPayload, "expiresAt">,
   rememberMe = false
 ) {
-  const durationMs = rememberMe ? DURATION_REMEMBER_MS : DURATION_DEFAULT_MS;
+  // Configurable desde Sprint O (antes: literales 7d/30d fijos) — solo afecta
+  // sesiones NUEVAS, los JWT ya emitidos conservan su `exp` original.
+  const durationHours = rememberMe
+    ? await getEffectiveSessionDurationRememberHours()
+    : await getEffectiveSessionDurationDefaultHours();
+  const durationMs = durationHours * 60 * 60 * 1000;
   const expiresAt = new Date(Date.now() + durationMs);
   const token = await encrypt(data, durationMs);
   const cookieStore = await cookies();

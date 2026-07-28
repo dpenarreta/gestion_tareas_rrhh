@@ -131,6 +131,145 @@ export async function setRecoveryRetentionHours(hours: number, userId: string): 
   await setConfigValue(CONFIG_KEY_RECOVERY_RETENTION_HOURS, String(hours), userId);
 }
 
+// ── Sprint O — Centro de Configuración NEXO: 9 parámetros de bajo riesgo ────
+//
+// Cada uno reemplaza un literal hardcodeado (mismo valor por defecto, cero
+// cambio de comportamiento hasta que un Administrador lo edite), siguiendo
+// el mismo patrón CONFIG_KEY_*/DEFAULT_*/getEffective*/set* de arriba.
+
+// Trabajo — ventana de registro retroactivo (antes: literal `2` en 4 sitios).
+export const CONFIG_KEY_RETROACTIVE_WINDOW_DAYS = "retroactive_window_business_days";
+export const DEFAULT_RETROACTIVE_WINDOW_DAYS = 2;
+
+export async function getEffectiveRetroactiveWindowDays(asOf: Date = new Date()): Promise<number> {
+  return getEffectiveConfigValue(CONFIG_KEY_RETROACTIVE_WINDOW_DAYS, asOf, DEFAULT_RETROACTIVE_WINDOW_DAYS);
+}
+
+export async function setRetroactiveWindowDays(days: number, userId: string): Promise<void> {
+  await setConfigValue(CONFIG_KEY_RETROACTIVE_WINDOW_DAYS, String(days), userId);
+}
+
+// Trabajo — hora de corte de jornada usada por Capacidad Proyectada (antes: literal `17`).
+export const CONFIG_KEY_WORKDAY_END_HOUR = "capacity_workday_end_hour_local";
+export const DEFAULT_WORKDAY_END_HOUR = 17;
+
+export async function getEffectiveWorkdayEndHour(asOf: Date = new Date()): Promise<number> {
+  return getEffectiveConfigValue(CONFIG_KEY_WORKDAY_END_HOUR, asOf, DEFAULT_WORKDAY_END_HOUR);
+}
+
+export async function setWorkdayEndHour(hour: number, userId: string): Promise<void> {
+  await setConfigValue(CONFIG_KEY_WORKDAY_END_HOUR, String(hour), userId);
+}
+
+// Escritorio Digital — retención de notas archivadas antes de purga (antes: literal `15`).
+export const CONFIG_KEY_DESK_ARCHIVE_RETENTION_DAYS = "desk_archive_retention_days";
+export const DEFAULT_DESK_ARCHIVE_RETENTION_DAYS = 15;
+
+export async function getEffectiveDeskArchiveRetentionDays(asOf: Date = new Date()): Promise<number> {
+  return getEffectiveConfigValue(CONFIG_KEY_DESK_ARCHIVE_RETENTION_DAYS, asOf, DEFAULT_DESK_ARCHIVE_RETENTION_DAYS);
+}
+
+export async function setDeskArchiveRetentionDays(days: number, userId: string): Promise<void> {
+  await setConfigValue(CONFIG_KEY_DESK_ARCHIVE_RETENTION_DAYS, String(days), userId);
+}
+
+// Escritorio Digital — tope de respuestas cortas por nota (antes: literal `2`).
+export const CONFIG_KEY_DESK_NOTE_MAX_REPLIES = "desk_note_max_replies";
+export const DEFAULT_DESK_NOTE_MAX_REPLIES = 2;
+
+export async function getEffectiveDeskNoteMaxReplies(asOf: Date = new Date()): Promise<number> {
+  return getEffectiveConfigValue(CONFIG_KEY_DESK_NOTE_MAX_REPLIES, asOf, DEFAULT_DESK_NOTE_MAX_REPLIES);
+}
+
+export async function setDeskNoteMaxReplies(n: number, userId: string): Promise<void> {
+  await setConfigValue(CONFIG_KEY_DESK_NOTE_MAX_REPLIES, String(n), userId);
+}
+
+// Escritorio Digital — presets de posposición de recordatorios, en minutos (antes: array hardcodeado).
+export const CONFIG_KEY_SNOOZE_PRESETS_MINUTES = "desk_reminder_snooze_presets_minutes";
+export const DEFAULT_SNOOZE_PRESETS_MINUTES = [15, 30, 60, 1440];
+
+export async function getEffectiveSnoozePresetsMinutes(asOf: Date = new Date()): Promise<number[]> {
+  const raw = await getEffectiveConfigString(CONFIG_KEY_SNOOZE_PRESETS_MINUTES, asOf, "");
+  if (!raw) return DEFAULT_SNOOZE_PRESETS_MINUTES;
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.every((n) => typeof n === "number" && Number.isFinite(n))
+      ? parsed
+      : DEFAULT_SNOOZE_PRESETS_MINUTES;
+  } catch {
+    return DEFAULT_SNOOZE_PRESETS_MINUTES;
+  }
+}
+
+export async function setSnoozePresetsMinutes(minutes: number[], userId: string): Promise<void> {
+  await setConfigValue(CONFIG_KEY_SNOOZE_PRESETS_MINUTES, JSON.stringify(minutes), userId);
+}
+
+// NOVA — TTL de caché de mensajes generados (Dashboard + Insights), antes duplicado como literal
+// `4 * 60 * 60 * 1000` en 2 archivos. Par dedicado (no se mezcla con ANALYTICS_CONFIG_DEFAULTS
+// porque Nova no es el motor de Analytics), mismo patrón que `cacheTtlMinutes` de ese motor.
+export const CONFIG_KEY_NOVA_CACHE_TTL_MINUTES = "nova_cache_ttl_minutes";
+export const DEFAULT_NOVA_CACHE_TTL_MINUTES = 240;
+
+export async function getEffectiveNovaCacheTtlMinutes(asOf: Date = new Date()): Promise<number> {
+  return getEffectiveConfigValue(CONFIG_KEY_NOVA_CACHE_TTL_MINUTES, asOf, DEFAULT_NOVA_CACHE_TTL_MINUTES);
+}
+
+export async function setNovaCacheTtlMinutes(minutes: number, userId: string): Promise<void> {
+  await setConfigValue(CONFIG_KEY_NOVA_CACHE_TTL_MINUTES, String(minutes), userId);
+}
+
+// Seguridad — longitud mínima de contraseña (antes: literal `6` duplicado cliente/servidor).
+export const CONFIG_KEY_PASSWORD_MIN_LENGTH = "password_min_length";
+export const DEFAULT_PASSWORD_MIN_LENGTH = 6;
+
+export async function getEffectivePasswordMinLength(asOf: Date = new Date()): Promise<number> {
+  return getEffectiveConfigValue(CONFIG_KEY_PASSWORD_MIN_LENGTH, asOf, DEFAULT_PASSWORD_MIN_LENGTH);
+}
+
+export async function setPasswordMinLength(n: number, userId: string): Promise<void> {
+  await setConfigValue(CONFIG_KEY_PASSWORD_MIN_LENGTH, String(n), userId);
+}
+
+// Seguridad — duración de sesión (antes: literales DURATION_DEFAULT_MS/DURATION_REMEMBER_MS en
+// session.ts). Solo afecta sesiones NUEVAS — los JWT ya emitidos conservan su `exp` original.
+export const CONFIG_KEY_SESSION_DURATION_DEFAULT_HOURS = "session_duration_default_hours";
+export const DEFAULT_SESSION_DURATION_DEFAULT_HOURS = 168; // 7 días
+
+export const CONFIG_KEY_SESSION_DURATION_REMEMBER_HOURS = "session_duration_remember_hours";
+export const DEFAULT_SESSION_DURATION_REMEMBER_HOURS = 720; // 30 días
+
+export async function getEffectiveSessionDurationDefaultHours(asOf: Date = new Date()): Promise<number> {
+  return getEffectiveConfigValue(CONFIG_KEY_SESSION_DURATION_DEFAULT_HOURS, asOf, DEFAULT_SESSION_DURATION_DEFAULT_HOURS);
+}
+
+export async function setSessionDurationDefaultHours(hours: number, userId: string): Promise<void> {
+  await setConfigValue(CONFIG_KEY_SESSION_DURATION_DEFAULT_HOURS, String(hours), userId);
+}
+
+export async function getEffectiveSessionDurationRememberHours(asOf: Date = new Date()): Promise<number> {
+  return getEffectiveConfigValue(CONFIG_KEY_SESSION_DURATION_REMEMBER_HOURS, asOf, DEFAULT_SESSION_DURATION_REMEMBER_HOURS);
+}
+
+export async function setSessionDurationRememberHours(hours: number, userId: string): Promise<void> {
+  await setConfigValue(CONFIG_KEY_SESSION_DURATION_REMEMBER_HOURS, String(hours), userId);
+}
+
+// Seguridad — retención de intentos de login expirados, en días (antes: literal `30`).
+// Hermano de CONFIG_KEY_RETENTION_MONTHLY_REPORTS/ARCHIVED_TASKS/KNOWLEDGE_DOCS de arriba —
+// mismo formato string por consistencia con esas 3 claves.
+export const CONFIG_KEY_RETENTION_LOGIN_ATTEMPTS = "retention_login_attempts";
+export const DEFAULT_RETENTION_LOGIN_ATTEMPTS = "30";
+
+export async function getEffectiveRetentionLoginAttempts(asOf: Date = new Date()): Promise<string> {
+  return getEffectiveConfigString(CONFIG_KEY_RETENTION_LOGIN_ATTEMPTS, asOf, DEFAULT_RETENTION_LOGIN_ATTEMPTS);
+}
+
+export async function setRetentionLoginAttempts(days: string, userId: string): Promise<void> {
+  await setConfigValue(CONFIG_KEY_RETENTION_LOGIN_ATTEMPTS, days, userId);
+}
+
 // ── Configuración del motor de Analytics (src/lib/analytics.ts) ─────────────
 //
 // Todos los umbrales/ponderaciones del motor son configurables desde Ajustes

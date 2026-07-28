@@ -94,6 +94,22 @@
   `/inteligencia-preventiva`, módulo nuevo y autónomo — cero cambios a
   Dashboard/Analytics/Reportes/Proyectos/Equipo, cero cambios al Analytics
   Engine central (v1.19.0 — este sprint).
+- Sprint O — Centro de Configuración NEXO: `/settings` pasa de un acordeón
+  plano de ~21 secciones a un módulo organizado por categoría (Organización,
+  Analytics, Trabajo, Proyectos, Escritorio Digital, Reportes, NOVA,
+  Seguridad, Notificaciones, Parámetros Globales, Sistema), con búsqueda
+  global, favoritos (reutiliza `User.viewPreferences`, mismo patrón que el
+  orden de tarjetas del Dashboard), historial de auditoría navegable (nueva
+  UI sobre `SystemConfigHistory`, que ya existía) y restaurar-a-valor-
+  predeterminado — Single Source of Truth para 9 valores que antes estaban
+  hardcodeados (ventana de registro retroactivo, hora de corte de jornada,
+  retención de archivado/tope de respuestas/presets de posposición de
+  Escritorio Digital, TTL de caché de NOVA, longitud mínima de contraseña,
+  duración de sesión, retención de intentos de login). Corrige además un
+  bug real: Coordinador Nacional pasaba el gate de `/settings` pero
+  `SettingsManager.tsx` escondía todo detrás de un gate más estricto —
+  ahora la ruta es consistentemente Administrador-only. Cero cambios al
+  Analytics Engine (v1.21.0 — este sprint).
 
 ## En desarrollo
 
@@ -240,6 +256,42 @@ cierre de este sprint)._
   12), sin implementar: falta decidir la dimensión organizacional real
   (NEXO no tiene hoy un campo de área/equipo/zona en `User`, solo `role`) y
   la UI de comparación en sí.
+- Centro de Configuración — SLA y nivel de riesgo en Proyectos: no existen
+  hoy ni como campo ni como lógica; el pedido original del Sprint O ya los
+  nombraba como parte de un "Sprint K" aparte. Ver `docs/AUDIT_LOG.md` §
+  2026-07-28 (Sprint O).
+- Centro de Configuración — plantillas/logotipo/portada/firmas y
+  programación automática de Reportes: no existe ningún motor de plantillas
+  ni infraestructura de scheduler/envío de email en el repositorio; el
+  pedido original ya los nombraba como parte de un "Sprint F" aparte — es
+  el ítem de mayor alcance de los identificados en el Sprint O. Ver
+  `docs/AUDIT_LOG.md` § 2026-07-28 (Sprint O).
+- Centro de Configuración — permisos especiales por usuario en Seguridad:
+  toda la autorización de Nexo es hoy por `Role` (`src/lib/roles.ts`), sin
+  ningún mecanismo de excepción individual; agregarlo es una capa de
+  autorización nueva, y el pedido del Sprint O pedía explícitamente no
+  modificar la seguridad existente, solo centralizar su configuración. Ver
+  `docs/AUDIT_LOG.md` § 2026-07-28 (Sprint O).
+- Centro de Configuración — tono/idioma/módulos donde participa NOVA: hoy
+  hardcodeado en 5 prompts de sistema repartidos en 2 archivos
+  (`api/assistant/chat/route.ts`, `api/kpis/nova-insights/[userId]/route.ts`)
+  sin ningún interruptor de participación por módulo; el Sprint O solo
+  confirmó el TTL de caché como configurable. Ver `docs/AUDIT_LOG.md` §
+  2026-07-28 (Sprint O).
+- Centro de Configuración — prioridades/estados/tipos de tarea y días
+  laborables como listas editables: son enums de Prisma (`TaskPriority`/
+  `TaskStatus`/`TaskType`) y una constante síncrona (`isBusinessDay` en
+  `businessTime.ts`) usados en decenas de sitios (chips, filtros, fórmulas
+  de Analytics) — convertirlos exige migración de esquema y, en el caso de
+  días laborables, un cambio de arquitectura sync→async en todo el motor de
+  carga laboral. Diferido explícitamente por decisión del usuario en el
+  Sprint O. Ver `docs/AUDIT_LOG.md` § 2026-07-28 (Sprint O).
+- Centro de Configuración — idioma/moneda en Parámetros Globales: Nexo es
+  100% español hardcodeado sin librería de i18n y no existe ningún concepto
+  de moneda (sistema de RRHH, sin transacciones monetarias) — agregar estos
+  campos sin un consumidor real sería configuración muerta. Descartado
+  explícitamente por decisión del usuario en el Sprint O (no un "pendiente",
+  una exclusión deliberada). Ver `docs/AUDIT_LOG.md` § 2026-07-28 (Sprint O).
 
 ## Ideas futuras
 
@@ -259,4 +311,4 @@ cierre de este sprint)._
 
 ---
 
-_Última actualización: 2026-07-24._
+_Última actualización: 2026-07-28._

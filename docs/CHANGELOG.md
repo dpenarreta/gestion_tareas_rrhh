@@ -23,6 +23,103 @@
 
 ---
 
+## v1.21.0 — 2026-07-28
+
+**Tipo:** FEATURE
+**Módulo:** Centro de Configuración NEXO (Sprint O)
+
+Reemplaza el acordeón plano de `/settings` (`SettingsManager.tsx`, ~21
+secciones + 6 bloques inline sin categorías, sin búsqueda, sin favoritos, sin
+historial navegable ni restaurar-a-predeterminado) por un módulo organizado
+(`ConfigCenter.tsx`) — sin cambiar la lógica de ninguna sección existente.
+
+- **Arquitectura:** `src/lib/systemConfig.ts` (el almacén genérico
+  `SystemConfigHistory` con auditoría por diseño, ya reutilizado por ~10
+  dominios) sigue siendo la única fuente de verdad; este sprint construye la
+  capa transversal que faltaba encima, no un nuevo mecanismo de storage.
+- **Categorías:** Organización, Analytics, Trabajo, Proyectos, Escritorio
+  Digital, Reportes, NOVA, Seguridad, Notificaciones, Parámetros Globales,
+  Sistema — cada una de las ~21+6 secciones existentes se re-hospedó en su
+  categoría vía `src/components/settings/registry.ts` (metadatos, no
+  referencias a componentes) sin tocar su interior.
+- **Extracciones:** los 6 bloques que vivían inline en `SettingsManager.tsx`
+  (Consentimiento de datos, Gestión de contraseñas, Información del sistema,
+  Configuración de Carga Laboral, Solicitudes de titulares, Política de
+  retención) pasan a componentes propios (`DataConsentSection.tsx`,
+  `PasswordManagementSection.tsx`, `SystemInfoSection.tsx`,
+  `WorkloadConfigSection.tsx`, `DataRequestsSection.tsx`,
+  `RetentionPolicySection.tsx`) — copy-paste 1:1, cero cambio de lógica.
+  `SettingsManager.tsx` se elimina (no queda código muerto en paralelo).
+- **Búsqueda global:** `searchSettings()` filtra el registro por
+  label/description/keywords, insensible a mayúsculas/acentos (normalización
+  extraída de `SectionCard.tsx` a `src/lib/textSearch.ts`, reutilizada por
+  ambos). Sin API nueva — es filtrado client-side sobre un array estático.
+- **Favoritos:** `src/lib/configFavorites.ts` reutiliza `User.viewPreferences`
+  con prefijo `CONFIG_FAVORITE:`, el mismo patrón ya usado por el orden de
+  tarjetas del Dashboard (`/api/dashboard/card-order`) — sin columna nueva.
+- **Historial navegable:** `GET /api/settings/config-history?keys=...` lee
+  `SystemConfigHistory` directamente — el dato ya existía (usuario, fecha,
+  valor anterior por `setConfigValue`), solo faltaba una UI para verlo
+  (`SettingHistoryModal.tsx`).
+- **Restaurar predeterminado:** `POST /api/settings/config-history/restore-default`
+  toma los valores de las constantes `DEFAULT_*`/`ANALYTICS_CONFIG_DEFAULTS`
+  ya exportadas por `systemConfig.ts` (no se hardcodean dos veces).
+- **9 valores nuevos configurables** (todos con default = comportamiento
+  anterior exacto, mismo patrón `CONFIG_KEY_*`/`getEffective*`/`set*` que ya
+  usan los ~10 dominios existentes, sin cambios de esquema):
+  - Trabajo: ventana de registro retroactivo (`retroactive_window_business_days`,
+    antes literal `2` en 4 sitios), hora de corte de jornada de Capacidad
+    Proyectada (`capacity_workday_end_hour_local`, antes literal `17`).
+  - Escritorio Digital: retención de archivado (`desk_archive_retention_days`,
+    antes `15`), tope de respuestas (`desk_note_max_replies`, antes `2`),
+    presets de posposición (`desk_reminder_snooze_presets_minutes`, antes
+    array fijo `[15,30,60,1440]`).
+  - NOVA: TTL de caché de mensajes generados (`nova_cache_ttl_minutes`, antes
+    `4h` duplicado en `nova-message`/`nova-insights`).
+  - Seguridad: longitud mínima de contraseña (`password_min_length`, antes
+    `6` duplicado cliente/servidor — se eliminó el chequeo duplicado del
+    cliente en `profile/page.tsx`, el servidor ya valida y muestra el error),
+    duración de sesión (`session_duration_default_hours`/`_remember_hours`,
+    antes `7d`/`30d` fijos — solo afecta sesiones nuevas), retención de
+    intentos de login (`retention_login_attempts`, antes `30` fijo, hermano
+    de las 3 claves de retención ya existentes).
+- **Fix de bug real:** `src/app/(protected)/settings/page.tsx` permitía
+  `ADMINISTRADOR` y `COORDINADOR_NACIONAL`, pero `SettingsManager.tsx`
+  escondía todo detrás de un gate más estricto (`isAdmin`) — Coordinador
+  Nacional veía una página vacía. El link de navegación (`navLinks.ts`) ya
+  era Administrador-only: 2 de 3 fuentes ya coincidían, se corrigió la
+  tercera.
+- **Fuera de alcance (documentado, no construido a medias):** SLA/nivel de
+  riesgo en Proyectos ("Sprint K"), plantillas/logo/portada/firmas y
+  programación automática de Reportes ("Sprint F"), permisos especiales por
+  usuario en Seguridad, prioridades/estados/tipos de tarea y días laborables
+  como listas editables (enums de Prisma + riesgo de regresión en Analytics),
+  idioma/moneda en Parámetros Globales (sin consumidor real en un sistema de
+  RRHH sin i18n) — cada uno con su propia tarjeta "Próximamente" en la UI y
+  entrada en `docs/ROADMAP.md`.
+- **Archivos:** `src/lib/systemConfig.ts` (9 pares nuevos),
+  `src/lib/configFavorites.ts`, `src/lib/textSearch.ts`,
+  `src/lib/settingsCategories.ts`, `src/lib/retroactiveWindow.ts`,
+  `src/components/settings/{ConfigCenter,CategoryNav,SearchBox,
+  FavoritesSection,ConfigSectionCard,registry,ProximamenteCard,
+  GlobalParamsSection}.tsx`, `src/components/settings/history/*`,
+  7 secciones extraídas + 4 secciones nuevas agrupadas
+  (`TrabajoAvanzadoSection`, `EscritorioDigitalConfigSection`,
+  `NovaCacheSection`, `SeguridadConfigSection`), 9 rutas API nuevas bajo
+  `/api/settings/*`, `src/lib/capacityForecast.ts`/`deskNoteRetention.ts`/
+  `session.ts`/`rate-limit.ts`/businessTime call sites (switch a los nuevos
+  getters), `src/app/(protected)/settings/page.tsx`,
+  `src/components/desk/ReminderCard.tsx`/`RemindersPanel.tsx`,
+  `src/components/tasks/RetroactiveActivityModal.tsx`,
+  `src/components/projects/ProjectActivitiesTab.tsx`.
+- **Impacto:** el Administrador puede adaptar 9 comportamientos más de la
+  plataforma sin tocar código, con auditoría e historial ya visibles; sin
+  configurar nada, el sistema se comporta exactamente igual que antes (todos
+  los defaults igualan el literal que reemplazan). Sin migración de datos.
+- **Autor:** Claude Code
+
+---
+
 ## v1.20.1 — 2026-07-28
 
 **Tipo:** FIX

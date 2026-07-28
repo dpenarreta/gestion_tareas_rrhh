@@ -8,12 +8,16 @@ const deskNoteFindUnique = vi.fn();
 const deskNoteReplyFindMany = vi.fn();
 const deskNoteReplyCreate = vi.fn();
 const notificationCreate = vi.fn();
+const systemConfigHistoryFindFirst = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     deskNote: { findUnique: deskNoteFindUnique },
     deskNoteReply: { findMany: deskNoteReplyFindMany, create: deskNoteReplyCreate },
     notification: { create: notificationCreate },
+    // getEffectiveDeskNoteMaxReplies (Sprint O) consulta esto — sin registro
+    // guardado, cae al default (DEFAULT_DESK_NOTE_MAX_REPLIES = 2).
+    systemConfigHistory: { findFirst: systemConfigHistoryFindFirst },
   },
 }));
 
@@ -52,6 +56,7 @@ function resetAll() {
   deskNoteReplyCreate.mockReset();
   notificationCreate.mockReset();
   logDeskAudit.mockReset();
+  systemConfigHistoryFindFirst.mockReset().mockResolvedValue(null);
   vi.mocked(getSession).mockReset();
 }
 

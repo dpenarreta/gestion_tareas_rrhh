@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { getEffectivePasswordMinLength } from "@/lib/systemConfig";
 
 export async function POST(request: NextRequest) {
   const session = await getSession();
@@ -15,9 +16,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Campos requeridos" }, { status: 400 });
   }
 
-  if (newPassword.length < 6) {
+  const minLength = await getEffectivePasswordMinLength();
+  if (newPassword.length < minLength) {
     return NextResponse.json(
-      { error: "La contraseña debe tener al menos 6 caracteres" },
+      { error: `La contraseña debe tener al menos ${minLength} caracteres` },
       { status: 400 }
     );
   }

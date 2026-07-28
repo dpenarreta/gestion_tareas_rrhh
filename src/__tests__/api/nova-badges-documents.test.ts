@@ -10,6 +10,7 @@ const commentFindMany = vi.fn();
 const taskActivityFindMany = vi.fn();
 const knowledgeDocumentFindUnique = vi.fn();
 const knowledgeDocumentDelete = vi.fn();
+const systemConfigHistoryFindFirst = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
@@ -18,6 +19,9 @@ vi.mock("@/lib/prisma", () => ({
     comment: { count: commentCount, findMany: commentFindMany },
     taskActivity: { findMany: taskActivityFindMany },
     knowledgeDocument: { findUnique: knowledgeDocumentFindUnique, delete: knowledgeDocumentDelete },
+    // getEffectiveNovaCacheTtlMinutes (Sprint O) consulta esto — sin registro
+    // guardado, cae al default (DEFAULT_NOVA_CACHE_TTL_MINUTES = 240).
+    systemConfigHistory: { findFirst: systemConfigHistoryFindFirst },
   },
 }));
 
@@ -70,6 +74,7 @@ function resetAll() {
   deleteFromGithub.mockReset().mockResolvedValue(undefined);
   computeCargaTiempo.mockReset().mockResolvedValue(NEUTRAL_CARGA);
   groqCreate.mockReset();
+  systemConfigHistoryFindFirst.mockReset().mockResolvedValue(null);
   vi.mocked(getSession).mockReset();
   delete process.env.GROQ_API_KEY;
 }

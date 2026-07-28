@@ -1,9 +1,10 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { logDeskAudit } from "@/lib/deskAudit";
+import { getEffectiveDeskArchiveRetentionDays, DEFAULT_DESK_ARCHIVE_RETENTION_DAYS } from "@/lib/systemConfig";
 
-/** §8 del refinamiento (2026-07-23): una nota archivada vive 15 días calendario antes de purgarse en duro. */
-export const ARCHIVE_RETENTION_DAYS = 15;
+/** §8 del refinamiento (2026-07-23): una nota archivada vive N días calendario antes de purgarse en duro. Configurable desde Sprint O (antes: literal 15 fijo) — ver getEffectiveDeskArchiveRetentionDays. */
+export const ARCHIVE_RETENTION_DAYS = DEFAULT_DESK_ARCHIVE_RETENTION_DAYS;
 
 /**
  * Barrido perezoso (mismo criterio que purgeExpiredItems en recoveryCenter.ts
@@ -14,7 +15,8 @@ export const ARCHIVE_RETENTION_DAYS = 15;
  * DeskNote.deletedAt del schema).
  */
 export async function purgeExpiredArchivedNotes(): Promise<{ purged: number }> {
-  const cutoff = new Date(Date.now() - ARCHIVE_RETENTION_DAYS * 86400000);
+  const retentionDays = await getEffectiveDeskArchiveRetentionDays();
+  const cutoff = new Date(Date.now() - retentionDays * 86400000);
   const expired = await prisma.deskNote.findMany({
     where: { archived: true, archivedAt: { lte: cutoff }, deletedAt: null },
     select: { id: true, recipientId: true },
