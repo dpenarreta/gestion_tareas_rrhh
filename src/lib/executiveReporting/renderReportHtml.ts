@@ -268,7 +268,9 @@ function renderRecommendationGroup(title: string, badgeClass: string, rows: Reco
       <div class="er-indicator-head"><span class="er-indicator-name">${esc(r.text)}</span><span class="er-badge ${badgeClass}">${title}</span></div>
       ${r.enrichment ? `<p class="er-kv"><b>Justificación:</b> ${esc(r.enrichment.justificacion)}</p>
       <p class="er-kv"><b>Impacto esperado:</b> ${esc(r.enrichment.impactoEsperado)}</p>
+      <p class="er-kv"><b>Área afectada:</b> ${esc(r.enrichment.areaAfectada)}</p>
       <p class="er-kv"><b>Beneficio:</b> ${esc(r.enrichment.beneficio)}</p>
+      <p class="er-kv"><b>Complejidad estimada:</b> ${esc(r.enrichment.complejidadEstimada)}</p>
       <p class="er-kv"><b>Tiempo estimado:</b> ${esc(r.enrichment.tiempoEstimado)}</p>
       <p class="er-kv"><b>Responsable sugerido:</b> ${esc(r.enrichment.responsableSugerido)}</p>` : ""}
     </div>`,

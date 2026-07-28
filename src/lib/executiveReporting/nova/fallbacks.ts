@@ -112,12 +112,19 @@ const PRIORITY_TIMEFRAME: Record<Recommendation["priority"], string> = {
   media: "Mediano plazo — próximas 2 a 4 semanas.",
 };
 
+const PRIORITY_COMPLEXITY: Record<Recommendation["priority"], string> = {
+  alta: "Media — requiere coordinar la redistribución con las personas involucradas.",
+  media: "Baja — ajuste dentro de la operación habitual del equipo.",
+};
+
 export function fallbackRecommendationEnrichment(recommendations: Recommendation[]): NovaRecommendationEnrichment[] {
   return recommendations.map((r) => ({
     id: r.id,
     justificacion: r.text,
     impactoEsperado: PRIORITY_IMPACT[r.priority],
+    areaAfectada: "Operación del equipo.",
     beneficio: r.priority === "alta" ? "Mitiga un riesgo operativo identificado." : "Sostiene la mejora continua del equipo.",
+    complejidadEstimada: PRIORITY_COMPLEXITY[r.priority],
     tiempoEstimado: PRIORITY_TIMEFRAME[r.priority],
     responsableSugerido: "Coordinación del equipo.",
   }));

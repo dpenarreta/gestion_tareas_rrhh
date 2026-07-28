@@ -37,6 +37,10 @@ sostenibilidad; consultas elevadas + capacidad futura negativa → probable
 saturación administrativa; carga baja + cumplimiento bajo → posible problema de
 productividad.
 
+Lenguaje: directo, preciso, comprensible. Frases cortas, sin jerga técnica de
+RRHH/Analytics ni lenguaje emocional o de venta ("gran trabajo", "equipo
+increíble" están PROHIBIDOS). Nunca alarmista ni ambiguo.
+
 Responde EXCLUSIVAMENTE con un objeto JSON válido, sin texto adicional ni markdown.`;
 
 function confidenceInstruction(confidence: NovaConfidence): string {
@@ -75,7 +79,15 @@ export function buildExecutiveInsightsPrompt(context: ExecutiveReportContext, co
 export function buildExecutiveAssessmentPrompt(context: ExecutiveReportContext, confidence: NovaConfidence) {
   const system =
     NOVA_BASE_RULES +
-    `\n\nGeneras el EXECUTIVE ASSESSMENT BY NOVA — la sección premium del reporte: un análisis estratégico, no un resumen (nunca repitas el Executive Summary). Máximo 700 palabras EN TOTAL. Estructura OBLIGATORIA, en este orden exacto, nunca alterado: Diagnóstico General → Fortalezas Estratégicas → Riesgos Detectados → Oportunidades → Prioridades → Perspectiva Estratégica → Opinión Ejecutiva. Clasifica implícitamente por peso (críticas primero) dentro de riesgos/prioridades — no des el mismo espacio a todo. La Opinión Ejecutiva es un juicio profesional, no un resumen. Responde con esta forma exacta: {"diagnosticoGeneral": string, "fortalezasEstrategicas": string[], "riesgosDetectados": string[], "oportunidades": string[], "prioridades": string[], "perspectivaEstrategica": string, "opinionEjecutiva": string}. ` +
+    `\n\nGeneras el EXECUTIVE ASSESSMENT BY NOVA — la sección premium del reporte: un análisis estratégico, no un resumen. NUNCA repitas literalmente lo ya dicho en el Executive Summary ni en Executive Insights — construye sobre esas conclusiones, profundiza, no las repitas. Máximo 700 palabras EN TOTAL. Estructura OBLIGATORIA, en este orden exacto, nunca alterado: Diagnóstico General → Fortalezas Estratégicas → Riesgos Detectados → Oportunidades → Prioridades → Perspectiva Estratégica → Opinión Ejecutiva. Clasifica implícitamente por peso (críticas/importantes primero, secundarias al final) dentro de riesgos/prioridades — no des el mismo espacio a todo.
+
+Cada elemento de "fortalezasEstrategicas" debe explicar 3 cosas en una sola frase: por qué es una fortaleza, qué impacto tiene, y cómo aprovecharla — nunca una afirmación plana como "buen cumplimiento".
+
+Cada elemento de "riesgosDetectados" debe responder: qué riesgo existe, por qué existe, qué impacto tendría, y qué acción preventiva lo reduce — sin lenguaje alarmista. Si los datos permiten estimar qué tan probable es, inclúyelo; si no, no lo inventes.
+
+Cada elemento de "oportunidades" debe indicar el retorno esperado de forma explícita (ejemplo: "la redistribución de solicitudes administrativas podría incrementar la capacidad disponible del equipo sin incorporar nuevos recursos") — nunca una oportunidad sin beneficio cuantificado o cualificado.
+
+La Opinión Ejecutiva es un juicio profesional, no un resumen. Responde con esta forma exacta: {"diagnosticoGeneral": string, "fortalezasEstrategicas": string[], "riesgosDetectados": string[], "oportunidades": string[], "prioridades": string[], "perspectivaEstrategica": string, "opinionEjecutiva": string}. ` +
     confidenceInstruction(confidence);
   const user = `Datos del período (JSON, ya calculados — no recalcules nada):\n${contextJson(context)}`;
   return { system, user };
@@ -84,7 +96,7 @@ export function buildExecutiveAssessmentPrompt(context: ExecutiveReportContext, 
 export function buildRecommendationEnrichmentPrompt(context: ExecutiveReportContext, confidence: NovaConfidence) {
   const system =
     NOVA_BASE_RULES +
-    `\n\nEnriqueces una lista FIJA de recomendaciones ya generadas por reglas deterministas (campo "recomendaciones" del JSON, cada una con "id"). NUNCA agregues una recomendación nueva ni quites una existente — tu única función es anotar cada "id" ya presente. Cada recomendación debe ser específica, accionable, medible, realista y priorizable — nunca genérica ("mejorar la comunicación" está PROHIBIDO; en su lugar, algo como "redistribuir las solicitudes internas entre los asistentes de Gestión Humana para disminuir la concentración operativa"). Responde con esta forma exacta: {"enriquecimiento": [{"id": string, "justificacion": string, "impactoEsperado": string, "beneficio": string, "tiempoEstimado": string, "responsableSugerido": string}, ...]}, un objeto por CADA "id" recibido, en el mismo orden. ` +
+    `\n\nEnriqueces una lista FIJA de recomendaciones ya generadas por reglas deterministas (campo "recomendaciones" del JSON, cada una con "id"). NUNCA agregues una recomendación nueva ni quites una existente — tu única función es anotar cada "id" ya presente. Cada recomendación debe ser específica, accionable, medible, realista y priorizable — nunca genérica ("mejorar la comunicación" está PROHIBIDO; en su lugar, algo como "redistribuir las solicitudes internas entre los asistentes de Gestión Humana para disminuir la concentración operativa"). Para cada una completa los 5 campos que exige el reporte ejecutivo: impacto esperado, área/rol/proceso afectado, beneficio operativo, complejidad de implementación (Alta/Media/Baja + por qué) y tiempo estimado. Responde con esta forma exacta: {"enriquecimiento": [{"id": string, "justificacion": string, "impactoEsperado": string, "areaAfectada": string, "beneficio": string, "complejidadEstimada": string, "tiempoEstimado": string, "responsableSugerido": string}, ...]}, un objeto por CADA "id" recibido, en el mismo orden. ` +
     confidenceInstruction(confidence);
   const user = `Datos del período y recomendaciones a enriquecer (JSON, ya calculados — no recalcules nada, no inventes ids nuevos):\n${contextJson(context)}`;
   return { system, user };

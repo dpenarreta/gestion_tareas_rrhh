@@ -23,6 +23,51 @@
 
 ---
 
+## v1.22.2 — 2026-07-28
+
+**Tipo:** FIX
+**Módulo:** Executive Reporting Engine — FPS Parte III, NOVA Intelligence Framework (`src/lib/executiveReporting/nova/`)
+
+Con la Parte II aprobada (v1.22.1), se auditó el código real de NOVA (Fase
+C) contra el texto literal de la FPS Parte III — no la memoria de lo
+construido, sino los prompts/tipos/fallbacks tal como están hoy. La mayor
+parte de la Parte III ya estaba correctamente implementada desde la Fase C
+(persona de Consultor Senior, cadena de razonamiento obligatoria,
+prohibición de muletillas, antialucinación, cruce inteligente de
+indicadores, nivel de confianza interno, topes de longitud, enriquecimiento
+de recomendaciones alineado estrictamente por `id`). Se encontraron y
+cerraron 3 brechas concretas:
+
+- **Recomendaciones incompletas**: la Parte III exige 5 campos por
+  recomendación (Impacto esperado, Área afectada, Beneficio operativo,
+  Nivel de prioridad, Complejidad estimada) — `NovaRecommendationEnrichment`
+  solo tenía 3 de los 5 (más `tiempoEstimado`/`responsableSugerido`, útiles
+  pero no los que pedía el FPS). Se agregaron `areaAfectada` y
+  `complejidadEstimada` — tipo, prompt (`buildRecommendationEnrichmentPrompt`),
+  fallback determinista (`fallbackRecommendationEnrichment`) y validación
+  anti-alucinación (`validateAndAlignRecommendations`) actualizados en
+  conjunto, sin romper la garantía de "nunca inventa ni pierde un id".
+- **Profundidad de Fortalezas/Riesgos/Oportunidades**: el prompt de
+  Executive Assessment pedía las 3 listas sin instruir la estructura
+  específica que exige el FPS. Ahora exige explícitamente: fortalezas
+  → por qué es fortaleza / qué impacto / cómo aprovecharla; riesgos → qué
+  riesgo / por qué existe / qué impacto / qué acción preventiva; oportunidades
+  → retorno esperado explícito (mismo ejemplo del FPS: redistribución de
+  solicitudes → capacidad disponible sin recursos nuevos). Se agregó además
+  instrucción de no repetir Executive Insights (antes solo prohibía repetir
+  el Executive Summary).
+- **Regla de Lenguaje ausente**: no había instrucción explícita contra
+  jerga técnica de RRHH/Analytics o lenguaje emocional/de venta. Agregada a
+  `NOVA_BASE_RULES`, compartida por los 4 prompts.
+- **Sin cambios de arquitectura**: misma orquestación de 4 llamadas
+  paralelas, mismo timeout por `Promise.race`, mismo fallback determinista
+  garantizado, misma realineación estricta por `id`. Cero cambios a
+  `analytics.ts`/`predictionEngine.ts`/Scores/Equilibrio Operativo — solo
+  contenido de prompt y 2 campos de datos en un tipo ya existente.
+- Tests: fixtures de `nova.test.ts`/`documentModel.test.ts` actualizados a
+  la forma de datos ampliada. Suite completa: 1143/1143 en verde,
+  `tsc`/`lint` limpios, `npm run build` exitoso.
+
 ## v1.22.1 — 2026-07-28
 
 **Tipo:** FIX

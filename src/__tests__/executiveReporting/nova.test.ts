@@ -54,8 +54,8 @@ function validGroqPayload(kind: string): string {
   // enrichment
   return JSON.stringify({
     enriquecimiento: [
-      { id: "redistribuir-carga-sobrecarga", justificacion: "j", impactoEsperado: "i", beneficio: "b", tiempoEstimado: "t", responsableSugerido: "r" },
-      { id: "mantener-planificacion", justificacion: "j2", impactoEsperado: "i2", beneficio: "b2", tiempoEstimado: "t2", responsableSugerido: "r2" },
+      { id: "redistribuir-carga-sobrecarga", justificacion: "j", impactoEsperado: "i", areaAfectada: "a", beneficio: "b", complejidadEstimada: "c", tiempoEstimado: "t", responsableSugerido: "r" },
+      { id: "mantener-planificacion", justificacion: "j2", impactoEsperado: "i2", areaAfectada: "a2", beneficio: "b2", complejidadEstimada: "c2", tiempoEstimado: "t2", responsableSugerido: "r2" },
     ],
   });
 }
@@ -133,8 +133,8 @@ describe("generateExecutiveNarrative — con Groq disponible", () => {
             message: {
               content: JSON.stringify({
                 enriquecimiento: [
-                  { id: "redistribuir-carga-sobrecarga", justificacion: "j", impactoEsperado: "i", beneficio: "b", tiempoEstimado: "t", responsableSugerido: "r" },
-                  { id: "id-inventado-que-no-existe", justificacion: "j", impactoEsperado: "i", beneficio: "b", tiempoEstimado: "t", responsableSugerido: "r" },
+                  { id: "redistribuir-carga-sobrecarga", justificacion: "j", impactoEsperado: "i", areaAfectada: "a", beneficio: "b", complejidadEstimada: "c", tiempoEstimado: "t", responsableSugerido: "r" },
+                  { id: "id-inventado-que-no-existe", justificacion: "j", impactoEsperado: "i", areaAfectada: "a", beneficio: "b", complejidadEstimada: "c", tiempoEstimado: "t", responsableSugerido: "r" },
                   // "mantener-planificacion" queda deliberadamente omitido
                 ],
               }),

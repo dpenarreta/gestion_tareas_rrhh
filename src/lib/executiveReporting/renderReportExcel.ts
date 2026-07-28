@@ -120,12 +120,22 @@ function appendAssessmentSheet(wb: XLSX.WorkBook, page: AssessmentPage | undefin
 }
 
 function recommendationRow(r: RecommendationRow): unknown[] {
-  return [r.priority === "alta" ? "ALTA" : "MEDIA", r.text, r.enrichment?.justificacion ?? "", r.enrichment?.impactoEsperado ?? "", r.enrichment?.beneficio ?? "", r.enrichment?.tiempoEstimado ?? "", r.enrichment?.responsableSugerido ?? ""];
+  return [
+    r.priority === "alta" ? "ALTA" : "MEDIA",
+    r.text,
+    r.enrichment?.justificacion ?? "",
+    r.enrichment?.impactoEsperado ?? "",
+    r.enrichment?.areaAfectada ?? "",
+    r.enrichment?.beneficio ?? "",
+    r.enrichment?.complejidadEstimada ?? "",
+    r.enrichment?.tiempoEstimado ?? "",
+    r.enrichment?.responsableSugerido ?? "",
+  ];
 }
 
 function appendRecommendationsSheet(wb: XLSX.WorkBook, page: RecommendationsPage | undefined) {
   if (!page) return;
-  const rows: unknown[][] = [["Prioridad", "Recomendación", "Justificación", "Impacto Esperado", "Beneficio", "Tiempo Estimado", "Responsable Sugerido"]];
+  const rows: unknown[][] = [["Prioridad", "Recomendación", "Justificación", "Impacto Esperado", "Área Afectada", "Beneficio", "Complejidad Estimada", "Tiempo Estimado", "Responsable Sugerido"]];
   for (const r of page.alta) rows.push(recommendationRow(r));
   for (const r of page.media) rows.push(recommendationRow(r));
   appendAoa(wb, "Recomendaciones", rows);

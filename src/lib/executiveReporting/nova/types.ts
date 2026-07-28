@@ -45,7 +45,11 @@ export type NovaRecommendationEnrichment = {
   id: string;
   justificacion: string;
   impactoEsperado: string;
+  /** Área/rol/proceso operativo que la recomendación afecta directamente (FPS Parte III — campo obligatorio, antes ausente). */
+  areaAfectada: string;
   beneficio: string;
+  /** Dificultad de implementación (FPS Parte III — distinta de `tiempoEstimado`: "qué tan difícil" vs. "cuánto tarda"). */
+  complejidadEstimada: string;
   tiempoEstimado: string;
   responsableSugerido: string;
 };

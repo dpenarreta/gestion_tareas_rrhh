@@ -158,7 +158,9 @@ function validateAndAlignRecommendations(raw: unknown, recommendations: Recommen
       isNonEmptyString(e.id) &&
       isNonEmptyString(e.justificacion) &&
       isNonEmptyString(e.impactoEsperado) &&
+      isNonEmptyString(e.areaAfectada) &&
       isNonEmptyString(e.beneficio) &&
+      isNonEmptyString(e.complejidadEstimada) &&
       isNonEmptyString(e.tiempoEstimado) &&
       isNonEmptyString(e.responsableSugerido)
     ) {
@@ -166,7 +168,9 @@ function validateAndAlignRecommendations(raw: unknown, recommendations: Recommen
         id: e.id,
         justificacion: e.justificacion,
         impactoEsperado: e.impactoEsperado,
+        areaAfectada: e.areaAfectada,
         beneficio: e.beneficio,
+        complejidadEstimada: e.complejidadEstimada,
         tiempoEstimado: e.tiempoEstimado,
         responsableSugerido: e.responsableSugerido,
       });
