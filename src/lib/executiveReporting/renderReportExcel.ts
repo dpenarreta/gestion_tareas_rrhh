@@ -133,7 +133,20 @@ function appendRecommendationsSheet(wb: XLSX.WorkBook, page: RecommendationsPage
 
 function appendPredictiveSheet(wb: XLSX.WorkBook, page: PredictivePage | undefined) {
   if (!page) return;
-  appendAoa(wb, "Analytics Predictivo", [["ANALYTICS PREDICTIVO"], [page.message]]);
+  if (!page.available) {
+    appendAoa(wb, "Analytics Predictivo", [["ANALYTICS PREDICTIVO"], [page.message]]);
+    return;
+  }
+  const rows: unknown[][] = [
+    ["ANALYTICS PREDICTIVO", `Proyección al ${page.asOfLabel}`],
+    ["Horizonte (días)", page.horizonDays],
+    ["Cumplimiento esperado al cierre", page.avgCumplimientoEsperadoCierrePct !== null ? `${page.avgCumplimientoEsperadoCierrePct}%` : "—"],
+    ["Colaboradores en riesgo de sobrecarga", page.membersAtRiskSobrecarga],
+    [],
+    ["Colaborador", "Cumplimiento", "Carga", "Nivel Sobrecarga", "Subutilización", "Qué hacer"],
+  ];
+  for (const m of page.members) rows.push([m.name, m.cumplimientoLabel, m.sobrecargaLabel, m.sobrecargaNivel, m.subutilizacionLabel, m.queHacer.join(" · ")]);
+  appendAoa(wb, "Analytics Predictivo", rows);
 }
 
 function appendMetadataSheet(wb: XLSX.WorkBook, page: MetadataPage | undefined) {

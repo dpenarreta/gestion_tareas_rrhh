@@ -74,6 +74,7 @@ import {
   computePrincipalHallazgo,
   previousEquivalentPeriod,
 } from "@/lib/reportInsights";
+import { computeCumplimientoProjection, computeSobrecargaProbability, computeSubutilizacionPredictions, type PredictionHorizon } from "@/lib/predictionEngine";
 import { generateReportId } from "./reportId";
 import { currentExecutiveReportVersions } from "./version";
 import { resolveMonthlyPeriodStatus, resolveCustomRangePeriodStatus } from "./periodStatus";
@@ -82,7 +83,7 @@ import { generateExecutiveNarrative } from "./nova/generateNarrative";
 import { logReportAudit } from "./snapshotStore";
 import type { ExecutiveReportFilters, ExecutiveReportPeriodFilter } from "./filters";
 import type { ResolvedReportRoster } from "./resolveRoster";
-import type { ExecutiveReportSnapshotData, SnapshotTeamAlert, SnapshotGeneratedBy } from "./snapshotData";
+import type { ExecutiveReportSnapshotData, SnapshotTeamAlert, SnapshotGeneratedBy, SnapshotPredictivo, SnapshotPredictiveMember } from "./snapshotData";
 import type { IndiceEjecutivoData, MotivoDistributionItem, MonthSnapshot, ReportMemberKpi } from "@/components/kpis/types";
 
 function monthBounds(year: number, month: number) {
@@ -375,6 +376,64 @@ export async function buildMonthlySnapshotData(params: BuildMonthlySnapshotDataP
     });
   }
 
+  // FPS Parte II § Analytics Predictivo — integración visual del motor YA
+  // EXISTENTE (predictionEngine.ts, por colaborador), sin fórmulas nuevas ni
+  // motor de escenarios de equipo. Mismo criterio de gateo que Índice
+  // Ejecutivo: solo tiene sentido proyectar hacia adelante para el mes
+  // calendario en curso.
+  let predictivo: SnapshotPredictivo = null;
+  if (isCurrentMonth && userIds.length > 0) {
+    const [cumplimientoResults, sobrecargaResults, subutilizacionMap] = await Promise.all([
+      Promise.all(userIds.map((id) => computeCumplimientoProjection(id, cutoff))),
+      Promise.all(userIds.map((id) => computeSobrecargaProbability(id, cutoff))),
+      computeSubutilizacionPredictions(userIds, cutoff),
+    ]);
+
+    const predictiveMembers: SnapshotPredictiveMember[] = userIds.map((id, i) => {
+      const member = members.find((m) => m.id === id);
+      const cumplimientoResult = cumplimientoResults[i];
+      const sobrecargaResult = sobrecargaResults[i];
+      const subutilizacionResult = subutilizacionMap.get(id);
+      return {
+        id,
+        name: member?.name ?? id,
+        cumplimiento: cumplimientoResult.available
+          ? { available: true, queOcurrira: cumplimientoResult.queOcurrira, porQue: cumplimientoResult.porQue, queHacer: cumplimientoResult.queHacer, confidencePct: cumplimientoResult.confidencePct }
+          : { available: false, queOcurrira: cumplimientoResult.reason, porQue: "", queHacer: [], confidencePct: 0 },
+        sobrecarga: sobrecargaResult.available
+          ? { available: true, queOcurrira: sobrecargaResult.queOcurrira, porQue: sobrecargaResult.porQue, nivel: sobrecargaResult.nivel, queHacer: sobrecargaResult.queHacer, confidencePct: sobrecargaResult.confidencePct }
+          : { available: false, queOcurrira: sobrecargaResult.reason, porQue: "", nivel: "Bajo", queHacer: [], confidencePct: 0 },
+        subutilizacion: subutilizacionResult ? { nivel: subutilizacionResult.nivel, queOcurrira: subutilizacionResult.queOcurrira, queHacer: subutilizacionResult.queHacer } : null,
+      };
+    });
+
+    const validCumplimientoPct: number[] = [];
+    let representativeHorizon: PredictionHorizon | null = null;
+    for (const r of cumplimientoResults) {
+      if (r.available) {
+        validCumplimientoPct.push(r.cumplimientoEsperadoCierrePct);
+        if (representativeHorizon === null) representativeHorizon = r.horizon;
+      }
+    }
+    if (representativeHorizon === null) {
+      for (const r of sobrecargaResults) {
+        if (r.available) {
+          representativeHorizon = r.horizon;
+          break;
+        }
+      }
+    }
+    const membersAtRiskSobrecarga = sobrecargaResults.filter((r) => r.available && r.nivel === "Alto").length;
+
+    predictivo = {
+      asOf: cutoff.toISOString(),
+      horizonDays: representativeHorizon ?? 30,
+      membersAtRiskSobrecarga,
+      avgCumplimientoEsperadoCierrePct: validCumplimientoPct.length > 0 ? Math.round(validCumplimientoPct.reduce((s, v) => s + v, 0) / validCumplimientoPct.length) : null,
+      members: predictiveMembers,
+    };
+  }
+
   for (const member of members) {
     member.estadoOperativo = deriveEstadoOperativo({
       completedPct: member.completedPct,
@@ -455,7 +514,7 @@ export async function buildMonthlySnapshotData(params: BuildMonthlySnapshotDataP
     indicatorExplanations,
     recommendations,
     alerts,
-    predictivo: null,
+    predictivo,
     nova: null,
     novaDegraded: false,
   };

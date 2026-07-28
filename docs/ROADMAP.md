@@ -142,11 +142,14 @@
   el motor (v1.22.0) por ser un cambio de mayor riesgo sobre ~1600 líneas de
   UI ya en uso — el motor nuevo convive hoy con el antiguo vía botones
   aditivos ("PDF/Excel Ejecutivo 2.0").
-- Escenarios predictivos de equipo (Esperado/Preventivo/Optimista, FPS
+- Escenarios predictivos DE EQUIPO (Esperado/Preventivo/Optimista, FPS
   Executive Reporting Engine 2.0 Parte III) — no implementados: no existe
-  todavía un motor de predicción a nivel de EQUIPO (`predictionEngine.ts`
-  es por colaborador); `ExecutiveReportSnapshotData.predictivo` queda en
-  `null` hasta que ese motor exista.
+  todavía un motor de síntesis a nivel de equipo. La página "Analytics
+  Predictivo" del documento SÍ integra visualmente el motor existente por
+  colaborador desde v1.22.1 (`predictionEngine.ts` — proyección de
+  cumplimiento, probabilidad de sobrecarga, subutilización, gateado al mes
+  en curso); lo que falta es la narrativa de 3 escenarios a nivel de equipo
+  que el FPS Parte III describe, no la integración del motor en sí.
 
 ## Planificado
 

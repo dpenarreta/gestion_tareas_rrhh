@@ -23,6 +23,53 @@
 
 ---
 
+## v1.22.1 — 2026-07-28
+
+**Tipo:** FIX
+**Módulo:** Executive Reporting Engine — FPS Parte II (`src/lib/executiveReporting/`)
+
+Al cerrar la Fase E (v1.22.0), el usuario aprobó formalmente la arquitectura
+y pidió materializar la FPS Parte II completa sobre la infraestructura ya
+existente. Auditar la Fase E contra el checklist explícito de la Parte II
+encontró 2 brechas reales entre lo construido y lo especificado — el resto
+de la Parte II (Portada, Executive Summary, Estado General, Indicadores
+Estratégicos, Detalle por Colaborador, Executive Insights, Recomendaciones,
+Metadatos, Report ID/Snapshot/Fecha de Corte/Estado del período) ya estaba
+completo desde la Fase E.
+
+- **Distribución Operativa sin gráfico**: la página mostraba solo tarjetas
+  numéricas. Se agregó un gráfico de barras horizontal minimalista (SVG
+  inline, reutiliza las variables de color ya definidas en
+  `EXECUTIVE_REPORT_STYLES`) — sin librería de gráficos nueva.
+- **Analytics Predictivo era un placeholder**: mostraba "no disponible" sin
+  excepción. `SnapshotPredictivo` pasa de `null` fijo a un tipo real
+  (`buildMonthlySnapshotData` lo popula llamando a
+  `computeCumplimientoProjection`/`computeSobrecargaProbability`/
+  `computeSubutilizacionPredictions` de `predictionEngine.ts` — el motor
+  YA EXISTENTE, por colaborador, sin ninguna fórmula nueva). Gateado a
+  `isCurrentMonth`, mismo criterio ya usado por el Índice Ejecutivo (una
+  proyección hacia adelante no es representativa de un mes ya cerrado). La
+  página muestra tarjetas resumen (horizonte, cumplimiento esperado al
+  cierre, colaboradores en riesgo de sobrecarga Alto) + detalle por
+  colaborador; degrada con un mensaje explicativo cuando no aplica (rango,
+  mes pasado), nunca falla.
+- **Sin cambios de arquitectura**: cero nuevas consultas a Analytics desde
+  la capa de render (`documentModel.ts`/`renderReportHtml.ts`/
+  `renderReportExcel.ts` siguen consumiendo exclusivamente
+  `ExecutiveReportSnapshotData`, tal como exige el FPS) — los únicos
+  llamados nuevos a `predictionEngine.ts` viven en el builder
+  (`buildSnapshotData.ts`), la única capa con mandato de tocar Analytics.
+  Cero cambios a `analytics.ts`/`predictionEngine.ts`/Scores/Equilibrio
+  Operativo.
+- **Pendiente, no confundir con lo anterior**: los 3 escenarios de equipo
+  (Esperado/Preventivo/Optimista) de la FPS Parte III siguen sin
+  implementar — no existe un motor de síntesis a nivel de EQUIPO, solo por
+  colaborador. Ver `docs/ROADMAP.md` § En desarrollo.
+- Tests: +1 (`documentModel.test.ts`, escenario con datos predictivos
+  reales, valida HTML + Excel). Suite completa: 1143/1143 en verde,
+  `tsc`/`lint` limpios, `npm run build` exitoso (confirmadas las 3 rutas
+  `/api/reports/executive/*` en el output).
+
 ## v1.22.0 — 2026-07-28
 
 **Tipo:** FEATURE

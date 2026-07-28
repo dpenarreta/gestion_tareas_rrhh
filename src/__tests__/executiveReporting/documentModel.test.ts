@@ -168,6 +168,49 @@ describe("buildReportPages", () => {
     }
   });
 
+  it("la página predictiva muestra datos reales del motor cuando el snapshot los trae (mes en curso)", () => {
+    const pages = buildReportPages(
+      fixtureSnapshot({
+        predictivo: {
+          asOf: "2026-07-28T12:00:00.000Z",
+          horizonDays: 7,
+          membersAtRiskSobrecarga: 1,
+          avgCumplimientoEsperadoCierrePct: 74,
+          members: [
+            {
+              id: "u1",
+              name: "Ana",
+              cumplimiento: { available: true, queOcurrira: "Cumplimiento esperado 90%.", porQue: "Ritmo estable.", queHacer: ["Mantener el ritmo."], confidencePct: 80 },
+              sobrecarga: { available: true, queOcurrira: "Probabilidad de sobrecarga baja.", porQue: "Capacidad disponible.", nivel: "Bajo", queHacer: ["Sin acción necesaria."], confidencePct: 75 },
+              subutilizacion: null,
+            },
+            {
+              id: "u2",
+              name: "Luis",
+              cumplimiento: { available: false, queOcurrira: "Sin historial suficiente para proyectar.", porQue: "", queHacer: [], confidencePct: 0 },
+              sobrecarga: { available: true, queOcurrira: "Probabilidad de sobrecarga alta.", porQue: "Capacidad negativa.", nivel: "Alto", queHacer: ["Redistribuir tareas."], confidencePct: 70 },
+              subutilizacion: null,
+            },
+          ],
+        },
+      }),
+    );
+    const predictive = pages.find((p) => p.kind === "predictive");
+    expect(predictive?.kind).toBe("predictive");
+    if (predictive?.kind === "predictive") {
+      expect(predictive.available).toBe(true);
+      expect(predictive.membersAtRiskSobrecarga).toBe(1);
+      expect(predictive.avgCumplimientoEsperadoCierrePct).toBe(74);
+      expect(predictive.members).toHaveLength(2);
+      expect(predictive.members[1].sobrecargaNivel).toBe("Alto");
+    }
+
+    const html = buildExecutiveReportHtml(pages);
+    expect(html).toContain("Probabilidad de sobrecarga alta");
+    const wb = buildExecutiveReportWorkbook(pages);
+    expect(wb.SheetNames).toContain("Analytics Predictivo");
+  });
+
   it("degrada con gracia cuando nova es null (snapshot legacy) — nunca lanza", () => {
     const pages = buildReportPages(fixtureSnapshot({ nova: null }));
     const summary = pages.find((p) => p.kind === "executiveSummary");

@@ -136,12 +136,31 @@ export type SnapshotDistribuciones = {
 };
 
 /**
- * § Analytics Predictivo — placeholder hasta que un builder de escenarios de
- * equipo (a partir de `predictionEngine.ts`) exista. `null` no bloquea el
- * resto del documento ni la generación (FPS Parte IV §8: la narrativa nunca
- * bloquea) — la página correspondiente debe degradar con un mensaje, no fallar.
+ * § Analytics Predictivo — integración visual del motor EXISTENTE
+ * (`predictionEngine.ts`, por colaborador — sin fórmulas nuevas, sin motor
+ * de escenarios de equipo nuevo). Solo se calcula para el mes calendario en
+ * curso (mismo criterio que Índice Ejecutivo — una proyección hacia
+ * adelante no es representativa de un mes ya cerrado); `null` en cualquier
+ * otro caso (rango de meses, rango personalizado, mes pasado) — la página
+ * correspondiente debe degradar con un mensaje, nunca fallar (FPS Parte IV
+ * §8: la narrativa nunca bloquea la generación).
  */
-export type SnapshotPredictivo = null;
+export type SnapshotPredictiveMember = {
+  id: string;
+  name: string;
+  cumplimiento: { available: boolean; queOcurrira: string; porQue: string; queHacer: string[]; confidencePct: number } | null;
+  sobrecarga: { available: boolean; queOcurrira: string; porQue: string; nivel: "Alto" | "Medio" | "Bajo"; queHacer: string[]; confidencePct: number } | null;
+  subutilizacion: { nivel: "Alto" | "Medio" | "Bajo"; queOcurrira: string; queHacer: string[] } | null;
+};
+
+export type SnapshotPredictivo = {
+  /** ISO 8601 — instante desde el que se proyecta (el mismo "ahora" usado por el motor, no la fecha de corte). */
+  asOf: string;
+  horizonDays: number;
+  membersAtRiskSobrecarga: number;
+  avgCumplimientoEsperadoCierrePct: number | null;
+  members: SnapshotPredictiveMember[];
+} | null;
 
 /**
  * § Executive Summary / § Executive Insights / § Executive Assessment by NOVA

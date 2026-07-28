@@ -184,7 +184,29 @@ function renderMemberDetailPage(p: MemberDetailPage): string {
   </section>`;
 }
 
+/** Barras horizontales minimalistas (SVG inline) — sin librería de gráficos, consistente con "gráficos minimalistas" del FPS. */
+function svgBarChart(items: Array<{ label: string; pct: number }>): string {
+  if (items.length === 0) return "";
+  const rowHeight = 26;
+  const chartWidth = 560;
+  const barMaxWidth = 360;
+  const height = items.length * rowHeight + 10;
+  const bars = items
+    .map((item, i) => {
+      const y = i * rowHeight + 6;
+      const barWidth = Math.max(2, (Math.min(100, item.pct) / 100) * barMaxWidth);
+      return `
+        <text x="0" y="${y + 13}" font-size="11.5" fill="var(--er-ink-soft)">${esc(item.label)}</text>
+        <rect x="170" y="${y}" width="${barMaxWidth}" height="14" rx="3" fill="var(--er-border)"></rect>
+        <rect x="170" y="${y}" width="${barWidth}" height="14" rx="3" fill="var(--er-accent)"></rect>
+        <text x="${170 + barMaxWidth + 8}" y="${y + 13}" font-size="11.5" font-weight="700" fill="var(--er-primary-dark)">${item.pct}%</text>`;
+    })
+    .join("");
+  return `<svg viewBox="0 0 ${chartWidth} ${height}" width="100%" height="${height}" style="max-width:${chartWidth}px" role="img" aria-label="Distribución por motivo">${bars}</svg>`;
+}
+
 function renderOperationalDistributionPage(p: OperationalDistributionPage): string {
+  const chart = svgBarChart(p.consultasByReason.slice(0, 8).map((m) => ({ label: m.reason, pct: m.pct ?? 0 })));
   const motivos = p.consultasByReason
     .slice(0, 8)
     .map(
@@ -206,6 +228,7 @@ function renderOperationalDistributionPage(p: OperationalDistributionPage): stri
     <p class="er-eyebrow">Página 6</p>
     <h2 class="er-h2">Distribución Operativa</h2>
     <p class="er-section-title">Distribución por Motivo</p>
+    ${chart}
     ${motivos || `<p class="er-muted">Sin consultas registradas en este período.</p>`}
     <p class="er-section-title" style="margin-top:20px">Matriz de Riesgo (Cumplimiento × Carga)</p>
     <div class="er-grid">${quadrantCards}</div>
@@ -265,10 +288,38 @@ function renderRecommendationsPage(p: RecommendationsPage): string {
 }
 
 function renderPredictivePage(p: PredictivePage): string {
+  if (!p.available) {
+    return `<section class="er-page">
+      <p class="er-eyebrow">Página 10</p>
+      <h2 class="er-h2">Analytics Predictivo</h2>
+      <p class="er-p">${esc(p.message)}</p>
+    </section>`;
+  }
+
+  const summaryCards = `<div class="er-grid">
+    <div class="er-card"><p class="er-card-label">Horizonte de proyección</p><p class="er-card-value">${p.horizonDays} días</p></div>
+    <div class="er-card"><p class="er-card-label">Cumplimiento esperado al cierre</p><p class="er-card-value">${p.avgCumplimientoEsperadoCierrePct ?? "—"}${p.avgCumplimientoEsperadoCierrePct !== null ? "%" : ""}</p></div>
+    <div class="er-card"><p class="er-card-label">Colaboradores en riesgo de sobrecarga</p><p class="er-card-value">${p.membersAtRiskSobrecarga}</p></div>
+  </div>`;
+
+  const rows = p.members
+    .map(
+      (m) => `<div class="er-indicator-block">
+      <div class="er-indicator-head"><span class="er-indicator-name">${esc(m.name)}</span>${m.sobrecargaNivel !== "—" ? `<span class="er-badge ${m.sobrecargaNivel === "Alto" ? "er-badge-red" : m.sobrecargaNivel === "Medio" ? "er-badge-yellow" : "er-badge-green"}">Sobrecarga: ${esc(m.sobrecargaNivel)}</span>` : ""}</div>
+      <p class="er-kv"><b>Cumplimiento:</b> ${esc(m.cumplimientoLabel)}</p>
+      <p class="er-kv"><b>Carga:</b> ${esc(m.sobrecargaLabel)}</p>
+      <p class="er-kv"><b>Subutilización:</b> ${esc(m.subutilizacionLabel)}</p>
+      ${m.queHacer.length > 0 ? `<p class="er-kv"><b>Qué hacer:</b> ${esc(m.queHacer[0])}</p>` : ""}
+    </div>`,
+    )
+    .join("");
+
   return `<section class="er-page">
-    <p class="er-eyebrow">Página 10</p>
+    <p class="er-eyebrow">Página 10 · Proyección al ${esc(p.asOfLabel)}</p>
     <h2 class="er-h2">Analytics Predictivo</h2>
-    <p class="er-p">${esc(p.message)}</p>
+    ${summaryCards}
+    <p class="er-section-title">Por colaborador</p>
+    ${rows}
   </section>`;
 }
 

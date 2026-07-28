@@ -103,10 +103,25 @@ export type RecommendationsPage = {
   media: RecommendationRow[];
 };
 
+export type PredictiveMemberRow = {
+  id: string;
+  name: string;
+  cumplimientoLabel: string;
+  sobrecargaLabel: string;
+  sobrecargaNivel: "Alto" | "Medio" | "Bajo" | "—";
+  subutilizacionLabel: string;
+  queHacer: string[];
+};
+
 export type PredictivePage = {
   kind: "predictive";
   available: boolean;
   message: string;
+  asOfLabel: string;
+  horizonDays: number;
+  membersAtRiskSobrecarga: number;
+  avgCumplimientoEsperadoCierrePct: number | null;
+  members: PredictiveMemberRow[];
 };
 
 export type MetadataPage = {
@@ -278,13 +293,40 @@ function buildRecommendationsPage(snap: ExecutiveReportSnapshotData): Recommenda
 }
 
 function buildPredictivePage(snap: ExecutiveReportSnapshotData): PredictivePage {
-  if (snap.predictivo) {
-    return { kind: "predictive", available: true, message: "" };
+  const p = snap.predictivo;
+  if (!p) {
+    return {
+      kind: "predictive",
+      available: false,
+      message:
+        "Analytics Predictivo solo proyecta hacia adelante para el mes calendario en curso — este reporte corresponde a un período distinto (o de rango), así que no aplica. Los 3 escenarios de equipo (Esperado/Preventivo/Optimista) del FPS quedan además pendientes de una fase posterior: el motor de predicción existente es por colaborador, todavía no hay una síntesis a nivel de equipo.",
+      asOfLabel: "",
+      horizonDays: 0,
+      membersAtRiskSobrecarga: 0,
+      avgCumplimientoEsperadoCierrePct: null,
+      members: [],
+    };
   }
+
+  const members: PredictiveMemberRow[] = p.members.map((m) => ({
+    id: m.id,
+    name: m.name,
+    cumplimientoLabel: m.cumplimiento?.available ? m.cumplimiento.queOcurrira : (m.cumplimiento?.queOcurrira ?? "Sin datos suficientes para proyectar."),
+    sobrecargaLabel: m.sobrecarga?.available ? m.sobrecarga.queOcurrira : (m.sobrecarga?.queOcurrira ?? "Sin datos suficientes para proyectar."),
+    sobrecargaNivel: m.sobrecarga?.available ? m.sobrecarga.nivel : "—",
+    subutilizacionLabel: m.subutilizacion?.queOcurrira ?? "Sin datos.",
+    queHacer: [...(m.cumplimiento?.queHacer ?? []), ...(m.sobrecarga?.queHacer ?? []), ...(m.subutilizacion?.queHacer ?? [])],
+  }));
+
   return {
     kind: "predictive",
-    available: false,
-    message: "Los escenarios predictivos de equipo (Esperado/Preventivo/Optimista) aún no están disponibles para este tipo de reporte — requieren el motor de Analytics Predictivo de equipo, todavía no integrado a este snapshot.",
+    available: true,
+    message: "",
+    asOfLabel: formatDateTimeLabel(p.asOf),
+    horizonDays: p.horizonDays,
+    membersAtRiskSobrecarga: p.membersAtRiskSobrecarga,
+    avgCumplimientoEsperadoCierrePct: p.avgCumplimientoEsperadoCierrePct,
+    members,
   };
 }
 
