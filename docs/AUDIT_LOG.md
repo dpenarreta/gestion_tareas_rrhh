@@ -15,6 +15,45 @@
 
 ---
 
+## 2026-07-28 — Fix: indicador "Carga Laboral" con fuente de datos distinta al resto de Analytics
+
+**Problema (reportado por el usuario):** en la misma pantalla de Analytics/KPIs, WorkloadCard mostraba "135.49h reales, rango óptimo 140-165h, Moderado" (validado, correcto) mientras el indicador "Carga Laboral" (SummaryCard + Donut + exportables) mostraba "113.28h reales, 206.18h base, 55%" para el mismo colaborador y el mismo mes — dos números incompatibles del mismo concepto.
+
+**Fase 1/2/3 (localización, comparación, causa) — antes de tocar código:**
+`cargaLaboral` (`/api/kpis/[userId]` y `/api/kpis/me`) se construía con `totalEstimated`/`totalReal` = suma cruda de `Task.estimatedHours`/`Task.realHours` de las tareas cuyo `endDate` cae en el mes, pasada por `computeEstimatedVsRealRatio` (`analytics.ts`) — un ratio de precisión de estimación (¿qué tan bien se estimó una tarea vs. lo que tomó en realidad?), sin relación conceptual con "carga laboral" en el sentido de WorkloadCard (horas trabajadas vs. capacidad esperada del período). WorkloadCard usa `cargaTiempo.mensual`, calculado por `computeCargaTiempo` (`workload.ts`) con la Base Horaria Efectiva (Sprint Analytics 2.1: días hábiles × horas efectivas configuradas, ajustada por permisos/estado especial/`kpiStartDate`). Ambos cálculos coexistían en el mismo endpoint, alimentando dos componentes distintos de la misma pantalla bajo el mismo nombre "Carga laboral" — no una duplicación intencional documentada, sino una indicador que quedó desactualizado cuando Sprint Analytics 2.1 introdujo la Base Horaria Efectiva sin migrar este indicador específico a la nueva fuente.
+
+**Restricciones explícitas del pedido:** no modificar el Analytics Engine, Equilibrio Operativo, Analytics Predictivo, Reportes ni Dashboard; no refactorizar de forma general; documentar la causa antes de corregir; limitar la corrección al indicador de Carga Laboral.
+
+### Decisión 1 — Reusar `cargaTiempo.mensual` ya calculado, no reimplementar el cálculo
+
+**Alternativas consideradas:**
+1. Reimplementar en el route handler una fórmula propia de "carga laboral" para el indicador.
+2. Leer directamente `cargaTiempoBase.mensual` — el mismo objeto que el endpoint ya calcula (vía `computeCargaTiempo`) y ya envía al frontend como `cargaTiempo` para WorkloadCard.
+
+**Decisión:** opción 2. Garantiza igualdad byte-a-byte con WorkloadCard (misma pantalla) sin coste de cálculo adicional — ambos leen el mismo `cargaTiempoBase.mensual` ya presente en el handler. Cero cambios a `workload.ts`/`analytics.ts`.
+
+### Decisión 2 — El ratio estimado-vs-real se conserva, pero solo como input del Score básico
+
+`cargaRatio` (`computeEstimatedVsRealRatio`) seguía siendo necesario para `computeSimpleScore` (Score básico /100, no es el indicador reportado como roto). Se dejó sin cambios — ni su fórmula, ni su uso en el Score — y se documentó en el código que ya no alimenta `cargaLaboral`. La inconsistencia ya documentada en `docs/ROADMAP.md` entre `computeEstimatedVsRealRatio` y `computeTargetTimePrecision` sigue pendiente de una decisión de negocio propia — no se resolvió aquí para no exceder el alcance del pedido.
+
+### Decisión 3 — Mapeo de color `WorkloadColor` (5 zonas) → `KpiColor` (3 zonas)
+
+**Problema:** `cargaTiempo.mensual.color` es `WorkloadColor` (`green`/`yellow`/`orange`/`red`, 5 zonas: Subutilización/Moderado/Óptimo/Carga elevada/Sobrecarga), pero el campo `cargaLaboral.color` está tipado `KpiColor` (solo `green`/`yellow`/`red`) y así lo consumen `SummaryCard`/`DonutChart` en 2 componentes.
+
+**Decisión:** `orange` (Carga elevada) colapsa a `yellow` — evita clasificar una carga ya elevada como "green" (subestimar) o como "red" (igualarla a Sobrecarga real, sobreestimar). No se amplió `KpiColor` a 4 valores por ser un cambio de tipo compartido fuera del alcance de "corregir el indicador".
+
+### Decisión 4 — Recalcular también el delta de mes anterior (`prevMonth.cargaRatio`)
+
+**Problema:** si solo se corregía el mes actual, el badge de tendencia habría comparado el nuevo % (Base Horaria Efectiva) contra el ratio antiguo (estimado-vs-real) de un mes distinto — un delta sin sentido, introducido como efecto secundario directo de este mismo fix (no una funcionalidad nueva fuera de alcance).
+
+**Decisión:** recalcular el mes anterior con el mismo criterio, usando `businessBaseForRange` + horas reales de tareas FIJA/`TaskActivity` del mes anterior — mismo patrón ya usado en `reports/custom-range/route.ts` para rangos arbitrarios (no una fórmula nueva, una reutilización de un patrón ya establecido). Se aceptó como simplificación consciente que este cálculo no pondera por permisos/estado especial día a día como sí hace `computeCargaTiempo` para el mes actual (esa granularidad exigiría replicar consultas de `getLeaveMinutesByDay`/`getSpecialStatusDayMap` solo para un badge de tendencia secundario) — el ratio antiguo tampoco lo hacía, así que no es una regresión de precisión, sí una corrección de qué concepto se compara.
+
+**Verificación:** `npx tsc --noEmit` (2 errores preexistentes no relacionados, en `tasks-correct-import-template.test.ts`/`tasks-crud.test.ts`, confirmados sin relación por `git diff --stat`), `npx vitest run src/__tests__/api/kpis-me-userid.test.ts` (14/14, incluye 1 test nuevo de regresión que fija `estimatedHours`/`realHours` de tareas en valores deliberadamente distintos de `cargaTiempo.mensual` mockeado y confirma que `cargaLaboral` refleja este último).
+
+**Aprobado por:** Anthony Jácome (pedido con fases explícitas: localizar → comparar → causa → corregir → validar, y criterio de aceptación claro).
+
+---
+
 ## 2026-07-26 — Compatibilidad Organizacional en el Motor Determinista de Recomendaciones
 
 **Problema:** `computeTeamRecommendations` (`analytics.ts`, §S3-A) sugiere redistribuir horas de un colaborador sobrecargado hacia colaboradores con capacidad disponible, pero solo cruzaba números de capacidad — sin ningún conocimiento de a qué cargo pertenece cada persona. Podía (y en la práctica probablemente lo hacía) sugerir mover trabajo de un Asistente a un Coordinador, o de un Analista a un Jefe Nacional — redistribuciones jerárquicamente incompatibles y operativamente inviables.

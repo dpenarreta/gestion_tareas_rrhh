@@ -2,17 +2,29 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { isTaskOverdue } from "@/lib/utils";
-import { computeCargaTiempo, computeCargaHistory } from "@/lib/workload";
+import {
+  computeCargaTiempo,
+  computeCargaHistory,
+  businessBaseForRange,
+  computeWorkloadRange,
+  computeWorkloadPct,
+} from "@/lib/workload";
+import { businessDayRealRange } from "@/lib/businessTime";
 import { computeRiskAlerts } from "@/lib/riskAlerts";
 import { computePriorityCompliance, isCompletedOnTime } from "@/lib/priorityCompliance";
 import { validateCumplimientoConsistency, computeSimpleScore, computeEstimatedVsRealRatio } from "@/lib/analytics";
 import { cumplimientoColor } from "@/lib/analyticsExplain";
-import type { KpiColor } from "@/components/kpis/types";
+import type { KpiColor, WorkloadColor } from "@/components/kpis/types";
 
-function cargaColor(ratio: number): KpiColor {
-  if (ratio <= 100) return "green";
-  if (ratio <= 120) return "yellow";
-  return "red";
+// El indicador "Carga Laboral" usa la misma fuente validada que WorkloadCard
+// (computeCargaTiempo → cargaTiempo.mensual), NO el ratio horas-estimadas-vs-
+// reales de las tareas del período (ese ratio sigue existiendo solo como input
+// del Score básico, ver `cargaRatio` más abajo) — antes de este fix mostraban
+// horas/base distintas para el mismo período (bug reportado 2026-07-28).
+function cargaColor(workloadColor: WorkloadColor): KpiColor {
+  if (workloadColor === "green") return "green";
+  if (workloadColor === "red") return "red";
+  return "yellow"; // yellow (Moderado) y orange (Carga elevada) comparten el nivel intermedio
 }
 
 function monthBounds(year: number, month: number) {
@@ -94,6 +106,9 @@ export async function GET(request: NextRequest) {
       : 0;
 
   // ── Carga laboral ─────────────────────────────────────────────────────────
+  // Ratio horas-estimadas-vs-reales de las tareas del período — usado
+  // ÚNICAMENTE como input del Score básico (computeSimpleScore), no del
+  // indicador "Carga Laboral" (ver cargaColor arriba y cargaLaboral abajo).
   const totalEstimated = tasks.reduce((s, t) => s + t.estimatedHours, 0);
   const totalReal = tasks.reduce((s, t) => s + t.realHours, 0);
   const cargaRatio = computeEstimatedVsRealRatio(totalReal, totalEstimated);
@@ -184,21 +199,43 @@ export async function GET(request: NextRequest) {
   let py = year;
   if (pm <= 0) { pm = 12; py--; }
   const { start: ps, end: pe } = monthBounds(py, pm);
-  const [prevTasks, prevActivities] = await Promise.all([
+  const { start: prevRealStart } = businessDayRealRange(ps);
+  const { end: prevRealEnd } = businessDayRealRange(pe);
+  const [prevTasks, prevActivities, prevBase, prevFijaTasks, prevActivitiesForCarga] = await Promise.all([
     prisma.task.findMany({
       where: { assignedToId: userId, endDate: { gte: ps, lte: pe } },
-      select: { status: true, estimatedHours: true, realHours: true, completedAt: true, endDate: true },
+      select: { status: true, completedAt: true, endDate: true },
     }),
     prisma.taskActivity.count({
       where: { authorId: userId, createdAt: { gte: ps, lte: pe } },
+    }),
+    // Misma fuente que cargaTiempo.mensual (Base Horaria Efectiva), aplicada
+    // al mes anterior — para que el delta de "Carga laboral" compare el mismo
+    // tipo de dato mes a mes (ver reports/custom-range/route.ts para el mismo patrón).
+    businessBaseForRange(ps, pe),
+    prisma.task.findMany({
+      where: { assignedToId: userId, type: "FIJA", archivedMonth: null, completedAt: { gte: prevRealStart, lte: prevRealEnd } },
+      select: { realHours: true },
+    }),
+    prisma.taskActivity.findMany({
+      where: { authorId: userId, createdAt: { gte: prevRealStart, lte: prevRealEnd } },
+      select: { duration: true },
     }),
   ]);
   const prevCompleted = prevTasks.filter(isCompletedOnTime).length;
   const prevPct =
     prevTasks.length > 0 ? Math.round((prevCompleted / prevTasks.length) * 100) : 0;
-  const prevEst = prevTasks.reduce((s, t) => s + t.estimatedHours, 0);
-  const prevReal = prevTasks.reduce((s, t) => s + t.realHours, 0);
-  const prevCarga = prevEst > 0 ? Math.round((prevReal / prevEst) * 100) : 0;
+  const prevFijaHours = prevFijaTasks.reduce((s, t) => s + t.realHours, 0);
+  const prevActivityHours = prevActivitiesForCarga.reduce((s, a) => s + a.duration, 0) / 60;
+  const prevCargaRealHours = Math.round((prevFijaHours + prevActivityHours) * 100) / 100;
+  const prevCargaRange = computeWorkloadRange(
+    prevCargaRealHours,
+    prevBase.limitBaseHours,
+    prevBase.limitLowHours,
+    prevBase.limitHighHours,
+    prevBase.limitOverloadHours,
+  );
+  const prevCarga = computeWorkloadPct(prevCargaRealHours, prevBase.limitBaseHours, prevCargaRange.max);
 
   // Validación de consistencia (§S3-C) — solo el Administrador ve el detalle;
   // para cualquier otro viewer se registra en auditoría y se oculta.
@@ -233,10 +270,14 @@ export async function GET(request: NextRequest) {
       },
     },
     cargaLaboral: {
-      estimatedHours: Math.round(totalEstimated * 100) / 100,
-      realHours: Math.round(totalReal * 100) / 100,
-      ratio: cargaRatio,
-      color: cargaColor(cargaRatio),
+      // estimatedHours conserva el nombre de campo (usado en 3 componentes de
+      // UI) pero ahora contiene cargaTiempo.mensual.baseHours (Base Horaria
+      // Efectiva), no la suma de estimatedHours de las tareas — ver comentario
+      // sobre cargaColor arriba.
+      estimatedHours: cargaTiempoBase.mensual.baseHours,
+      realHours: cargaTiempoBase.mensual.realHours,
+      ratio: cargaTiempoBase.mensual.pct,
+      color: cargaColor(cargaTiempoBase.mensual.color),
     },
     cargaTiempo,
     riskAlerts,

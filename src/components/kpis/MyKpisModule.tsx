@@ -196,7 +196,7 @@ function downloadKpisExcel(kpi: KpiData, month: string, name: string, role: stri
     ["Score global", `${kpi.score}/100`],
     ["Cumplimiento", `${kpi.cumplimiento.completedPct}%`],
     ["Carga laboral", `${kpi.cargaLaboral.ratio}%`],
-    ["Horas reales / Tiempo objetivo", `${hoursToDisplay(kpi.cargaLaboral.realHours)}h / ${hoursToDisplay(kpi.cargaLaboral.estimatedHours)}h`],
+    ["Horas reales / Horas base", `${hoursToDisplay(kpi.cargaLaboral.realHours)}h / ${hoursToDisplay(kpi.cargaLaboral.estimatedHours)}h`],
     ["Total tareas", kpi.cumplimiento.total],
     ["Completadas", kpi.cumplimiento.completed],
     ["Vencidas", kpi.cumplimiento.overdue],
@@ -301,7 +301,7 @@ async function downloadKpisPDF(kpi: KpiData, month: string, name: string, role: 
   </div>
   <div class="stats">
     <div class="stat"><div class="stat-label">Tareas</div><div class="stat-value">${kpi.cumplimiento.completed}<span style="font-size:13px;color:#94a3b8">/${kpi.cumplimiento.total}</span></div></div>
-    <div class="stat"><div class="stat-label">Horas real/est.</div><div class="stat-value" style="font-size:15px">${hoursToDisplay(kpi.cargaLaboral.realHours)}h<span style="font-size:11px;color:#94a3b8">/${hoursToDisplay(kpi.cargaLaboral.estimatedHours)}h</span></div></div>
+    <div class="stat"><div class="stat-label">Horas real/base</div><div class="stat-value" style="font-size:15px">${hoursToDisplay(kpi.cargaLaboral.realHours)}h<span style="font-size:11px;color:#94a3b8">/${hoursToDisplay(kpi.cargaLaboral.estimatedHours)}h</span></div></div>
     <div class="stat"><div class="stat-label">Consultas</div><div class="stat-value">${kpi.seguimiento.total}</div></div>
   </div>
 
@@ -818,7 +818,7 @@ export default function MyKpisModule({ currentUserId, currentUserName, currentUs
                     pct={Math.min(kpi.cargaLaboral.ratio, 200)}
                     color={kpi.cargaLaboral.color}
                     label={`${kpi.cargaLaboral.ratio}%`}
-                    sublabel={`${hoursToDisplay(kpi.cargaLaboral.realHours)}h / ${hoursToDisplay(kpi.cargaLaboral.estimatedHours)}h est.`}
+                    sublabel={`${hoursToDisplay(kpi.cargaLaboral.realHours)}h / ${hoursToDisplay(kpi.cargaLaboral.estimatedHours)}h base`}
                   />
                   {kpi.prevMonth && (
                     <DeltaBadge current={kpi.cargaLaboral.ratio} prev={kpi.prevMonth.cargaRatio} />

@@ -8,6 +8,8 @@
 
 | Decisión | Motivo técnico | Detalle completo |
 |---|---|---|
+| Fix "Carga Laboral": el indicador ahora lee `cargaTiempo.mensual` en vez de reimplementar un cálculo propio | Garantiza igualdad byte-a-byte con WorkloadCard (misma pantalla), que ya calcula y envía ese objeto — cero coste adicional, cero fórmula nueva. | `AUDIT_LOG.md` § 2026-07-28 |
+| Fix "Carga Laboral": `WorkloadColor` (orange incluido) colapsa a `KpiColor` con `orange→yellow` | Evita subestimar (orange→green) o sobreestimar (orange→red, igualándolo a Sobrecarga real) una carga ya elevada pero no crítica. | `AUDIT_LOG.md` § 2026-07-28 |
 | Compatibilidad Organizacional: Regla 4 (nunca redistribución vertical) es un filtro absoluto en `computeTeamRecommendations`, no solo validación de configuración | El pedido pide que se "descarten automáticamente" — invariante del motor, no un checkbox de formulario que se pueda saltear editando la BD directamente. | `AUDIT_LOG.md` § 2026-07-26 (Compatibilidad Organizacional) |
 | Compatibilidad Organizacional: Matriz de Compatibilidad Operativa es direccional, no auto-simétrica | Mismo patrón de almacenamiento que `getEffectiveRoleTarget` (un valor JSON por cargo); más simple de auditar a costa de configurar ambos lados para compatibilidad mutua. | `AUDIT_LOG.md` § 2026-07-26 (Compatibilidad Organizacional) |
 | Sprint E: motor predictivo como módulo nuevo y autónomo (`/inteligencia-preventiva`), no integrado aún en Dashboard/Analytics/Reportes/Proyectos/Equipo | El pedido pide explícitamente no modificar esas pantallas todavía; la integración profunda queda para un sprint futuro. | `AUDIT_LOG.md` § 2026-07-26 (Sprint E) |

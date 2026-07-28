@@ -1,12 +1,14 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import type { SessionPayload } from "@/lib/session";
 import type { NextRequest } from "next/server";
+import type { CargaTiempo } from "@/components/kpis/types";
 
 const userFindUnique = vi.fn();
 const taskFindMany = vi.fn();
 const commentCount = vi.fn();
 const taskActivityCount = vi.fn();
 const taskActivityFindFirst = vi.fn();
+const taskActivityFindMany = vi.fn();
 const systemConfigHistoryFindFirst = vi.fn();
 const holidayFindMany = vi.fn();
 
@@ -15,7 +17,9 @@ vi.mock("@/lib/prisma", () => ({
     user: { findUnique: userFindUnique },
     task: { findMany: taskFindMany },
     comment: { count: commentCount },
-    taskActivity: { count: taskActivityCount, findFirst: taskActivityFindFirst },
+    // findMany se usa en el cálculo de Carga Laboral del mes anterior
+    // (mismo patrón de horas reales que computeCargaTiempo/reports/custom-range).
+    taskActivity: { count: taskActivityCount, findFirst: taskActivityFindFirst, findMany: taskActivityFindMany },
     // computeRiskAlerts ahora lee alertOverdueTaskThreshold vía
     // getEffectiveAnalyticsConfig (ver Analytics Calculation Registry § D2)
     // y el set de feriados vía getHolidaySet (ver § D9).
@@ -26,17 +30,22 @@ vi.mock("@/lib/prisma", () => ({
 
 vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
 
-const FAKE_CARGA_TIEMPO = {
+const FAKE_CARGA_TIEMPO: CargaTiempo = {
   diaria: {
     realHours: 0, baseHours: 0, pct: 0, color: "green", rangeMin: 0, rangeMax: 0, label: "Óptimo", isWeekend: false,
+    isHoliday: false,
     medicoLeaveMinutes: 120, medicoLeaveFullDay: false,
     personalLeaveMinutes: 0, personalLeaveFullDay: false,
     vacacionesFullDay: false,
     specialStatusType: "MATERNIDAD",
   },
-  semanal: { realHours: 0, baseHours: 0, pct: 0, color: "green", rangeMin: 0, rangeMax: 0, label: "Óptimo", specialStatusType: "MATERNIDAD" },
+  semanal: {
+    realHours: 0, baseHours: 0, pct: 0, color: "green", rangeMin: 0, rangeMax: 0, label: "Óptimo", isWeekend: false,
+    weekStartLabel: "01/06", weekEndLabel: "07/06", businessDays: 5, weekendHours: 0, specialStatusType: "MATERNIDAD",
+  },
   mensual: {
-    realHours: 0, baseHours: 0, pct: 0, color: "green", rangeMin: 0, rangeMax: 0, label: "Óptimo",
+    realHours: 0, baseHours: 0, pct: 0, color: "green", rangeMin: 0, rangeMax: 0, label: "Óptimo", isWeekend: false,
+    monthLabel: "junio 2026", businessDays: 20, weekendHours: 0, holidayHours: 0,
     medicoLeaveMinutes: 120, personalLeaveMinutes: 0, vacacionesMinutes: 0,
     specialStatusType: "MATERNIDAD",
   },
@@ -44,6 +53,12 @@ const FAKE_CARGA_TIEMPO = {
   workloadLimitLow: 5.5,
   workloadLimitHigh: 7.5,
   workloadLimitOverload: 8.5,
+  effectiveHoursPerDia: 6.5,
+  effectiveLimitLow: 5.5,
+  effectiveLimitBase: 6.5,
+  effectiveLimitHigh: 7.5,
+  effectiveLimitOverload: 8.5,
+  kpiStartDate: null,
   dailyHistory: [],
   weeklyHistory: [],
   sensitiveDetailVisible: true,
@@ -59,6 +74,7 @@ vi.mock("@/lib/workload", async () => {
 });
 
 const { getSession } = await import("@/lib/session");
+const { computeCargaTiempo } = await import("@/lib/workload");
 const { GET: meGET } = await import("@/app/api/kpis/me/route");
 const { GET: userIdGET } = await import("@/app/api/kpis/[userId]/route");
 
@@ -91,9 +107,11 @@ function resetAll() {
   commentCount.mockReset().mockResolvedValue(0);
   taskActivityCount.mockReset().mockResolvedValue(0);
   taskActivityFindFirst.mockReset().mockResolvedValue(null);
+  taskActivityFindMany.mockReset().mockResolvedValue([]);
   systemConfigHistoryFindFirst.mockReset().mockResolvedValue(null);
   holidayFindMany.mockReset().mockResolvedValue([]);
   vi.mocked(getSession).mockReset();
+  vi.mocked(computeCargaTiempo).mockReset().mockResolvedValue(FAKE_CARGA_TIEMPO);
 }
 
 // Fija "ahora" bien después del mes de prueba para que refDate = fin de mes
@@ -136,7 +154,7 @@ describe("GET /api/kpis/me", () => {
     expect(body.score).toBe(20);
   });
 
-  it("cargaRatio es 200 cuando hay horas reales pero cero horas estimadas", async () => {
+  it("cargaRatio (estimado-vs-real) es 200 cuando hay horas reales pero cero horas estimadas — usado solo por el Score básico, no por el indicador Carga Laboral", async () => {
     mockSession({});
     userFindUnique.mockResolvedValue({ id: "u1", name: "Ana", role: "ASISTENTE_GH" });
     taskFindMany.mockResolvedValue([
@@ -145,7 +163,31 @@ describe("GET /api/kpis/me", () => {
     ]);
     const res = await meGET(getRequest("http://localhost/api/kpis/me?month=2026-06"));
     const body = await res.json();
-    expect(body.cargaLaboral.ratio).toBe(200);
+    // scoreL = 20 - max(0, 200-100)*0.5 = 20-50 → clamp a 0; scoreC=0 (no completadas a
+    // tiempo, sin completedAt); confirma que el 200% de computeEstimatedVsRealRatio sigue
+    // penalizando el Score básico aunque ya no se exponga como cargaLaboral.ratio.
+    expect(body.score).toBe(0);
+    // El indicador "Carga Laboral" NO debe reflejar este 200% — viene de
+    // cargaTiempo.mensual (mockeado en 0 en este test), no de las tareas.
+    expect(body.cargaLaboral.ratio).not.toBe(200);
+  });
+
+  it("el indicador 'Carga Laboral' usa cargaTiempo.mensual (Base Horaria Efectiva), no las horas estimadas/reales de las tareas — regresión del bug reportado 2026-07-28", async () => {
+    mockSession({});
+    userFindUnique.mockResolvedValue({ id: "u1", name: "Ana", role: "ASISTENTE_GH" });
+    vi.mocked(computeCargaTiempo).mockResolvedValueOnce({
+      ...FAKE_CARGA_TIEMPO,
+      mensual: { ...FAKE_CARGA_TIEMPO.mensual, realHours: 135.49, baseHours: 140, pct: 97, color: "yellow", label: "Moderado" },
+    });
+    // Horas de tareas deliberadamente muy distintas (200/113.28) de las de
+    // cargaTiempo.mensual — antes del fix, cargaLaboral usaba estos valores.
+    taskFindMany.mockResolvedValue([
+      { id: "t1", status: "COMPLETADA", type: "FIJA", frequency: "PUNTUAL", endDate: new Date("2026-06-10"),
+        completedAt: new Date("2026-06-09"), estimatedHours: 200, realHours: 113.28, progress: 100, createdById: "u1", activities: [] },
+    ]);
+    const res = await meGET(getRequest("http://localhost/api/kpis/me?month=2026-06"));
+    const body = await res.json();
+    expect(body.cargaLaboral).toMatchObject({ estimatedHours: 140, realHours: 135.49, ratio: 97, color: "yellow" });
   });
 
   it("calcula cumplimiento, carga laboral y score a partir de las tareas del período", async () => {
@@ -175,9 +217,10 @@ describe("GET /api/kpis/me", () => {
     // t2 (PENDIENTE, vencida hace semanas) cuenta como atrasada; t1 completada nunca.
     expect(body.cumplimiento.overdue).toBeGreaterThanOrEqual(1);
 
-    expect(body.cargaLaboral.estimatedHours).toBe(9);
-    expect(body.cargaLaboral.realHours).toBe(6);
-    expect(body.cargaLaboral.ratio).toBe(Math.round((6 / 9) * 100));
+    // cargaLaboral viene de cargaTiempo.mensual (mockeado en FAKE_CARGA_TIEMPO,
+    // todo en 0 por defecto), NO de la suma de estimatedHours/realHours de las
+    // tareas (9h/6h) — esas horas solo alimentan cargaRatio → Score básico.
+    expect(body.cargaLaboral).toMatchObject({ estimatedHours: 0, realHours: 0, ratio: 0 });
 
     expect(body.seguimiento.total).toBe(1);
     expect(body.seguimiento.byReason).toEqual([{ reason: "CONSULTA", count: 1, totalMinutes: 30, avgMinutes: 30 }]);

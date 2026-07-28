@@ -239,10 +239,18 @@ Sprint E necesitaba (a) un clasificador de tendencia (OLS + CV) con ventana conf
 
 **Severidad:** 🟡 Baja — matemática genérica de ~10-15 líneas cada una, documentada aquí explícitamente para que una auditoría futura no la marque como drift accidental.
 
-### 🟢 D5 — Confirmado: sin duplicación en Carga Laboral / Capacidad / Riesgo / Consistencia / Benchmark
+### 🔴 D12 — CORREGIDO (2026-07-28) — `cargaLaboral` en `kpis/[userId]`/`kpis/me` SÍ era una reimplementación no documentada, contradiciendo D5
+
+D5 (abajo) afirmaba que `computeWorkloadRange`/`computeWorkloadPct` eran la única fuente de clasificación de carga, sin duplicación fuera de su módulo — esa afirmación no cubría el campo `cargaLaboral` (`estimatedHours`/`realHours`/`ratio`/`color`) devuelto por `/api/kpis/[userId]` y `/api/kpis/me`, que en realidad calculaba un ratio completamente distinto (`computeEstimatedVsRealRatio` sobre `Task.estimatedHours`/`Task.realHours` crudos, sin relación con la Base Horaria Efectiva) y lo etiquetaba también "Carga Laboral" en `KpisModule.tsx`/`MyKpisModule.tsx` — mismo nombre, misma pantalla que WorkloadCard, dos fuentes distintas. Reportado por el usuario 2026-07-28 (dos números incompatibles visibles simultáneamente); ver `docs/AUDIT_LOG.md` § 2026-07-28.
+
+**Corrección aplicada:** `cargaLaboral` ahora lee `cargaTiempo.mensual` (mismo objeto que WorkloadCard) en ambas rutas. `computeEstimatedVsRealRatio` se conserva sin cambios, pero ahora documentado explícitamente como input exclusivo del Score básico (`computeSimpleScore`), no de ningún indicador de "Carga Laboral" — D5 (abajo) queda actualizado para reflejar esta corrección.
+
+**Severidad:** 🔴 Alta — a diferencia de D11 (matemática genérica sin impacto de negocio), esta duplicación SÍ producía un número visible e incorrecto para el usuario final, no solo drift interno de código.
+
+### 🟢 D5 — Confirmado (actualizado 2026-07-28, ver D12): sin duplicación en Carga Laboral / Capacidad / Riesgo / Consistencia / Benchmark
 
 Se verificó explícitamente que **no** existen reimplementaciones de estas fórmulas fuera de su módulo fuente:
-- `computeWorkloadRange`/`computeWorkloadPct` (única fuente para toda clasificación de carga en 5 zonas) — usadas consistentemente por `workload.ts`, `analytics.ts` (`cargaHealthScore` es un cálculo *distinto* y así se documenta en su propio comentario), `capacityForecast.ts`, `kpis/executive`, `reports/generate`, `reports/range`, `analytics/simulate`.
+- `computeWorkloadRange`/`computeWorkloadPct` (única fuente para toda clasificación de carga en 5 zonas) — usadas consistentemente por `workload.ts`, `analytics.ts` (`cargaHealthScore` es un cálculo *distinto* y así se documenta en su propio comentario), `capacityForecast.ts`, `kpis/executive`, `reports/generate`, `reports/range`, `reports/custom-range`, `analytics/simulate`, y desde 2026-07-28 también `kpis/[userId]`/`kpis/me` (`cargaLaboral` — ver D12, antes reimplementaba un ratio distinto).
 - `classifyCapacity` (única fuente del semáforo de capacidad) — reutilizada explícitamente por `computeTeamCapacityForecast`, `computeTeamRecommendations` y `analytics/simulate` (el comentario en `simulate/[userId]/route.ts` L102-104 documenta que antes había copias locales que se eliminaron).
 - `classifyOperationalRisk` — reutilizada por `computeOperationalRisk` y `kpis/executive` (bloque CEO).
 - Los componentes de UI de Analytics (`AdvancedAnalytics.tsx`, `SmartBenchmark.tsx`, `OperationalRiskCard.tsx`, `InsightCards.tsx`, `InsightsPanel.tsx`) no recalculan nada — grep dirigido a patrones de fórmula (`Math.round(...*100)`, `filter+reduce`, `Math.min/max` de negocio) no arrojó coincidencias.

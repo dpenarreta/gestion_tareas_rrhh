@@ -23,6 +23,62 @@
 
 ---
 
+## v1.20.1 — 2026-07-28
+
+**Tipo:** FIX
+**Módulo:** Analytics/KPIs — indicador "Carga Laboral"
+
+Corrige el indicador "Carga Laboral" mostrado en `/api/kpis/[userId]` y
+`/api/kpis/me` (consumido por `KpisModule.tsx`/`MyKpisModule.tsx`: SummaryCard,
+DonutChart y exportables PDF/Excel) — usaba una fuente de datos completamente
+distinta a la del resto de Analytics para el mismo período, mostrando dos
+números de "Carga laboral" incompatibles en la misma pantalla (reportado por
+el usuario 2026-07-28: 113.28h/206.18h/55% en el indicador vs. 135.49h/
+140-165h/Moderado en WorkloadCard, ya validado).
+
+- **Causa raíz:** `cargaLaboral.{estimatedHours,realHours,ratio}` se calculaba
+  sumando `Task.estimatedHours`/`Task.realHours` crudos de las tareas con
+  `endDate` en el período (`computeEstimatedVsRealRatio`) — un ratio de
+  precisión de estimación, sin relación con la Base Horaria Efectiva (días
+  hábiles × horas efectivas configuradas, Sprint Analytics 2.1) que
+  `computeCargaTiempo`/`cargaTiempo.mensual` ya calcula y que WorkloadCard
+  (misma pantalla) y el resto de Analytics usan como fuente validada.
+- **FIX:** `cargaLaboral` ahora lee directamente de `cargaTiempo.mensual`
+  (mismo objeto ya calculado y enviado al frontend como `cargaTiempo`) —
+  `estimatedHours` pasa a contener `mensual.baseHours`, `realHours` a
+  `mensual.realHours`, `ratio` a `mensual.pct`; el color se deriva de
+  `mensual.color` (5 zonas `WorkloadColor`) con `orange` colapsado a
+  `yellow` (único mapeo posible a `KpiColor`, 3 zonas).
+- **Delta mes anterior (`prevMonth.cargaRatio`):** recalculado con el mismo
+  criterio (`businessBaseForRange` + horas reales FIJA/`TaskActivity` del mes
+  anterior, mismo patrón que `reports/custom-range/route.ts`) para que el
+  badge de tendencia compare el mismo tipo de dato mes a mes — antes de este
+  fix habría quedado comparando el nuevo % (Base Horaria Efectiva) contra el
+  ratio antiguo (estimado-vs-real) de un mes distinto.
+- **Fuera de alcance (a propósito):** el ratio estimado-vs-real
+  (`computeEstimatedVsRealRatio`) se conserva sin cambios como único input del
+  Score básico (`computeSimpleScore`) — no es el indicador reportado, y
+  tocar su fórmula queda fuera de este fix (ver inconsistencia ya documentada
+  en `docs/ROADMAP.md` sobre `computeEstimatedVsRealRatio` vs
+  `computeTargetTimePrecision`). Cero cambios a `src/lib/analytics.ts`
+  (Analytics Engine), Equilibrio Operativo, Analytics Predictivo, Reportes ni
+  Dashboard.
+- **Archivos:** `src/app/api/kpis/[userId]/route.ts`,
+  `src/app/api/kpis/me/route.ts` (fuente de datos + delta mes anterior),
+  `src/components/kpis/KpisModule.tsx`, `src/components/kpis/MyKpisModule.tsx`
+  (etiquetas "Tiempo objetivo"/"est." → "Horas base", ahora coherentes con el
+  dato que muestran), `src/__tests__/api/kpis-me-userid.test.ts` (fixture
+  `CargaTiempo` tipado completo, 2 tests actualizados a la nueva fuente, 1
+  test nuevo de regresión).
+- **Impacto:** el número de "Carga Laboral" que ve cualquier colaborador o su
+  jerarquía en Analytics/KPIs ahora coincide con el de WorkloadCard/Equilibrio
+  Operativo para el mismo período — elimina la contradicción visible en la
+  misma pantalla. Sin migración de datos (cálculo en tiempo real, no
+  persistido).
+- **Autor:** Claude Code
+
+---
+
 ## v1.20.0 — 2026-07-26
 
 **Tipo:** FIX / ANALYTICS
