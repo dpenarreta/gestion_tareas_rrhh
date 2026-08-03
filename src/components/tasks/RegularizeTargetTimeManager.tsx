@@ -134,12 +134,40 @@ function BulkValidateTargetTimeModal({ taskIds, onClose, onDone }: { taskIds: st
   );
 }
 
-function BulkApproveEndDateModal({ taskIds, onClose, onDone }: { taskIds: string[]; onClose: () => void; onDone: (skipped: string[]) => void }) {
+/** "YYYY-MM-DD" (formatDate/<input type=date>) -> "DD/MM/YYYY", solo para mostrar. */
+function toDisplayDate(isoDate: string): string {
+  const [y, m, d] = isoDate.split("-");
+  return `${d}/${m}/${y}`;
+}
+
+type BulkApproveResult = { updatedCount: number; skippedSelfAssigned: string[]; skippedInvalidDate: string[] };
+
+/**
+ * Aprobación masiva de Fecha Fin — mejora: antes solo aprobaba en bloque la
+ * fecha YA propuesta (sin poder editarla); ahora el líder puede revisar y
+ * ajustar la Fecha Fin de cada actividad ANTES de aprobar, en la misma
+ * acción masiva. Si no edita una fila, se aprueba tal cual (el servidor
+ * decide APROBAR vs MODIFICAR comparando contra el valor vigente — ver
+ * POST /api/tasks/end-date/bulk-approve). Confirmación explícita solo
+ * cuando hay cambios de fecha, listando cada uno antes de ejecutar.
+ */
+function BulkApproveEndDateModal({ tasks, onClose, onDone }: { tasks: PendingTask[]; onClose: () => void; onDone: (result: BulkApproveResult) => void }) {
+  const [dates, setDates] = useState<Record<string, string>>(() => Object.fromEntries(tasks.map((t) => [t.id, formatDate(t.endDate)])));
   const [observaciones, setObservaciones] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [confirming, setConfirming] = useState(false);
 
-  async function submit() {
+  const changes = tasks
+    .map((t) => ({ task: t, newDate: dates[t.id] ?? formatDate(t.endDate) }))
+    .filter(({ task, newDate }) => newDate !== formatDate(task.endDate));
+  const invalidTaskIds = new Set(tasks.filter((t) => (dates[t.id] ?? "") < formatDate(t.startDate)).map((t) => t.id));
+
+  function handleDateChange(taskId: string, value: string) {
+    setDates((prev) => ({ ...prev, [taskId]: value }));
+  }
+
+  async function doSubmit() {
     if (submitting) return;
     setError("");
     setSubmitting(true);
@@ -147,48 +175,129 @@ function BulkApproveEndDateModal({ taskIds, onClose, onDone }: { taskIds: string
       const res = await fetch("/api/tasks/end-date/bulk-approve", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ taskIds, observaciones: observaciones.trim() || undefined }),
+        body: JSON.stringify({
+          items: tasks.map((t) => ({ taskId: t.id, newEndDate: dates[t.id] || undefined })),
+          observaciones: observaciones.trim() || undefined,
+        }),
       });
       if (res.ok) {
         const data = await res.json();
-        onDone(data.skippedSelfAssigned ?? []);
+        onDone(data);
       } else {
         const data = await res.json().catch(() => ({}));
         setError(data.error ?? "Error al aprobar en bloque");
+        setConfirming(false);
       }
     } finally {
       setSubmitting(false);
     }
   }
 
+  function handlePrimaryClick() {
+    if (invalidTaskIds.size > 0) {
+      setError("La nueva Fecha Fin no puede ser anterior a la Fecha Inicio en una o más actividades — corrígela antes de continuar.");
+      return;
+    }
+    setError("");
+    if (changes.length > 0) setConfirming(true);
+    else doSubmit();
+  }
+
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative w-full max-w-md bg-surface border border-border rounded-[14px] shadow-2xl p-5">
-        <h3 className="text-sm font-semibold text-title uppercase tracking-wider mb-1">Aprobar Fecha Fin — {taskIds.length} tareas</h3>
-        <p className="text-xs text-secondary mb-4">
-          Se aprueba la fecha fin YA propuesta de cada tarea seleccionada, tal cual está — no se cambia ningún valor. Cada una queda auditada individualmente.
-        </p>
-        <div className="space-y-3.5">
-          <div>
-            <label className="block text-xs font-semibold text-main mb-1.5">Observaciones (opcional)</label>
-            <textarea
-              value={observaciones}
-              onChange={(e) => setObservaciones(e.target.value)}
-              rows={2}
-              className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary resize-none"
-            />
-          </div>
-          {error && <p className="text-xs text-danger bg-danger/[.09] rounded-lg px-3 py-2">{error}</p>}
-          <div className="flex justify-end gap-2 pt-1">
-            <Button variant="secondary" onClick={onClose}>
-              Cancelar
-            </Button>
-            <Button onClick={submit} disabled={submitting}>
-              {submitting ? "Guardando…" : `Aprobar ${taskIds.length}`}
-            </Button>
-          </div>
-        </div>
+      <div className="relative w-full max-w-2xl bg-surface border border-border rounded-[14px] shadow-2xl p-5 max-h-[85vh] overflow-y-auto">
+        <h3 className="text-sm font-semibold text-title uppercase tracking-wider mb-1">Aprobación masiva de Fecha Fin — {tasks.length} actividades</h3>
+
+        {!confirming ? (
+          <>
+            <p className="text-xs text-secondary mb-4">
+              Revisa la Fecha Fin de cada actividad antes de aprobar. Si no la cambias, se mantiene la registrada por el colaborador.
+            </p>
+
+            <div className="rounded-xl border border-border overflow-x-auto mb-4">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-border bg-background text-left">
+                    <th className="px-3 py-2 font-semibold text-secondary">Actividad</th>
+                    <th className="px-3 py-2 font-semibold text-secondary">Colaborador</th>
+                    <th className="px-3 py-2 font-semibold text-secondary">Fecha Inicio</th>
+                    <th className="px-3 py-2 font-semibold text-secondary">Fecha Fin actual</th>
+                    <th className="px-3 py-2 font-semibold text-secondary">Nueva Fecha Fin</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tasks.map((t) => {
+                    const invalid = invalidTaskIds.has(t.id);
+                    return (
+                      <tr key={t.id} className="border-b border-border last:border-0">
+                        <td className="px-3 py-2 max-w-[180px] truncate text-title">{t.title}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-main">{t.assignedTo.name}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-secondary">{toDisplayDate(formatDate(t.startDate))}</td>
+                        <td className="px-3 py-2 whitespace-nowrap text-secondary">{toDisplayDate(formatDate(t.endDate))}</td>
+                        <td className="px-3 py-2">
+                          <input
+                            type="date"
+                            value={dates[t.id] ?? ""}
+                            min={formatDate(t.startDate)}
+                            onChange={(e) => handleDateChange(t.id, e.target.value)}
+                            className={`border rounded-lg px-2 py-1 text-xs bg-surface text-title focus:outline-none focus:ring-2 focus:ring-primary ${invalid ? "border-danger" : "border-border"}`}
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-xs font-semibold text-main mb-1.5">Observaciones (opcional)</label>
+              <textarea
+                value={observaciones}
+                onChange={(e) => setObservaciones(e.target.value)}
+                rows={2}
+                className="w-full border border-border rounded-xl px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary resize-none"
+              />
+            </div>
+
+            {error && <p className="text-xs text-danger bg-danger/[.09] rounded-lg px-3 py-2 mb-3">{error}</p>}
+
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={onClose}>
+                Cancelar
+              </Button>
+              <Button onClick={handlePrimaryClick} disabled={submitting}>
+                {changes.length > 0 ? "Revisar cambios" : `Aprobar ${tasks.length}`}
+              </Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="text-xs text-secondary mb-3">
+              {changes.length} {changes.length === 1 ? "actividad tendrá" : "actividades tendrán"} un cambio de Fecha Fin:
+            </p>
+            <ul className="space-y-1.5 mb-4 text-xs">
+              {changes.map(({ task, newDate }) => (
+                <li key={task.id} className="bg-background rounded-lg px-3 py-2">
+                  <span className="text-title font-medium">{task.title}</span>: La Fecha Fin será modificada de{" "}
+                  <span className="font-semibold">{toDisplayDate(formatDate(task.endDate))}</span> a{" "}
+                  <span className="font-semibold">{toDisplayDate(newDate)}</span>.
+                </li>
+              ))}
+            </ul>
+            <p className="text-sm text-title font-medium mb-4">¿Desea continuar?</p>
+            {error && <p className="text-xs text-danger bg-danger/[.09] rounded-lg px-3 py-2 mb-3">{error}</p>}
+            <div className="flex justify-end gap-2">
+              <Button variant="secondary" onClick={() => setConfirming(false)} disabled={submitting}>
+                Volver a revisar
+              </Button>
+              <Button onClick={doSubmit} disabled={submitting}>
+                {submitting ? "Guardando…" : "Confirmar"}
+              </Button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -462,15 +571,14 @@ export default function RegularizeTargetTimeManager({ currentUserId }: { current
 
       {bulkEndDateOpen && (
         <BulkApproveEndDateModal
-          taskIds={[...selected]}
+          tasks={tasks.filter((t) => selected.has(t.id))}
           onClose={() => setBulkEndDateOpen(false)}
-          onDone={(skipped) => {
+          onDone={(result) => {
             setBulkEndDateOpen(false);
-            setNotice(
-              skipped.length > 0
-                ? `Aprobación aplicada. ${skipped.length} tarea(s) propias se omitieron.`
-                : "Aprobación aplicada correctamente."
-            );
+            const notes: string[] = [];
+            if (result.skippedSelfAssigned.length > 0) notes.push(`${result.skippedSelfAssigned.length} tarea(s) propias se omitieron.`);
+            if (result.skippedInvalidDate.length > 0) notes.push(`${result.skippedInvalidDate.length} tarea(s) con fecha inválida se omitieron.`);
+            setNotice(notes.length > 0 ? `Aprobación aplicada. ${notes.join(" ")}` : "Aprobación aplicada correctamente.");
             load();
           }}
         />

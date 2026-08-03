@@ -15,6 +15,51 @@
 
 ---
 
+## 2026-08-03 — Aprobación masiva de Fecha Fin con edición por fila
+
+**Problema:** la aprobación masiva de Fecha Fin (v1.25.0/v1.25.1) solo
+aceptaba la fecha YA registrada por el colaborador — si el líder quería
+ajustar la fecha de una o más actividades, tenía que salir del flujo
+masivo y editarlas una por una desde `ValidateActivityModal`. Se pidió
+poder revisar y ajustar la Fecha Fin de cada actividad seleccionada dentro
+de la MISMA acción masiva.
+
+**Decisión — contrato del endpoint cambia de `taskIds` a `items` con fecha
+opcional por elemento:** `POST /api/tasks/end-date/bulk-approve` tiene un
+solo consumidor (el modal de regularización), así que se cambió el body
+directamente en vez de mantener compatibilidad hacia atrás con una forma
+vieja sin uso. Por cada `{ taskId, newEndDate? }`: si `newEndDate` coincide
+con el `endDate` vigente de la tarea (leído del lado del SERVIDOR, no
+confiando en lo que mande el cliente), se aplica como `APROBAR`; si
+difiere, como `MODIFICAR`. Esto reproduce exactamente la regla del pedido
+("si el líder no modifica la fecha, se mantiene la original") sin que el
+cliente tenga que decidir la acción — el servidor es la fuente de verdad
+de "¿esto realmente cambió?".
+
+**Decisión — validación `newEndDate >= startDate` en el servidor, no solo
+en el `<input type="date" min=...>` del cliente:** el atributo HTML `min`
+es una ayuda de UX, no una garantía — una tarea con `newEndDate` anterior a
+su `startDate` se omite server-side y se reporta en `skippedInvalidDate`,
+mismo patrón que `skippedSelfAssigned` (que ya existía).
+
+**Decisión — confirmación de cambios como paso intermedio DENTRO del
+modal, no `window.confirm()` nativo:** el resto de la app nunca usa
+diálogos nativos del navegador para confirmaciones — se mantiene el
+patrón existente (paso adicional dentro del propio modal, con "Volver a
+revisar"/"Confirmar"). Solo aparece si hay al menos un cambio real
+(comparado igual que la decisión APROBAR/MODIFICAR de arriba) — si nadie
+editó ninguna fecha, aprueba directo sin fricción extra.
+
+**Impacto:** cero cambio a `applyEndDateAction`/`applyTargetTimeValidation`/
+permisos/auditoría — la mejora es enteramente en la capa de listado y
+ejecución masiva. La aprobación individual (`ValidateActivityModal`) ya
+tenía esta capacidad (acción "Modificar") desde v1.25.0; este cambio la
+extiende al camino masivo.
+
+**Aprobado por:** Anthony Jácome (dirección de producto).
+
+---
+
 ## 2026-08-03 — Consolidación de la validación de líder en Tiempo Objetivo
 
 **Problema:** la primera implementación de Validación de Fecha Fin (entrada

@@ -23,6 +23,44 @@
 
 ---
 
+## v1.26.0 — 2026-08-03
+
+**Tipo:** FEATURE
+**Módulo:** Aprobación masiva de Fecha Fin con edición por fila (`src/app/api/tasks/end-date/bulk-approve/route.ts`, `src/components/tasks/RegularizeTargetTimeManager.tsx`)
+
+Extiende la aprobación masiva de Fecha Fin (v1.25.0/v1.25.1, que solo
+aprobaba en bloque la fecha ya propuesta) para permitir al líder **editar la
+Fecha Fin de cada actividad seleccionada, individualmente, antes de
+aprobar** — sin tener que entrar tarea por tarea.
+
+- **Modal de revisión masiva** (`BulkApproveEndDateModal`, reescrito):
+  tabla con Actividad/Colaborador/Fecha Inicio/Fecha Fin actual/Nueva Fecha
+  Fin (editable, prellenada con el valor actual) por cada tarea
+  seleccionada. Si el líder no toca una fila, se mantiene la fecha
+  original.
+- **Confirmación solo cuando hay cambios**: al continuar, si alguna fila
+  fue editada, se muestra un paso de confirmación listando cada cambio
+  ("La Fecha Fin de «X» será modificada de DD/MM/YYYY a DD/MM/YYYY") antes
+  de ejecutar; si ninguna fila cambió, aprueba directamente sin ese paso
+  extra.
+- **`POST /api/tasks/end-date/bulk-approve`** cambia su contrato de
+  `{ taskIds }` a `{ items: [{ taskId, newEndDate? }] }` (único consumidor,
+  sin necesidad de compatibilidad hacia atrás): por cada ítem, si
+  `newEndDate` coincide con el valor vigente de la tarea se aplica como
+  `APROBAR` (sin cambio, sin notificar); si difiere, como `MODIFICAR`
+  (cambia `endDate`, notifica al colaborador) — reusa
+  `applyEndDateAction` sin duplicar su lógica de transacción/auditoría.
+  Nueva validación: una `newEndDate` anterior a `Task.startDate` se omite
+  y se reporta aparte (`skippedInvalidDate`), igual que ya se hacía con las
+  tareas autoasignadas (`skippedSelfAssigned`).
+- Cero cambio a `applyEndDateAction`, permisos, ni a la aprobación
+  individual (`ValidateActivityModal`) — solo el camino masivo gana
+  capacidad de edición por fila.
+- Ver `docs/AUDIT_LOG.md` § 2026-08-03 (Aprobación masiva con edición) para
+  el detalle de las decisiones de diseño.
+
+---
+
 ## v1.25.1 — 2026-08-03
 
 **Tipo:** REFACTOR / UX

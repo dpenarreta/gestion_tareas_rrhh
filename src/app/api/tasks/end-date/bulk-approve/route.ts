@@ -8,14 +8,34 @@ import { applyEndDateAction } from "@/lib/endDateServer";
 
 const CAN_REGULARIZE: Role[] = ["ADMINISTRADOR", "JEFE_NACIONAL"];
 
+type BulkItem = { taskId: string; newEndDate?: string };
+
+function isValidItems(value: unknown): value is BulkItem[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every(
+      (v) =>
+        typeof v === "object" &&
+        v !== null &&
+        typeof (v as { taskId?: unknown }).taskId === "string" &&
+        ((v as { newEndDate?: unknown }).newEndDate === undefined || typeof (v as { newEndDate?: unknown }).newEndDate === "string")
+    )
+  );
+}
+
 /**
- * Edición masiva de la herramienta de regularización de Fecha Fin — a
- * diferencia del bulk de Tiempo Objetivo (que fija el MISMO nuevo valor a
- * varias tareas), aquí solo tiene sentido APROBAR en bloque la fecha YA
- * propuesta de cada tarea seleccionada (fijar la misma fecha a tareas
- * distintas no sería correcto). Cada tarea queda auditada individualmente.
- * Las tareas asignadas al propio usuario se omiten (nunca el responsable
- * puede validar su propia Fecha Fin).
+ * Edición/aprobación masiva de Fecha Fin — a diferencia del bulk de Tiempo
+ * Objetivo (que fija el MISMO nuevo valor a varias tareas), aquí cada tarea
+ * puede recibir su PROPIA fecha ajustada (mejora — antes solo aprobaba en
+ * bloque la fecha ya propuesta, sin poder editarla). Si `newEndDate` no
+ * viene o coincide con la fecha actual de la tarea, se aplica como APROBAR
+ * (sin cambio); si difiere, se aplica como MODIFICAR — reusa
+ * `applyEndDateAction` sin duplicar su lógica de transacción/auditoría/
+ * notificación. Cada tarea queda auditada individualmente. Las tareas
+ * asignadas al propio usuario se omiten (nunca el responsable puede validar
+ * su propia Fecha Fin); las que llevan una `newEndDate` anterior a su
+ * `startDate` también se omiten y se reportan aparte.
  */
 export async function POST(request: NextRequest) {
   const session = await getSession();
@@ -28,34 +48,64 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Cuerpo inválido" }, { status: 400 });
   }
-  const { taskIds, observaciones } = (body ?? {}) as { taskIds?: unknown; observaciones?: unknown };
+  const { items, observaciones } = (body ?? {}) as { items?: unknown; observaciones?: unknown };
 
-  if (!Array.isArray(taskIds) || taskIds.length === 0 || !taskIds.every((t) => typeof t === "string")) {
+  if (!isValidItems(items)) {
     return NextResponse.json({ error: "Debes seleccionar al menos una tarea" }, { status: 400 });
   }
 
-  const tasks = await prisma.task.findMany({ where: { id: { in: taskIds } }, select: { id: true, assignedToId: true } });
-  const skippedSelfAssigned = tasks.filter((t) => t.assignedToId === session.userId).map((t) => t.id);
-  const eligible = tasks.filter((t) => t.assignedToId !== session.userId);
+  const taskIds = items.map((i) => i.taskId);
+  const tasks = await prisma.task.findMany({
+    where: { id: { in: taskIds } },
+    select: { id: true, assignedToId: true, startDate: true, endDate: true },
+  });
+  const taskById = new Map(tasks.map((t) => [t.id, t]));
 
   const ipAddress = getClientIp(request.headers);
   const detail = typeof observaciones === "string" && observaciones.trim() ? observaciones.trim() : null;
 
+  const skippedSelfAssigned: string[] = [];
+  const skippedInvalidDate: string[] = [];
+  const affectedUserIds = new Set<string>();
   let updatedCount = 0;
-  for (const task of eligible) {
+
+  for (const item of items) {
+    const task = taskById.get(item.taskId);
+    if (!task) continue;
+    if (task.assignedToId === session.userId) {
+      skippedSelfAssigned.push(item.taskId);
+      continue;
+    }
+
+    let newEndDateValue: Date | null = null;
+    if (item.newEndDate) {
+      const parsed = new Date(item.newEndDate);
+      if (Number.isNaN(parsed.getTime()) || parsed.getTime() < task.startDate.getTime()) {
+        skippedInvalidDate.push(item.taskId);
+        continue;
+      }
+      // Si coincide con la fecha ya vigente, no es realmente una modificación
+      // — se aprueba tal cual (mismo criterio que "si el líder no modifica la
+      // fecha, se mantiene la Fecha Fin original").
+      if (parsed.getTime() !== task.endDate.getTime()) newEndDateValue = parsed;
+    }
+
     const updated = await applyEndDateAction({
-      taskId: task.id,
-      action: "APROBAR",
-      newEndDate: null,
+      taskId: item.taskId,
+      action: newEndDateValue ? "MODIFICAR" : "APROBAR",
+      newEndDate: newEndDateValue,
       observaciones: detail,
       userId: session.userId,
       userRole: session.role,
       ipAddress,
     });
-    if (updated) updatedCount++;
+    if (updated) {
+      updatedCount++;
+      affectedUserIds.add(task.assignedToId);
+    }
   }
 
-  invalidateAnalyticsCache(eligible.map((t) => t.assignedToId));
+  invalidateAnalyticsCache([...affectedUserIds]);
 
-  return NextResponse.json({ updatedCount, skippedSelfAssigned });
+  return NextResponse.json({ updatedCount, skippedSelfAssigned, skippedInvalidDate });
 }
