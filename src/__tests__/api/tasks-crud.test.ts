@@ -7,11 +7,19 @@ const taskCreate = vi.fn();
 const taskUpdate = vi.fn();
 const taskDelete = vi.fn();
 const notificationCreate = vi.fn();
+// Validación de Fecha Fin (mejora) — PATCH /api/tasks/[id] envuelve la
+// actualización en una transacción SOLO cuando reinicia la aprobación a
+// Pendiente (ver "shouldResetEndDateApproval"); tx.task.update reusa el
+// mismo spy taskUpdate para que las aserciones existentes sigan
+// funcionando sin importar qué camino tomó la ruta.
+const endDateAuditLogCreate = vi.fn();
+const $transaction = vi.fn(async (fn: (tx: unknown) => unknown) => fn({ task: { update: taskUpdate }, endDateAuditLog: { create: endDateAuditLogCreate } }));
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     task: { findMany: taskFindMany, findUnique: taskFindUnique, create: taskCreate, update: taskUpdate, delete: taskDelete },
     notification: { create: notificationCreate },
+    $transaction,
   },
 }));
 
@@ -46,7 +54,7 @@ function ctx(id = "task-1") {
 }
 
 function jsonRequest(body: unknown) {
-  return { json: async () => body } as never;
+  return { json: async () => body, headers: new Headers() } as never;
 }
 
 function resetAll() {
@@ -57,6 +65,8 @@ function resetAll() {
   taskDelete.mockReset();
   notificationCreate.mockReset().mockResolvedValue({});
   attachUnreadComments.mockClear();
+  endDateAuditLogCreate.mockReset().mockResolvedValue({});
+  $transaction.mockClear();
   vi.mocked(getSession).mockReset();
 }
 
@@ -297,6 +307,106 @@ describe("PATCH /api/tasks/[id]", () => {
     taskUpdate.mockResolvedValue({});
     const res = await taskPATCH(jsonRequest({ title: "Editado por coordinador" }), ctx());
     expect(res.status).toBe(200);
+  });
+});
+
+describe("PATCH /api/tasks/[id] — validación de Fecha Fin (mejora)", () => {
+  beforeEach(resetAll);
+
+  function baseTask(overrides: Partial<{ endDate: Date; endDateApprovalStatus: string }> = {}) {
+    return {
+      id: "task-1",
+      assignedToId: "u1",
+      createdById: "u1",
+      archivedMonth: null,
+      assignedTo: { role: "ASISTENTE_GH" },
+      endDate: new Date(Date.UTC(2026, 7, 15)),
+      endDateApprovalStatus: "PENDIENTE",
+      ...overrides,
+    };
+  }
+
+  it("editar endDate cuando el estado ya es PENDIENTE actualiza normal, sin transacción ni audit log", async () => {
+    mockSession({ userId: "u1" });
+    taskFindUnique.mockResolvedValue(baseTask());
+    taskUpdate.mockResolvedValue({});
+
+    await taskPATCH(jsonRequest({ endDate: "2026-08-20" }), ctx());
+
+    expect($transaction).not.toHaveBeenCalled();
+    expect(endDateAuditLogCreate).not.toHaveBeenCalled();
+    expect(taskUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ endDate: new Date("2026-08-20") }) })
+    );
+  });
+
+  it("editar endDate a un valor DISTINTO cuando el estado ya era APROBADA reinicia a PENDIENTE y audita PROPUESTA", async () => {
+    mockSession({ userId: "u1" });
+    taskFindUnique.mockResolvedValue(baseTask({ endDateApprovalStatus: "APROBADA" }));
+    taskUpdate.mockResolvedValue({});
+
+    await taskPATCH(jsonRequest({ endDate: "2026-08-20" }), ctx());
+
+    expect($transaction).toHaveBeenCalledTimes(1);
+    expect(taskUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          endDate: new Date("2026-08-20"),
+          endDateApprovalStatus: "PENDIENTE",
+          endDateApprovedAt: null,
+          endDateApprovedById: null,
+        }),
+      })
+    );
+    expect(endDateAuditLogCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          taskId: "task-1",
+          userId: "u1",
+          action: "PROPUESTA",
+          previousValue: new Date(Date.UTC(2026, 7, 15)),
+          newValue: new Date("2026-08-20"),
+        }),
+      })
+    );
+  });
+
+  it("reeditar tras RECHAZADA también reinicia a PENDIENTE (mismo criterio que APROBADA/MODIFICADA)", async () => {
+    mockSession({ userId: "u1" });
+    taskFindUnique.mockResolvedValue(baseTask({ endDateApprovalStatus: "RECHAZADA" }));
+    taskUpdate.mockResolvedValue({});
+
+    await taskPATCH(jsonRequest({ endDate: "2026-08-21" }), ctx());
+
+    expect($transaction).toHaveBeenCalledTimes(1);
+    expect(taskUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ endDateApprovalStatus: "PENDIENTE" }) })
+    );
+  });
+
+  it("re-enviar la MISMA fecha (sin cambio real) no reinicia el estado, aunque ya estuviera decidido", async () => {
+    mockSession({ userId: "u1" });
+    const sameDate = new Date(Date.UTC(2026, 7, 15));
+    taskFindUnique.mockResolvedValue(baseTask({ endDate: sameDate, endDateApprovalStatus: "APROBADA" }));
+    taskUpdate.mockResolvedValue({});
+
+    await taskPATCH(jsonRequest({ endDate: sameDate.toISOString() }), ctx());
+
+    expect($transaction).not.toHaveBeenCalled();
+    expect(endDateAuditLogCreate).not.toHaveBeenCalled();
+  });
+
+  it("un PATCH que no toca endDate nunca reinicia el estado de aprobación, aunque ya estuviera decidido", async () => {
+    mockSession({ userId: "u1" });
+    taskFindUnique.mockResolvedValue(baseTask({ endDateApprovalStatus: "MODIFICADA" }));
+    taskUpdate.mockResolvedValue({});
+
+    await taskPATCH(jsonRequest({ title: "Solo cambio el título" }), ctx());
+
+    expect($transaction).not.toHaveBeenCalled();
+    expect(taskUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.not.objectContaining({ endDateApprovalStatus: expect.anything() }) })
+    );
   });
 });
 

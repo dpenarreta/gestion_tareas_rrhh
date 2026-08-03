@@ -11,15 +11,24 @@ import { rangesOverlap } from "@/lib/timeOverlap";
 import { hoursToDisplay } from "@/lib/timeFormat";
 import ActivityItem from "./ActivityItem";
 import ValidateTargetTimeModal from "./ValidateTargetTimeModal";
+import ValidateEndDateModal from "./ValidateEndDateModal";
 import { Button } from "@/components/ui/Button";
 import { SkeletonText } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Clock } from "lucide-react";
+import { formatDate } from "@/lib/utils";
 import {
   TARGET_TIME_REASON_LABEL,
   type TargetTimeAdjustReason,
   type HistoricalDeviationInsight,
 } from "@/lib/targetTime";
+import {
+  END_DATE_STATUS_LABEL,
+  END_DATE_STATUS_EMOJI,
+  END_DATE_AUDIT_ACTION_LABEL,
+  type EndDateApprovalStatus,
+  type EndDateAuditAction,
+} from "@/lib/endDate";
 
 type TargetTimeAuditEntry = {
   id: string;
@@ -46,6 +55,26 @@ type TargetTimeInfo = {
   historicalDeviation: HistoricalDeviationInsight;
 };
 
+type EndDateAuditEntry = {
+  id: string;
+  action: EndDateAuditAction;
+  previousValue: string | null;
+  newValue: string | null;
+  observaciones: string | null;
+  user: { id: string; name: string };
+  userRole: string;
+  createdAt: string;
+};
+
+type EndDateInfo = {
+  endDate: string;
+  endDateApprovalStatus: EndDateApprovalStatus;
+  endDateApprovedAt: string | null;
+  approvedBy: { id: string; name: string } | null;
+  canValidate: boolean;
+  auditHistory: EndDateAuditEntry[];
+};
+
 type DayScheduleEntry = { id: string; startTime: string; endTime: string; taskId: string; taskTitle: string };
 
 function formatAuditDateTime(iso: string): string {
@@ -56,6 +85,17 @@ function formatAuditDateTime(iso: string): string {
   const mins = String(d.getMinutes()).padStart(2, "0");
   return `${day}/${month} ${hours}:${mins}`;
 }
+
+// Tailwind necesita clases literales completas (no interpoladas) para
+// detectarlas en el build — mismo motivo por el que el resto de la app
+// (p. ej. renderReportHtml.ts § ESTADO_COLOR_CLASS) usa un Record en vez de
+// construir el nombre de clase dinámicamente.
+const END_DATE_BADGE_CLASS: Record<EndDateApprovalStatus, string> = {
+  PENDIENTE: "bg-warning/[.15] text-warning",
+  APROBADA: "bg-success/[.13] text-success",
+  MODIFICADA: "bg-primary-surface text-primary",
+  RECHAZADA: "bg-danger/[.09] text-danger",
+};
 
 function clampInt(value: string, min: number, max: number): string {
   if (value === "") return "";
@@ -99,6 +139,11 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
   const [targetTimeExpanded, setTargetTimeExpanded] = useState(true);
   const [auditExpanded, setAuditExpanded] = useState(false);
   const [validateOpen, setValidateOpen] = useState(false);
+
+  const [endDateInfo, setEndDateInfo] = useState<EndDateInfo | null>(null);
+  const [endDateExpanded, setEndDateExpanded] = useState(true);
+  const [endDateAuditExpanded, setEndDateAuditExpanded] = useState(false);
+  const [validateEndDateOpen, setValidateEndDateOpen] = useState(false);
 
 
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -168,6 +213,19 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
   useEffect(() => {
     loadTargetTime();
   }, [loadTargetTime]);
+
+  const loadEndDateInfo = useMemo(
+    () => () =>
+      fetch(`/api/tasks/${task.id}/end-date`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => setEndDateInfo(data))
+        .catch(() => setEndDateInfo(null)),
+    [task.id]
+  );
+
+  useEffect(() => {
+    loadEndDateInfo();
+  }, [loadEndDateInfo]);
 
   useEffect(() => {
     if (readOnly || activityFormat !== "timerange") return;
@@ -392,6 +450,98 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
             onValidated={() => {
               setValidateOpen(false);
               loadTargetTime();
+            }}
+          />
+        )}
+
+        {/* Fecha Fin (validación por líderes) */}
+        {endDateInfo && (
+          <div className="px-4 py-3 border-b border-border">
+            <button
+              onClick={() => setEndDateExpanded((v) => !v)}
+              className="w-full flex items-center gap-1.5 text-xs font-semibold text-main hover:text-primary transition-colors"
+            >
+              <svg
+                className={`w-3 h-3 shrink-0 transition-transform duration-200 ${endDateExpanded ? "rotate-90" : ""}`}
+                fill="none"
+                stroke="currentColor"
+                viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 5l7 7-7 7" />
+              </svg>
+              <span>Fecha Fin</span>
+            </button>
+
+            <div
+              className={`grid transition-all duration-300 ease-in-out ${
+                endDateExpanded ? "grid-rows-[1fr] opacity-100 mt-2.5" : "grid-rows-[0fr] opacity-0"
+              }`}
+            >
+              <div className="overflow-hidden space-y-2.5">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-secondary">Fecha fin</span>
+                  <span className="font-semibold text-title flex items-center gap-1.5">
+                    {formatDate(endDateInfo.endDate)}
+                    <span
+                      className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full ${END_DATE_BADGE_CLASS[endDateInfo.endDateApprovalStatus]}`}
+                      title={endDateInfo.approvedBy ? `${END_DATE_STATUS_LABEL[endDateInfo.endDateApprovalStatus]} — ${endDateInfo.approvedBy.name}` : END_DATE_STATUS_LABEL[endDateInfo.endDateApprovalStatus]}
+                    >
+                      {END_DATE_STATUS_EMOJI[endDateInfo.endDateApprovalStatus]} {END_DATE_STATUS_LABEL[endDateInfo.endDateApprovalStatus]}
+                    </span>
+                  </span>
+                </div>
+
+                {endDateInfo.canValidate && (
+                  <Button size="sm" onClick={() => setValidateEndDateOpen(true)} className="w-full">
+                    Validar fecha fin
+                  </Button>
+                )}
+
+                {endDateInfo.auditHistory.length > 0 && (
+                  <div>
+                    <Button
+                      variant="tertiary"
+                      size="sm"
+                      onClick={() => setEndDateAuditExpanded((v) => !v)}
+                    >
+                      {endDateAuditExpanded ? "Ocultar" : "Ver"} historial de fecha fin ({endDateInfo.auditHistory.length})
+                    </Button>
+                    {endDateAuditExpanded && (
+                      <div className="space-y-1.5 mt-2">
+                        {endDateInfo.auditHistory.map((a) => (
+                          <div key={a.id} className="bg-background rounded-lg px-2.5 py-2 text-[11px] space-y-0.5">
+                            <p className="text-title font-medium">
+                              {END_DATE_AUDIT_ACTION_LABEL[a.action]}
+                              {a.previousValue && a.newValue && a.previousValue !== a.newValue
+                                ? `: ${formatDate(a.previousValue)} → ${formatDate(a.newValue)}`
+                                : a.newValue
+                                  ? `: ${formatDate(a.newValue)}`
+                                  : ""}
+                            </p>
+                            {a.observaciones && <p className="text-secondary">{a.observaciones}</p>}
+                            <p className="text-disabled">
+                              {a.user.name} ({ROLE_LABEL[a.userRole as Role] ?? a.userRole}) · {formatAuditDateTime(a.createdAt)}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {validateEndDateOpen && endDateInfo && (
+          <ValidateEndDateModal
+            taskId={task.id}
+            taskTitle={task.title}
+            currentEndDate={endDateInfo.endDate}
+            onClose={() => setValidateEndDateOpen(false)}
+            onApplied={() => {
+              setValidateEndDateOpen(false);
+              loadEndDateInfo();
             }}
           />
         )}

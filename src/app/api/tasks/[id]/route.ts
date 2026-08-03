@@ -5,6 +5,8 @@ import { canAccessTask } from "@/lib/taskAccess";
 import { canManageUsers } from "@/lib/roles";
 import { attachUnreadComments } from "@/lib/commentViews";
 import { invalidateAnalyticsCache } from "@/lib/analytics";
+import { getClientIp } from "@/lib/rate-limit";
+import { pendingResetTaskData, createEndDateProposalAuditLog } from "@/lib/endDateServer";
 import type { TaskStatus, TaskPriority, TaskFrequency, TaskType } from "@/generated/prisma/client";
 
 type Ctx = { params: Promise<{ id: string }> };
@@ -22,6 +24,7 @@ const taskSelect = {
   estimatedHours: true,
   realHours: true,
   targetTimeValidated: true,
+  endDateApprovalStatus: true,
   progress: true,
   color: true,
   corrected: true,
@@ -101,7 +104,34 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   if ("assignedToId" in body) data.assignedToId = body.assignedToId;
   if ("color" in body) data.color = body.color;
 
-  const updated = await prisma.task.update({ where: { id }, data, select: taskSelect });
+  // Validación de Fecha Fin por líderes (mejora) — si endDate cambia de
+  // valor y la Fecha Fin ya había sido decidida (Aprobada/Modificada/
+  // Rechazada), esa edición ES la "nueva solicitud de aprobación" que pide
+  // el spec: se reinicia a Pendiente automáticamente y queda auditada. Si
+  // ya estaba Pendiente, se actualiza sin tocar el audit log — mismo
+  // criterio que Tiempo Objetivo de no auditar ediciones sin validación
+  // previa. Aplica sin importar quién edite (responsable, creador o líder).
+  const newEndDateValue = data.endDate instanceof Date ? data.endDate : null;
+  const shouldResetEndDateApproval =
+    newEndDateValue !== null &&
+    newEndDateValue.getTime() !== task.endDate.getTime() &&
+    task.endDateApprovalStatus !== "PENDIENTE";
+  if (shouldResetEndDateApproval) Object.assign(data, pendingResetTaskData());
+
+  const updated = shouldResetEndDateApproval
+    ? await prisma.$transaction(async (tx) => {
+        const u = await tx.task.update({ where: { id }, data, select: taskSelect });
+        await createEndDateProposalAuditLog(tx, {
+          taskId: id,
+          userId: session.userId,
+          userRole: session.role,
+          previousValue: task.endDate,
+          newValue: newEndDateValue!,
+          ipAddress: getClientIp(request.headers),
+        });
+        return u;
+      })
+    : await prisma.task.update({ where: { id }, data, select: taskSelect });
   // El responsable puede cambiar en este PATCH (reasignación) — invalidar
   // tanto al anterior como al nuevo si difieren, nunca solo uno.
   const affectedUserIds = new Set([task.assignedToId]);

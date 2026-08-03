@@ -15,6 +15,74 @@
 
 ---
 
+## 2026-08-03 — Validación de Fecha Fin de Subordinados
+
+**Problema:** `Task.endDate` no tenía ningún gobierno — cualquiera con
+acceso a la tarea (responsable, creador, o liderazgo con visibilidad
+jerárquica) la editaba libremente, sin aprobación ni trazabilidad, pudiendo
+quedar poco realista o inconsistente con lo que el líder esperaba. NEXO ya
+resolvía este mismo problema para el Tiempo Objetivo (Sprint 6): un pedido
+explícito de extender esa validación a la Fecha Fin, reutilizando la misma
+arquitectura de aprobación sin duplicar lógica.
+
+**Investigación previa:** NEXO no tiene, en ningún punto del schema, un
+campo `managerId`/`supervisorId`/"jefe directo" explícito en `User` — toda
+autorización jerárquica en la app se resuelve por rol
+(`getVisibleRoles`/`ROLE_LEVEL`, `src/lib/roles.ts`). La validación de
+Tiempo Objetivo ya había resuelto "quién es el líder que valida" con
+`CAN_VALIDATE_TARGET_TIME_ROLES` (Administrador/Jefe Nacional/Coordinador
+Nacional, nunca el propio responsable) — el mismo criterio, sin
+alternativa mejor disponible en el modelo de datos actual.
+
+**Decisiones confirmadas explícitamente con el usuario** (ambigüedades del
+pedido original, que no definía 2 de las 3 acciones del líder):
+1. **Rechazar** no cambia `Task.endDate` (la tarea sigue funcionando con la
+   fecha actual, cero impacto en el resto de la app) — el estado queda 🔴
+   `RECHAZADA` y el colaborador debe editar la fecha para volver a
+   proponerla.
+2. **Re-edición tras un estado terminal** (Aprobada/Modificada/Rechazada):
+   se permite seguir editando `endDate` desde el formulario normal de
+   tarea; el simple cambio de valor reinicia el estado a 🟡 `PENDIENTE`
+   automáticamente y queda auditado (`EndDateAuditLog.action = PROPUESTA`)
+   — esa edición ES la "nueva solicitud de aprobación" pedida, sin UI ni
+   endpoint dedicado para "solicitar cambio" (alternativa descartada: un
+   flujo de solicitud separado con su propio estado antes de volver a
+   Pendiente — más superficie nueva sin beneficio claro sobre la
+   transparencia de reusar el PATCH existente).
+3. **Notificaciones**: se notifica al colaborador en Modificada Y en
+   Rechazada (no solo en Modificada, como sugería literalmente el ejemplo
+   del pedido) — en ambos casos el colaborador debe actuar (revisar la
+   nueva fecha, o proponer una distinta). Aprobada no notifica — no
+   requiere ninguna acción.
+
+**Decisión — alcance no bloqueante:** igual que Tiempo Objetivo, la Fecha
+Fin nunca bloquea el uso de `endDate` en el resto de la app — KPIs,
+detección de "vencida" (`isTaskOverdue`), y el archivado de "Cerrar Mes"
+siguen leyendo `Task.endDate` directamente sin importar
+`endDateApprovalStatus`. Una tarea `PENDIENTE` funciona exactamente igual
+que hoy; el estado de aprobación es puramente de gobierno/trazabilidad.
+
+**Decisión — bulk tool asimétrico respecto a Tiempo Objetivo:** el bulk de
+Tiempo Objetivo fija el MISMO valor numérico nuevo a varias tareas a la
+vez (tiene sentido: un estándar operativo puede ser igual para tareas
+similares). Para fechas eso no aplica — cada tarea tiene su propia fecha
+correcta. El bulk de Fecha Fin (`POST /api/tasks/end-date/bulk-approve`)
+solo **aprueba en bloque la fecha ya propuesta** de cada tarea
+seleccionada; Modificar/Rechazar quedan como acciones individuales.
+
+**Impacto:** migración de schema retrocompatible (default constante
+`PENDIENTE`, sin necesidad de la danza nullable→backfill→NOT NULL del
+sprint anterior). Las tareas existentes quedan `PENDIENTE` retroactivamente
+— mismo comportamiento que tuvo `targetTimeValidated` al lanzarse (genera
+un backlog visible en la herramienta de regularización, no un bug). Cero
+cambio de comportamiento en KPIs/Analytics/Executive Reporting/cierre de
+mes.
+
+**Aprobado por:** Anthony Jácome (dirección de producto), confirmando
+explícitamente las 3 decisiones de diseño durante la sesión.
+
+---
+
 ## 2026-08-02 — Motor de Cierre Inteligente con Fecha de Corte
 
 **Problema:** "Cerrar Mes" (`MonthClosure`) solo registraba `month`/`year` —

@@ -83,6 +83,30 @@ enum TargetTimeAdjustReason {
   OTRO
 }
 
+// Validación de Fecha Fin por líderes — mismo concepto de gobierno que
+// TargetTimeAdjustReason/targetTimeValidated, aplicado a Task.endDate en vez
+// de a estimatedHours. PENDIENTE es el estado inicial de toda tarea nueva
+// (y, retroactivamente, de las existentes al desplegar este campo); los
+// otros 3 son terminales hasta que el colaborador vuelve a editar endDate
+// (ver resetEndDateToPending en endDateServer.ts), momento en que vuelve a
+// PENDIENTE.
+enum EndDateApprovalStatus {
+  PENDIENTE
+  APROBADA
+  MODIFICADA
+  RECHAZADA
+}
+
+// Tipo de evento en EndDateAuditLog — distinto de EndDateApprovalStatus:
+// PROPUESTA es un evento (el colaborador propuso/re-propuso un valor), no un
+// estado final; los otros 3 son eventos de decisión del líder.
+enum EndDateAuditAction {
+  PROPUESTA
+  APROBADA
+  MODIFICADA
+  RECHAZADA
+}
+
 // ── Módulo Proyectos ─────────────────────────────────────────────────────────
 // Dominio independiente del módulo Trabajo (Task/TaskActivity) — ver
 // docs/DECISIONS.md. Iniciativas transversales de mediana/larga duración con
@@ -394,6 +418,8 @@ model User {
   analyticsAuditLogs          AnalyticsAuditLog[]   @relation("AnalyticsAuditUser")
   targetTimeValidations       Task[]                @relation("TargetTimeValidator")
   targetTimeAuditLogs         TargetTimeAuditLog[]  @relation("TargetTimeAuditUser")
+  endDateApprovals            Task[]                @relation("EndDateApprover")
+  endDateAuditLogs            EndDateAuditLog[]     @relation("EndDateAuditUser")
 
   responsibleProjects      Project[]            @relation("ProjectResponsible")
   createdProjects          Project[]            @relation("ProjectCreatedBy")
@@ -574,6 +600,16 @@ model Task {
   targetTimeValidatedAt   DateTime?
   targetTimeValidatedById String?
   targetTimeValidator     User?              @relation("TargetTimeValidator", fields: [targetTimeValidatedById], references: [id])
+  // Validación de Fecha Fin por líderes (mejora — ver docs/AUDIT_LOG.md).
+  // Mismo espíritu que targetTimeValidated: gobierno/trazabilidad sobre un
+  // campo que la tarea ya tenía (endDate), nunca la bloquea — una tarea
+  // PENDIENTE sigue funcionando exactamente igual que hoy en el resto de la
+  // app (KPIs, overdue, cierre de mes, etc., todos siguen leyendo endDate
+  // directamente). endDate solo cambia de valor si el líder elige MODIFICAR.
+  endDateApprovalStatus   EndDateApprovalStatus @default(PENDIENTE)
+  endDateApprovedAt       DateTime?
+  endDateApprovedById     String?
+  endDateApprover         User?              @relation("EndDateApprover", fields: [endDateApprovedById], references: [id])
   progress                Int                @default(0)
   completedAt             DateTime?
   type                    TaskType           @default(FIJA)
@@ -882,6 +918,26 @@ model TargetTimeAuditLog {
   reasonDetail  String?
   ipAddress     String?
   createdAt     DateTime               @default(now())
+
+  @@index([taskId])
+}
+
+// Auditoría de validaciones de Fecha Fin — mismo patrón que
+// TargetTimeAuditLog (taskId sin FK para sobrevivir al borrado de la tarea;
+// userId sí con FK). `action` distingue PROPUESTA (el colaborador
+// propuso/re-propuso un valor) de las 3 decisiones del líder.
+model EndDateAuditLog {
+  id            String              @id @default(cuid())
+  taskId        String
+  userId        String
+  user          User                @relation("EndDateAuditUser", fields: [userId], references: [id])
+  userRole      Role
+  action        EndDateAuditAction
+  previousValue DateTime?
+  newValue      DateTime?
+  observaciones String?
+  ipAddress     String?
+  createdAt     DateTime            @default(now())
 
   @@index([taskId])
 }

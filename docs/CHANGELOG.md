@@ -23,6 +23,66 @@
 
 ---
 
+## v1.25.0 — 2026-08-03
+
+**Tipo:** FEATURE
+**Módulo:** Validación de Fecha Fin por líderes (`prisma/schema.prisma`, `src/lib/endDate.ts` nuevo, `src/lib/endDateServer.ts` nuevo, `src/app/api/tasks/[id]/end-date/route.ts` nuevo, `src/app/api/tasks/end-date/{pending,bulk-approve}/route.ts` nuevos, `src/app/api/tasks/[id]/route.ts`, `src/components/tasks/{ValidateEndDateModal,RegularizeEndDateManager,RegularizeValidationsTabs,ActivityPanel}.tsx`)
+
+Extiende el flujo de validación por líderes (hoy solo Tiempo Objetivo, Sprint
+6) a la **Fecha Fin** de la tarea — mismo espíritu, misma arquitectura de
+aprobación, reutilizada sin duplicar lógica.
+
+- **Schema**: `Task` gana `endDateApprovalStatus` (enum `PENDIENTE`/
+  `APROBADA`/`MODIFICADA`/`RECHAZADA`, default `PENDIENTE` — retroactivo
+  también para tareas existentes, mismo comportamiento que tuvo
+  `targetTimeValidated` al lanzarse), `endDateApprovedAt`,
+  `endDateApprovedById`. Nuevo modelo `EndDateAuditLog` (mirror de
+  `TargetTimeAuditLog`) con un `action` adicional `PROPUESTA` para
+  distinguir "el colaborador (re)propuso un valor" de las 3 decisiones del
+  líder.
+- **Permisos reutilizados, no duplicados**: `canValidateEndDate`
+  (`src/lib/endDate.ts`) reusa la MISMA constante `CAN_VALIDATE_TARGET_TIME_ROLES`
+  de `targetTime.ts` (Administrador/Jefe Nacional/Coordinador Nacional,
+  nunca el propio responsable) — NEXO no tiene un campo `managerId`/"jefe
+  directo" explícito en `User`; la autorización siempre fue por jerarquía
+  de roles, y Tiempo Objetivo ya estableció ese criterio para "quién puede
+  validar".
+- **3 acciones del líder** (`POST /api/tasks/[id]/end-date`): Aprobar (no
+  cambia `endDate`), Modificar (el líder elige una nueva fecha), Rechazar
+  (no cambia `endDate`, queda 🔴 — el colaborador debe reproponerla). Toda
+  decisión queda en `EndDateAuditLog` dentro de la misma transacción que el
+  cambio de estado.
+- **Notificaciones**: se notifica al colaborador (modelo `Notification`
+  genérico ya existente, mismo patrón que la notificación de asignación de
+  tarea) en Modificada Y en Rechazada — no solo en Modificada como sugiere
+  el ejemplo literal del pedido, porque en ambos casos el colaborador debe
+  actuar. Aprobada no notifica.
+- **Re-propuesta transparente, sin UI/endpoint nuevo**: `PATCH
+  /api/tasks/[id]` — si `endDate` cambia de valor en una tarea cuya Fecha
+  Fin ya tenía una decisión terminal (Aprobada/Modificada/Rechazada), el
+  estado vuelve automáticamente a 🟡 Pendiente y queda auditado
+  (`action: PROPUESTA`) — esa misma edición ES la "nueva solicitud de
+  aprobación" pedida, sin fricción de UI adicional.
+- **Alcance deliberado**: la Fecha Fin nunca bloquea nada del resto de la
+  app (KPIs, overdue, cierre de mes siguen leyendo `Task.endDate`
+  directamente sin importar el estado de aprobación) — mismo principio no
+  bloqueante que Tiempo Objetivo. El archivado de tareas en "Cerrar Mes" no
+  se toca.
+- **UI**: nueva sección "Fecha Fin" en el panel de actividades de la tarea
+  (`ActivityPanel.tsx`, espejo de la sección "Tiempo Objetivo" existente,
+  con los 4 indicadores 🟡🟢🔵🔴), `ValidateEndDateModal.tsx` (Aprobar/
+  Modificar/Rechazar + observaciones opcionales), y una segunda pestaña
+  "Fecha Fin" en `/tiempo-objetivo` (`RegularizeEndDateManager.tsx`) para
+  regularizar el backlog de tareas existentes — el bulk aquí solo aprueba
+  en bloque la fecha ya propuesta de cada tarea (a diferencia del bulk de
+  Tiempo Objetivo, que fija un mismo valor nuevo a varias tareas; no
+  aplica para fechas, cada tarea tiene la suya).
+- Ver `docs/AUDIT_LOG.md` § 2026-08-03 para las decisiones confirmadas con
+  el usuario (semántica de Rechazar, re-edición tras aprobación,
+  notificaciones).
+
+---
+
 ## v1.24.0 — 2026-08-02
 
 **Tipo:** FEATURE
