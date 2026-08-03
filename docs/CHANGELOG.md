@@ -23,6 +23,46 @@
 
 ---
 
+## v1.25.1 — 2026-08-03
+
+**Tipo:** REFACTOR / UX
+**Módulo:** Consolidación de la validación de líder en la pantalla Tiempo Objetivo (`src/lib/taskValidationServer.ts` nuevo, `src/app/api/tasks/validations/pending/route.ts` nuevo, `src/components/tasks/{ValidateActivityModal,RegularizeTargetTimeManager,ActivityPanel}.tsx`, elimina `RegularizeEndDateManager.tsx`/`RegularizeValidationsTabs.tsx`/`ValidateTargetTimeModal.tsx`/`ValidateEndDateModal.tsx`/`api/tasks/{target-time,end-date}/pending`)
+
+Corrige la ubicación de la validación de Fecha Fin (v1.25.0): en vez de una
+segunda pestaña/tabla/modal separados, ahora vive integrada en la MISMA
+pantalla, tabla y acción "Validar" que Tiempo Objetivo — un pedido explícito
+de reutilizar el flujo existente en vez de duplicar la superficie de UI.
+
+- **Tabla única** (`RegularizeTargetTimeManager.tsx`, Menú lateral →
+  Gestión → Tiempo Objetivo): gana una columna "Fecha Fin" con el badge
+  🟡🟢🔵🔴; la fuente de datos pasa a `GET /api/tasks/validations/pending`
+  (nuevo, reemplaza `target-time/pending` y `end-date/pending`), que lista
+  una tarea si necesita atención en Tiempo Objetivo O en Fecha Fin (o
+  ambas) — así ninguna tarea pendiente en una sola dimensión queda
+  invisible en la pantalla de gestión.
+- **Modal único** (`ValidateActivityModal.tsx`, nuevo, reemplaza
+  `ValidateTargetTimeModal.tsx` + `ValidateEndDateModal.tsx`): la acción
+  "Validar" abre un solo diálogo con 2 secciones independientes — Tiempo
+  Objetivo (mismo comportamiento/API de siempre, valor + motivo) y Fecha
+  Fin (Aprobar/Modificar/Rechazar + observaciones), cada una con su propio
+  envío y su propio historial — el líder puede aprobar una y rechazar la
+  otra en la misma sesión. Se usa tanto en la pantalla de gestión como en
+  el panel de actividades de la tarea (`ActivityPanel.tsx`, que pasa de 2
+  botones "Validar" separados a 1).
+- **Bulk**: 2 botones independientes cuando hay tareas seleccionadas
+  ("Regularizar Tiempo Objetivo" / "Aprobar Fecha Fin en bloque") —
+  siguen usando exactamente los mismos 2 endpoints de bulk que ya
+  existían (`target-time/bulk-validate`, `end-date/bulk-approve`), sin
+  cambios.
+- **Cero cambio de lógica de validación**: `applyTargetTimeValidation`/
+  `applyEndDateAction`, permisos (`canValidateTargetTime`/
+  `canValidateEndDate`), auditoría y notificaciones de v1.25.0 quedan
+  intactos — este sprint es exclusivamente de presentación/ubicación.
+- Ver `docs/AUDIT_LOG.md` § 2026-08-03 (Consolidación) para el detalle de
+  la decisión de listado por unión.
+
+---
+
 ## v1.25.0 — 2026-08-03
 
 **Tipo:** FEATURE

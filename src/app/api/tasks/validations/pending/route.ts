@@ -2,15 +2,18 @@ import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import type { Role, TaskType } from "@/generated/prisma/client";
 import { ALL_ROLES } from "@/lib/roles";
-import { getPendingEndDateTasks, getEndDateDataQuality } from "@/lib/endDateServer";
+import { getPendingTaskValidations } from "@/lib/taskValidationServer";
+import { getTargetTimeDataQuality } from "@/lib/targetTimeServer";
+import { getEndDateDataQuality } from "@/lib/endDateServer";
 
 const CAN_REGULARIZE: Role[] = ["ADMINISTRADOR", "JEFE_NACIONAL"];
 
 /**
- * Herramienta "Regularizar Fecha Fin" — lista tareas activas o recientes
- * cuya Fecha Fin sigue Pendiente de validación, con filtros por
- * colaborador/cargo/tipo. Solo Administrador y Jefe Nacional — mismo gate
- * que target-time/pending.
+ * Pantalla "Tiempo Objetivo" (Menú lateral → Gestión) — reemplaza los 2
+ * endpoints separados (`target-time/pending`, `end-date/pending`) por uno
+ * combinado: una tarea aparece si necesita atención en Tiempo Objetivo O en
+ * Fecha Fin (o ambas), para que el líder valide integralmente la
+ * planificación desde una sola tabla. Mismo gate que ambos predecesores.
  */
 export async function GET(request: NextRequest) {
   const session = await getSession();
@@ -24,10 +27,11 @@ export async function GET(request: NextRequest) {
   const role = roleParam && (ALL_ROLES as string[]).includes(roleParam) ? (roleParam as Role) : undefined;
   const type = typeParam === "FIJA" || typeParam === "SEGUIMIENTO" ? (typeParam as TaskType) : undefined;
 
-  const [tasks, dataQuality] = await Promise.all([
-    getPendingEndDateTasks({ userId, role, type }),
+  const [tasks, targetTimeDataQuality, endDateDataQuality] = await Promise.all([
+    getPendingTaskValidations({ userId, role, type }),
+    getTargetTimeDataQuality({ role }),
     getEndDateDataQuality({ role }),
   ]);
 
-  return NextResponse.json({ tasks, dataQuality });
+  return NextResponse.json({ tasks, targetTimeDataQuality, endDateDataQuality });
 }

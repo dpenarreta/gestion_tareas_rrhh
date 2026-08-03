@@ -88,34 +88,6 @@ const REGULARIZATION_RECENT_DAYS = 60;
 
 export type PendingTargetTimeFilters = { userId?: string; role?: Role; type?: TaskType };
 
-/** "Activas o recientes": no archivadas, o archivadas dentro de la ventana reciente — nunca todo el histórico. */
-export async function getPendingTargetTimeTasks(filters: PendingTargetTimeFilters) {
-  const recentSince = new Date(Date.now() - REGULARIZATION_RECENT_DAYS * 86400000);
-  return prisma.task.findMany({
-    where: {
-      targetTimeValidated: null,
-      ...(filters.userId ? { assignedToId: filters.userId } : {}),
-      ...(filters.type ? { type: filters.type } : {}),
-      ...(filters.role ? { assignedTo: { role: filters.role } } : {}),
-      OR: [{ archivedMonth: null }, { archivedAt: { gte: recentSince } }],
-    },
-    select: {
-      id: true,
-      title: true,
-      status: true,
-      type: true,
-      priority: true,
-      estimatedHours: true,
-      realHours: true,
-      endDate: true,
-      archivedMonth: true,
-      assignedTo: { select: { id: true, name: true, role: true } },
-    },
-    orderBy: { createdAt: "desc" },
-    take: 300,
-  });
-}
-
 /** Indicador de calidad del dato (§S6-H) — % de tareas activas/recientes con Tiempo Objetivo validado vs. pendiente. */
 export async function getTargetTimeDataQuality(filters: Pick<PendingTargetTimeFilters, "role"> = {}) {
   const recentSince = new Date(Date.now() - REGULARIZATION_RECENT_DAYS * 86400000);

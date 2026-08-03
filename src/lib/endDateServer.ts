@@ -134,32 +134,6 @@ export async function createEndDateProposalAuditLog(
 
 export type PendingEndDateFilters = { userId?: string; role?: Role; type?: TaskType };
 
-/** "Activas o recientes": no archivadas, o archivadas dentro de la ventana reciente — nunca todo el histórico. */
-export async function getPendingEndDateTasks(filters: PendingEndDateFilters) {
-  const recentSince = new Date(Date.now() - REGULARIZATION_RECENT_DAYS * 86400000);
-  return prisma.task.findMany({
-    where: {
-      endDateApprovalStatus: "PENDIENTE",
-      ...(filters.userId ? { assignedToId: filters.userId } : {}),
-      ...(filters.type ? { type: filters.type } : {}),
-      ...(filters.role ? { assignedTo: { role: filters.role } } : {}),
-      OR: [{ archivedMonth: null }, { archivedAt: { gte: recentSince } }],
-    },
-    select: {
-      id: true,
-      title: true,
-      status: true,
-      type: true,
-      priority: true,
-      endDate: true,
-      archivedMonth: true,
-      assignedTo: { select: { id: true, name: true, role: true } },
-    },
-    orderBy: { createdAt: "desc" },
-    take: 300,
-  });
-}
-
 /** % de tareas activas/recientes con Fecha Fin aprobada/modificada (no pendiente ni rechazada) vs. pendiente. */
 export async function getEndDateDataQuality(filters: Pick<PendingEndDateFilters, "role"> = {}) {
   const recentSince = new Date(Date.now() - REGULARIZATION_RECENT_DAYS * 86400000);

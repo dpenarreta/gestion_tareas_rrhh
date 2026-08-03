@@ -15,6 +15,66 @@
 
 ---
 
+## 2026-08-03 — Consolidación de la validación de líder en Tiempo Objetivo
+
+**Problema:** la primera implementación de Validación de Fecha Fin (entrada
+anterior de este mismo documento) colocó la Fecha Fin como una segunda
+pestaña con su propia tabla (`RegularizeEndDateManager.tsx`) y su propio
+modal (`ValidateEndDateModal.tsx`), separada de Tiempo Objetivo. El usuario
+corrigió explícitamente la ubicación: quería UNA sola pantalla/tabla/acción
+"Validar" (Menú lateral → Gestión → Tiempo Objetivo), con Fecha Fin como una
+columna y una sección más dentro del mismo flujo — "reutilizando la
+arquitectura existente de validaciones" en vez de duplicar superficie de UI,
+tal como ya se había hecho a nivel de permisos (`canValidateEndDate` reusa
+`CAN_VALIDATE_TARGET_TIME_ROLES`).
+
+**Decisión — listado por UNIÓN, no solo el filtro de Tiempo Objetivo:** la
+tabla de gestión pasa de listar tareas con `targetTimeValidated === null` a
+listar tareas donde `targetTimeValidated === null` **O**
+`endDateApprovalStatus === "PENDIENTE"` (`getPendingTaskValidations`,
+`src/lib/taskValidationServer.ts`, nuevo módulo — no se tocó
+`targetTimeServer.ts`/`endDateServer.ts` más allá de retirar sus funciones
+de listado, ahora redundantes). Alternativa descartada: mantener el filtro
+original de Tiempo Objetivo y solo agregar la columna Fecha Fin como dato
+informativo — se descartó porque una tarea pendiente ÚNICAMENTE en Fecha
+Fin (p. ej. el colaborador acaba de reproponer una fecha rechazada, pero su
+Tiempo Objetivo ya estaba validado) quedaría invisible en la pantalla de
+gestión, contradiciendo el objetivo explícito de "validar integralmente la
+planificación".
+
+**Decisión — modal combinado en vez de 2 modales o una API combinada:**
+`ValidateActivityModal.tsx` hace `fetch` en paralelo a los 2 endpoints
+YA EXISTENTES (`/target-time`, `/end-date`) y renderiza 2 secciones
+independientes, cada una con su propio submit hacia su propio endpoint. Se
+descartó crear un endpoint POST combinado — las 2 validaciones son
+decisiones independientes (Aprobar una, Rechazar la otra) con modelos de
+datos distintos (`Float` vs `DateTime`, con/sin motivo obligatorio);
+combinar el submit habría forzado una transacción artificial entre 2
+conceptos que el propio pedido pide mantener separados.
+
+**Decisión — `ValidateActivityModal` reemplaza también el uso en
+`ActivityPanel.tsx`:** el pedido del usuario solo mencionaba la pantalla de
+gestión, pero mantener 2 patrones distintos (modal combinado ahí, 2 modales
+separados en el panel de tarea) habría sido inconsistente sin necesidad —
+se optó por reutilizar el mismo componente en ambos lugares, self-fetching
+por `taskId`, evitando prop-drilling entre el panel y el modal.
+
+**Impacto:** se retiran `RegularizeEndDateManager.tsx`,
+`RegularizeValidationsTabs.tsx`, `ValidateTargetTimeModal.tsx`,
+`ValidateEndDateModal.tsx`, `GET /api/tasks/target-time/pending`, `GET
+/api/tasks/end-date/pending` (todos de v1.25.0, sin otros consumidores).
+Se conservan sin cambios: `applyTargetTimeValidation`/`applyEndDateAction`,
+`canValidateTargetTime`/`canValidateEndDate`, ambos endpoints de bulk
+(`target-time/bulk-validate`, `end-date/bulk-approve`),
+`getTargetTimeDataQuality`/`getEndDateDataQuality`. Cero cambio de
+comportamiento de validación en sí — solo de presentación/ubicación.
+
+**Aprobado por:** Anthony Jácome (dirección de producto), corrigiendo
+explícitamente la ubicación de la Fecha de Fin dentro del mismo flujo que
+Tiempo Objetivo.
+
+---
+
 ## 2026-08-03 — Validación de Fecha Fin de Subordinados
 
 **Problema:** `Task.endDate` no tenía ningún gobierno — cualquiera con

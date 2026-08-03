@@ -63,3 +63,18 @@ export const END_DATE_AUDIT_ACTION_LABEL: Record<EndDateAuditAction, string> = {
   MODIFICADA: "Modificada",
   RECHAZADA: "Rechazada",
 };
+
+/**
+ * Tailwind necesita clases literales completas (no interpoladas) para
+ * detectarlas en el build — mismo motivo por el que el resto de la app (p.
+ * ej. renderReportHtml.ts § ESTADO_COLOR_CLASS) usa un Record en vez de
+ * construir el nombre de clase dinámicamente. Centralizado aquí (no local a
+ * un componente) porque tanto ActivityPanel.tsx como
+ * RegularizeTargetTimeManager.tsx muestran el mismo badge de estado.
+ */
+export const END_DATE_BADGE_CLASS: Record<EndDateApprovalStatus, string> = {
+  PENDIENTE: "bg-warning/[.15] text-warning",
+  APROBADA: "bg-success/[.13] text-success",
+  MODIFICADA: "bg-primary-surface text-primary",
+  RECHAZADA: "bg-danger/[.09] text-danger",
+};

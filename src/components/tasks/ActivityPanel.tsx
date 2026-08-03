@@ -10,8 +10,7 @@ import { fetchActivityReasons, selectableReasons, formatDuration, type ActivityR
 import { rangesOverlap } from "@/lib/timeOverlap";
 import { hoursToDisplay } from "@/lib/timeFormat";
 import ActivityItem from "./ActivityItem";
-import ValidateTargetTimeModal from "./ValidateTargetTimeModal";
-import ValidateEndDateModal from "./ValidateEndDateModal";
+import ValidateActivityModal from "./ValidateActivityModal";
 import { Button } from "@/components/ui/Button";
 import { SkeletonText } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -26,6 +25,7 @@ import {
   END_DATE_STATUS_LABEL,
   END_DATE_STATUS_EMOJI,
   END_DATE_AUDIT_ACTION_LABEL,
+  END_DATE_BADGE_CLASS,
   type EndDateApprovalStatus,
   type EndDateAuditAction,
 } from "@/lib/endDate";
@@ -86,17 +86,6 @@ function formatAuditDateTime(iso: string): string {
   return `${day}/${month} ${hours}:${mins}`;
 }
 
-// Tailwind necesita clases literales completas (no interpoladas) para
-// detectarlas en el build — mismo motivo por el que el resto de la app
-// (p. ej. renderReportHtml.ts § ESTADO_COLOR_CLASS) usa un Record en vez de
-// construir el nombre de clase dinámicamente.
-const END_DATE_BADGE_CLASS: Record<EndDateApprovalStatus, string> = {
-  PENDIENTE: "bg-warning/[.15] text-warning",
-  APROBADA: "bg-success/[.13] text-success",
-  MODIFICADA: "bg-primary-surface text-primary",
-  RECHAZADA: "bg-danger/[.09] text-danger",
-};
-
 function clampInt(value: string, min: number, max: number): string {
   if (value === "") return "";
   const n = Math.trunc(Number(value));
@@ -138,12 +127,13 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
   const [targetTimeInfo, setTargetTimeInfo] = useState<TargetTimeInfo | null>(null);
   const [targetTimeExpanded, setTargetTimeExpanded] = useState(true);
   const [auditExpanded, setAuditExpanded] = useState(false);
-  const [validateOpen, setValidateOpen] = useState(false);
 
   const [endDateInfo, setEndDateInfo] = useState<EndDateInfo | null>(null);
   const [endDateExpanded, setEndDateExpanded] = useState(true);
   const [endDateAuditExpanded, setEndDateAuditExpanded] = useState(false);
-  const [validateEndDateOpen, setValidateEndDateOpen] = useState(false);
+
+  // Único punto de validación (Tiempo Objetivo + Fecha Fin juntos) — ver ValidateActivityModal.tsx.
+  const [validateModalOpen, setValidateModalOpen] = useState(false);
 
 
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -402,12 +392,6 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
                   </p>
                 )}
 
-                {targetTimeInfo.canValidate && (
-                  <Button size="sm" onClick={() => setValidateOpen(true)} className="w-full">
-                    Validar tiempo objetivo
-                  </Button>
-                )}
-
                 {targetTimeInfo.auditHistory.length > 0 && (
                   <div>
                     <Button
@@ -438,20 +422,6 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
               </div>
             </div>
           </div>
-        )}
-
-        {validateOpen && targetTimeInfo && (
-          <ValidateTargetTimeModal
-            taskId={task.id}
-            taskTitle={task.title}
-            currentValue={targetTimeInfo.officialTarget}
-            historicalDeviation={targetTimeInfo.historicalDeviation}
-            onClose={() => setValidateOpen(false)}
-            onValidated={() => {
-              setValidateOpen(false);
-              loadTargetTime();
-            }}
-          />
         )}
 
         {/* Fecha Fin (validación por líderes) */}
@@ -491,12 +461,6 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
                   </span>
                 </div>
 
-                {endDateInfo.canValidate && (
-                  <Button size="sm" onClick={() => setValidateEndDateOpen(true)} className="w-full">
-                    Validar fecha fin
-                  </Button>
-                )}
-
                 {endDateInfo.auditHistory.length > 0 && (
                   <div>
                     <Button
@@ -533,14 +497,24 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
           </div>
         )}
 
-        {validateEndDateOpen && endDateInfo && (
-          <ValidateEndDateModal
+        {/* Único punto de validación — Tiempo Objetivo y Fecha Fin juntos, cada uno con su propia decisión independiente (ver ValidateActivityModal.tsx). */}
+        {(targetTimeInfo?.canValidate || endDateInfo?.canValidate) && (
+          <div className="px-4 pb-3 border-b border-border">
+            <Button size="sm" onClick={() => setValidateModalOpen(true)} className="w-full">
+              Validar actividad
+            </Button>
+          </div>
+        )}
+
+        {validateModalOpen && (
+          <ValidateActivityModal
             taskId={task.id}
             taskTitle={task.title}
-            currentEndDate={endDateInfo.endDate}
-            onClose={() => setValidateEndDateOpen(false)}
-            onApplied={() => {
-              setValidateEndDateOpen(false);
+            assignedToName={task.assignedTo?.name}
+            startDate={task.startDate}
+            onClose={() => setValidateModalOpen(false)}
+            onChanged={() => {
+              loadTargetTime();
               loadEndDateInfo();
             }}
           />
