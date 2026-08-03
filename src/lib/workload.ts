@@ -10,6 +10,7 @@ import {
   getEffectiveWorkloadLimitOverload,
 } from "@/lib/systemConfig";
 import { getSpecialStatusDayMap, getTeamSpecialStatusDayMap, type SpecialStatusDayMap } from "@/lib/specialStatus";
+import { getMonthClosurePeriod } from "@/lib/closurePeriod";
 import type { SpecialStatusType } from "@/generated/prisma/client";
 import type {
   WorkloadColor,
@@ -273,10 +274,19 @@ async function businessBaseCore(start: Date, end: Date): Promise<{
   };
 }
 
+/**
+ * Motor de Cierre Inteligente con Fecha de Corte — si (year, month) tiene un
+ * MonthClosure con corte anticipado (EARLY/MANUAL), `end` se trunca a
+ * `closure.cutoffDate` en vez de siempre usar el último día calendario. Sin
+ * cambio de firma a propósito: los ~15 llamadores existentes (Analytics,
+ * KPIs, Executive Reporting, dashboard) heredan el corte automáticamente. Un
+ * mes sin cierre formal, o cerrado en el último día (closureType NORMAL), se
+ * comporta exactamente igual que antes de este sprint.
+ */
 export async function monthlyBusinessBase(year: number, month: number) {
   const start = new Date(Date.UTC(year, month - 1, 1));
-  const end = new Date(Date.UTC(year, month, 1) - 1);
-  return businessBaseCore(start, end);
+  const { effectiveEnd } = await getMonthClosurePeriod(year, month);
+  return businessBaseCore(start, effectiveEnd);
 }
 
 /**

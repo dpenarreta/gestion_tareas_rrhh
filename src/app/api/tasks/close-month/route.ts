@@ -3,7 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canManageUsers } from "@/lib/roles";
 import { invalidateAnalyticsCache } from "@/lib/analytics";
-import type { TaskFrequency } from "@/generated/prisma/client";
+import { businessBaseForRange } from "@/lib/workload";
+import type { TaskFrequency, MonthClosureType } from "@/generated/prisma/client";
 
 const RECURRING_FREQUENCIES: TaskFrequency[] = ["MENSUAL", "SEMANAL", "DIARIA", "QUINCENAL"];
 
@@ -14,8 +15,17 @@ function nextMonthStartUTC(year: number, month: number) {
   return new Date(Date.UTC(year, month, 1));
 }
 
+function periodStartUTC(year: number, month: number) {
+  return new Date(Date.UTC(year, month - 1, 1));
+}
+
 function daysInMonthUTC(year: number, month: number) {
   return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+/** Último día calendario del mes, medianoche UTC — mismo formato/convención que Task.endDate. Default de la Fecha de Corte cuando no se especifica una. */
+function naturalCutoffUTC(year: number, month: number) {
+  return new Date(Date.UTC(year, month, 0));
 }
 
 function shiftToNextMonth(date: Date, nextYear: number, nextMonth: number) {
@@ -63,10 +73,53 @@ function parseYearMonth(yearParam: string | null, monthParam: string | null): { 
   return { year, month };
 }
 
-async function buildPreview(year: number, month: number) {
-  const monthEnd = nextMonthStartUTC(year, month);
+/**
+ * Motor de Cierre Inteligente con Fecha de Corte — resuelve y valida la
+ * Fecha de Corte del asistente. Sin parámetro, replica el comportamiento
+ * anterior a este sprint (corte = último día calendario del mes). Debe caer
+ * DENTRO del propio mes (no se puede cortar un mes con una fecha de otro
+ * mes) y nunca en el futuro (no se puede cerrar "hasta" un día que aún no
+ * ocurrió).
+ */
+function resolveCutoffDate(year: number, month: number, raw: string | null, now: Date): { cutoffDate: Date } | { error: string } {
+  const periodStart = periodStartUTC(year, month);
+  const naturalCutoff = naturalCutoffUTC(year, month);
+  if (raw === null || raw === "") return { cutoffDate: naturalCutoff };
 
-  const [existing, candidateTasks, continuedActive] = await Promise.all([
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+  if (!match) return { error: "Fecha de corte inválida" };
+  const cutoffDate = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+  if (Number.isNaN(cutoffDate.getTime())) return { error: "Fecha de corte inválida" };
+  if (cutoffDate.getTime() < periodStart.getTime() || cutoffDate.getTime() > naturalCutoff.getTime()) {
+    return { error: "La fecha de corte debe estar dentro del período seleccionado" };
+  }
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  if (cutoffDate.getTime() > today.getTime()) {
+    return { error: "La fecha de corte no puede ser posterior a hoy" };
+  }
+  return { cutoffDate };
+}
+
+/**
+ * NORMAL: el corte coincide con el último día del período (comportamiento
+ * estándar). EARLY: el cierre se ejecuta ANTES de que el período termine
+ * (`now` cae dentro del propio mes) — un cierre genuinamente anticipado.
+ * MANUAL: el período ya terminó, pero igual se eligió un corte anterior al
+ * último día (regularización/auditoría/incidencia posterior al cierre
+ * natural del mes). Definición confirmada explícitamente para este sprint.
+ */
+function determineClosureType(year: number, month: number, cutoffDate: Date, now: Date): MonthClosureType {
+  const naturalCutoff = naturalCutoffUTC(year, month);
+  if (cutoffDate.getTime() === naturalCutoff.getTime()) return "NORMAL";
+  const naturalEndInstant = new Date(Date.UTC(year, month, 1) - 1);
+  return now.getTime() <= naturalEndInstant.getTime() ? "EARLY" : "MANUAL";
+}
+
+async function buildPreview(year: number, month: number, cutoffDate: Date, now: Date) {
+  const monthEnd = nextMonthStartUTC(year, month);
+  const periodStart = periodStartUTC(year, month);
+
+  const [existing, candidateTasks, continuedActive, biz] = await Promise.all([
     prisma.monthClosure.findUnique({ where: { month_year: { month, year } } }),
     prisma.task.findMany({
       where: { archivedMonth: null, endDate: { lt: monthEnd }, ...CANDIDATE_WHERE },
@@ -80,6 +133,7 @@ async function buildPreview(year: number, month: number) {
         status: { in: ["PENDIENTE", "EN_PROGRESO"] },
       },
     }),
+    businessBaseForRange(periodStart, cutoffDate),
   ]);
 
   const total = candidateTasks.length;
@@ -87,7 +141,26 @@ async function buildPreview(year: number, month: number) {
   const pending = candidateTasks.filter((t) => t.status === "PENDIENTE").length;
   const inProgress = candidateTasks.filter((t) => t.status === "EN_PROGRESO").length;
 
-  return { year, month, monthEnd, alreadyClosed: !!existing, total, completed, pending, inProgress, continuedActive };
+  return {
+    year,
+    month,
+    monthEnd,
+    alreadyClosed: !!existing,
+    total,
+    completed,
+    pending,
+    inProgress,
+    continuedActive,
+    cutoffDate: cutoffDate.toISOString().slice(0, 10),
+    closureType: determineClosureType(year, month, cutoffDate, now),
+    calendarDaysTotal: daysInMonthUTC(year, month),
+    calendarDaysConsidered: cutoffDate.getUTCDate(),
+    workingDaysConsidered: biz.businessDays,
+    workingHoursConsidered: biz.baseHours,
+    // Cierre existente (para el aviso del wizard de reportes, Fase 9) — null si nunca se cerró.
+    existingCutoffDate: existing ? existing.cutoffDate.toISOString().slice(0, 10) : null,
+    existingClosureType: existing ? existing.closureType : null,
+  };
 }
 
 export async function GET(request: NextRequest) {
@@ -106,7 +179,11 @@ export async function GET(request: NextRequest) {
   }
   const { year, month } = parsed ?? previousMonth(new Date());
 
-  const preview = await buildPreview(year, month);
+  const now = new Date();
+  const cutoffResult = resolveCutoffDate(year, month, request.nextUrl.searchParams.get("cutoffDate"), now);
+  if ("error" in cutoffResult) return NextResponse.json({ error: cutoffResult.error }, { status: 400 });
+
+  const preview = await buildPreview(year, month, cutoffResult.cutoffDate, now);
   return NextResponse.json(preview);
 }
 
@@ -127,7 +204,13 @@ export async function POST(request: NextRequest) {
   }
   const { year, month } = parsed ?? previousMonth(new Date());
 
-  const { monthEnd, alreadyClosed } = await buildPreview(year, month);
+  const now = new Date();
+  const cutoffResult = resolveCutoffDate(year, month, typeof body.cutoffDate === "string" ? body.cutoffDate : null, now);
+  if ("error" in cutoffResult) return NextResponse.json({ error: cutoffResult.error }, { status: 400 });
+  const { cutoffDate } = cutoffResult;
+
+  const { monthEnd, alreadyClosed, closureType, calendarDaysTotal, calendarDaysConsidered, workingDaysConsidered, workingHoursConsidered } =
+    await buildPreview(year, month, cutoffDate, now);
   if (alreadyClosed) {
     return NextResponse.json({ error: "Este mes ya fue cerrado" }, { status: 409 });
   }
@@ -198,6 +281,12 @@ export async function POST(request: NextRequest) {
           month,
           year,
           closedBy: session.userId,
+          cutoffDate,
+          closureType,
+          calendarDaysTotal,
+          calendarDaysConsidered,
+          workingDaysConsidered,
+          workingHoursConsidered,
           totalTasks: total,
           completedTasks: completed,
           summary: { total, completed, pending, inProgress, duplicated: duplicates.length, continuedActive },
@@ -222,5 +311,11 @@ export async function POST(request: NextRequest) {
     year,
     nextMonth,
     nextYear,
+    cutoffDate: cutoffDate.toISOString().slice(0, 10),
+    closureType,
+    calendarDaysTotal,
+    calendarDaysConsidered,
+    workingDaysConsidered,
+    workingHoursConsidered,
   });
 }

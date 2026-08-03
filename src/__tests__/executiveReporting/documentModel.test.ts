@@ -18,6 +18,7 @@ function fixtureSnapshot(overrides: Partial<ExecutiveReportSnapshotData> = {}): 
       periodEnd: "2026-07-31T23:59:59.000Z",
       fechaCorte: "2026-07-28T00:00:00.000Z",
       periodStatus: "EN_CURSO",
+      closure: null,
       collaboratorIds: ["u1", "u2"],
       collaboratorCount: 2,
       generatedBy: { userId: "u1", name: "Ana" },
@@ -280,6 +281,89 @@ describe("buildReportPages", () => {
 
     const strategic = pages.find((p) => p.kind === "strategicIndicators");
     expect(strategic?.kind).toBe("strategicIndicators");
+  });
+});
+
+describe("buildReportPages — Motor de Cierre Inteligente con Fecha de Corte", () => {
+  const closureBase = {
+    cutoffDate: "2026-07-28T00:00:00.000Z",
+    closedAt: "2026-08-02T10:00:00.000Z",
+    calendarDaysTotal: 31,
+    calendarDaysConsidered: 28,
+    workingDaysConsidered: 20,
+    workingHoursConsidered: 160,
+  };
+
+  it("sin bloque de cierre (closure: null), la Portada/Metadatos no muestran nota metodológica ni estado de período especial", () => {
+    const pages = buildReportPages(fixtureSnapshot()); // meta.closure ya es null en el fixture base
+    const cover = pages.find((p) => p.kind === "cover");
+    const metadata = pages.find((p) => p.kind === "metadata");
+    expect(cover?.kind).toBe("cover");
+    expect(metadata?.kind).toBe("metadata");
+    if (cover?.kind === "cover") {
+      expect(cover.closureStatusLabel).toBeNull();
+      expect(cover.metodologicalNoteLabel).toBeNull();
+    }
+    if (metadata?.kind === "metadata") {
+      expect(metadata.metodologicalNoteLabel).toBeNull();
+    }
+  });
+
+  it("closureType NORMAL — el mes cerró en el último día calendario, comportamiento idéntico a sin cierre (requisito de compatibilidad)", () => {
+    const pages = buildReportPages(
+      fixtureSnapshot({ meta: { ...fixtureSnapshot().meta, closure: { ...closureBase, closureType: "NORMAL" } } }),
+    );
+    const cover = pages.find((p) => p.kind === "cover");
+    if (cover?.kind === "cover") {
+      expect(cover.closureStatusLabel).toBeNull();
+      expect(cover.metodologicalNoteLabel).toBeNull();
+    }
+  });
+
+  it("closureType EARLY — Portada muestra 'Cerrado anticipadamente', cobertura, días/horas y nota metodológica con la fecha de cierre", () => {
+    const pages = buildReportPages(
+      fixtureSnapshot({ meta: { ...fixtureSnapshot().meta, closure: { ...closureBase, closureType: "EARLY" } } }),
+    );
+    const cover = pages.find((p) => p.kind === "cover");
+    expect(cover?.kind).toBe("cover");
+    if (cover?.kind === "cover") {
+      expect(cover.closureStatusLabel).toBe("Cerrado anticipadamente");
+      expect(cover.coverageLabel).toContain("28 jul");
+      expect(cover.workingDaysConsideredLabel).toBe("20 días hábiles");
+      expect(cover.workingHoursConsideredLabel).toBe("160 horas");
+      expect(cover.metodologicalNoteLabel).toContain("cierre anticipado");
+      expect(cover.metodologicalNoteLabel).toContain("20 días hábiles");
+      expect(cover.metodologicalNoteLabel).toContain("160 horas base");
+    }
+
+    const metadata = pages.find((p) => p.kind === "metadata");
+    if (metadata?.kind === "metadata") {
+      expect(metadata.metodologicalNoteLabel).toBe(cover?.kind === "cover" ? cover.metodologicalNoteLabel : null);
+    }
+
+    const html = buildExecutiveReportHtml(pages);
+    expect(html).toContain("Cerrado anticipadamente");
+    expect(html).toContain("cierre anticipado");
+
+    const wb = buildExecutiveReportWorkbook(pages);
+    const resumenSheet = wb.Sheets["Resumen"];
+    const cells = Object.values(resumenSheet).map((c) => (c as { v?: unknown }).v);
+    expect(cells).toContain("Cerrado anticipadamente");
+  });
+
+  it("closureType MANUAL — nota metodológica distingue fecha de cierre (closedAt) de fecha de corte (cutoffDate)", () => {
+    const pages = buildReportPages(
+      fixtureSnapshot({ meta: { ...fixtureSnapshot().meta, closure: { ...closureBase, closureType: "MANUAL" } } }),
+    );
+    const cover = pages.find((p) => p.kind === "cover");
+    expect(cover?.kind).toBe("cover");
+    if (cover?.kind === "cover") {
+      expect(cover.closureStatusLabel).toBe("Cerrado — fecha de corte regularizada manualmente");
+      // La nota debe mencionar AMBAS fechas por separado (closedAt: 02/08 vs cutoffDate: 28/07).
+      expect(cover.metodologicalNoteLabel).toContain("02 de agosto");
+      expect(cover.metodologicalNoteLabel).toContain("28 de julio");
+      expect(cover.metodologicalNoteLabel).toContain("regularizada manualmente");
+    }
   });
 });
 

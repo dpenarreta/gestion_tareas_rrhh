@@ -12,6 +12,12 @@ type Preview = {
   pending: number;
   inProgress: number;
   continuedActive: number;
+  cutoffDate: string;
+  closureType: "NORMAL" | "EARLY" | "MANUAL";
+  calendarDaysTotal: number;
+  calendarDaysConsidered: number;
+  workingDaysConsidered: number;
+  workingHoursConsidered: number;
 };
 
 type Result = {
@@ -20,6 +26,8 @@ type Result = {
   continuedActiveCount: number;
   nextMonth: number;
   nextYear: number;
+  cutoffDate: string;
+  closureType: "NORMAL" | "EARLY" | "MANUAL";
 };
 
 function monthLabel(year: number, month: number) {
@@ -31,6 +39,10 @@ function nextMonthOf(year: number, month: number) {
   return month === 12 ? { year: year + 1, month: 1 } : { year, month: month + 1 };
 }
 
+function shortDayMonth(iso: string) {
+  return new Date(`${iso}T00:00:00.000Z`).toLocaleDateString("es-CL", { day: "numeric", month: "short", timeZone: "UTC" }).replace(/\.$/, "");
+}
+
 type Props = {
   onClose: () => void;
   onClosed: () => void;
@@ -39,6 +51,7 @@ type Props = {
 export default function CloseMonthModal({ onClose, onClosed }: Props) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [selected, setSelected] = useState<{ year: number; month: number } | null>(null);
+  const [cutoffDate, setCutoffDate] = useState("");
   const [loading, setLoading] = useState(true);
   const [closing, setClosing] = useState(false);
   const [error, setError] = useState("");
@@ -47,6 +60,25 @@ export default function CloseMonthModal({ onClose, onClosed }: Props) {
   function applyPreview(data: Preview) {
     setPreview(data);
     setSelected({ year: data.year, month: data.month });
+    setCutoffDate(data.cutoffDate);
+  }
+
+  function fetchPreview(year: number, month: number, cutoff?: string) {
+    setLoading(true);
+    setError("");
+    const params = new URLSearchParams({ year: String(year), month: String(month) });
+    if (cutoff) params.set("cutoffDate", cutoff);
+    fetch(`/api/tasks/close-month?${params.toString()}`)
+      .then((r) => r.json().then((data) => ({ ok: r.ok, data })))
+      .then(({ ok, data }) => {
+        if (!ok) {
+          setError(data.error ?? "No se pudo cargar el resumen");
+          return;
+        }
+        applyPreview(data as Preview);
+      })
+      .catch(() => setError("No se pudo cargar el resumen"))
+      .finally(() => setLoading(false));
   }
 
   useEffect(() => {
@@ -61,13 +93,14 @@ export default function CloseMonthModal({ onClose, onClosed }: Props) {
     const value = e.target.value; // "YYYY-MM"
     if (!value) return;
     const [y, m] = value.split("-").map(Number);
-    setLoading(true);
-    setError("");
-    fetch(`/api/tasks/close-month?year=${y}&month=${m}`)
-      .then((r) => r.json())
-      .then((data: Preview) => applyPreview(data))
-      .catch(() => setError("No se pudo cargar el resumen"))
-      .finally(() => setLoading(false));
+    fetchPreview(y, m);
+  }
+
+  function handleCutoffChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const value = e.target.value; // "YYYY-MM-DD"
+    setCutoffDate(value);
+    if (!value || !selected) return;
+    fetchPreview(selected.year, selected.month, value);
   }
 
   async function handleConfirm() {
@@ -78,7 +111,7 @@ export default function CloseMonthModal({ onClose, onClosed }: Props) {
       const res = await fetch("/api/tasks/close-month", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(selected),
+        body: JSON.stringify({ ...selected, cutoffDate }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -93,6 +126,7 @@ export default function CloseMonthModal({ onClose, onClosed }: Props) {
   }
 
   const next = selected ? nextMonthOf(selected.year, selected.month) : null;
+  const periodStartIso = selected ? `${selected.year}-${String(selected.month).padStart(2, "0")}-01` : null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -109,20 +143,40 @@ export default function CloseMonthModal({ onClose, onClosed }: Props) {
 
         <div className="p-6 space-y-4">
           {!result && (
-            <div>
-              <label className="block text-xs font-semibold text-secondary mb-1 uppercase tracking-wide">
-                Mes a cerrar
-              </label>
-              <input
-                type="month"
-                value={selected ? `${selected.year}-${String(selected.month).padStart(2, "0")}` : ""}
-                onChange={handleMonthChange}
-                disabled={loading || closing}
-                className="w-full px-3 py-2 rounded-xl border border-border text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary text-sm disabled:opacity-50"
-              />
-              <p className="mt-1 text-[11px] text-disabled">
-                Por defecto se muestra el mes anterior al actual. Cambia el mes para cierres tardíos.
-              </p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-secondary mb-1 uppercase tracking-wide">
+                  1 · Período
+                </label>
+                <input
+                  type="month"
+                  value={selected ? `${selected.year}-${String(selected.month).padStart(2, "0")}` : ""}
+                  onChange={handleMonthChange}
+                  disabled={loading || closing}
+                  className="w-full px-3 py-2 rounded-xl border border-border text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary text-sm disabled:opacity-50"
+                />
+                <p className="mt-1 text-[11px] text-disabled">
+                  Por defecto se muestra el mes anterior al actual. Cambia el mes para cierres tardíos.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-secondary mb-1 uppercase tracking-wide">
+                  2 · Fecha de corte
+                </label>
+                <input
+                  type="date"
+                  value={cutoffDate}
+                  min={periodStartIso ?? undefined}
+                  max={preview ? `${preview.year}-${String(preview.month).padStart(2, "0")}-${String(preview.calendarDaysTotal).padStart(2, "0")}` : undefined}
+                  onChange={handleCutoffChange}
+                  disabled={loading || closing || !selected}
+                  className="w-full px-3 py-2 rounded-xl border border-border text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary text-sm disabled:opacity-50"
+                />
+                <p className="mt-1 text-[11px] text-disabled">
+                  Por defecto, el último día del mes. Elige una fecha anterior para un cierre anticipado o una regularización.
+                </p>
+              </div>
             </div>
           )}
 
@@ -136,12 +190,17 @@ export default function CloseMonthModal({ onClose, onClosed }: Props) {
 
           {!loading && preview && selected && next && !result && (
             <>
-              <p className="text-sm text-main">
-                Cerrando el mes de: <span className="font-semibold">{monthLabel(preview.year, preview.month)} {preview.year}</span>
-              </p>
-              <p className="text-sm text-main">
-                Las tareas se duplicarán para: <span className="font-semibold">{monthLabel(next.year, next.month)} {next.year}</span>
-              </p>
+              <div>
+                <label className="block text-xs font-semibold text-secondary mb-1 uppercase tracking-wide">
+                  3 · Vista previa
+                </label>
+                <p className="text-sm text-main">
+                  Cerrando el mes de: <span className="font-semibold">{monthLabel(preview.year, preview.month)} {preview.year}</span>
+                </p>
+                <p className="text-sm text-main">
+                  Las tareas se duplicarán para: <span className="font-semibold">{monthLabel(next.year, next.month)} {next.year}</span>
+                </p>
+              </div>
 
               {preview.alreadyClosed ? (
                 <div className="text-sm text-warning bg-warning/[.15] rounded-xl px-4 py-2.5">
@@ -149,6 +208,29 @@ export default function CloseMonthModal({ onClose, onClosed }: Props) {
                 </div>
               ) : (
                 <>
+                  {preview.closureType !== "NORMAL" && (
+                    <div className="text-sm text-primary bg-primary-surface border border-primary/25 rounded-xl px-4 py-2.5">
+                      {preview.closureType === "EARLY" ? "Cierre anticipado" : "Corte regularizado manualmente"} — solo se considerará información hasta el {shortDayMonth(preview.cutoffDate)}.
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div className="rounded-xl border border-border px-3 py-2.5">
+                      <p className="text-xs text-disabled">Cobertura</p>
+                      <p className="text-sm font-bold text-title">
+                        {periodStartIso ? shortDayMonth(periodStartIso) : "—"} – {shortDayMonth(preview.cutoffDate)}
+                      </p>
+                    </div>
+                    <div className="rounded-xl border border-border px-3 py-2.5">
+                      <p className="text-xs text-disabled">Días hábiles</p>
+                      <p className="text-sm font-bold text-title">{preview.workingDaysConsidered}</p>
+                    </div>
+                    <div className="rounded-xl border border-border px-3 py-2.5 col-span-2">
+                      <p className="text-xs text-disabled">Horas base consideradas</p>
+                      <p className="text-sm font-bold text-title">{preview.workingHoursConsidered}h</p>
+                    </div>
+                  </div>
+
                   <div className="grid grid-cols-2 gap-2.5">
                     <div className="rounded-xl border border-border px-3 py-2.5">
                       <p className="text-xs text-disabled">Total tareas</p>
@@ -189,6 +271,9 @@ export default function CloseMonthModal({ onClose, onClosed }: Props) {
               <p>{result.archivedCount} tareas archivadas, {result.duplicatedCount} tareas creadas para {monthLabel(result.nextYear, result.nextMonth)} {result.nextYear}.</p>
               {result.continuedActiveCount > 0 && (
                 <p>{result.continuedActiveCount} tarea{result.continuedActiveCount !== 1 ? "s" : ""} de Seguimiento continuaron activas sin cerrarse.</p>
+              )}
+              {result.closureType !== "NORMAL" && (
+                <p>Fecha de corte: {shortDayMonth(result.cutoffDate)} ({result.closureType === "EARLY" ? "cierre anticipado" : "corte regularizado manualmente"}).</p>
               )}
             </div>
           )}

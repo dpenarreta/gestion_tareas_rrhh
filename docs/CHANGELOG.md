@@ -23,6 +23,65 @@
 
 ---
 
+## v1.24.0 — 2026-08-02
+
+**Tipo:** FEATURE
+**Módulo:** Cierre Mensual / Analytics / Executive Reporting Engine (`prisma/schema.prisma`, `src/lib/closurePeriod.ts` nuevo, `src/lib/workload.ts`, `src/lib/analytics.ts`, `src/lib/executiveReporting/{buildSnapshotData,snapshotData,documentModel,renderReportHtml,renderReportExcel}.ts`, `src/app/api/tasks/close-month/route.ts`, `src/app/api/reports/executive/closure-status/route.ts` nuevo, `src/components/tasks/CloseMonthModal.tsx`, `src/components/kpis/reports/ReportWizardModal.tsx`)
+
+**Motor de Cierre Inteligente con Fecha de Corte** — "Cerrar Mes" ahora
+acepta una Fecha de Corte editable (por defecto, el último día del mes),
+permitiendo cierres anticipados o regularizaciones sin distorsionar KPIs,
+Carga Laboral, Analytics ni Executive Reporting con días/horas que nunca
+formaron parte del período efectivamente evaluado.
+
+- **Schema**: `MonthClosure` gana `cutoffDate`, `closureType` (enum
+  `NORMAL`/`EARLY`/`MANUAL`), `calendarDaysTotal`, `calendarDaysConsidered`,
+  `workingDaysConsidered`, `workingHoursConsidered` — congelados de forma
+  inmutable al momento del cierre, nunca recalculados después (migraciones
+  `add_closure_cutoff` + `add_closure_cutoff_not_null`;
+  `scripts/backfill-month-closure-cutoff.ts` para filas históricas — la BD
+  no tenía ningún `MonthClosure` preexistente, backfill no fue necesario).
+- **Truncamiento transparente**: `monthlyBusinessBase` (`workload.ts`)
+  consulta el cierre del mes vía el nuevo `src/lib/closurePeriod.ts` y
+  trunca su propio `end` cuando existe un corte anticipado — sin cambiar su
+  firma, los ~15 call sites existentes (Analytics, KPIs, Executive
+  Reporting, dashboard) heredan el corte automáticamente. Cero cambio de
+  comportamiento cuando el corte coincide con el último día del mes o el mes
+  no tiene cierre formal.
+- **Fix de asimetría numerador/denominador**: `computeMonthlyHistory`
+  (`analytics.ts`, usado por Tendencias/Anomalías) filtraba tareas contra el
+  fin de mes completo mientras la base de horas ya venía truncada por el
+  cierre — corregido para usar el mismo límite en ambos. Mismo patrón que ya
+  existía (documentado) en el Executive Reporting Engine: `filters.
+  fechaCorte` truncaba la actividad real pero nunca la base de horas; ahora
+  los reportes de un mes cerrado heredan el `cutoffDate` del cierre como
+  default de `fechaCorte` de forma permanente (inmutable, sin importar
+  cuándo se genere el reporte).
+- **Executive Reporting**: `SnapshotMeta` gana un bloque `closure`
+  (`closureType`, `cutoffDate`, `closedAt`, días/horas considerados). Portada
+  y Metadatos (HTML/PDF y Excel) muestran "Estado del período" + cobertura +
+  días hábiles/horas base + nota metodológica automática, solo cuando
+  `closureType !== NORMAL` — reportes de meses cerrados normalmente quedan
+  visualmente idénticos a antes de este sprint. `RANGO_MESES` hereda el
+  cierre del ÚLTIMO mes del rango (mismo criterio que
+  `resolveMonthlyPeriodStatus`); `RANGO_PERSONALIZADO` nunca hereda cierre.
+- **UI**: `CloseMonthModal.tsx` pasa de un paso a 3 (Período → Fecha de
+  Corte → Vista previa con cobertura/días hábiles/horas base).
+  `ReportWizardModal.tsx` muestra un aviso informativo cuando el mes
+  seleccionado ya fue cerrado con corte anticipado/manual, vía el nuevo
+  endpoint de solo lectura `GET /api/reports/executive/closure-status`
+  (gateado por `canAccessReports`, más permisivo que el `canManageUsers` de
+  `close-month`, ya que solo expone la fecha de corte, no conteos de tareas).
+- **Alcance deliberado**: la Fecha de Corte acota únicamente la ventana de
+  datos para cálculo — el archivado/duplicación de tareas de "Cerrar Mes"
+  sigue anclado al fin de mes calendario natural, sin cambios. Ver
+  `docs/AUDIT_LOG.md` § 2026-08-02 para las decisiones de diseño (definición
+  de `closureType`, herencia en `RANGO_MESES`, por qué no sube
+  `ANALYTICS_ENGINE_VERSION`/`FORMULA_SET_VERSION`) y
+  `docs/ANALYTICS_FORMULAS.md` §20 para la fórmula.
+
+---
+
 ## v1.23.4 — 2026-07-28
 
 **Tipo:** FIX

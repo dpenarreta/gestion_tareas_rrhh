@@ -13,10 +13,15 @@ const holidayFindMany = vi.fn();
 const leaveRecordFindMany = vi.fn();
 const specialStatusFindMany = vi.fn();
 const projectFindMany = vi.fn();
+const monthClosureFindUnique = vi.fn();
 
 // computeCargaTiempo/computeMonthlyHistory (motor central, ver Analytics
 // Calculation Registry § D6) tocan estos modelos además de task/user —
 // deben mockearse igual que el resto o el dashboard responde 500.
+// monthClosure.findUnique: monthlyBusinessBase (workload.ts) lo consulta
+// desde el Motor de Cierre Inteligente con Fecha de Corte para saber si el
+// mes tiene un corte anticipado — sin mockear, el mock global de prisma
+// lanza y el dashboard responde 500.
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     user: { findUnique: userFindUnique, update: userUpdate, findMany: userFindMany },
@@ -29,6 +34,7 @@ vi.mock("@/lib/prisma", () => ({
     leaveRecord: { findMany: leaveRecordFindMany },
     specialStatus: { findMany: specialStatusFindMany },
     project: { findMany: projectFindMany },
+    monthClosure: { findUnique: monthClosureFindUnique },
   },
 }));
 
@@ -74,6 +80,7 @@ function resetAll() {
   leaveRecordFindMany.mockReset().mockResolvedValue([]);
   specialStatusFindMany.mockReset().mockResolvedValue([]);
   projectFindMany.mockReset().mockResolvedValue([]);
+  monthClosureFindUnique.mockReset().mockResolvedValue(null);
   vi.mocked(getSession).mockReset();
 }
 

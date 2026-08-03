@@ -365,8 +365,16 @@ export async function computeMonthlyHistory(userId: string, monthsBack = 6, now:
     const biz = bizByMonth[i];
     const { start: mRealStart } = businessDayRealRange(biz.start);
     const { end: mRealEnd } = businessDayRealRange(biz.end);
+    // Motor de Cierre Inteligente con Fecha de Corte — `biz.end` ya viene
+    // truncado por monthlyBusinessBase cuando el mes tiene un cierre con
+    // corte anticipado (ver workload.ts); `end` (monthBounds) sigue siendo
+    // siempre el último día calendario. Usar el más temprano de los dos evita
+    // que este conteo de tareas (numerador) siga incluyendo actividad
+    // posterior al corte mientras la base de horas (denominador) ya no la
+    // cuenta — la misma asimetría que documenta docs/CHANGELOG.md.
+    const effectiveEnd = biz.end.getTime() < end.getTime() ? biz.end : end;
 
-    const monthTasks = tasks.filter((t) => t.endDate >= start && t.endDate <= end);
+    const monthTasks = tasks.filter((t) => t.endDate >= start && t.endDate <= effectiveEnd);
     const overdue = monthTasks.filter((t) => isTaskOverdue(t.endDate, t.status, now));
     const overdueAlta = overdue.filter((t) => t.priority === "ALTA").length;
 

@@ -695,17 +695,39 @@ model MonthlyReport {
   @@unique([month, year, scope])
 }
 
+enum MonthClosureType {
+  NORMAL
+  EARLY
+  MANUAL
+}
+
+// Motor de Cierre Inteligente con Fecha de Corte — `cutoffDate` es el límite
+// real hasta el cual se consideró información al cerrar (puede ser anterior
+// al último día calendario del mes); `closedAt` (ya existente) sigue siendo
+// el instante en que se EJECUTÓ el cierre — ambas fechas se conservan porque
+// responden preguntas distintas ("hasta cuándo cuenta la data" vs "cuándo se
+// generó el cierre") y el Executive Reporting necesita mostrar las dos para
+// trazabilidad completa. `workingDaysConsidered`/`workingHoursConsidered`/
+// `calendarDaysConsidered`/`calendarDaysTotal` quedan congelados aquí en el
+// momento del cierre y nunca se recalculan — son la fuente de verdad
+// inmutable que consume Analytics/KPIs/Executive Reporting para ese mes.
 model MonthClosure {
-  id             String   @id @default(cuid())
-  month          Int
-  year           Int
-  closedBy       String
-  closer         User     @relation("MonthClosures", fields: [closedBy], references: [id])
-  closedAt       DateTime @default(now())
-  totalTasks     Int
-  completedTasks Int
-  summary        Json
-  corrections    Json?
+  id                     String           @id @default(cuid())
+  month                  Int
+  year                   Int
+  closedBy               String
+  closer                 User             @relation("MonthClosures", fields: [closedBy], references: [id])
+  closedAt               DateTime         @default(now())
+  cutoffDate             DateTime
+  closureType            MonthClosureType @default(NORMAL)
+  calendarDaysTotal      Int
+  calendarDaysConsidered Int
+  workingDaysConsidered  Int
+  workingHoursConsidered Float
+  totalTasks             Int
+  completedTasks         Int
+  summary                Json
+  corrections            Json?
 
   @@unique([month, year])
 }

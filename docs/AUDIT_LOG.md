@@ -15,6 +15,103 @@
 
 ---
 
+## 2026-08-02 — Motor de Cierre Inteligente con Fecha de Corte
+
+**Problema:** "Cerrar Mes" (`MonthClosure`) solo registraba `month`/`year` —
+siempre asumía el mes calendario completo. Cuando un cierre debía hacerse
+antes del último día calendario (plataforma que empezó a usarse a mitad de
+mes, incidencia operativa, regularización de datos, auditoría), no existía
+forma de comunicárselo al sistema: Carga Laboral, KPIs, Analytics y
+Executive Reporting seguían usando todos los días hábiles/horas base del mes
+completo, distorsionando cumplimiento/carga/capacidad para ese período.
+
+Investigación previa confirmó además una asimetría YA EXISTENTE en el
+Executive Reporting Engine (ver `docs/CHANGELOG.md` v1.22.0+): `filters.
+fechaCorte` truncaba el NUMERADOR (tareas/actividades, vía `asOfFechaCorte`)
+pero nunca el DENOMINADOR (`monthlyBaseHours`, siempre del mes completo). El
+sprint debía resolver ambos problemas — el mecanismo de "Fecha de Corte" en
+Cerrar Mes, y la asimetría numerador/denominador — con un único diseño.
+
+**Alternativas consideradas:**
+1. **Parámetro explícito de cutoff propagado por firma** a través de los
+   ~15 call sites que hoy consumen `monthlyBusinessBase`/día hábiles
+   (Analytics, KPIs, Executive Reporting, dashboard, predicción). Descartada:
+   cambia la firma pública de una función usada en toda la app, alto riesgo
+   de call sites olvidados, y viola el requisito explícito de compatibilidad
+   ("si la fecha de corte coincide con el último día del mes, el
+   comportamiento debe ser exactamente igual al actual").
+2. **Truncamiento transparente dentro de `monthlyBusinessBase`** (elegida):
+   la función sigue recibiendo `(year, month)` sin cambios; internamente
+   consulta `MonthClosure` (vía `getMonthClosurePeriod`, nuevo módulo
+   `src/lib/closurePeriod.ts`) y trunca su propio `end` cuando existe un
+   cierre con corte anticipado. Los ~15 call sites quedan correctos sin
+   tocarlos — solo se auditó cada uno para verificar que no recalculara su
+   propio "fin de mes" en paralelo (ver Fase 4 / hallazgo siguiente).
+
+**Hallazgo durante la implementación — asimetría también en `analytics.ts`:**
+`computeMonthlyHistory` (usado por Tendencias/Anomalías) recalculaba su
+propio límite de mes (`monthBounds(year, month).end`, siempre el mes
+completo) para filtrar tareas, EN PARALELO al `biz.end` ya truncado de
+`monthlyBusinessBase` — el mismo patrón de asimetría numerador/denominador
+que ya existía en el Executive Reporting Engine, esta vez en el histórico
+mensual de Analytics. Corregido: el filtro de tareas ahora usa
+`MIN(biz.end, monthBounds(...).end)`. El resto de las funciones de
+`analytics.ts` (`computeHealthScore`, `computePerformanceScore`,
+`computeOperationalRisk`, `computePrediction`, etc.) siempre operan sobre el
+mes ACTUAL en curso (derivado de `now`), que por definición nunca tiene un
+`MonthClosure` — quedaron auditadas sin necesitar cambios.
+
+**Decisión — `closureType` (NORMAL/EARLY/MANUAL):** el spec original no
+definía la diferencia entre EARLY y MANUAL; se confirmó explícitamente con
+el usuario: NORMAL = corte en el último día del período; EARLY = el cierre
+se ejecuta antes de que el período termine (`ahora ≤ últimoDía`) con un
+corte anterior; MANUAL = el período ya terminó pero se elige deliberadamente
+un corte anterior (regularización/auditoría/incidencia posterior). El
+usuario confirmó también que se debían persistir y mostrar por separado
+`closedAt` (cuándo se ejecutó el cierre) y `cutoffDate` (hasta cuándo cuenta
+la data) — campos ya distintos en `MonthClosure`, propagados juntos al
+`SnapshotMeta.closure` del Executive Reporting Engine.
+
+**Decisión — alcance de la Fecha de Corte:** acota EXCLUSIVAMENTE la
+ventana de datos para cálculo (KPIs/Analytics/Reporting), no el archivado de
+tareas de "Cerrar Mes" (`api/tasks/close-month`), que sigue anclado al fin
+de mes calendario natural. Cambiar la mecánica de archivado no fue pedido y
+habría alterado el comportamiento de tareas recurrentes/duplicación al mes
+siguiente, fuera del problema que este sprint resuelve.
+
+**Decisión — `RANGO_MESES` hereda el cierre del ÚLTIMO mes del rango:**
+mismo criterio que `resolveMonthlyPeriodStatus`/`resolveRangePeriodStatus`
+(que ya evaluaban solo el último mes para decidir `CERRADO`/`HISTORICO`).
+Los meses anteriores del rango con su propio `MonthClosure` truncado quedan
+correctos de forma independiente porque `monthlyBusinessBase` se invoca una
+vez por mes dentro del rango (cada uno resuelve su propio cierre).
+`RANGO_PERSONALIZADO` nunca hereda un cierre — no existe un mes calendario
+único al que atribuirlo, mismo criterio que `resolveCustomRangePeriodStatus`.
+
+**Decisión — sin bump de `ANALYTICS_ENGINE_VERSION`/`FORMULA_SET_VERSION`:**
+mismo criterio que "Base Horaria Efectiva" (Sprint Analytics 2.1, v1.18.0,
+ver §15 de `docs/ANALYTICS_FORMULAS.md`), que tampoco los subió pese a ser un
+cambio estructuralmente análogo (recortar el RANGO de fechas que alimenta
+una fórmula ya existente, sin modificar la fórmula en sí).
+
+**Impacto:** `MonthClosure` gana `cutoffDate`/`closureType`/
+`calendarDaysTotal`/`calendarDaysConsidered`/`workingDaysConsidered`/
+`workingHoursConsidered` (migración `add_closure_cutoff` +
+`add_closure_cutoff_not_null`, con `scripts/backfill-month-closure-cutoff.ts`
+para filas históricas — verificado: la BD no tenía ningún `MonthClosure`
+preexistente, backfill no fue necesario en la práctica). Cero cambio de
+comportamiento para cierres nuevos con corte = último día del mes, ni para
+meses/reportes ya generados sobre períodos sin cierre formal. El asistente
+"Cerrar Mes" pasa de un solo paso a 3 (Período → Fecha de Corte → Vista
+previa); el Executive Reporting muestra un bloque metodológico en Portada +
+Metadatos (HTML/PDF y Excel) solo cuando `closureType !== NORMAL`.
+
+**Aprobado por:** Anthony Jácome (dirección de producto), confirmando
+explícitamente la definición de `closureType` y el requisito de trazabilidad
+de ambas fechas (`closedAt`/`cutoffDate`) durante la sesión.
+
+---
+
 ## 2026-07-28 — Fix: build de producción roto por límite cliente/servidor (Índice Ejecutivo)
 
 **Problema:** el usuario reportó que el fix de "Estado General inconsistente"

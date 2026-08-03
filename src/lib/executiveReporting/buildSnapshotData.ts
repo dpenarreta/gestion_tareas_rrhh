@@ -41,18 +41,24 @@
 //      snapshot (no sabemos cuál era su status real en ese instante, así que
 //      se asume el más conservador). Es una vista de solo lectura para este
 //      cálculo — nunca se persiste ni modifica la tarea real.
-// Cuando `fechaCorte` no viene informado, el corte por defecto reproduce
-// EXACTAMENTE el comportamiento histórico (fin de período o "ahora", lo que
-// sea anterior) — cero cambio para los llamadores que aún no exponen un
-// selector de fecha de corte.
+// Cuando `fechaCorte` no viene informado, el corte por defecto (ver
+// `resolveClosureCutoff`) pasa a ser — Motor de Cierre Inteligente con Fecha
+// de Corte — el `cutoffDate` del MonthClosure del período, si existe (mismo
+// valor sin importar cuándo se genere el reporte, inmutabilidad real); si el
+// mes/rango nunca se cerró formalmente, reproduce EXACTAMENTE el
+// comportamiento histórico (fin de período o "ahora", lo que sea anterior) —
+// cero cambio para reportes de meses en curso o sin cerrar.
 //
 // Funciones que YA aceptan un `now`/instante de referencia (computeHealthScore,
 // computePerformanceScore) reciben el corte ahí — no se modifica su firma ni
 // su fórmula. `computeDataQuality` y `computeTeamMonthlySnapshots` (tendencias)
-// no aceptan ese parámetro hoy; extenderlas queda fuera de este Sprint (no se
-// toca `analytics.ts`/`reportInsights.ts`) — quedan documentadas como
-// limitación conocida: se evalúan sobre el estado actual, no "a la fecha de
-// corte".
+// no aceptan ese parámetro hoy; extenderlas queda fuera de este Sprint —
+// quedan documentadas como limitación conocida: se evalúan sobre el estado
+// actual, no "a la fecha de corte". (`monthlyBusinessBase`, en cambio, SÍ
+// trunca su `end` automáticamente cuando el mes tiene un MonthClosure con
+// corte anticipado — ver workload.ts — así que la base de horas/días
+// hábiles que consumen estas funciones ya refleja el corte incluso sin
+// tocar su firma.)
 import { prisma } from "@/lib/prisma";
 import { isTaskOverdue } from "@/lib/utils";
 import {
@@ -63,6 +69,8 @@ import {
   computeWorkloadPct,
 } from "@/lib/workload";
 import { businessDayRealRange } from "@/lib/businessTime";
+import { getMonthClosurePeriod } from "@/lib/closurePeriod";
+import type { MonthClosure } from "@/generated/prisma/client";
 import { getActivityReasonLabelMap } from "@/lib/activityReasons";
 import {
   computeSimpleScore,
@@ -100,7 +108,7 @@ import { generateExecutiveNarrative } from "./nova/generateNarrative";
 import { logReportAudit } from "./snapshotStore";
 import type { ExecutiveReportFilters, ExecutiveReportPeriodFilter } from "./filters";
 import type { ResolvedReportRoster } from "./resolveRoster";
-import type { ExecutiveReportSnapshotData, SnapshotTeamAlert, SnapshotGeneratedBy, SnapshotPredictivo, SnapshotPredictiveMember } from "./snapshotData";
+import type { ExecutiveReportSnapshotData, SnapshotTeamAlert, SnapshotGeneratedBy, SnapshotPredictivo, SnapshotPredictiveMember, SnapshotClosureInfo } from "./snapshotData";
 import type { IndiceEjecutivoData, MotivoDistributionItem, MonthSnapshot, ReportMemberKpi } from "@/components/kpis/types";
 
 function monthBounds(year: number, month: number) {
@@ -144,6 +152,48 @@ function earlier(a: Date, b: Date): Date {
  */
 function asOfFechaCorte<T extends { status: string; completedAt: Date | null }>(tasks: T[], cutoff: Date): T[] {
   return tasks.map((t) => (t.status === "COMPLETADA" && t.completedAt && t.completedAt.getTime() > cutoff.getTime() ? { ...t, status: "PENDIENTE" } : t));
+}
+
+function closureMetaFrom(closure: MonthClosure): SnapshotClosureInfo {
+  return {
+    closureType: closure.closureType,
+    cutoffDate: closure.cutoffDate.toISOString(),
+    closedAt: closure.closedAt.toISOString(),
+    calendarDaysTotal: closure.calendarDaysTotal,
+    calendarDaysConsidered: closure.calendarDaysConsidered,
+    workingDaysConsidered: closure.workingDaysConsidered,
+    workingHoursConsidered: closure.workingHoursConsidered,
+  };
+}
+
+/**
+ * Motor de Cierre Inteligente con Fecha de Corte — si (year, month) tiene un
+ * MonthClosure, su `cutoffDate` (día calendario, medianoche UTC) se vuelve el
+ * default de `filters.fechaCorte` en vez de "fin de período o ahora, lo que
+ * sea antes" — así un reporte de un mes cerrado usa SIEMPRE el mismo corte
+ * persistido, sin importar cuándo se genere (inmutabilidad real, no solo "lo
+ * más reciente antes de ahora"). Se convierte a instante real de fin del día
+ * de negocio (`businessDayRealRange`) para no truncar a medianoche la
+ * actividad del propio día de corte — mismo patrón que el resto del motor
+ * usa para pasar de "día calendario" a "instante real" (ver businessTime.ts).
+ * Un `filters.fechaCorte` explícito SIEMPRE gana sobre el default del cierre
+ * (uso manual/excepcional, cero cambio de comportamiento para ese caso).
+ */
+async function resolveClosureCutoff(
+  year: number,
+  month: number,
+  explicitFechaCorte: Date | undefined,
+  fallback: Date,
+  now: Date
+): Promise<{ cutoff: Date; closureMeta: SnapshotClosureInfo | null }> {
+  const { closure } = await getMonthClosurePeriod(year, month);
+  const closureMeta = closure ? closureMetaFrom(closure) : null;
+  if (explicitFechaCorte) return { cutoff: earlier(explicitFechaCorte, now), closureMeta };
+  if (closure) {
+    const { end: cutoffInstant } = businessDayRealRange(closure.cutoffDate);
+    return { cutoff: earlier(cutoffInstant, now), closureMeta };
+  }
+  return { cutoff: earlier(fallback, now), closureMeta: null };
 }
 
 /**
@@ -265,7 +315,7 @@ export async function buildMonthlySnapshotData(params: BuildMonthlySnapshotDataP
   const { month, year } = filters.periodo;
   const { users, userIds, scope, rosterKind } = roster;
   const { start, end } = monthBounds(year, month);
-  const cutoff = filters.fechaCorte ? earlier(filters.fechaCorte, now) : earlier(end, now);
+  const { cutoff, closureMeta } = await resolveClosureCutoff(year, month, filters.fechaCorte, end, now);
   const dataUpperBound = earlier(end, cutoff);
 
   const {
@@ -523,6 +573,7 @@ export async function buildMonthlySnapshotData(params: BuildMonthlySnapshotDataP
       periodEnd: end.toISOString(),
       fechaCorte: cutoff.toISOString(),
       periodStatus,
+      closure: closureMeta,
       collaboratorIds: userIds,
       collaboratorCount: userIds.length,
       generatedBy,
@@ -581,7 +632,12 @@ export async function buildRangeSnapshotData(params: BuildRangeSnapshotDataParam
   const [toYear, toMonth] = toParam.split("-").map(Number);
   const rangeStart = monthBounds(fromYear, fromMonth).start;
   const rangeEnd = monthBounds(toYear, toMonth).end;
-  const cutoff = filters.fechaCorte ? earlier(filters.fechaCorte, now) : earlier(rangeEnd, now);
+  // El corte por defecto de un RANGO_MESES hereda el cierre del ÚLTIMO mes del
+  // rango — mismo criterio que resolveRangePeriodStatus (que también evalúa
+  // solo el último mes). Los meses ANTERIORES del rango que tengan su propio
+  // MonthClosure con corte ya quedan truncados en su propia base de horas por
+  // monthlyBusinessBase (ver workload.ts), sin depender de este `cutoff`.
+  const { cutoff, closureMeta } = await resolveClosureCutoff(toYear, toMonth, filters.fechaCorte, rangeEnd, now);
   const dataUpperBound = earlier(rangeEnd, cutoff);
 
   const rangeStartRate = await monthlyBusinessBase(fromYear, fromMonth);
@@ -840,6 +896,7 @@ export async function buildRangeSnapshotData(params: BuildRangeSnapshotDataParam
       periodEnd: rangeEnd.toISOString(),
       fechaCorte: cutoff.toISOString(),
       periodStatus,
+      closure: closureMeta,
       collaboratorIds: userIds,
       collaboratorCount: userIds.length,
       generatedBy,
@@ -1081,6 +1138,10 @@ export async function buildCustomRangeSnapshotData(params: BuildCustomRangeSnaps
       periodEnd: periodEnd.toISOString(),
       fechaCorte: cutoff.toISOString(),
       periodStatus,
+      // RANGO_PERSONALIZADO no calza con un mes calendario completo — no
+      // existe un MonthClosure único que atribuirle (mismo criterio que
+      // resolveCustomRangePeriodStatus, que tampoco distingue CERRADO aquí).
+      closure: null,
       collaboratorIds: userIds,
       collaboratorCount: userIds.length,
       generatedBy,

@@ -28,6 +28,20 @@ export type CoverPage = {
   semaforoLabel: string | null;
   analyticsEngineVersion: string;
   formulaSetVersion: string;
+  /**
+   * Motor de Cierre Inteligente con Fecha de Corte — bloque metodológico de
+   * portada, presente SOLO cuando el período tiene un MonthClosure con
+   * closureType EARLY/MANUAL (nunca en NORMAL ni cuando el mes no está
+   * cerrado formalmente — ahí el comportamiento de portada es idéntico al
+   * de antes de este sprint, por requisito de compatibilidad). `null` en
+   * todos los demás campos de este bloque cuando `closureStatusLabel` es null.
+   */
+  closureStatusLabel: string | null;
+  coverageLabel: string | null;
+  workingDaysConsideredLabel: string | null;
+  workingHoursConsideredLabel: string | null;
+  /** Párrafo completo de nota metodológica (mismo texto que se repite al final del informe) — null cuando `closureStatusLabel` es null. */
+  metodologicalNoteLabel: string | null;
 };
 
 export type EstadoGeneralIndicator = {
@@ -141,6 +155,8 @@ export type MetadataPage = {
   dataQualityPct: number;
   periodStatusLabel: string;
   generationMsLabel: string;
+  /** Mismo texto/condición que `CoverPage.metodologicalNoteLabel` — el spec pide la nota tanto en Portada como al final del informe. */
+  metodologicalNoteLabel: string | null;
 };
 
 export type ReportPage =
@@ -177,6 +193,54 @@ function formatDateTimeLabel(iso: string): string {
 }
 
 /**
+ * "1 jul" — día + mes corto, para el rango de cobertura del bloque de cierre
+ * anticipado/manual. `timeZone: "UTC"` es OBLIGATORIO aquí: `periodStart` y
+ * `cutoffDate` son valores "solo fecha" (medianoche UTC, misma convención
+ * que `Task.endDate` en todo el resto de la app) — sin fijar la zona, este
+ * formateador dependía del huso horario LOCAL del proceso que renderiza
+ * (servidor o navegador), corriendo el día calendario mostrado hacia atrás
+ * en cualquier huso horario negativo respecto a UTC (p. ej. UTC-5).
+ */
+function formatShortDayMonth(iso: string): string {
+  return new Date(iso).toLocaleDateString("es-CL", { day: "numeric", month: "short", timeZone: "UTC" }).replace(/\.$/, "");
+}
+
+/** Igual que `formatDateLabel`, pero fijando UTC — para valores "solo fecha" (medianoche UTC) como `cutoffDate`, nunca para instantes reales como `generatedAt`/`closedAt`. */
+function formatDateLabelUTC(iso: string): string {
+  return new Date(iso).toLocaleDateString("es-CL", { day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" });
+}
+
+const CLOSURE_STATUS_LABEL: Record<"EARLY" | "MANUAL", string> = {
+  EARLY: "Cerrado anticipadamente",
+  MANUAL: "Cerrado — fecha de corte regularizada manualmente",
+};
+
+/**
+ * Motor de Cierre Inteligente con Fecha de Corte — mismo párrafo que se
+ * muestra en Portada y se repite al final del informe (MetadataPage). El
+ * fraseo distingue EARLY (cierre ejecutado antes de que el período
+ * terminara — `closedAt` y `cutoffDate` suelen coincidir o estar muy cerca)
+ * de MANUAL (el período ya había terminado; el corte es una decisión
+ * deliberada posterior, `closedAt` y `cutoffDate` pueden estar muy
+ * separados) — el texto de ejemplo del spec original corresponde al caso
+ * EARLY; se generaliza aquí sin inventar una tercera variante.
+ */
+function buildMetodologicalNote(closure: NonNullable<ExecutiveReportSnapshotData["meta"]["closure"]>): string | null {
+  if (closure.closureType === "NORMAL") return null;
+  const cutoffLabel = formatDateLabelUTC(closure.cutoffDate);
+  // closedAt SÍ es un instante real (no "solo fecha") — se formatea con el
+  // mismo criterio que generatedAtLabel/fechaCorteLabel en el resto del
+  // documento (huso horario de quien renderiza), a propósito, sin forzar UTC.
+  const closedAtLabel = formatDateLabel(closure.closedAt);
+  const days = closure.workingDaysConsidered;
+  const hours = closure.workingHoursConsidered;
+  if (closure.closureType === "EARLY") {
+    return `Este informe corresponde a un cierre anticipado realizado el ${closedAtLabel}, antes de finalizar el período. Todos los indicadores, KPIs y análisis fueron calculados utilizando exclusivamente la información registrada hasta esa fecha, considerando ${days} días hábiles y ${hours} horas base. Los registros posteriores al cierre no forman parte del presente análisis.`;
+  }
+  return `Este informe corresponde a un período cuya fecha de corte fue regularizada manualmente. El cierre se ejecutó el ${closedAtLabel}, pero toda la información fue calculada utilizando exclusivamente lo registrado hasta el ${cutoffLabel} (por motivos operativos, de auditoría o de regularización de datos), considerando ${days} días hábiles y ${hours} horas base. Los registros posteriores a la fecha de corte no forman parte del presente análisis.`;
+}
+
+/**
  * Validación defensiva — `meta` es un campo obligatorio del tipo
  * `ExecutiveReportSnapshotData`, pero llega desde una columna Json de
  * Postgres (sin chequeo de tipo en runtime); un snapshot persistido de forma
@@ -187,6 +251,9 @@ function formatDateTimeLabel(iso: string): string {
 function buildCoverPage(snap: ExecutiveReportSnapshotData): CoverPage {
   const estado = resolveEstadoGeneral(snap);
   const meta = snap.meta;
+  // `meta?.closure` puede ser `undefined` (no solo `null`) en snapshots
+  // persistidos antes de este sprint — se trata igual que "sin cierre".
+  const closure = meta?.closure && meta.closure.closureType !== "NORMAL" ? meta.closure : null;
   return {
     kind: "cover",
     reportId: meta?.reportId ?? "—",
@@ -201,6 +268,11 @@ function buildCoverPage(snap: ExecutiveReportSnapshotData): CoverPage {
     semaforoLabel: estado.explicacion,
     analyticsEngineVersion: meta?.versions?.analyticsEngineVersion ?? "—",
     formulaSetVersion: meta?.versions?.formulaSetVersion ?? "—",
+    closureStatusLabel: closure ? CLOSURE_STATUS_LABEL[closure.closureType as "EARLY" | "MANUAL"] : null,
+    coverageLabel: closure && meta?.periodStart ? `${formatShortDayMonth(meta.periodStart)} – ${formatShortDayMonth(closure.cutoffDate)}` : null,
+    workingDaysConsideredLabel: closure ? `${closure.workingDaysConsidered} días hábiles` : null,
+    workingHoursConsideredLabel: closure ? `${closure.workingHoursConsidered} horas` : null,
+    metodologicalNoteLabel: closure ? buildMetodologicalNote(closure) : null,
   };
 }
 
@@ -335,6 +407,7 @@ function buildPredictivePage(snap: ExecutiveReportSnapshotData): PredictivePage 
 
 function buildMetadataPage(snap: ExecutiveReportSnapshotData): MetadataPage {
   const meta = snap.meta;
+  const closure = meta?.closure && meta.closure.closureType !== "NORMAL" ? meta.closure : null;
   return {
     kind: "metadata",
     reportId: meta?.reportId ?? "—",
@@ -351,6 +424,7 @@ function buildMetadataPage(snap: ExecutiveReportSnapshotData): MetadataPage {
     dataQualityPct: snap.estadoGeneral?.dataQuality?.pct ?? 0,
     periodStatusLabel: meta?.periodStatus ? PERIOD_STATUS_LABEL[meta.periodStatus] : "—",
     generationMsLabel: meta?.generationMs === undefined ? "—" : meta.generationMs >= 1000 ? `${(meta.generationMs / 1000).toFixed(1)} s` : `${meta.generationMs} ms`,
+    metodologicalNoteLabel: closure ? buildMetodologicalNote(closure) : null,
   };
 }
 

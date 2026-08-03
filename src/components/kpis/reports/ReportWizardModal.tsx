@@ -130,6 +130,7 @@ export function ReportWizardModal({ open, onClose, currentUserRole, referenceMem
   const [sections, setSections] = useState<Set<WizardPageKind>>(new Set(ALL_WIZARD_PAGES));
   const [format, setFormat] = useState<WizardFormat>("pdf-completo");
   const [generating, setGenerating] = useState(false);
+  const [closureInfo, setClosureInfo] = useState<{ closed: boolean; cutoffDate: string | null; closureType: "NORMAL" | "EARLY" | "MANUAL" | null } | null>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -146,6 +147,24 @@ export function ReportWizardModal({ open, onClose, currentUserRole, referenceMem
     }
     queueMicrotask(loadRoster);
   }, [open]);
+
+  // Motor de Cierre Inteligente con Fecha de Corte — el corte ya se hereda
+  // automáticamente del cierre al generar (buildSnapshotData.ts); esto es
+  // solo un aviso informativo ANTES de generar, para que quien arma el
+  // reporte sepa que el período elegido no cubre el mes completo.
+  useEffect(() => {
+    if (!open) return;
+    const resolvedPeriod = resolvePeriod(preset, customFrom, customTo);
+    if (!resolvedPeriod || resolvedPeriod.tipoReporte !== "MENSUAL") {
+      setClosureInfo(null);
+      return;
+    }
+    const [year, month] = resolvedPeriod.month.split("-").map(Number);
+    fetch(`/api/reports/executive/closure-status?year=${year}&month=${month}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => setClosureInfo(data))
+      .catch(() => setClosureInfo(null));
+  }, [open, preset, customFrom, customTo]);
 
   if (!open) return null;
 
@@ -323,6 +342,12 @@ export function ReportWizardModal({ open, onClose, currentUserRole, referenceMem
             </div>
           )}
           {resolved && <p className="text-[11px] text-disabled mt-2">Período resuelto: {resolved.label}</p>}
+          {closureInfo?.closed && closureInfo.closureType !== "NORMAL" && closureInfo.cutoffDate && (
+            <p className="text-[11px] text-primary bg-primary-surface border border-primary/25 rounded-lg px-3 py-2 mt-2">
+              Este mes fue {closureInfo.closureType === "EARLY" ? "cerrado anticipadamente" : "cerrado con fecha de corte regularizada manualmente"} el{" "}
+              {new Date(`${closureInfo.cutoffDate}T00:00:00.000Z`).toLocaleDateString("es-CL", { day: "2-digit", month: "long", year: "numeric", timeZone: "UTC" })} — el informe usará esa fecha de corte automáticamente.
+            </p>
+          )}
         </section>
 
         {/* Secciones */}

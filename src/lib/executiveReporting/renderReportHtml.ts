@@ -89,6 +89,8 @@ export const EXECUTIVE_REPORT_STYLES = `
   .er-cover-meta{display:grid;grid-template-columns:repeat(2,1fr);gap:10px 32px;max-width:560px;margin:0 auto;text-align:left;font-size:12.5px;}
   .er-cover-meta div b{display:block;color:var(--er-ink-faint);font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;font-weight:600;margin-bottom:2px;}
   .er-reportid{font-family:ui-monospace,Consolas,monospace;font-size:11.5px;color:var(--er-ink-faint);}
+  .er-cover-closure{margin-top:18px;padding-top:18px;border-top:1px dashed var(--er-border);}
+  .er-methodological-note{font-style:italic;font-size:12px;background:#fbfcfd;border:1px solid var(--er-border);border-radius:8px;padding:12px 16px;margin-top:6px;}
   .er-footer{margin-top:26px;padding-top:12px;border-top:1px solid var(--er-border);font-size:10px;letter-spacing:.02em;color:var(--er-ink-faint);text-align:center;}
   @media print{
     @page{size:A4;margin:14mm;}
@@ -114,7 +116,20 @@ function renderCoverPage(p: CoverPage): string {
       <div><b>Analytics Engine</b>v${esc(p.analyticsEngineVersion)}</div>
       <div><b>Formula Set</b>v${esc(p.formulaSetVersion)}</div>
     </div>
+    ${renderClosureBlock(p)}
   </section>`;
+}
+
+/** Motor de Cierre Inteligente con Fecha de Corte — bloque metodológico de portada, vacío cuando `closureStatusLabel` es null (mes sin cierre EARLY/MANUAL, comportamiento idéntico al de antes de este sprint). */
+function renderClosureBlock(p: CoverPage): string {
+  if (!p.closureStatusLabel) return "";
+  return `<div class="er-cover-meta er-cover-closure">
+    <div><b>Estado del período</b>${esc(p.closureStatusLabel)}</div>
+    ${p.coverageLabel ? `<div><b>Cobertura</b>${esc(p.coverageLabel)}</div>` : ""}
+    ${p.workingDaysConsideredLabel ? `<div><b>Días hábiles considerados</b>${esc(p.workingDaysConsideredLabel)}</div>` : ""}
+    ${p.workingHoursConsideredLabel ? `<div><b>Horas base consideradas</b>${esc(p.workingHoursConsideredLabel)}</div>` : ""}
+  </div>
+  ${p.metodologicalNoteLabel ? `<p class="er-p er-methodological-note">${esc(p.metodologicalNoteLabel)}</p>` : ""}`;
 }
 
 function renderExecutiveSummaryPage(p: ExecutiveSummaryPage): string {
@@ -352,6 +367,7 @@ function renderMetadataPage(p: MetadataPage): string {
     <p class="er-eyebrow">Última página</p>
     <h2 class="er-h2">Metadatos</h2>
     <table class="er-table"><tbody>${tableRows}</tbody></table>
+    ${p.metodologicalNoteLabel ? `<p class="er-p er-methodological-note">${esc(p.metodologicalNoteLabel)}</p>` : ""}
   </section>`;
 }
 

@@ -44,6 +44,17 @@ function appendCoverAndSummarySheet(wb: XLSX.WorkBook, cover: CoverPage | undefi
     ["Formula Set", `v${cover.formulaSetVersion}`],
     [],
   ];
+  if (cover.closureStatusLabel) {
+    rows.push(
+      ["ESTADO DEL PERÍODO"],
+      ["Estado del período", cover.closureStatusLabel],
+      ["Cobertura", cover.coverageLabel ?? "—"],
+      ["Días hábiles considerados", cover.workingDaysConsideredLabel ?? "—"],
+      ["Horas base consideradas", cover.workingHoursConsideredLabel ?? "—"],
+      ["Nota metodológica", cover.metodologicalNoteLabel ?? "—"],
+      [],
+    );
+  }
   if (summary) {
     rows.push(["EXECUTIVE SUMMARY"], ["Situación General", summary.situacionGeneral], ["Fortalezas", summary.fortalezas], ["Aspectos de Atención", summary.aspectosAtencion], ["Conclusión", summary.conclusion]);
   }
@@ -177,6 +188,7 @@ function appendMetadataSheet(wb: XLSX.WorkBook, page: MetadataPage | undefined) 
     ["Calidad del dato", `${page.dataQualityPct}%`],
     ["Tiempo de generación", page.generationMsLabel],
   ];
+  if (page.metodologicalNoteLabel) rows.push([], ["Nota metodológica", page.metodologicalNoteLabel]);
   appendAoa(wb, "Metadatos", rows);
 }
 

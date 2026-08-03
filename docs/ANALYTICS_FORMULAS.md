@@ -1382,4 +1382,97 @@ Ver `docs/AUDIT_LOG.md` § 2026-07-26 (Compatibilidad Organizacional) para las d
 
 ---
 
+## 20. Fecha de Corte de Cierre Mensual (Motor de Cierre Inteligente)
+
+**Función principal:** `getMonthClosurePeriod` (`src/lib/closurePeriod.ts`), consumida transparentemente por `monthlyBusinessBase`/`monthlyBusinessBaseForUsers` (`src/lib/workload.ts`) y por `resolveClosureCutoff` (`src/lib/executiveReporting/buildSnapshotData.ts`).
+
+### Objetivo
+Permitir que "Cerrar Mes" congele un mes ANTES de su último día calendario
+(plataforma que empezó a usarse a mitad de mes, incidencia operativa,
+regularización de datos, auditoría) sin distorsionar Carga Laboral, KPIs,
+Analytics ni Executive Reporting con días/horas que nunca formaron parte del
+período efectivamente evaluado. Antes de este sprint, todo motor asumía
+"fin de mes = último día calendario" sin excepción.
+
+### Fórmula
+```
+MonthClosure(mes,año) → { cutoffDate, closureType, calendarDaysTotal,
+                           calendarDaysConsidered, workingDaysConsidered,
+                           workingHoursConsidered }   // congelados al cerrar, inmutables
+
+effectiveEnd(mes,año) = MonthClosure.cutoffDate  SI existe cierre
+                       = últimoDíaCalendario       SI no existe cierre (comportamiento histórico)
+
+monthlyBusinessBase(año,mes).end = effectiveEnd(mes,año)   // truncamiento transparente, sin cambio de firma
+```
+`workingDaysConsidered`/`workingHoursConsidered` se calculan UNA sola vez al
+cerrar (`businessBaseForRange(inicioDelMes, cutoffDate)`, la misma función
+que ya usaba el Generador Inteligente de Reportes — ver §15) y se persisten
+tal cual en `MonthClosure`; nunca se recalculan después, ni siquiera si
+cambia la configuración de horas efectivas/feriados con posterioridad.
+
+### Variables
+- `cutoffDate`: día calendario (medianoche UTC) hasta el cual se consideró
+  información, elegido en el asistente de "Cerrar Mes" — por defecto, el
+  último día del mes (idéntico al comportamiento anterior a este sprint).
+- `closureType` (`NORMAL` | `EARLY` | `MANUAL`):
+  - `NORMAL`: `cutoffDate` = último día del período, sin importar cuándo se ejecute el cierre.
+  - `EARLY`: el cierre se ejecuta ANTES de que el período termine (`ahora ≤ últimoDía`) con un corte anterior al último día — cierre genuinamente anticipado.
+  - `MANUAL`: el período YA terminó (`ahora > últimoDía`), pero se elige deliberadamente un corte anterior al último día (regularización de datos/auditoría/incidencia posterior al cierre natural).
+
+### Normalización
+No aplica (no es un score 0-100) — es un recorte de fechas que alimenta el
+mismo cálculo de base horaria (`businessBaseCore`, `sumWeightedBaseHours`/
+`sumWeightedLimit`) que ya usa toda la app.
+
+### Ejemplo de cálculo
+Julio 2026 completo: 23 días hábiles, 184 horas base (días hábiles × horas
+efectivas vigentes). Cierre con fecha de corte 28/07/2026 (`closureType =
+MANUAL`, cerrado el 02/08/2026): 20 días hábiles, 160 horas base. Desde ese
+momento, TODO KPI/Analytics/Executive Reporting de julio 2026 usa 160h, nunca
+184h — incluyendo reportes generados meses después.
+
+### Casos borde
+- `cutoffDate` = último día calendario del mes → `closureType = NORMAL` y
+  `effectiveEnd` = comportamiento idéntico al de antes de este sprint (cero
+  distorsión en cierres normales/históricos ya existentes).
+- Mes sin `MonthClosure` (en curso, o histórico nunca cerrado formalmente):
+  `effectiveEnd` = último día calendario — mismo comportamiento de siempre.
+- Informe de rango de meses (`RANGO_MESES`): hereda el corte del ÚLTIMO mes
+  del rango (mismo criterio que `resolveMonthlyPeriodStatus`/
+  `resolveRangePeriodStatus`, que también evalúan solo el último mes); los
+  meses ANTERIORES del rango con su propio cierre truncado quedan correctos
+  de forma independiente porque `monthlyBusinessBase` se llama una vez por
+  mes dentro del rango.
+- Rango personalizado (`RANGO_PERSONALIZADO`): no aplica — no existe un mes
+  calendario único al que atribuir un `MonthClosure`.
+- Archivado/duplicado de tareas en "Cerrar Mes" (`api/tasks/close-month`):
+  sigue anclado al fin de mes calendario NATURAL, sin cambios — la Fecha de
+  Corte acota únicamente la ventana de datos para cálculo (KPIs/Analytics/
+  Reporting), no la mecánica de archivado de tareas.
+
+### Reglas de negocio
+- El corte queda persistido de forma inmutable en `MonthClosure` — un
+  reporte generado meses después de un cierre anticipado sigue usando
+  exactamente el mismo corte, nunca "lo más reciente antes de ahora".
+- `filters.fechaCorte` explícito (uso manual/excepcional del Executive
+  Reporting Engine, ver §"Fecha de corte" en `buildSnapshotData.ts`) siempre
+  gana sobre el default heredado del cierre.
+- `ANALYTICS_ENGINE_VERSION`/`FORMULA_SET_VERSION` NO cambian — mismo
+  criterio que §15 (Base Horaria Efectiva): se acota el RANGO de fechas que
+  alimenta una fórmula ya existente, no se modifica ninguna fórmula.
+
+### Versión
+No versionada en `FORMULA_VERSIONS` (no es una fórmula del Analytics
+Engine). Introducido 2026-08-02.
+
+### Notas
+Ver `docs/AUDIT_LOG.md` § 2026-08-02 (Motor de Cierre Inteligente con Fecha
+de Corte) para la asimetría numerador/denominador que este sprint corrige
+(el Executive Reporting Engine ya truncaba la actividad real vía
+`filters.fechaCorte`, pero nunca la base de horas/días hábiles — ver
+`docs/CHANGELOG.md` de v1.22.0 en adelante).
+
+---
+
 _Generado a partir de src/lib/analytics.ts (ANALYTICS_ENGINE_VERSION 1.5.0 / FORMULA_SET_VERSION 4.4) el 2026-07-22. Ampliado el 2026-07-23 (Sprint A). Ampliado el 2026-07-24 (Sprint Analytics 2.0 — Equilibrio Operativo, curva progresiva de Capacidad Futura, corrige la desincronización de versión 4.2 vs. 4.3 vigente en código). Ampliado el 2026-07-24 (Sprint Analytics 2.1 — Base Horaria Efectiva, capa de Reporte, sin cambios al Analytics Engine). Ampliado el 2026-07-26 (Sprint E — Trend Engine, Predicciones Preventivas, Estabilidad Operativa; nuevos motores en trendEngine.ts/predictionEngine.ts, cero cambios al Analytics Engine central). Ampliado el 2026-07-26 (Compatibilidad Organizacional — Matriz de Compatibilidad Operativa, `computeTeamRecommendations` respeta jerarquía)._

@@ -13,11 +13,18 @@ const taskCount = vi.fn();
 const taskUpdateMany = vi.fn();
 const taskCreateMany = vi.fn();
 const $transaction = vi.fn(async (ops: unknown[]) => Promise.all(ops));
+// businessBaseForRange (workload.ts) — invocado por buildPreview desde este sprint
+// (Motor de Cierre Inteligente con Fecha de Corte) para calcular días/horas hábiles
+// considerados hasta el corte. Sin relación con el cierre en sí (holiday/config globales).
+const holidayFindMany = vi.fn();
+const systemConfigHistoryFindFirst = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
     monthClosure: { findUnique: monthClosureFindUnique, create: monthClosureCreate },
     task: { findMany: taskFindMany, count: taskCount, updateMany: taskUpdateMany, createMany: taskCreateMany },
+    holiday: { findMany: holidayFindMany },
+    systemConfigHistory: { findFirst: systemConfigHistoryFindFirst },
     $transaction,
   },
 }));
@@ -57,6 +64,10 @@ function resetPrismaMocks() {
   taskCreateMany.mockReset();
   $transaction.mockReset();
   $transaction.mockImplementation(async (ops: unknown[]) => Promise.all(ops));
+  holidayFindMany.mockReset();
+  holidayFindMany.mockResolvedValue([]);
+  systemConfigHistoryFindFirst.mockReset();
+  systemConfigHistoryFindFirst.mockResolvedValue(null); // sin historial -> usa los defaults de systemConfig.ts
 }
 
 describe("GET /api/tasks/close-month", () => {
@@ -110,7 +121,7 @@ describe("GET /api/tasks/close-month", () => {
   });
 
   it("marca alreadyClosed=true si ya existe un MonthClosure para ese mes", async () => {
-    monthClosureFindUnique.mockResolvedValue({ id: "closure-1" });
+    monthClosureFindUnique.mockResolvedValue({ id: "closure-1", cutoffDate: new Date(Date.UTC(2026, 5, 30)), closureType: "NORMAL" });
     taskFindMany.mockResolvedValue([]);
     taskCount.mockResolvedValue(0);
 
@@ -130,6 +141,79 @@ describe("GET /api/tasks/close-month", () => {
     const body = await res.json();
     expect(body).toMatchObject({ year: 2026, month: 2 });
     vi.useRealTimers();
+  });
+});
+
+describe("GET /api/tasks/close-month — Motor de Cierre Inteligente con Fecha de Corte", () => {
+  beforeEach(() => {
+    vi.mocked(getSession).mockReset();
+    resetPrismaMocks();
+    mockSession({ role: "JEFE_NACIONAL" });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("sin cutoffDate, el corte por defecto es el último día del mes y closureType es NORMAL", async () => {
+    monthClosureFindUnique.mockResolvedValue(null);
+    taskFindMany.mockResolvedValue([]);
+    taskCount.mockResolvedValue(0);
+
+    const res = await GET(getRequest("http://localhost/api/tasks/close-month?year=2026&month=7"));
+    const body = await res.json();
+    expect(body.cutoffDate).toBe("2026-07-31");
+    expect(body.closureType).toBe("NORMAL");
+    expect(body.calendarDaysTotal).toBe(31);
+    expect(body.calendarDaysConsidered).toBe(31);
+  });
+
+  it("con cutoffDate anterior al fin de mes y el cierre ejecutado ANTES de que el mes termine, closureType es EARLY", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(Date.UTC(2026, 6, 20, 12))); // 20 de julio de 2026, dentro del propio mes
+    monthClosureFindUnique.mockResolvedValue(null);
+    taskFindMany.mockResolvedValue([]);
+    taskCount.mockResolvedValue(0);
+
+    const res = await GET(getRequest("http://localhost/api/tasks/close-month?year=2026&month=7&cutoffDate=2026-07-18"));
+    const body = await res.json();
+    expect(body.closureType).toBe("EARLY");
+    expect(body.cutoffDate).toBe("2026-07-18");
+    expect(body.calendarDaysConsidered).toBe(18);
+  });
+
+  it("con cutoffDate anterior al fin de mes pero el cierre ejecutado DESPUÉS de que el mes terminó, closureType es MANUAL", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(Date.UTC(2026, 7, 2, 12))); // 2 de agosto de 2026 — julio ya terminó
+    monthClosureFindUnique.mockResolvedValue(null);
+    taskFindMany.mockResolvedValue([]);
+    taskCount.mockResolvedValue(0);
+
+    const res = await GET(getRequest("http://localhost/api/tasks/close-month?year=2026&month=7&cutoffDate=2026-07-28"));
+    const body = await res.json();
+    expect(body.closureType).toBe("MANUAL");
+  });
+
+  it("responde 400 si la fecha de corte cae fuera del mes seleccionado", async () => {
+    const res = await GET(getRequest("http://localhost/api/tasks/close-month?year=2026&month=7&cutoffDate=2026-08-01"));
+    expect(res.status).toBe(400);
+  });
+
+  it("responde 400 si la fecha de corte es anterior al inicio del mes", async () => {
+    const res = await GET(getRequest("http://localhost/api/tasks/close-month?year=2026&month=7&cutoffDate=2026-06-30"));
+    expect(res.status).toBe(400);
+  });
+
+  it("responde 400 si la fecha de corte es posterior a hoy", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(Date.UTC(2026, 6, 10)));
+    const res = await GET(getRequest("http://localhost/api/tasks/close-month?year=2026&month=7&cutoffDate=2026-07-15"));
+    expect(res.status).toBe(400);
+  });
+
+  it("responde 400 si la fecha de corte tiene formato inválido", async () => {
+    const res = await GET(getRequest("http://localhost/api/tasks/close-month?year=2026&month=7&cutoffDate=not-a-date"));
+    expect(res.status).toBe(400);
   });
 });
 
@@ -162,7 +246,7 @@ describe("POST /api/tasks/close-month", () => {
   });
 
   it("responde 409 si el mes ya fue cerrado, sin iniciar la transacción", async () => {
-    monthClosureFindUnique.mockResolvedValue({ id: "closure-1" });
+    monthClosureFindUnique.mockResolvedValue({ id: "closure-1", cutoffDate: new Date(Date.UTC(2026, 5, 30)), closureType: "NORMAL" });
     taskFindMany.mockResolvedValue([]);
     taskCount.mockResolvedValue(0);
 
@@ -288,5 +372,39 @@ describe("POST /api/tasks/close-month", () => {
     expect(body.archivedCount).toBe(1);
     expect(body.continuedActiveCount).toBe(2);
     expect(taskCreateMany).not.toHaveBeenCalled();
+  });
+
+  it("persiste cutoffDate/closureType/días-horas considerados en el MonthClosure cuando se cierra con un corte anticipado", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(Date.UTC(2026, 6, 15))); // 15 jul 2026 — dentro del propio mes de julio
+    monthClosureFindUnique.mockResolvedValue(null);
+    taskFindMany.mockResolvedValue([]);
+    taskCount.mockResolvedValue(0);
+    monthClosureCreate.mockResolvedValue({ id: "closure-new" });
+    taskUpdateMany.mockResolvedValue({ count: 0 });
+
+    const res = await POST(postRequest({ year: 2026, month: 7, cutoffDate: "2026-07-10" }));
+    expect(res.status).toBe(200);
+
+    expect(monthClosureCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          month: 7,
+          year: 2026,
+          cutoffDate: new Date(Date.UTC(2026, 6, 10)),
+          closureType: "EARLY",
+          calendarDaysTotal: 31,
+          calendarDaysConsidered: 10,
+        }),
+      })
+    );
+    // El archivado de tareas sigue anclado al fin de mes calendario NATURAL,
+    // no al corte — la Fecha de Corte solo acota la ventana de cálculo.
+    expect(taskFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ endDate: { lt: new Date(Date.UTC(2026, 7, 1)) } }) })
+    );
+
+    const body = await res.json();
+    expect(body).toMatchObject({ cutoffDate: "2026-07-10", closureType: "EARLY", calendarDaysTotal: 31, calendarDaysConsidered: 10 });
   });
 });

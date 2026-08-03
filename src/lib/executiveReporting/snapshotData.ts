@@ -38,6 +38,7 @@ import type {
   ExecutiveReportOrigin,
   ExecutiveReportIntegrity,
   ReportScope,
+  MonthClosureType,
 } from "@/generated/prisma/client";
 
 /**
@@ -58,6 +59,28 @@ export type SnapshotVersions = {
 
 /** Quién generó el reporte — para Portada/Metadatos y para ExecutiveReportAuditLog (Fase D/F). */
 export type SnapshotGeneratedBy = { userId: string; name: string };
+
+/**
+ * Motor de Cierre Inteligente con Fecha de Corte — presente únicamente
+ * cuando el período del reporte corresponde a un mes calendario con
+ * MonthClosure (MENSUAL siempre; RANGO_MESES hereda el cierre de su ÚLTIMO
+ * mes, mismo criterio que `resolveMonthlyPeriodStatus`/`resolveRangePeriodStatus`).
+ * `null` en RANGO_PERSONALIZADO (no existe un mes calendario único al que
+ * atribuir un cierre) y en cualquier mes/rango sin cerrar formalmente. Se
+ * copia tal cual desde la fila `MonthClosure` — nunca se recalcula aquí — para
+ * garantizar que coincide exacto con lo persistido al momento del cierre.
+ */
+export type SnapshotClosureInfo = {
+  closureType: MonthClosureType;
+  /** ISO 8601 — día calendario hasta el cual se consideró información (medianoche UTC, mismo formato que Task.endDate). */
+  cutoffDate: string;
+  /** ISO 8601 — instante en que se EJECUTÓ el cierre (MonthClosure.closedAt), distinto de `cutoffDate` (hasta cuándo cuenta la data) y de `SnapshotMeta.generatedAt` (cuándo se generó ESTE reporte, que puede ser mucho después del cierre). Las 3 fechas se muestran por separado para trazabilidad completa. */
+  closedAt: string;
+  calendarDaysTotal: number;
+  calendarDaysConsidered: number;
+  workingDaysConsidered: number;
+  workingHoursConsidered: number;
+};
 
 /**
  * § Portada / § Metadatos (última página) — identidad y trazabilidad
@@ -85,6 +108,8 @@ export type SnapshotMeta = {
   /** ISO 8601 — "fecha de corte" (FPS Parte IV §5): toda la data de este objeto está calculada únicamente hasta esta fecha (parámetro `fechaCorte` de ExecutiveReportFilters, o su valor por defecto si se omitió). */
   fechaCorte: string;
   periodStatus: ExecutiveReportPeriodStatus;
+  /** Ver SnapshotClosureInfo — null si el período no corresponde a un mes cerrado. */
+  closure: SnapshotClosureInfo | null;
   collaboratorIds: string[];
   collaboratorCount: number;
   generatedBy: SnapshotGeneratedBy;
