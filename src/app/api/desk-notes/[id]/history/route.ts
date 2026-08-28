@@ -1,35 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { canUseDeskNotes } from "@/lib/roles";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import { mapDjangoDeskAuditEventToNexoShape, type DjangoDeskAuditEvent } from "@/lib/djangoDeskAdapter";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-// Trazabilidad visible de la nota (§10 Auditoría) — lee DeskAuditLog, no
-// duplica ningún dato. Accesible para cualquiera de los dos participantes.
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
+
+// Fase 7g de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-18):
+// esta ruta pasó de Prisma a Django (`DeskNoteViewSet.history`).
 export async function GET(_req: NextRequest, ctx: Ctx) {
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   }
-  if (!canUseDeskNotes(session.role)) {
-    return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
-  }
 
   const { id } = await ctx.params;
-  const note = await prisma.deskNote.findUnique({ where: { id }, select: { senderId: true, recipientId: true } });
-  if (!note) {
+  const response = await djangoApiFetch(`/desk-notes/${id}/history/`);
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 404) {
     return NextResponse.json({ error: "Nota no encontrada" }, { status: 404 });
   }
-  if (note.senderId !== session.userId && note.recipientId !== session.userId) {
+  if (!response.ok) {
     return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
   }
 
-  const events = await prisma.deskAuditLog.findMany({
-    where: { entityType: "NOTE", entityId: id },
-    select: { id: true, action: true, metadata: true, createdAt: true },
-    orderBy: { createdAt: "asc" },
-  });
-
-  return NextResponse.json(events.map((e) => ({ ...e, createdAt: e.createdAt.toISOString() })));
+  const events: DjangoDeskAuditEvent[] = await response.json();
+  return NextResponse.json(events.map(mapDjangoDeskAuditEventToNexoShape));
 }

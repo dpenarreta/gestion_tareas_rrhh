@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 
 const { default: MyKpisModule } = await import("@/components/kpis/MyKpisModule");
 
@@ -8,7 +8,7 @@ const LEADERSHIP_MESSAGE = /funciones principalmente de supervisión y direcció
 
 function renderModule(role: Role) {
   return render(
-    <MyKpisModule currentUserId="u1" currentUserName="Ana Coordinadora" currentUserRole={role} />
+    <MyKpisModule currentUserName="Ana Coordinadora" currentUserRole={role} />
   );
 }
 

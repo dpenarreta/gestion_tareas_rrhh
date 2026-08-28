@@ -1,58 +1,66 @@
 // Executive Reporting Engine 2.0 (Fase D) — historial paginado de reportes
 // ya generados (GENERATED y LEGACY_MIGRATION conviven en la misma lista —
 // ver backfill, scripts/backfill-executive-report-snapshots.ts). Mismo
-// criterio de visibilidad por `scope` que /api/reports y
-// /api/reports/executive/[reportId].
+// criterio de visibilidad por `scope` que /api/reports/executive/[reportId].
+//
+// Cutover de stack (Fase 56, ver docs/AUDIT_LOG.md § 2026-08-25): réplica de
+// `ExecutiveReportListView` (backend, Fase 8, completo desde 2026-08-18).
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { canAccessReports } from "@/lib/roles";
-import type { ReportScope } from "@/generated/prisma/client";
+import { djangoApiFetch } from "@/lib/djangoSession";
 
-function scopeForRole(role: string): ReportScope {
-  return role === "JEFE_NACIONAL" || role === "ADMINISTRADOR" ? "JEFE" : "COORDINADOR";
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
+
+type DjangoReportListItem = {
+  report_id: string;
+  type: string;
+  scope: string;
+  origin: string;
+  integrity_flag: string;
+  period_label: string;
+  period_status: string;
+  collaborator_count: number;
+  generated_by: string;
+  generated_at: string;
+};
+
+function toNexoShape(r: DjangoReportListItem) {
+  return {
+    reportId: r.report_id,
+    type: r.type,
+    scope: r.scope,
+    origin: r.origin,
+    integrityFlag: r.integrity_flag,
+    periodLabel: r.period_label,
+    periodStatus: r.period_status,
+    collaboratorCount: r.collaborator_count,
+    generatedBy: r.generated_by,
+    generatedAt: r.generated_at,
+  };
 }
-
-const DEFAULT_PAGE_SIZE = 20;
-const MAX_PAGE_SIZE = 100;
 
 export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-  if (!canAccessReports(session.role)) return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
 
-  const scope = scopeForRole(session.role);
-  const pageParam = parseInt(request.nextUrl.searchParams.get("page") ?? "1");
-  const page = Number.isFinite(pageParam) && pageParam > 0 ? pageParam : 1;
-  const pageSizeParam = parseInt(request.nextUrl.searchParams.get("pageSize") ?? String(DEFAULT_PAGE_SIZE));
-  const pageSize = Number.isFinite(pageSizeParam) && pageSizeParam > 0 ? Math.min(pageSizeParam, MAX_PAGE_SIZE) : DEFAULT_PAGE_SIZE;
+  const query = request.nextUrl.search;
+  const response = await djangoApiFetch(`/reports/executive/list/${query}`);
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 403) {
+    return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
+  }
+  if (!response.ok) {
+    return NextResponse.json({ error: "Error al obtener el historial de reportes" }, { status: response.status });
+  }
 
-  const [total, rows] = await Promise.all([
-    prisma.executiveReportSnapshot.count({ where: { scope } }),
-    prisma.executiveReportSnapshot.findMany({
-      where: { scope },
-      include: { generator: { select: { name: true } } },
-      orderBy: [{ generatedAt: "desc" }],
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-    }),
-  ]);
-
+  const data = (await response.json()) as { page: number; page_size: number; total: number; reports: DjangoReportListItem[] };
   return NextResponse.json({
-    page,
-    pageSize,
-    total,
-    reports: rows.map((r) => ({
-      reportId: r.reportId,
-      type: r.type,
-      scope: r.scope,
-      origin: r.origin,
-      integrityFlag: r.integrityFlag,
-      periodLabel: r.periodLabel,
-      periodStatus: r.periodStatus,
-      collaboratorCount: r.collaboratorCount,
-      generatedBy: r.generator.name,
-      generatedAt: r.generatedAt.toISOString(),
-    })),
+    page: data.page,
+    pageSize: data.page_size,
+    total: data.total,
+    reports: data.reports.map(toNexoShape),
   });
 }

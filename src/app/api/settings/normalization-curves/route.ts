@@ -1,17 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { canManageUsers } from "@/lib/roles";
-import { getAllEffectiveCurves, setCurveConfig } from "@/lib/systemConfig";
-import { DEFAULT_CURVES, isValidCurve, type CurveName } from "@/lib/normalizationEngine";
+import { extractDjangoFlatErrorMessage } from "@/lib/djangoSession";
+import { fetchDjangoNormalizationCurves, patchDjangoNormalizationCurve, type CurveName } from "@/lib/djangoSystemConfigAdapter";
+import { DEFAULT_CURVES, isValidCurve } from "@/lib/normalizationEngine";
 import { invalidateAnalyticsCache } from "@/lib/analytics";
+
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
 const CURVE_NAMES: CurveName[] = ["cumplimiento", "vencidas", "carga", "capacidad", "consistencia", "trazabilidad"];
 
-/** Curvas de normalización configurables desde Ajustes (§Sprint 5 S5-D/S5-E) — mismo grupo de acceso que /api/settings/analytics-config. */
+/**
+ * Curvas de normalización configurables desde Ajustes (§Sprint 5 S5-D/S5-E)
+ * — mismo grupo de acceso que /api/settings/analytics-config. Cutover de
+ * stack — Fase 84 (ver docs/AUDIT_LOG.md § 2026-08-27): réplica de
+ * `NormalizationCurvesView` (backend, completa desde la Fase 32).
+ */
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-  const curves = await getAllEffectiveCurves();
+  const curves = (await fetchDjangoNormalizationCurves()) ?? DEFAULT_CURVES;
   return NextResponse.json({ curves, defaults: DEFAULT_CURVES });
 }
 
@@ -34,9 +43,14 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Curva inválida: se requieren al menos 2 puntos con x/y finitos e y en [0,100]" }, { status: 400 });
   }
 
-  await setCurveConfig(name as CurveName, points, session.userId);
-  invalidateAnalyticsCache();
+  const response = await patchDjangoNormalizationCurve(name as CurveName, points);
+  if (!response) return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  if (!response.ok) {
+    const message = await extractDjangoFlatErrorMessage(response);
+    return NextResponse.json({ error: message ?? "Curva inválida" }, { status: response.status === 403 ? 403 : 400 });
+  }
 
-  const curves = await getAllEffectiveCurves();
+  invalidateAnalyticsCache();
+  const curves = (await fetchDjangoNormalizationCurves()) ?? DEFAULT_CURVES;
   return NextResponse.json({ curves });
 }

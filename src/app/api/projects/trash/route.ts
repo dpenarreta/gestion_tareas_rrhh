@@ -1,17 +1,17 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { canCreateProject, ROLE_LEVEL } from "@/lib/roles";
-import * as recoveryCenter from "@/lib/recoveryCenter";
+import { canCreateProject } from "@/lib/roles";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import { mapDjangoProjectTrashItemToNexoShape, type DjangoProjectTrashItem } from "@/lib/djangoProjectsAdapter";
 
-const trashSelect = {
-  id: true,
-  name: true,
-  status: true,
-  responsible: { select: { id: true, name: true } },
-  createdBy: { select: { id: true, name: true } },
-  deletedAt: true,
-} as const;
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-21): cierra el gap
+// explícito de la Fase 5f — desde que `projects/route.ts`/`projects/[id]/route.ts`
+// se cortaron a Django, cualquier proyecto creado después solo existía en
+// SQL Server, y esta Papelera (leyendo Postgres) nunca podía mostrarlo.
+// `ProjectViewSet.trash` (Fase 14 del backend) es réplica exacta, ya
+// resuelta contra el mismo `apps.recovery` que enviará ahí los proyectos.
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
 export async function GET() {
   const session = await getSession();
@@ -22,41 +22,17 @@ export async function GET() {
     return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
   }
 
-  // Barrido perezoso: nunca se ejecuta como script masivo aparte, se dispara
-  // cada vez que alguien abre la Papelera (ver src/lib/recoveryCenter.ts).
-  await recoveryCenter.purgeExpiredItems();
+  const response = await djangoApiFetch("/projects/trash/");
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 403) {
+    return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
+  }
+  if (!response.ok) {
+    return NextResponse.json({ error: "No se pudo obtener la papelera" }, { status: 400 });
+  }
 
-  const isLeadership = ROLE_LEVEL[session.role] >= 3;
-
-  // Sprint 2.1 §3: solo el creador puede restaurar/eliminar definitivamente.
-  // Liderazgo conserva visibilidad de TODA la papelera (supervisión), pero
-  // sin acciones salvo que también sea el creador (ver `canDelete` abajo).
-  // El resto de los roles solo ve los proyectos que ellos mismos crearon.
-  const projects = await prisma.project.findMany({
-    where: {
-      deletedAt: { not: null },
-      ...(isLeadership ? {} : { createdById: session.userId }),
-    },
-    select: trashSelect,
-    orderBy: { deletedAt: "desc" },
-  });
-
-  const withRetention = await Promise.all(
-    projects.map(async (p) => {
-      const retention = await recoveryCenter.getRemainingRetentionTime("PROJECT", p.id);
-      return {
-        id: p.id,
-        name: p.name,
-        status: p.status,
-        responsible: p.responsible,
-        createdBy: p.createdBy,
-        deletedAt: p.deletedAt,
-        expiresAt: retention?.expiresAt ?? null,
-        msRemaining: retention?.msRemaining ?? 0,
-        canDelete: p.createdBy.id === session.userId,
-      };
-    })
-  );
-
-  return NextResponse.json(withRetention);
+  const items: DjangoProjectTrashItem[] = await response.json();
+  return NextResponse.json(items.map(mapDjangoProjectTrashItemToNexoShape));
 }

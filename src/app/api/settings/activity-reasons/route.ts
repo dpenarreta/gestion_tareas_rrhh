@@ -1,21 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { ALL_ROLES } from "@/lib/roles";
-import { invalidateAnalyticsCache } from "@/lib/analytics";
-import type { Role } from "@/generated/prisma/client";
+import { djangoApiFetch, extractDjangoFlatErrorMessage } from "@/lib/djangoSession";
+import { mapDjangoActivityReasonToNexoShape, type DjangoActivityReason } from "@/lib/djangoTasksAdapter";
+import type { Role } from "@/lib/roles";
 
-const DIACRITICS_RE = /[̀-ͯ]/g;
-
-function slugifyKey(label: string): string {
-  const base = label
-    .normalize("NFD")
-    .replace(DIACRITICS_RE, "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-  return base || "MOTIVO";
-}
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
 function validRoles(input: unknown): Role[] | null {
   if (!Array.isArray(input) || input.length === 0) return null;
@@ -23,6 +14,11 @@ function validRoles(input: unknown): Role[] | null {
   return roles.length === input.length ? roles : null;
 }
 
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-21): esta ruta pasó de
+// Prisma a Django (`POST /settings/activity-reasons/`). El único consumidor
+// real del catálogo (`GET /api/activity-reasons`) ya lee de Django desde la
+// Fase 3b — escribir acá en Postgres dejaba el alta de motivos sin ningún
+// efecto visible en el resto de la app (bug preexistente, no introducido acá).
 export async function POST(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
@@ -51,27 +47,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Selecciona al menos un rol válido" }, { status: 400 });
   }
 
-  const baseKey = slugifyKey(label.trim());
-  let key = baseKey;
-  let suffix = 2;
-  while (await prisma.activityReason.findUnique({ where: { key } })) {
-    key = `${baseKey}_${suffix}`;
-    suffix++;
+  const response = await djangoApiFetch("/settings/activity-reasons/", {
+    method: "POST",
+    body: JSON.stringify({ label: label.trim(), description, assigned_roles: roles }),
+  });
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (!response.ok) {
+    const message = await extractDjangoFlatErrorMessage(response);
+    return NextResponse.json({ error: message ?? "El nombre del motivo es obligatorio" }, { status: 400 });
   }
 
-  const reason = await prisma.activityReason.create({
-    data: {
-      key,
-      label: label.trim(),
-      description: description?.trim() || null,
-      assignedRoles: roles,
-    },
-  });
-
-  // assignedRoles determina qué actividades puede seleccionar cada rol —
-  // afecta el índice de trazabilidad/consistencia de Analytics (Sprint D,
-  // antes faltaba en este endpoint; ver docs/AUDIT_LOG.md § Sprint D).
-  invalidateAnalyticsCache();
-
-  return NextResponse.json(reason, { status: 201 });
+  const reason = (await response.json()) as DjangoActivityReason;
+  return NextResponse.json(mapDjangoActivityReasonToNexoShape(reason), { status: 201 });
 }

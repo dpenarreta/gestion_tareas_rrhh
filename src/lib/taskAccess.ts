@@ -1,5 +1,5 @@
 import "server-only";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import { getVisibleRoles } from "@/lib/roles";
 
 type SessionLike = { userId: string; role: Role };

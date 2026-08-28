@@ -6,7 +6,7 @@ import {
   ResponsiveContainer, ReferenceLine,
 } from "recharts";
 import * as XLSX from "xlsx";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import { ROLE_LABEL, isLeadershipRole } from "@/lib/roles";
 import type { KpiData, KpiColor, WorkloadColor, WorkloadLabel } from "./types";
 import { DonutChart, CumplimientoLineChart, HistorySparklineList, REASON_LABEL } from "./KpiCharts";
@@ -549,9 +549,9 @@ function DeltaBadge({ current, prev, suffix = "%" }: { current: number; prev: nu
 
 // ── Main component ────────────────────────────────────────────────────────────
 
-type Props = { currentUserId: string; currentUserName: string; currentUserRole: string };
+type Props = { currentUserName: string; currentUserRole: string };
 
-export default function MyKpisModule({ currentUserId, currentUserName, currentUserRole }: Props) {
+export default function MyKpisModule({ currentUserName, currentUserRole }: Props) {
   // ── Individual state ──────────────────────────────────────────────────────
   const [viewMode, setViewMode] = useState<"individual" | "range">("individual");
   const [month, setMonth] = useState(currentMonthParam);
@@ -693,13 +693,13 @@ export default function MyKpisModule({ currentUserId, currentUserName, currentUs
                   </svg>
                   Excel
                 </Button>
-                <Button variant="primary" onClick={() => downloadKpisPDF(kpi, month, currentUserName, currentUserRole, currentUserId)}>
+                <Button variant="primary" onClick={() => downloadKpisPDF(kpi, month, currentUserName, currentUserRole, kpi.user.id)}>
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
                   </svg>
                   PDF
                 </Button>
-                <WhatIfSimulator userId={currentUserId} />
+                <WhatIfSimulator userId={kpi.user.id} />
               </>
             )}
           </div>
@@ -857,7 +857,7 @@ export default function MyKpisModule({ currentUserId, currentUserName, currentUs
               {/* ── Cumplimiento por prioridad + Insights de Nova ─────────── */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                 <PriorityComplianceCard data={kpi.cumplimientoPorPrioridad} />
-                <NovaInsightsCard userId={currentUserId} month={month} />
+                <NovaInsightsCard userId={kpi.user.id} month={month} />
               </div>
 
               {explainCumplimientoOpen && (
@@ -870,13 +870,13 @@ export default function MyKpisModule({ currentUserId, currentUserName, currentUs
               )}
 
               {/* ── 4. Analytics avanzado: Equilibrio Operativo, alertas, tendencias, consistencia, anomalías, predicción ── */}
-              <AdvancedAnalyticsPanel userId={currentUserId} />
+              <AdvancedAnalyticsPanel userId={kpi.user.id} />
 
               {/* ── Sprint 6: Decision Intelligence Engine ──────────────────── */}
-              <InsightsPanel userId={currentUserId} />
+              <InsightsPanel userId={kpi.user.id} />
 
               {/* ── Sprint A: histórico de evolución con selector de período ── */}
-              <ScoreHistoryChart userId={currentUserId} kind="performance_score" title="Performance Score" />
+              <ScoreHistoryChart userId={kpi.user.id} kind="performance_score" title="Performance Score" />
 
               {/* ── 5. Tendencias ─────────────────────────────────────────── */}
               {kpi.cumplimientoHistory.length > 0 && (

@@ -11,7 +11,7 @@
  * Task.realHours (ejecución, nunca tocada por este módulo).
  */
 
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 
 export const TARGET_TIME_TOOLTIP =
   "Tiempo esperado para completar la actividad en condiciones normales de trabajo. Es un estándar operativo, no una predicción personal.";

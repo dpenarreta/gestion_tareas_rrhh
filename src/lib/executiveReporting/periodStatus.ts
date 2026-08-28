@@ -2,8 +2,13 @@
 // reporte emitido antes del cierre mensual. Se apoya en MonthClosure (ya
 // existente, un registro por mes efectivamente cerrado por un
 // Administrador) — no se crea un concepto de cierre paralelo.
-import { prisma } from "@/lib/prisma";
-import type { ExecutiveReportPeriodStatus } from "@/generated/prisma/client";
+//
+// Fase 84 (ver docs/AUDIT_LOG.md § 2026-08-27): lee el cierre desde Django
+// (`fetchDjangoMonthClosure`, ya usado por `closurePeriod.ts`) en vez de
+// `prisma.monthClosure` directo — mismo bug de divergencia ya confirmado en
+// `holidays.ts`.
+import { fetchDjangoMonthClosure } from "@/lib/djangoClosurePeriodAdapter";
+import type { ExecutiveReportPeriodStatus } from "./snapshotData";
 
 /** Reporte de un solo mes calendario (MENSUAL). */
 export async function resolveMonthlyPeriodStatus(
@@ -14,7 +19,7 @@ export async function resolveMonthlyPeriodStatus(
   const isCurrentMonth = month === now.getMonth() + 1 && year === now.getFullYear();
   if (isCurrentMonth) return "EN_CURSO";
 
-  const closure = await prisma.monthClosure.findUnique({ where: { month_year: { month, year } } });
+  const closure = await fetchDjangoMonthClosure(year, month);
   return closure ? "CERRADO" : "HISTORICO";
 }
 

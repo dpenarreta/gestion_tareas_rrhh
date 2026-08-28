@@ -19,7 +19,7 @@ type Config = {
 export default function SeguridadConfigSection() {
   const { showToast } = useToast();
   const [current, setCurrent] = useState<Config | null>(null);
-  const [pwdInput, setPwdInput] = useState("6");
+  const [pwdInput, setPwdInput] = useState("10");
   const [defaultHoursInput, setDefaultHoursInput] = useState("168");
   const [rememberHoursInput, setRememberHoursInput] = useState("720");
   const [retentionInput, setRetentionInput] = useState("30");
@@ -52,8 +52,8 @@ export default function SeguridadConfigSection() {
     const defaultHours = parseInt(defaultHoursInput, 10);
     const rememberHours = parseInt(rememberHoursInput, 10);
 
-    if (!Number.isInteger(pwd) || pwd < 4 || pwd > 128) {
-      showToast("La longitud mínima de contraseña debe ser un entero entre 4 y 128", "error");
+    if (!Number.isInteger(pwd) || pwd < 10 || pwd > 128) {
+      showToast("La longitud mínima de contraseña debe ser un entero entre 10 y 128", "error");
       return;
     }
     if (!Number.isInteger(defaultHours) || defaultHours < 1 || defaultHours > 8760) {
@@ -105,12 +105,13 @@ export default function SeguridadConfigSection() {
               <label className="text-sm font-medium text-title">Longitud mínima de contraseña</label>
               <input
                 type="number"
-                min={4}
+                min={10}
                 max={128}
                 value={pwdInput}
                 onChange={(e) => setPwdInput(e.target.value)}
                 className="w-full border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
               />
+              <p className="text-xs text-secondary">Mínimo 10 — Django exige al menos esa longitud siempre, sin importar este valor.</p>
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-title">Duración de sesión (horas)</label>

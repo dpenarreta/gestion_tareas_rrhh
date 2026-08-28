@@ -32,14 +32,17 @@ import type {
 } from "@/components/kpis/types";
 import type { TrendComparison, RiskQuadrant, Finding, Recommendation, IndicatorExplanation } from "@/lib/reportInsights";
 import type { DataQualityResult } from "@/lib/analytics";
-import type {
-  ExecutiveReportType,
-  ExecutiveReportPeriodStatus,
-  ExecutiveReportOrigin,
-  ExecutiveReportIntegrity,
-  ReportScope,
-  MonthClosureType,
-} from "@/generated/prisma/client";
+import type { MonthClosureType } from "@/lib/djangoClosurePeriodAdapter";
+
+// Cutover de stack — Fase 90 (ver docs/AUDIT_LOG.md § 2026-08-28): estos 5
+// tipos ya no se importan del cliente Prisma generado (retirado del repo) —
+// mismos valores que `prisma/schema.prisma` tenía, réplica exacta de los
+// `choices` del modelo Django (`apps.reports.models.ExecutiveReportSnapshot`).
+export type ExecutiveReportType = "MENSUAL" | "RANGO_MESES" | "RANGO_PERSONALIZADO";
+export type ExecutiveReportPeriodStatus = "EN_CURSO" | "CERRADO" | "HISTORICO";
+export type ExecutiveReportOrigin = "GENERATED" | "LEGACY_MIGRATION";
+export type ExecutiveReportIntegrity = "FULL" | "PARTIAL";
+export type ReportScope = "JEFE" | "COORDINADOR";
 
 /**
  * El mismo builder cubre "reporte consolidado", "por área" e "individual" —
@@ -250,4 +253,6 @@ export type ExecutiveReportSnapshotData = {
   nova: SnapshotNova;
   /** true si CUALQUIER sección de `nova` degradó a fallback determinista (sin GROQ_API_KEY, timeout, o respuesta malformada) — nunca bloquea la generación, solo se audita (Fase D/F). */
   novaDegraded: boolean;
+  /** Sprint R — Snapshot Integrity Validation (FPS Parte IV §15, Fase 79). `null` cuando no aplica (RANGO_MESES/RANGO_PERSONALIZADO, o MENSUAL con `fechaCorte` explícita/histórico) — solo corre para MENSUAL del mes calendario en curso, ver `verifySnapshotIntegrity.ts`. `performed: false` significa que la validación no pudo completarse (Django no disponible), nunca que el reporte tiene una discrepancia. */
+  integrityCheck: { performed: boolean; discrepancyCount: number } | null;
 };

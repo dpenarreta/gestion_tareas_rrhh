@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import { getNavLinks, NAV_SECTION_LABELS, type NavSection } from "@/lib/navLinks";
 
 const DESK_UNREAD_POLL_MS = 30000;

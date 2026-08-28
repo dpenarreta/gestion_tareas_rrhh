@@ -2,27 +2,28 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { SessionPayload } from "@/lib/session";
 import type { NextRequest } from "next/server";
 
-const userFindMany = vi.fn();
-const monthClosureFindMany = vi.fn();
-const monthClosureFindUnique = vi.fn();
-const taskFindMany = vi.fn();
+// Sub-fase 3d de la migración de stack (ver docs/AUDIT_LOG.md §
+// 2026-08-07): GET /api/repository y GET /api/repository/[year]/[month]
+// pasaron de Prisma a Django — este archivo mockeaba `@/lib/prisma` hasta
+// esta actualización, probando agregación por mes y filtrado por
+// jerarquía visible que ya NO viven en `route.ts` (movidos a
+// `MonthClosureService.list_repository_months`, con un gap de visibilidad
+// documentado ahí: sin `apps.hierarchy` conectado, cada usuario ve solo
+// sus propias tareas archivadas). Acá solo se cubre lo que el wrapper de
+// Next.js realmente hace.
+const getSession = vi.fn();
+vi.mock("@/lib/session", () => ({ getSession: (...args: unknown[]) => getSession(...args) }));
 
-vi.mock("@/lib/prisma", () => ({
-  prisma: {
-    user: { findMany: userFindMany },
-    monthClosure: { findMany: monthClosureFindMany, findUnique: monthClosureFindUnique },
-    task: { findMany: taskFindMany },
-  },
+const djangoApiFetch = vi.fn();
+vi.mock("@/lib/djangoSession", () => ({
+  djangoApiFetch: (...args: unknown[]) => djangoApiFetch(...args),
 }));
 
-vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
-
-const { getSession } = await import("@/lib/session");
 const { GET: repositoryGET } = await import("@/app/api/repository/route");
 const { GET: repositoryMonthGET } = await import("@/app/api/repository/[year]/[month]/route");
 
 function mockSession(overrides: Partial<SessionPayload> | null) {
-  vi.mocked(getSession).mockResolvedValue(
+  getSession.mockResolvedValue(
     overrides === null
       ? null
       : {
@@ -45,11 +46,25 @@ function req() {
 }
 
 function resetAll() {
-  userFindMany.mockReset();
-  monthClosureFindMany.mockReset();
-  monthClosureFindUnique.mockReset();
-  taskFindMany.mockReset();
-  vi.mocked(getSession).mockReset();
+  getSession.mockReset();
+  djangoApiFetch.mockReset();
+}
+
+function djangoResponse(ok: boolean, data: unknown, status = ok ? 200 : 400) {
+  return { ok, status, json: async () => data } as Response;
+}
+
+const DJANGO_USER_REF = { id: 1, username: "ana", first_name: "Ana", email: "ana@nexo.com", roles: [{ id: 1, name: "ASISTENTE_GH" }] };
+
+function djangoTask(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: 1, title: "Tarea", description: "", type: "FIJA", status: "COMPLETADA", priority: "MEDIA",
+    frequency: "PUNTUAL", start_date: "2026-06-01T00:00:00Z", end_date: "2026-06-05T00:00:00Z",
+    estimated_hours: 4, real_hours: 4, target_time_validated: null, progress: 100, color: "",
+    corrected: false, assigned_to: DJANGO_USER_REF, created_by: DJANGO_USER_REF, comment_count: 0,
+    has_unread_comments: false, created_at: "2026-06-01T00:00:00Z", updated_at: "2026-06-01T00:00:00Z",
+    ...overrides,
+  };
 }
 
 describe("GET /api/repository", () => {
@@ -61,21 +76,29 @@ describe("GET /api/repository", () => {
     expect(res.status).toBe(401);
   });
 
-  it("agrega tareas archivadas por mes, solo de usuarios visibles, y omite meses sin datos agregados", async () => {
-    mockSession({ role: "JEFE_NACIONAL" });
-    userFindMany.mockResolvedValue([{ id: "sub1" }]);
-    monthClosureFindMany.mockResolvedValue([
-      { year: 2026, month: 6 },
-      { year: 2026, month: 5 }, // sin tareas archivadas -> se omite
-    ]);
-    taskFindMany.mockResolvedValue([
-      { archivedMonth: "2026-06", status: "COMPLETADA", realHours: 4 },
-      { archivedMonth: "2026-06", status: "PENDIENTE", realHours: 2 },
-    ]);
+  it("responde 401 si Django no tiene sesión disponible", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(null);
+    const res = await repositoryGET();
+    expect(res.status).toBe(401);
+  });
+
+  it("responde 400 si Django no pudo cargar el repositorio", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, {}, 500));
+    const res = await repositoryGET();
+    expect(res.status).toBe(400);
+  });
+
+  it("devuelve los meses del repositorio mapeados a la forma Nexo", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(
+      djangoResponse(true, [{ year: 2026, month: 6, total_tasks: 2, completed_tasks: 1, total_hours: 6 }])
+    );
 
     const res = await repositoryGET();
-    const body = await res.json();
-    expect(body).toEqual([{ year: 2026, month: 6, totalTasks: 2, completedTasks: 1, totalHours: 6 }]);
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual([{ year: 2026, month: 6, totalTasks: 2, completedTasks: 1, totalHours: 6 }]);
   });
 });
 
@@ -88,29 +111,35 @@ describe("GET /api/repository/[year]/[month]", () => {
     expect(res.status).toBe(401);
   });
 
-  it("responde 400 ante año/mes inválidos", async () => {
+  it("responde 400 ante año/mes inválidos, sin consultar Django", async () => {
     mockSession({});
     const res = await repositoryMonthGET(req(), ctx("abc", "6"));
     expect(res.status).toBe(400);
+    expect(djangoApiFetch).not.toHaveBeenCalled();
+  });
+
+  it("responde 401 si Django no tiene sesión disponible", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(null);
+    const res = await repositoryMonthGET(req(), ctx());
+    expect(res.status).toBe(401);
   });
 
   it("responde 404 si ese mes no fue cerrado", async () => {
     mockSession({});
-    monthClosureFindUnique.mockResolvedValue(null);
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, {}, 404));
     const res = await repositoryMonthGET(req(), ctx());
     expect(res.status).toBe(404);
   });
 
-  it("devuelve las tareas archivadas del mes, filtradas a usuarios visibles", async () => {
+  it("consulta el endpoint de Django con año/mes y devuelve las tareas mapeadas a la forma Nexo", async () => {
     mockSession({ role: "JEFE_NACIONAL" });
-    monthClosureFindUnique.mockResolvedValue({ id: "closure-1" });
-    userFindMany.mockResolvedValue([{ id: "sub1" }]);
-    taskFindMany.mockResolvedValue([{ id: "t1" }]);
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, [djangoTask({ id: 7 })]));
 
     const res = await repositoryMonthGET(req(), ctx("2026", "6"));
     expect(res.status).toBe(200);
-    expect(taskFindMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { archivedMonth: "2026-06", assignedToId: { in: ["sub1"] } } })
-    );
+    expect(djangoApiFetch).toHaveBeenCalledWith("/tasks/repository/2026/6/");
+    const body = await res.json();
+    expect(body).toEqual([expect.objectContaining({ id: "7" })]);
   });
 });

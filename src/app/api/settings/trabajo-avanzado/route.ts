@@ -1,21 +1,33 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import {
-  getEffectiveRetroactiveWindowDays,
-  setRetroactiveWindowDays,
-  getEffectiveWorkdayEndHour,
-  setWorkdayEndHour,
-} from "@/lib/systemConfig";
+import { djangoApiFetch, extractDjangoFlatErrorMessage } from "@/lib/djangoSession";
 
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
+
+type DjangoTrabajoAvanzado = { retroactive_window_days: number; workday_end_hour: number };
+
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-25, Fase 60):
+// `retroactiveWindowDays` se cortó en la Fase 36. `workdayEndHour` se
+// mantenía en Postgres porque su único consumidor real de entonces
+// (`src/lib/capacityForecast.ts`) seguía en Prisma — desde el cutover de
+// Inteligencia Preventiva (Fase 48), ese archivo quedó sin ningún
+// importador real (código muerto, motor reemplazado por
+// `apps/analytics/capacity_forecast.py`), así que la razón que bloqueaba
+// este cutover ya no existe. `TrabajoAvanzadoView` (Django) ya devolvía
+// `workday_end_hour` en la misma respuesta desde la Fase 32 — no hacía
+// falta ninguna llamada extra a Postgres, solo dejar de ignorar el campo.
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const [retroactiveWindowDays, workdayEndHour] = await Promise.all([
-    getEffectiveRetroactiveWindowDays(),
-    getEffectiveWorkdayEndHour(),
-  ]);
-  return NextResponse.json({ retroactiveWindowDays, workdayEndHour });
+  const response = await djangoApiFetch("/settings/trabajo-avanzado/");
+  if (!response || !response.ok) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+
+  const data = (await response.json()) as DjangoTrabajoAvanzado;
+  return NextResponse.json({ retroactiveWindowDays: data.retroactive_window_days, workdayEndHour: data.workday_end_hour });
 }
 
 export async function PUT(request: NextRequest) {
@@ -45,14 +57,22 @@ export async function PUT(request: NextRequest) {
     }
   }
 
-  await Promise.all([
-    retroactiveWindowDays !== undefined ? setRetroactiveWindowDays(retroactiveWindowDays, session.userId) : Promise.resolve(),
-    workdayEndHour !== undefined ? setWorkdayEndHour(workdayEndHour, session.userId) : Promise.resolve(),
-  ]);
+  const djangoPayload: Record<string, unknown> = {};
+  if (retroactiveWindowDays !== undefined) djangoPayload.retroactive_window_days = retroactiveWindowDays;
+  if (workdayEndHour !== undefined) djangoPayload.workday_end_hour = workdayEndHour;
 
-  const [effectiveWindow, effectiveHour] = await Promise.all([
-    getEffectiveRetroactiveWindowDays(),
-    getEffectiveWorkdayEndHour(),
-  ]);
-  return NextResponse.json({ retroactiveWindowDays: effectiveWindow, workdayEndHour: effectiveHour });
+  const response =
+    Object.keys(djangoPayload).length > 0
+      ? await djangoApiFetch("/settings/trabajo-avanzado/", { method: "PUT", body: JSON.stringify(djangoPayload) })
+      : await djangoApiFetch("/settings/trabajo-avanzado/");
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (!response.ok) {
+    const message = await extractDjangoFlatErrorMessage(response);
+    return NextResponse.json({ error: message ?? "Datos inválidos" }, { status: response.status === 403 ? 403 : 400 });
+  }
+
+  const data = (await response.json()) as DjangoTrabajoAvanzado;
+  return NextResponse.json({ retroactiveWindowDays: data.retroactive_window_days, workdayEndHour: data.workday_end_hour });
 }

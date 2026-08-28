@@ -1,72 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { getVisibleIdeaAuthorIds } from "@/lib/ideas";
-import { CAN_REVIEW_IDEAS } from "@/lib/roles";
-import { saveAttachment, AttachmentError } from "@/lib/storage";
-import type { IdeaImpact } from "@/generated/prisma/client";
+import { djangoApiFetch, extractDjangoFlatErrorMessage } from "@/lib/djangoSession";
+import { mapDjangoIdeaListItemToNexoShape, mapDjangoIdeaToNexoShape, type DjangoIdeaListItem, type DjangoIdea } from "@/lib/djangoIdeasAdapter";
 
-function ideaListSelect(userId: string) {
-  return {
-    id: true,
-    title: true,
-    description: true,
-    impact: true,
-    status: true,
-    progress: true,
-    attachmentUrl: true,
-    createdAt: true,
-    updatedAt: true,
-    author: { select: { id: true, name: true, role: true } },
-    history: {
-      where: { toStatus: "RECHAZADA" as const },
-      orderBy: { createdAt: "desc" as const },
-      take: 1,
-      select: { comment: true },
-    },
-    _count: { select: { votes: true } },
-    votes: { where: { userId }, select: { id: true } },
-  } as const;
-}
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
-function ideaSelect(userId: string) {
-  return {
-    id: true,
-    title: true,
-    description: true,
-    impact: true,
-    status: true,
-    progress: true,
-    attachmentUrl: true,
-    createdAt: true,
-    updatedAt: true,
-    author: { select: { id: true, name: true, role: true } },
-    _count: { select: { votes: true } },
-    votes: { where: { userId }, select: { id: true } },
-  } as const;
-}
-
-const VALID_IMPACTS: IdeaImpact[] = ["ALTO", "MEDIO", "BAJO"];
-
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-21): esta ruta pasó de
+// Prisma a Django. La visibilidad ("qué ideas ve cada rol") y la
+// notificación a revisores ya viven en `apps.ideas.services`
+// (`get_visible_idea_author_ids`/`create_idea`) — el `route.ts` no repite
+// esa lógica. El adjunto sigue codificándose acá como data: URL, mismo
+// contrato ya usado por `desk-notes/route.ts` (Fase 7d) — Django valida
+// extensión/tamaño server-side (`IdeaCreateSerializer`).
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const visibleIds = await getVisibleIdeaAuthorIds(session);
-  const ideas = await prisma.improvementIdea.findMany({
-    where: { authorId: { in: visibleIds } },
-    select: ideaListSelect(session.userId),
-    orderBy: { createdAt: "desc" },
-  });
+  const response = await djangoApiFetch("/ideas/");
+  if (!response || !response.ok) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
 
-  const result = ideas.map(({ history, _count, votes, ...rest }) => ({
-    ...rest,
-    latestRejectionComment: history[0]?.comment ?? null,
-    voteCount: _count.votes,
-    votedByMe: votes.length > 0,
-  }));
-
-  return NextResponse.json(result);
+  const ideas: DjangoIdeaListItem[] = await response.json();
+  return NextResponse.json(ideas.map(mapDjangoIdeaListItemToNexoShape));
 }
 
 export async function POST(request: NextRequest) {
@@ -74,50 +31,42 @@ export async function POST(request: NextRequest) {
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
   const formData = await request.formData();
-  const title = String(formData.get("title") ?? "").trim();
-  const description = String(formData.get("description") ?? "").trim();
-  const impact = String(formData.get("impact") ?? "") as IdeaImpact;
+  const title = String(formData.get("title") ?? "");
+  const description = String(formData.get("description") ?? "");
+  const impact = String(formData.get("impact") ?? "");
   const file = formData.get("file");
 
-  if (!title || !description || !VALID_IMPACTS.includes(impact)) {
-    return NextResponse.json({ error: "Faltan campos requeridos o son inválidos" }, { status: 400 });
-  }
-
-  let attachmentUrl: string | null = null;
+  let attachmentName: string | null = null;
+  let attachmentMime: string | null = null;
   let attachmentData: string | null = null;
   if (file instanceof File && file.size > 0) {
-    try {
-      const saved = await saveAttachment(file);
-      attachmentUrl = saved.fileName;
-      attachmentData = saved.attachmentData;
-    } catch (err) {
-      if (err instanceof AttachmentError) {
-        return NextResponse.json({ error: err.message }, { status: 400 });
-      }
-      throw err;
-    }
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const mimeType = file.type || "application/octet-stream";
+    attachmentName = file.name;
+    attachmentMime = mimeType;
+    attachmentData = `data:${mimeType};base64,${buffer.toString("base64")}`;
   }
 
-  const created = await prisma.improvementIdea.create({
-    data: { title, description, impact, authorId: session.userId, attachmentUrl, attachmentData },
-    select: ideaSelect(session.userId),
+  const response = await djangoApiFetch("/ideas/", {
+    method: "POST",
+    body: JSON.stringify({
+      title,
+      description,
+      impact,
+      attachment_name: attachmentName,
+      attachment_mime: attachmentMime,
+      attachment_data: attachmentData,
+    }),
   });
-  const { _count, votes, ...idea } = created;
-  const ideaResult = { ...idea, voteCount: _count.votes, votedByMe: votes.length > 0 };
 
-  const reviewers = await prisma.user.findMany({
-    where: { role: { in: CAN_REVIEW_IDEAS } },
-    select: { id: true },
-  });
-  if (reviewers.length > 0) {
-    await prisma.notification.createMany({
-      data: reviewers.map((r) => ({
-        userId: r.id,
-        message: `${session.name} propuso una nueva idea: "${title}"`,
-        taskTitle: title,
-      })),
-    });
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (!response.ok) {
+    const message = await extractDjangoFlatErrorMessage(response);
+    return NextResponse.json({ error: message ?? "Faltan campos requeridos o son inválidos" }, { status: 400 });
   }
 
-  return NextResponse.json(ideaResult, { status: 201 });
+  const created: DjangoIdea = await response.json();
+  return NextResponse.json(mapDjangoIdeaToNexoShape(created), { status: 201 });
 }

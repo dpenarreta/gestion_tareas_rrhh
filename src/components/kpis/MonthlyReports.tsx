@@ -5,7 +5,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, ReferenceLine,
 } from "recharts";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import { ReportWizardModal } from "./reports/ReportWizardModal";
 import { Sparkles, BarChart3, FileText, Download } from "lucide-react";
 import { formatDate } from "@/lib/utils";

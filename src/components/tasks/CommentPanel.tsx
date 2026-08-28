@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import type { Task, TaskComment } from "./types";
 import { ROLE_LABEL } from "@/lib/roles";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import { Button } from "@/components/ui/Button";
 import { formatRelative } from "@/lib/utils";
 import { useToast } from "@/components/ui/Toast";

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 
 vi.mock("@/components/kpis/ExecutiveDashboard", () => ({
   default: () => <div data-testid="executive-dashboard">executive</div>,

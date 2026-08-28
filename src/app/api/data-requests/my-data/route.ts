@@ -1,95 +1,36 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import { mapDjangoMyDataExportToNexoShape } from "@/lib/djangoDataRequestsAdapter";
 
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-24): esta ruta pasó de
+// Prisma a Django. Tareas/Actividades/Comentarios/Reuniones/Ideas/Votos ya
+// se escriben exclusivamente en Django desde sus respectivos cutovers — la
+// versión anterior exportaba datos de Postgres cada vez más incompletos
+// para un archivo de exportación LOPD (compliance), no solo un widget de
+// UI. GAP HEREDADO del backend (`apps.data_requests.services.export_my_data`,
+// Fase 12): `usuario` no incluye `theme`/`viewPreferences`/`badges`/
+// `dataConsentAccepted`/`dataConsentAcceptedAt` — campos sin equivalente
+// todavía en el `User` de Django (gaps ya documentados en fases previas).
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const userId = session.userId;
+  const response = await djangoApiFetch("/data-requests/my-data/");
+  if (!response || !response.ok) {
+    return NextResponse.json(
+      { error: "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión." },
+      { status: 401 }
+    );
+  }
 
-  const [user, tasks, activities, comments, meetingsHosted, meetingsInvited, ideas, votes, priorRequests] =
-    await Promise.all([
-      prisma.user.findUnique({
-        where: { id: userId },
-        select: {
-          id: true,
-          name: true,
-          email: true,
-          role: true,
-          theme: true,
-          viewPreferences: true,
-          badges: true,
-          lastLoginAt: true,
-          dataConsentAccepted: true,
-          dataConsentAcceptedAt: true,
-          createdAt: true,
-        },
-      }),
-      prisma.task.findMany({
-        where: { assignedToId: userId },
-        select: {
-          id: true, title: true, description: true, status: true, priority: true,
-          frequency: true, type: true, startDate: true, endDate: true,
-          estimatedHours: true, realHours: true, progress: true, completedAt: true, createdAt: true,
-        },
-      }),
-      prisma.taskActivity.findMany({
-        where: { authorId: userId },
-        select: { id: true, taskId: true, reason: true, startTime: true, endTime: true, duration: true, description: true, createdAt: true },
-      }),
-      prisma.comment.findMany({
-        where: { authorId: userId },
-        select: { id: true, taskId: true, text: true, createdAt: true },
-      }),
-      prisma.meeting.findMany({
-        where: { hostId: userId },
-        select: { id: true, title: true, meetingDate: true, duration: true, status: true },
-      }),
-      prisma.meetingInvitee.findMany({
-        where: { userId },
-        select: { attended: true, meeting: { select: { id: true, title: true, meetingDate: true } } },
-      }),
-      prisma.improvementIdea.findMany({
-        where: { authorId: userId },
-        select: { id: true, title: true, description: true, impact: true, status: true, progress: true, createdAt: true },
-      }),
-      prisma.ideaVote.findMany({
-        where: { userId },
-        select: { ideaId: true, createdAt: true },
-      }),
-      prisma.dataSubjectRequest.findMany({
-        where: { userId },
-        select: { id: true, type: true, status: true, description: true, createdAt: true, resolvedAt: true },
-      }),
-    ]);
-
-  if (!user) return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
-
-  // El acceso directo queda registrado para trazabilidad, resuelto de inmediato
-  // porque la exportación es autoservicio (no requiere gestión manual).
-  await prisma.dataSubjectRequest.create({
-    data: { userId, type: "ACCESO", status: "RESUELTA", resolvedAt: new Date() },
-  });
-
-  const exportPayload = {
-    generadoEl: new Date().toISOString(),
-    usuario: user,
-    tareas: tasks,
-    actividades: activities,
-    comentarios: comments,
-    reunionesOrganizadas: meetingsHosted,
-    reunionesInvitado: meetingsInvited,
-    ideasPropuestas: ideas,
-    votosEnIdeas: votes,
-    solicitudesPrevias: priorRequests,
-  };
+  const exportPayload = mapDjangoMyDataExportToNexoShape(await response.json());
 
   return new NextResponse(JSON.stringify(exportPayload, null, 2), {
     status: 200,
     headers: {
       "Content-Type": "application/json",
-      "Content-Disposition": `attachment; filename="nexo-mis-datos-${userId}.json"`,
+      "Content-Disposition": `attachment; filename="nexo-mis-datos-${session.userId}.json"`,
     },
   });
 }

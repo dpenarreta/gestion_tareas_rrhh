@@ -1,17 +1,17 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { SessionPayload } from "@/lib/session";
 
-const notificationFindMany = vi.fn();
-const notificationCount = vi.fn();
-const notificationUpdateMany = vi.fn();
-
-vi.mock("@/lib/prisma", () => ({
-  prisma: {
-    notification: { findMany: notificationFindMany, count: notificationCount, updateMany: notificationUpdateMany },
-  },
-}));
-
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-21): `Notification` ya
+// la escriben internamente Tareas/Proyectos/Escritorio Digital/Reuniones/
+// Ideas/LOPD desde que cada uno se portó a Django — esta campana leía
+// Postgres, así que nunca veía ninguna de esas notificaciones. Mockeado con
+// `@/lib/djangoSession`, mismo patrón que el resto de este cutover.
 vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
+
+const djangoApiFetch = vi.fn();
+vi.mock("@/lib/djangoSession", () => ({
+  djangoApiFetch: (...args: unknown[]) => djangoApiFetch(...args),
+}));
 
 const { getSession } = await import("@/lib/session");
 const { GET: notificationsGET, PATCH: notificationsPATCH } = await import("@/app/api/notifications/route");
@@ -32,7 +32,7 @@ function mockSession(overrides: Partial<SessionPayload> | null) {
   );
 }
 
-function ctx(id = "n1") {
+function ctx(id = "1") {
   return { params: Promise.resolve({ id }) };
 }
 
@@ -41,10 +41,12 @@ function jsonRequest(body: unknown) {
 }
 
 function resetAll() {
-  notificationFindMany.mockReset();
-  notificationCount.mockReset();
-  notificationUpdateMany.mockReset().mockResolvedValue({ count: 0 });
   vi.mocked(getSession).mockReset();
+  djangoApiFetch.mockReset();
+}
+
+function djangoResponse(ok: boolean, data: unknown, status = ok ? 200 : 400) {
+  return { ok, status, json: async () => data } as Response;
 }
 
 describe("GET /api/notifications", () => {
@@ -54,19 +56,54 @@ describe("GET /api/notifications", () => {
     mockSession(null);
     const res = await notificationsGET();
     expect(res.status).toBe(401);
+    expect(djangoApiFetch).not.toHaveBeenCalled();
   });
 
-  it("devuelve las últimas 20 notificaciones propias y el conteo de no leídas", async () => {
+  it("responde 401 si Django no tiene sesión disponible", async () => {
     mockSession({});
-    notificationFindMany.mockResolvedValue([{ id: "n1" }]);
-    notificationCount.mockResolvedValue(3);
+    djangoApiFetch.mockResolvedValue(null);
     const res = await notificationsGET();
-    expect(notificationFindMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { userId: "u1" }, take: 20 })
+    expect(res.status).toBe(401);
+  });
+
+  it("mapea las notificaciones y el conteo de no leídas a camelCase", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(
+      djangoResponse(true, {
+        notifications: [
+          {
+            id: 1,
+            user_id: 7,
+            message: "Te asignaron una tarea",
+            task_id: 42,
+            task_title: "Tarea X",
+            read: false,
+            created_at: "2026-08-21T12:00:00Z",
+            task_assigned_to_id: 7,
+          },
+        ],
+        unread_count: 3,
+      })
     );
-    expect(notificationCount).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: "u1", read: false } }));
+    const res = await notificationsGET();
+    expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body).toEqual({ notifications: [{ id: "n1", taskAssignedToId: null }], unreadCount: 3 });
+    expect(body).toEqual({
+      notifications: [
+        {
+          id: "1",
+          userId: "7",
+          message: "Te asignaron una tarea",
+          taskId: "42",
+          taskTitle: "Tarea X",
+          read: false,
+          createdAt: "2026-08-21T12:00:00Z",
+          taskAssignedToId: "7",
+        },
+      ],
+      unreadCount: 3,
+    });
+    expect(djangoApiFetch).toHaveBeenCalledWith("/notifications/");
   });
 });
 
@@ -81,12 +118,11 @@ describe("PATCH /api/notifications", () => {
 
   it("marca como leídas todas las notificaciones no leídas del usuario", async () => {
     mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, { ok: true }));
     const res = await notificationsPATCH();
     expect(res.status).toBe(200);
-    expect(notificationUpdateMany).toHaveBeenCalledWith({
-      where: { userId: "u1", read: false },
-      data: { read: true },
-    });
+    expect(djangoApiFetch).toHaveBeenCalledWith("/notifications/", { method: "PATCH" });
+    expect(await res.json()).toEqual({ ok: true });
   });
 });
 
@@ -99,13 +135,11 @@ describe("PATCH /api/notifications/[id]", () => {
     expect(res.status).toBe(401);
   });
 
-  it("marca como leída solo si la notificación pertenece al usuario (scoped por where)", async () => {
+  it("marca como leída la notificación (scoped por usuario del lado de Django)", async () => {
     mockSession({ userId: "u1" });
-    const res = await notificationPATCH(jsonRequest(undefined), ctx("n1"));
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, { ok: true }));
+    const res = await notificationPATCH(jsonRequest(undefined), ctx("1"));
     expect(res.status).toBe(200);
-    expect(notificationUpdateMany).toHaveBeenCalledWith({
-      where: { id: "n1", userId: "u1" },
-      data: { read: true },
-    });
+    expect(djangoApiFetch).toHaveBeenCalledWith("/notifications/1/", { method: "PATCH" });
   });
 });

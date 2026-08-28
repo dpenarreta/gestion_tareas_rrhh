@@ -1,12 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import type { ThemePreference } from "@/generated/prisma/client";
+import { djangoApiFetch, resolveDjangoUserId } from "@/lib/djangoSession";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-const VALID_THEMES: ThemePreference[] = ["LIGHT", "DARK"];
+const VALID_THEMES = ["LIGHT", "DARK"];
 
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
+
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-21): `User.theme` ya se
+// lee desde Django en `src/app/layout.tsx` — escribir acá en Postgres
+// dejaba el cambio de tema sin ningún efecto visible tras recargar. `id`
+// (path param) sigue siendo el `cuid` de sesión de Next.js (siempre "yo
+// mismo", nunca otro usuario) — `resolveDjangoUserId` (Fase 40) resuelve el
+// id numérico de Django antes de llamar a `UserThemeView`, que exige
+// `pk == request.user.id`.
 export async function PATCH(request: NextRequest, ctx: Ctx) {
   const session = await getSession();
   if (!session) {
@@ -23,11 +32,21 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: "theme debe ser LIGHT o DARK" }, { status: 400 });
   }
 
-  const user = await prisma.user.update({
-    where: { id },
-    data: { theme: theme as ThemePreference },
-    select: { theme: true },
-  });
+  const djangoUserId = await resolveDjangoUserId(session);
+  if (djangoUserId === null) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
 
-  return NextResponse.json(user);
+  const response = await djangoApiFetch(`/users/${djangoUserId}/theme/`, {
+    method: "PATCH",
+    body: JSON.stringify({ theme }),
+  });
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (!response.ok) {
+    return NextResponse.json({ error: "theme debe ser LIGHT o DARK" }, { status: 400 });
+  }
+
+  return NextResponse.json(await response.json());
 }

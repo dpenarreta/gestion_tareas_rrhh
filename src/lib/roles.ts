@@ -1,4 +1,20 @@
-import type { Role } from "@/generated/prisma/client";
+// Cutover de stack — Fase 90 (ver docs/AUDIT_LOG.md § 2026-08-28): `Role`
+// ya no se importa desde el cliente Prisma generado (retirado del repo en
+// esa misma fase) — este es ahora el módulo dueño del tipo, mismos 11
+// valores que `prisma/schema.prisma::enum Role` tenía y que
+// `RoleVisibility`/`Group.name` (Django) ya usan como fuente de verdad.
+export type Role =
+  | "ADMINISTRADOR"
+  | "JEFE_NACIONAL"
+  | "COORDINADOR_NACIONAL"
+  | "COORDINADOR_ZS"
+  | "ANALISTA_CC"
+  | "ANALISTA_SELECCION"
+  | "ASISTENTE_SELECCION"
+  | "ASISTENTE_GH"
+  | "ASISTENTE_GH_ZS"
+  | "TRABAJO_SOCIAL"
+  | "ASISTENTE_NOMINA";
 
 export const ROLE_LEVEL: Record<Role, number> = {
   ADMINISTRADOR: 5,
@@ -185,8 +201,11 @@ export const ALL_ROLES = Object.keys(ROLE_LABEL) as Role[];
 
 // Módulo Proyectos: quién puede crear una iniciativa transversal — mismo
 // umbral que canViewTeam (nivel >= 2), reutilizado en vez de duplicar la
-// jerarquía (ver src/lib/projectAccess.ts para permisos específicos de un
-// proyecto ya creado, que dependen también de responsable/creador/participante).
+// jerarquía. Los permisos específicos de un proyecto ya creado (que
+// dependen también de responsable/creador/participante) los resuelve
+// Django server-side desde la Fase 86 (ver `backend/apps/projects/permissions.py`,
+// `CanAccessProject`/`CanManageProject`/`CanDeleteProject`) — el
+// equivalente TS (`src/lib/projectAccess.ts`) se eliminó en esa misma fase.
 export function canCreateProject(role: Role): boolean {
   return canViewTeam(role);
 }

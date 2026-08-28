@@ -1,32 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { attachUnreadComments } from "@/lib/commentViews";
-import { invalidateAnalyticsCache } from "@/lib/analytics";
-import type { TaskStatus, TaskPriority, TaskFrequency, TaskType } from "@/generated/prisma/client";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import { fetchOwnDjangoTasks, mapDjangoTaskToNexoShape } from "@/lib/djangoTasksAdapter";
 
-export const taskSelect = {
-  id: true,
-  title: true,
-  description: true,
-  type: true,
-  status: true,
-  priority: true,
-  frequency: true,
-  startDate: true,
-  endDate: true,
-  estimatedHours: true,
-  realHours: true,
-  targetTimeValidated: true,
-  progress: true,
-  color: true,
-  corrected: true,
-  assignedTo: { select: { id: true, name: true, email: true, role: true } },
-  createdBy: { select: { id: true, name: true } },
-  _count: { select: { comments: true } },
-  createdAt: true,
-  updatedAt: true,
-} as const;
+// Fase 3a de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-07):
+// esta ruta pasó de Prisma a Django. Gap explícito y documentado: la
+// notificación al asignado ("`{name}` te asignó la tarea") todavía no se
+// replica (el modelo Notification no existe en Django en esta sub-fase).
+// La invalidación de caché de Analytics (`invalidateAnalyticsCache`) se
+// omite a propósito: el motor de Analytics sigue leyendo Postgres, que
+// esta ruta ya no toca.
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
 export async function GET() {
   const session = await getSession();
@@ -34,14 +19,12 @@ export async function GET() {
     return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   }
 
-  const tasks = await prisma.task.findMany({
-    where: { assignedToId: session.userId, archivedMonth: null },
-    select: taskSelect,
-    orderBy: { createdAt: "desc" },
-  });
+  const tasks = await fetchOwnDjangoTasks();
+  if (tasks === null) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
 
-  const tasksWithUnread = await attachUnreadComments(tasks, session.userId);
-  return NextResponse.json(tasksWithUnread);
+  return NextResponse.json(tasks.map(mapDjangoTaskToNexoShape));
 }
 
 export async function POST(request: NextRequest) {
@@ -51,51 +34,35 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json();
-  const { title, description, type, status, priority, frequency, startDate, endDate, estimatedHours, assignedToId } = body;
+  const { title, priority, frequency, startDate, endDate, estimatedHours, assignedToId } = body;
 
-  if (!title || !priority || !frequency || !startDate || !endDate || estimatedHours == null || !assignedToId) {
-    return NextResponse.json({ error: "Faltan campos requeridos" }, { status: 400 });
+  if (!title || !priority || !frequency || !startDate || !endDate || !estimatedHours || !assignedToId) {
+    return NextResponse.json({ error: "Todos los campos son requeridos" }, { status: 400 });
   }
 
-  const initialStatus = (status as TaskStatus) ?? "PENDIENTE";
-
-  const task = await prisma.task.create({
-    data: {
+  const response = await djangoApiFetch("/tasks/", {
+    method: "POST",
+    body: JSON.stringify({
       title,
-      description: description || null,
-      type: (type as TaskType) ?? "FIJA",
-      status: initialStatus,
-      priority: priority as TaskPriority,
-      frequency: frequency as TaskFrequency,
-      startDate: new Date(startDate),
-      endDate: new Date(endDate),
-      estimatedHours: parseFloat(estimatedHours),
-      progress: initialStatus === "COMPLETADA" ? 100 : 0,
-      // Prevención (docs/AUDIT_LOG.md § 2026-07-24, backfill histórico de
-      // completedAt): crear una tarea directamente en estado Completada
-      // dejaba completedAt en null — el mismo problema que motivó el
-      // backfill, pero reproduciéndose hacia adelante en vez de ser solo
-      // histórico. PATCH /api/tasks/[id] ya lo hacía bien al editar.
-      completedAt: initialStatus === "COMPLETADA" ? new Date() : null,
-      assignedToId,
-      createdById: session.userId,
-    },
-    select: taskSelect,
+      description: body.description ?? "",
+      priority,
+      frequency,
+      type: body.type ?? "FIJA",
+      status: body.status ?? "PENDIENTE",
+      start_date: startDate,
+      end_date: endDate,
+      estimated_hours: estimatedHours,
+      assigned_to: Number(assignedToId),
+    }),
   });
 
-  invalidateAnalyticsCache(assignedToId);
-
-  if (assignedToId !== session.userId) {
-    await prisma.notification.create({
-      data: {
-        userId: assignedToId,
-        message: `${session.name} te asignó la tarea "${title}"`,
-        taskId: task.id,
-        taskTitle: title,
-      },
-    });
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (!response.ok) {
+    return NextResponse.json({ error: "No se pudo crear la tarea" }, { status: 400 });
   }
 
-  const [taskWithUnread] = await attachUnreadComments([task], session.userId);
-  return NextResponse.json(taskWithUnread, { status: 201 });
+  const created = mapDjangoTaskToNexoShape(await response.json());
+  return NextResponse.json(created, { status: 201 });
 }

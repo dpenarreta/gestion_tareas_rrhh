@@ -1,118 +1,61 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { ROLE_LABEL } from "@/lib/roles";
-import { canAccessTask } from "@/lib/taskAccess";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import { mapDjangoActivityCommentToNexoShape, type DjangoActivityComment } from "@/lib/djangoTasksAdapter";
+
+// Sub-fase 3f de la migración de stack (ver docs/AUDIT_LOG.md §
+// 2026-08-07): cortado a Django. Acceso a la tarea (`CanAccessTask`) vive
+// 100% del lado Django — esta ruta solo verifica que haya sesión (401).
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
 type Ctx = { params: Promise<{ id: string; activityId: string }> };
 
-const commentSelect = {
-  id: true,
-  text: true,
-  author: { select: { id: true, name: true, role: true } },
-  createdAt: true,
-} as const;
-
 export async function GET(_req: NextRequest, ctx: Ctx) {
-  try {
-    const session = await getSession();
-    if (!session) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-    }
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+  }
 
-    const { id: taskId, activityId } = await ctx.params;
-    const activity = await prisma.taskActivity.findUnique({ where: { id: activityId } });
-    if (!activity || activity.taskId !== taskId) {
-      return NextResponse.json({ error: "Actividad no encontrada" }, { status: 404 });
-    }
-
-    const task = await prisma.task.findUnique({
-      where: { id: taskId },
-      include: { assignedTo: { select: { role: true } } },
-    });
-    if (!task || !canAccessTask(session, task)) {
-      return NextResponse.json({ error: "Actividad no encontrada" }, { status: 404 });
-    }
-
-    const comments = await prisma.activityComment.findMany({
-      where: { activityId },
-      select: commentSelect,
-      orderBy: { createdAt: "asc" },
-    });
-
-    return NextResponse.json(comments);
-  } catch (err) {
-    console.error("GET /activities/[activityId]/comments error:", err);
+  const { id: taskId, activityId } = await ctx.params;
+  const response = await djangoApiFetch(`/tasks/${taskId}/activities/${activityId}/comments/`);
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  // Igual que el legacy: cualquier error se responde con lista vacía en
+  // vez de propagarlo (ver `catch` original que devuelve `[]` con 200).
+  if (!response.ok) {
     return NextResponse.json([], { status: 200 });
   }
+
+  const comments: DjangoActivityComment[] = await response.json();
+  return NextResponse.json(comments.map(mapDjangoActivityCommentToNexoShape));
 }
 
 export async function POST(request: NextRequest, ctx: Ctx) {
-  try {
-    const session = await getSession();
-    if (!session) {
-      return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-    }
-
-    const { id: taskId, activityId } = await ctx.params;
-
-    let body: Record<string, unknown>;
-    try {
-      body = await request.json();
-    } catch {
-      return NextResponse.json({ error: "Cuerpo de la solicitud inválido" }, { status: 400 });
-    }
-
-    const { text } = body as { text?: string };
-    if (!text?.trim()) {
-      return NextResponse.json({ error: "El comentario no puede estar vacío" }, { status: 400 });
-    }
-
-    const activity = await prisma.taskActivity.findUnique({ where: { id: activityId } });
-    if (!activity || activity.taskId !== taskId) {
-      return NextResponse.json({ error: "Actividad no encontrada" }, { status: 404 });
-    }
-
-    const task = await prisma.task.findUnique({
-      where: { id: taskId },
-      include: { assignedTo: { select: { role: true } } },
-    });
-    if (!task || !canAccessTask(session, task)) {
-      return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
-    }
-
-    const comment = await prisma.activityComment.create({
-      data: { text: text.trim(), authorId: session.userId, activityId },
-      select: commentSelect,
-    });
-
-    // Notificación bidireccional: a diferencia de los comentarios de tarea (que solo
-    // notifican hacia arriba en la jerarquía), aquí se notifica a TODOS los que ya
-    // participaron en el hilo de esta actividad (autor de la actividad + cualquiera que
-    // haya comentado antes), sin importar su nivel jerárquico — excepto a quien acaba de
-    // comentar.
-    const priorCommenters = await prisma.activityComment.findMany({
-      where: { activityId, NOT: { id: comment.id } },
-      select: { authorId: true },
-      distinct: ["authorId"],
-    });
-    const participantIds = new Set<string>([activity.authorId, ...priorCommenters.map((c) => c.authorId)]);
-    participantIds.delete(session.userId);
-
-    if (participantIds.size > 0) {
-      await prisma.notification.createMany({
-        data: Array.from(participantIds).map((userId) => ({
-          userId,
-          message: `${session.name} (${ROLE_LABEL[session.role]}) comentó en una actividad de "${task.title}"`,
-          taskId,
-          taskTitle: task.title,
-        })),
-      });
-    }
-
-    return NextResponse.json(comment, { status: 201 });
-  } catch (err) {
-    console.error("POST /activities/[activityId]/comments error:", err);
-    return NextResponse.json({ error: "Error interno al comentar la actividad" }, { status: 500 });
+  const session = await getSession();
+  if (!session) {
+    return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   }
+
+  const { id: taskId, activityId } = await ctx.params;
+  const body = (await request.json()) as { text?: string };
+  if (!body.text?.trim()) {
+    return NextResponse.json({ error: "El comentario no puede estar vacío" }, { status: 400 });
+  }
+
+  const response = await djangoApiFetch(`/tasks/${taskId}/activities/${activityId}/comments/`, {
+    method: "POST",
+    body: JSON.stringify({ text: body.text.trim() }),
+  });
+
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (!response.ok) {
+    return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
+  }
+
+  const comment = mapDjangoActivityCommentToNexoShape(await response.json());
+  return NextResponse.json(comment, { status: 201 });
 }

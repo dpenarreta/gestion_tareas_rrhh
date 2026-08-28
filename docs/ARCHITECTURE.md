@@ -11,18 +11,25 @@ request.
 ## 1. Resumen del stack
 
 Nexo es una aplicación **Next.js 16.2.9** (App Router) escrita en **TypeScript**, con
-**React 19.2.4**. La capa de datos usa **Prisma 7.8.0** contra **PostgreSQL**, obligatoriamente
-a través del driver adapter `@prisma/adapter-pg` (`^7.8.0`) — Prisma 7 ya no soporta
-instanciar `PrismaClient` sin adapter. La autenticación es JWT (HS256) firmado con
-`jose` (`^6.2.3`), almacenado en una cookie httpOnly (`nexo-session`), con contraseñas
-hasheadas vía `bcryptjs` (`^3.0.3`). El estilado usa **Tailwind CSS v4** (`@tailwindcss/postcss`).
+**React 19.2.4**, que actúa como frontend puro sobre un backend **Django/DRF + SQL
+Server** (`backend/`) — ningún `route.ts` toca una base de datos directo, todos hablan
+con Django vía `src/lib/djangoSession.ts` (`djangoApiFetch`) y un adaptador por dominio
+(`src/lib/django*Adapter.ts`, mapea JSON snake_case de Django a la forma camelCase que
+ya esperaba el frontend). Esto es el resultado de una migración de stack completa desde
+Next.js/Prisma/PostgreSQL — ver `docs/ROADMAP.md` § punto 14 y `docs/AUDIT_LOG.md`
+(Fases 1-90) para la historia completa; el código y los comentarios de este documento
+que mencionan Prisma/Postgres describen ese stack legacy YA RETIRADO, conservados como
+contexto histórico salvo que se indique lo contrario. La autenticación es JWT (HS256)
+firmado con `jose` (`^6.2.3`), almacenado en una cookie httpOnly (`nexo-session`), con
+contraseñas hasheadas vía `bcryptjs` (`^3.0.3`) — las credenciales se validan contra
+Django (`loginToDjango`). El estilado usa **Tailwind CSS v4** (`@tailwindcss/postcss`).
 La IA conversacional (Nova) usa `groq-sdk` (`^1.3.0`) para inferencia y `@xenova/transformers`
 (`^2.17.2`) para generar embeddings locales (sin costo de API) usados en el RAG de la
-base de conocimiento. Gráficos con `recharts` (`^3.9.0`), drag-and-drop con `@dnd-kit/*`,
-generación de PDF con `jspdf` + `html2canvas` (vendorizados, ver nota en §8), animaciones
-con `framer-motion`. Testing con **Vitest 4** + **@testing-library/react** + `jsdom`. El
-build de producción corre `prisma migrate deploy && next build` (script `build` en
-`package.json`) — las migraciones se aplican automáticamente antes de compilar.
+base de conocimiento (persistidos en Django, `apps.assistant`). Gráficos con `recharts`
+(`^3.9.0`), drag-and-drop con `@dnd-kit/*`, generación de PDF con `jspdf` + `html2canvas`
+(vendorizados, ver nota en §8), animaciones con `framer-motion`. Testing con **Vitest 4**
++ **@testing-library/react** + `jsdom`. El build de producción corre `next build` (script
+`build` en `package.json`).
 
 Nota importante heredada de `AGENTS.md`: esta es una versión de Next.js con cambios
 disruptivos respecto al Next.js "de siempre" (ej. `middleware.ts` renombrado a
@@ -100,7 +107,8 @@ src/
     ConsentGate.tsx, NotificationBell.tsx, ThemeProvider.tsx, ThemeToggle.tsx,
     UsersManager.tsx              # componentes de nivel superior sin carpeta propia
   lib/
-    prisma.ts                     # singleton PrismaClient con adapter pg
+    djangoSession.ts              # puente de sesión hacia backend/ (djangoApiFetch, loginToDjango)
+    django*Adapter.ts             # un adaptador por dominio — mapea JSON de Django a la forma que ya esperaba el frontend
     session.ts, session-secret.ts # JWT: encrypt/decrypt/createSession/getSession
     roles.ts                      # jerarquía de roles, visibilidad, permisos, liderazgo vs. ejecutor
     analytics.ts                  # motor central de Analytics (v1.5.0) — ver ANALYTICS_FORMULAS.md
@@ -121,22 +129,25 @@ src/
     rate-limit.ts, logger.ts, mask-email.ts, storage.ts, utils.ts, actions.ts,
     featureFlags.ts, navLinks.ts, confetti.ts   # utilidades generales/transversales
   proxy.ts                        # protección de rutas a nivel de request (reemplaza middleware.ts)
-  generated/prisma/                # cliente Prisma generado — NO editar; importar tipos desde
-                                    #   @/generated/prisma/client
   __tests__/                       # suite Vitest — api/, components/, y tests de lib/ en la raíz
-prisma/
-  schema.prisma                    # modelo de datos completo (ver §3)
-  seed.ts                          # usuarios iniciales
-  migrations/                      # historial de migraciones
 .githooks/
   post-commit, update-changelog.js # ver §7
+backend/                           # Django/DRF + SQL Server — modelo de datos completo, ver
+                                    #   backend/apps/*/models.py; cada `route.ts` de arriba habla
+                                    #   con este backend, ninguno tiene esquema de datos propio
 ```
 
 ---
 
-## 3. Modelo de datos
+## 3. Modelo de datos (LEGACY — Prisma/PostgreSQL, retirado del repo)
 
-El esquema completo vive en `prisma/schema.prisma`. Agrupado por dominio:
+Esta sección describe el esquema **Prisma/PostgreSQL histórico**, ya retirado del
+código (`prisma/` se eliminó, ver `docs/AUDIT_LOG.md` Fase 90) — se conserva como
+referencia de la forma de datos original, porque el esquema Django (`backend/apps/*/models.py`)
+es en su mayoría una réplica campo por campo de este mismo modelo, con los mismos
+nombres de dominio. Para el estado ACTUAL del esquema, ver `backend/apps/*/models.py`
+directamente — no hay un documento único equivalente a este `schema.prisma` del lado
+Django todavía.
 
 ### Auth / Usuarios
 - **`User`** — entidad central; `role` (enum `Role`, 11 valores incluyendo `ADMINISTRADOR`
@@ -546,25 +557,21 @@ cambios disruptivos respecto al Next.js conocido.
 - **TypeScript estricto** (`"strict": true` en `tsconfig.json`). Preferir `type` sobre
   `interface` para formas de objetos. Co-locar tipos con el módulo propietario; extraer
   a `types/` compartido solo si se usa en 3+ archivos.
-- **Prisma 7 requiere driver adapter**: `new PrismaClient()` sin argumentos lanza en
-  runtime. El patrón correcto (`src/lib/prisma.ts`):
-  ```ts
-  import { PrismaPg } from "@prisma/adapter-pg";
-  const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
-  const prisma = new PrismaClient({ adapter });
-  ```
-  El singleton se cachea en `globalThis` fuera de producción para sobrevivir al hot
-  reload de `next dev`.
-- **Import de tipos generados**: siempre desde `@/generated/prisma/client`, nunca
-  `@/generated/prisma` (el directorio generado por el `generator client` de
-  `schema.prisma`, que no se edita a mano).
+- **Llamadas a Django**: siempre vía `djangoApiFetch` (`src/lib/djangoSession.ts`), nunca
+  `fetch` directo — resuelve la cookie de sesión Django, reintenta una vez con refresh
+  token en 401, y devuelve `null` (no lanza) si no hay sesión Django disponible, para
+  que cada `route.ts` decida cómo degradar. Cada dominio tiene su propio
+  `django*Adapter.ts` que traduce la forma JSON (snake_case) a la que ya espera el
+  frontend (camelCase) — los tipos de enum que antes venían del cliente Prisma generado
+  ahora se definen localmente en el módulo dueño del dominio (ej. `Role` en
+  `src/lib/roles.ts`).
 - **Testing**: Vitest 4 + `@testing-library/react` + `jsdom` (`vitest.config.ts`).
   Alias `server-only` se redirige a un stub (`vitest.server-only-stub.ts`) porque
   varios módulos de `src/lib` importan `"server-only"` para prohibir su uso en Client
   Components. Suite en `src/__tests__/` — `api/` para route handlers,
   `components/` para componentes de UI, y tests de `lib/` sueltos en la raíz de
-  `__tests__/`. El mock global de Prisma lanza si un test no lo mockea explícitamente
-  (evita tests que golpeen accidentalmente la BD real — ver nota operacional en §8).
+  `__tests__/`. Los tests de rutas ya cortadas a Django mockean
+  `@/lib/djangoSession` (`djangoApiFetch`) explícitamente en cada archivo.
 - **Hook post-commit** (`.githooks/post-commit` + `.githooks/update-changelog.js`,
   instalado por `scripts/setup-git-hooks.js` en `postinstall`): tras cada commit, inserta
   automáticamente una línea `- YYYY-MM-DD: <asunto>` al inicio de la sección
@@ -602,16 +609,16 @@ cambios disruptivos respecto al Next.js conocido.
   `targetTimeValidated` sea `null`, toda lectura del sistema (Capacity Engine, KPIs,
   reportes) usa `estimatedHours` como referencia — nunca `realHours`.
 
-- **No existe una base de datos de desarrollo separada** — la cadena `DATABASE_URL` en
-  el `.env` local apunta a la misma base PostgreSQL que producción, con datos reales de
-  personal. Esto es una decisión/estado operacional heredado, no un accidente, pero
-  tiene implicancias directas para cualquier trabajo de desarrollo o testing manual:
-  cualquier prueba de autenticación, seed, o script exploratorio contra la BD debe
-  usar cuentas desechables (convención observada: `*@verify.local`) en vez de usuarios
-  reales, y cualquier operación destructiva (purga, migración, seed que resetee datos)
-  debe tratarse con la misma cautela que en producción porque *es* producción. El mock
-  global de Prisma en la suite de Vitest (§7) es, entre otras cosas, una salvaguarda
-  para que la suite de tests no golpee esta base accidentalmente.
+- **(LEGACY, cerrado en el código — ver Fase 90) No existía una base de datos de
+  desarrollo separada para Postgres** — mientras el stack usó Prisma, `DATABASE_URL`
+  en el `.env` local apuntaba a la misma base PostgreSQL que producción, con datos
+  reales de personal; el mock global de Prisma en Vitest existía, entre otras cosas,
+  como salvaguarda para que la suite de tests no la golpeara accidentalmente. Desde el
+  decommission de Prisma/Postgres del código (`docs/AUDIT_LOG.md` Fase 90), este
+  riesgo ya no puede materializarse desde este repo — no hay ningún driver ni cadena
+  de conexión a esa base en `src/`. La infraestructura física de esa base (si sigue
+  existiendo) y su estado de cumplimiento LOPDP quedan fuera del alcance de este
+  documento — decisión explícita del usuario de no tocarla como parte de esa fase.
 
 - **Referencias sueltas (sin FK) en las tablas de auditoría** (`ActivityAuditLog.activityId`,
   `TargetTimeAuditLog.taskId`) — patrón repetido intencional: una tabla de auditoría

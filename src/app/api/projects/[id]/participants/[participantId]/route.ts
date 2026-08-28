@@ -1,8 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { canManageParticipants } from "@/lib/projectAccess";
-import { logProjectHistory } from "@/lib/projectHistory";
+import { djangoApiFetch } from "@/lib/djangoSession";
+
+// Fase 5f de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-14):
+// esta ruta pasó de Prisma a Django.
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
 type Ctx = { params: Promise<{ id: string; participantId: string }> };
 
@@ -13,40 +16,26 @@ export async function DELETE(_req: NextRequest, ctx: Ctx) {
   }
 
   const { id: projectId, participantId } = await ctx.params;
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
-    select: { id: true, name: true, responsibleId: true, createdById: true },
-  });
-  if (!project) {
-    return NextResponse.json({ error: "Proyecto no encontrado" }, { status: 404 });
-  }
-  if (!canManageParticipants(session, project)) {
-    return NextResponse.json({ error: "No tienes permiso para quitar participantes" }, { status: 403 });
-  }
+  const response = await djangoApiFetch(`/projects/${projectId}/participants/${participantId}/`, { method: "DELETE" });
 
-  const participant = await prisma.projectParticipant.findUnique({
-    where: { id: participantId },
-    select: { id: true, projectId: true, userId: true, user: { select: { name: true } } },
-  });
-  if (!participant || participant.projectId !== projectId) {
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 404) {
     return NextResponse.json({ error: "Participante no encontrado" }, { status: 404 });
   }
-  if (participant.userId === project.responsibleId) {
+  if (response.status === 403) {
+    return NextResponse.json({ error: "No tienes permiso para quitar participantes" }, { status: 403 });
+  }
+  if (response.status === 409) {
     return NextResponse.json(
       { error: "No puedes quitar al responsable principal — cambia el responsable primero" },
       { status: 409 }
     );
   }
-
-  await prisma.projectParticipant.delete({ where: { id: participantId } });
-
-  await logProjectHistory({
-    projectId,
-    actorId: session.userId,
-    event: "PARTICIPANTE_ELIMINADO",
-    description: `${session.name} quitó a ${participant.user.name} del proyecto "${project.name}"`,
-    previousValue: { userId: participant.userId },
-  });
+  if (!response.ok) {
+    return NextResponse.json({ error: "No se pudo quitar al participante" }, { status: 400 });
+  }
 
   return NextResponse.json({ success: true });
 }

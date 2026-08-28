@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useMemo } from "react";
 import { useSearchParams } from "next/navigation";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import type { Task, ViewType, AssignableUser } from "./types";
 import type { ActivityFormat } from "@/lib/activityFormat";
 import { canManageUsers } from "@/lib/roles";

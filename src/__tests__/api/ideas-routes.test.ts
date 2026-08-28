@@ -2,46 +2,29 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { SessionPayload } from "@/lib/session";
 import type { NextRequest } from "next/server";
 
-const improvementIdeaFindMany = vi.fn();
-const improvementIdeaFindUnique = vi.fn();
-const improvementIdeaCreate = vi.fn();
-const improvementIdeaUpdate = vi.fn();
-const ideaStatusHistoryFindMany = vi.fn();
-const ideaVoteFindUnique = vi.fn();
-const ideaVoteCreate = vi.fn();
-const ideaVoteDelete = vi.fn();
-const ideaVoteCount = vi.fn();
-const userFindMany = vi.fn();
-const notificationCreateMany = vi.fn();
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-21): estas rutas pasaron
+// de Prisma a Django (Fase 43) — mockeado con `@/lib/djangoSession`. La
+// visibilidad/notificación a revisores/adjunto ya viven en
+// `apps.ideas.services`, cubierto por la suite de Django — acá solo se
+// prueba ruteo, mapeo de campos y el encoding del adjunto a data: URL.
+vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
 
-vi.mock("@/lib/prisma", () => ({
-  prisma: {
-    improvementIdea: { findMany: improvementIdeaFindMany, findUnique: improvementIdeaFindUnique, create: improvementIdeaCreate, update: improvementIdeaUpdate },
-    ideaStatusHistory: { findMany: ideaStatusHistoryFindMany },
-    ideaVote: { findUnique: ideaVoteFindUnique, create: ideaVoteCreate, delete: ideaVoteDelete, count: ideaVoteCount },
-    user: { findMany: userFindMany },
-    notification: { createMany: notificationCreateMany },
+const djangoApiFetch = vi.fn();
+vi.mock("@/lib/djangoSession", () => ({
+  djangoApiFetch: (...args: unknown[]) => djangoApiFetch(...args),
+  extractDjangoFlatErrorMessage: async (response: Response) => {
+    const data = await response.json().catch(() => null);
+    return typeof (data as { error?: unknown })?.error === "string" ? (data as { error: string }).error : undefined;
   },
 }));
 
-vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
-
-const getVisibleIdeaAuthorIds = vi.fn();
-vi.mock("@/lib/ideas", () => ({
-  getVisibleIdeaAuthorIds: (...args: unknown[]) => getVisibleIdeaAuthorIds(...args),
-}));
-
-vi.mock("@/lib/storage", () => {
-  class AttachmentError extends Error {}
-  return { saveAttachment: vi.fn(), AttachmentError };
-});
-
 const { getSession } = await import("@/lib/session");
-const { saveAttachment, AttachmentError } = await import("@/lib/storage");
 const { GET: ideasGET, POST: ideasPOST } = await import("@/app/api/ideas/route");
 const { GET: ideaGET, PATCH: ideaPATCH } = await import("@/app/api/ideas/[id]/route");
 const { GET: historyGET } = await import("@/app/api/ideas/[id]/history/route");
 const { POST: votePOST } = await import("@/app/api/ideas/[id]/vote/route");
+
+const DJANGO_USER_REF = { id: 1, username: "ana", first_name: "Ana", email: "ana@nexo.com", roles: [{ id: 1, name: "ASISTENTE_GH" }] };
 
 function mockSession(overrides: Partial<SessionPayload> | null) {
   vi.mocked(getSession).mockResolvedValue(
@@ -58,7 +41,7 @@ function mockSession(overrides: Partial<SessionPayload> | null) {
   );
 }
 
-function ctx(id = "idea-1") {
+function ctx(id = "1") {
   return { params: Promise.resolve({ id }) };
 }
 
@@ -66,21 +49,17 @@ function jsonRequest(body: unknown) {
   return { json: async () => body } as never;
 }
 
+function req() {
+  return {} as never;
+}
+
 function resetAll() {
-  improvementIdeaFindMany.mockReset();
-  improvementIdeaFindUnique.mockReset();
-  improvementIdeaCreate.mockReset();
-  improvementIdeaUpdate.mockReset();
-  ideaStatusHistoryFindMany.mockReset();
-  ideaVoteFindUnique.mockReset();
-  ideaVoteCreate.mockReset().mockResolvedValue({});
-  ideaVoteDelete.mockReset().mockResolvedValue({});
-  ideaVoteCount.mockReset();
-  userFindMany.mockReset();
-  notificationCreateMany.mockReset().mockResolvedValue({});
   vi.mocked(getSession).mockReset();
-  vi.mocked(getVisibleIdeaAuthorIds).mockReset().mockResolvedValue(["u1"]);
-  vi.mocked(saveAttachment).mockReset();
+  djangoApiFetch.mockReset();
+}
+
+function djangoResponse(ok: boolean, data: unknown, status = ok ? 200 : 400) {
+  return { ok, status, json: async () => data } as Response;
 }
 
 describe("GET /api/ideas", () => {
@@ -92,32 +71,21 @@ describe("GET /api/ideas", () => {
     expect(res.status).toBe(401);
   });
 
-  it("filtra por los autores visibles y mapea el último rechazo/voteCount/votedByMe", async () => {
+  it("mapea la lista de Django a la forma Nexo", async () => {
     mockSession({});
-    getVisibleIdeaAuthorIds.mockResolvedValue(["u1", "u2"]);
-    improvementIdeaFindMany.mockResolvedValue([
-      {
-        id: "idea-1",
-        title: "Idea",
-        history: [{ comment: "no cumple" }],
-        _count: { votes: 3 },
-        votes: [{ id: "v1" }],
-      },
-    ]);
-    const res = await ideasGET();
-    expect(improvementIdeaFindMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { authorId: { in: ["u1", "u2"] } } })
+    djangoApiFetch.mockResolvedValue(
+      djangoResponse(true, [
+        {
+          id: 1, title: "Idea", description: "desc", impact: "ALTO", status: "PROPUESTA", progress: 0,
+          attachment_name: null, attachment_mime: null, created_at: "2026-08-01T00:00:00Z", updated_at: "2026-08-01T00:00:00Z",
+          author: DJANGO_USER_REF, latest_rejection_comment: "no cumple", vote_count: 3, voted_by_me: true,
+        },
+      ])
     );
-    const body = await res.json();
-    expect(body[0]).toMatchObject({ latestRejectionComment: "no cumple", voteCount: 3, votedByMe: true });
-  });
-
-  it("latestRejectionComment es null si no hay historial de rechazo", async () => {
-    mockSession({});
-    improvementIdeaFindMany.mockResolvedValue([{ id: "idea-1", history: [], _count: { votes: 0 }, votes: [] }]);
     const res = await ideasGET();
     const body = await res.json();
-    expect(body[0].latestRejectionComment).toBeNull();
+    expect(body[0]).toMatchObject({ id: "1", latestRejectionComment: "no cumple", voteCount: 3, votedByMe: true });
+    expect(djangoApiFetch).toHaveBeenCalledWith("/ideas/");
   });
 });
 
@@ -126,6 +94,12 @@ function ideaFormData(fields: Record<string, string | File>) {
   for (const [k, v] of Object.entries(fields)) fd.set(k, v);
   return fd;
 }
+
+const DJANGO_IDEA_FIXTURE = {
+  id: 1, title: "Idea", description: "desc", impact: "ALTO", status: "PROPUESTA", progress: 0,
+  attachment_name: null, attachment_mime: null, created_at: "2026-08-01T00:00:00Z", updated_at: "2026-08-01T00:00:00Z",
+  author: DJANGO_USER_REF, vote_count: 0, voted_by_me: false,
+};
 
 describe("POST /api/ideas", () => {
   beforeEach(resetAll);
@@ -136,8 +110,9 @@ describe("POST /api/ideas", () => {
     expect(res.status).toBe(401);
   });
 
-  it("responde 400 si faltan campos o el impacto es inválido", async () => {
+  it("responde 400 con el mensaje de Django si faltan campos o el impacto es inválido", async () => {
     mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "Faltan campos requeridos o son inválidos" }, 400));
     const res = await ideasPOST({
       formData: async () => ideaFormData({ title: "Idea", description: "desc", impact: "URGENTE" }),
     } as unknown as NextRequest);
@@ -145,87 +120,38 @@ describe("POST /api/ideas", () => {
   });
 
   it("crea la idea sin adjunto cuando no se envía archivo", async () => {
-    mockSession({ userId: "u1", name: "Ana" });
-    improvementIdeaCreate.mockResolvedValue({ id: "idea-1", title: "Idea", _count: { votes: 0 }, votes: [] });
-    userFindMany.mockResolvedValue([]);
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, DJANGO_IDEA_FIXTURE, 201));
 
     const res = await ideasPOST({
       formData: async () => ideaFormData({ title: "Idea", description: "desc", impact: "ALTO" }),
     } as unknown as NextRequest);
     expect(res.status).toBe(201);
-    expect(improvementIdeaCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ attachmentUrl: null, attachmentData: null }) })
-    );
-  });
-
-  it("adjunta el archivo cuando se sube uno válido", async () => {
-    mockSession({});
-    vi.mocked(saveAttachment).mockResolvedValue({ fileName: "adjunto.pdf", attachmentData: "data:application/pdf;base64,xxx" });
-    improvementIdeaCreate.mockResolvedValue({ id: "idea-1", _count: { votes: 0 }, votes: [] });
-    userFindMany.mockResolvedValue([]);
-
-    const file = new File([new Uint8Array(10)], "adjunto.pdf", { type: "application/pdf" });
-    await ideasPOST({
-      formData: async () => ideaFormData({ title: "Idea", description: "desc", impact: "ALTO", file }),
-    } as unknown as NextRequest);
-
-    expect(improvementIdeaCreate).toHaveBeenCalledWith(
+    expect(djangoApiFetch).toHaveBeenCalledWith(
+      "/ideas/",
       expect.objectContaining({
-        data: expect.objectContaining({ attachmentUrl: "adjunto.pdf", attachmentData: "data:application/pdf;base64,xxx" }),
+        body: JSON.stringify({
+          title: "Idea", description: "desc", impact: "ALTO",
+          attachment_name: null, attachment_mime: null, attachment_data: null,
+        }),
       })
     );
   });
 
-  it("responde 400 si el adjunto no pasa la validación de storage (AttachmentError)", async () => {
+  it("codifica el archivo adjunto como data: URL antes de mandarlo a Django", async () => {
     mockSession({});
-    vi.mocked(saveAttachment).mockRejectedValue(new AttachmentError("Tipo de archivo no permitido"));
-    const file = new File([new Uint8Array(10)], "malware.exe", { type: "application/octet-stream" });
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, DJANGO_IDEA_FIXTURE, 201));
+    const file = new File([new Uint8Array([1, 2, 3])], "adjunto.pdf", { type: "application/pdf" });
 
-    const res = await ideasPOST({
+    await ideasPOST({
       formData: async () => ideaFormData({ title: "Idea", description: "desc", impact: "ALTO", file }),
     } as unknown as NextRequest);
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toBe("Tipo de archivo no permitido");
-    expect(improvementIdeaCreate).not.toHaveBeenCalled();
-  });
 
-  it("relanza errores inesperados de storage que no son AttachmentError", async () => {
-    mockSession({});
-    vi.mocked(saveAttachment).mockRejectedValue(new Error("fallo inesperado"));
-    const file = new File([new Uint8Array(10)], "a.pdf", { type: "application/pdf" });
-    await expect(
-      ideasPOST({
-        formData: async () => ideaFormData({ title: "Idea", description: "desc", impact: "ALTO", file }),
-      } as unknown as NextRequest)
-    ).rejects.toThrow("fallo inesperado");
-  });
-
-  it("notifica a los revisores (ADMINISTRADOR/JEFE_NACIONAL/COORDINADOR_NACIONAL) si existen", async () => {
-    mockSession({ name: "Ana" });
-    improvementIdeaCreate.mockResolvedValue({ id: "idea-1", _count: { votes: 0 }, votes: [] });
-    userFindMany.mockResolvedValue([{ id: "rev-1" }, { id: "rev-2" }]);
-
-    await ideasPOST({
-      formData: async () => ideaFormData({ title: "Idea nueva", description: "desc", impact: "ALTO" }),
-    } as unknown as NextRequest);
-
-    expect(notificationCreateMany).toHaveBeenCalledWith({
-      data: [
-        expect.objectContaining({ userId: "rev-1", message: expect.stringContaining("Idea nueva") }),
-        expect.objectContaining({ userId: "rev-2" }),
-      ],
-    });
-  });
-
-  it("no notifica si no hay revisores", async () => {
-    mockSession({});
-    improvementIdeaCreate.mockResolvedValue({ id: "idea-1", _count: { votes: 0 }, votes: [] });
-    userFindMany.mockResolvedValue([]);
-    await ideasPOST({
-      formData: async () => ideaFormData({ title: "Idea", description: "desc", impact: "ALTO" }),
-    } as unknown as NextRequest);
-    expect(notificationCreateMany).not.toHaveBeenCalled();
+    const [, init] = djangoApiFetch.mock.calls[0];
+    const sentBody = JSON.parse(init.body as string);
+    expect(sentBody.attachment_name).toBe("adjunto.pdf");
+    expect(sentBody.attachment_mime).toBe("application/pdf");
+    expect(sentBody.attachment_data).toMatch(/^data:application\/pdf;base64,/);
   });
 });
 
@@ -234,56 +160,31 @@ describe("GET /api/ideas/[id]", () => {
 
   it("responde 401 si no hay sesión", async () => {
     mockSession(null);
-    const res = await ideaGET(jsonRequest(undefined), ctx());
+    const res = await ideaGET(req(), ctx());
     expect(res.status).toBe(401);
   });
 
-  it("responde 404 si la idea no existe", async () => {
+  it("responde 404 si la idea no existe o no es visible (IDOR)", async () => {
     mockSession({});
-    improvementIdeaFindUnique.mockResolvedValue(null);
-    const res = await ideaGET(jsonRequest(undefined), ctx());
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "Idea no encontrada" }, 404));
+    const res = await ideaGET(req(), ctx());
     expect(res.status).toBe(404);
   });
 
-  it("responde 404 si el autor de la idea no está dentro de los IDs visibles (IDOR)", async () => {
+  it("mapea el detalle incluyendo historial y adjunto", async () => {
     mockSession({});
-    improvementIdeaFindUnique.mockResolvedValue({ id: "idea-1", author: { id: "autor-oculto" }, status: "PROPUESTA" });
-    getVisibleIdeaAuthorIds.mockResolvedValue(["u1"]);
-    const res = await ideaGET(jsonRequest(undefined), ctx());
-    expect(res.status).toBe(404);
-  });
-
-  it("expone el adjunto cuando la idea está en estado PROPUESTA", async () => {
-    mockSession({});
-    improvementIdeaFindUnique.mockResolvedValue({
-      id: "idea-1",
-      author: { id: "u1" },
-      status: "PROPUESTA",
-      attachmentUrl: "a.pdf",
-      attachmentData: "data:...",
-      _count: { votes: 0 },
-      votes: [],
-    });
-    const res = await ideaGET(jsonRequest(undefined), ctx());
+    djangoApiFetch.mockResolvedValue(
+      djangoResponse(true, {
+        ...DJANGO_IDEA_FIXTURE,
+        attachment_data: "data:application/pdf;base64,xxx",
+        history: [{ id: 1, from_status: "PROPUESTA", to_status: "EN_REVISION", comment: null, created_at: "2026-08-02T00:00:00Z", changer: DJANGO_USER_REF }],
+      })
+    );
+    const res = await ideaGET(req(), ctx());
     const body = await res.json();
-    expect(body.attachmentUrl).toBe("a.pdf");
-  });
-
-  it("oculta el adjunto cuando la idea ya avanzó de estado (no es PROPUESTA)", async () => {
-    mockSession({});
-    improvementIdeaFindUnique.mockResolvedValue({
-      id: "idea-1",
-      author: { id: "u1" },
-      status: "EN_REVISION",
-      attachmentUrl: "a.pdf",
-      attachmentData: "data:...",
-      _count: { votes: 0 },
-      votes: [],
-    });
-    const res = await ideaGET(jsonRequest(undefined), ctx());
-    const body = await res.json();
-    expect(body.attachmentUrl).toBeNull();
-    expect(body.attachmentData).toBeNull();
+    expect(body.attachmentData).toBe("data:application/pdf;base64,xxx");
+    expect(body.history).toHaveLength(1);
+    expect(body.history[0]).toMatchObject({ fromStatus: "PROPUESTA", toStatus: "EN_REVISION" });
   });
 });
 
@@ -298,40 +199,26 @@ describe("PATCH /api/ideas/[id]", () => {
 
   it("responde 403 para un rol sin permiso de revisión de ideas", async () => {
     mockSession({ role: "ASISTENTE_GH" });
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "Sin permisos para actualizar el progreso" }, 403));
     const res = await ideaPATCH(jsonRequest({ progress: 50 }), ctx());
     expect(res.status).toBe(403);
   });
 
-  it.each([undefined, 50.5, -1, 101, "50"])("responde 400 ante un progreso inválido: %p", async (progress) => {
+  it("responde 400 ante un progreso inválido", async () => {
     mockSession({ role: "JEFE_NACIONAL" });
-    const res = await ideaPATCH(jsonRequest({ progress }), ctx());
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "Progreso inválido (debe ser un entero entre 0 y 100)" }, 400));
+    const res = await ideaPATCH(jsonRequest({ progress: 200 }), ctx());
     expect(res.status).toBe(400);
-  });
-
-  it("responde 404 si la idea no existe", async () => {
-    mockSession({ role: "JEFE_NACIONAL" });
-    improvementIdeaFindUnique.mockResolvedValue(null);
-    const res = await ideaPATCH(jsonRequest({ progress: 50 }), ctx());
-    expect(res.status).toBe(404);
-  });
-
-  it("responde 404 (IDOR) si el autor no está en la jerarquía visible", async () => {
-    mockSession({ role: "JEFE_NACIONAL" });
-    improvementIdeaFindUnique.mockResolvedValue({ id: "idea-1", authorId: "autor-oculto" });
-    getVisibleIdeaAuthorIds.mockResolvedValue(["otro"]);
-    const res = await ideaPATCH(jsonRequest({ progress: 50 }), ctx());
-    expect(res.status).toBe(404);
   });
 
   it("actualiza el progreso y devuelve voteCount/votedByMe", async () => {
     mockSession({ role: "JEFE_NACIONAL" });
-    improvementIdeaFindUnique.mockResolvedValue({ id: "idea-1", authorId: "u1" });
-    getVisibleIdeaAuthorIds.mockResolvedValue(["u1"]);
-    improvementIdeaUpdate.mockResolvedValue({ id: "idea-1", progress: 75, _count: { votes: 2 }, votes: [] });
-
+    djangoApiFetch.mockResolvedValue(
+      djangoResponse(true, { ...DJANGO_IDEA_FIXTURE, progress: 75, vote_count: 2, history: [] })
+    );
     const res = await ideaPATCH(jsonRequest({ progress: 75 }), ctx());
     expect(res.status).toBe(200);
-    expect(improvementIdeaUpdate).toHaveBeenCalledWith(expect.objectContaining({ data: { progress: 75 } }));
+    expect(djangoApiFetch).toHaveBeenCalledWith("/ideas/1/", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ progress: 75 }) }));
     const body = await res.json();
     expect(body).toMatchObject({ progress: 75, voteCount: 2, votedByMe: false });
   });
@@ -342,34 +229,26 @@ describe("GET /api/ideas/[id]/history", () => {
 
   it("responde 401 si no hay sesión", async () => {
     mockSession(null);
-    const res = await historyGET(jsonRequest(undefined), ctx());
+    const res = await historyGET(req(), ctx());
     expect(res.status).toBe(401);
   });
 
-  it("responde 404 si la idea no existe", async () => {
+  it("responde 404 (IDOR) fuera de la visibilidad", async () => {
     mockSession({});
-    improvementIdeaFindUnique.mockResolvedValue(null);
-    const res = await historyGET(jsonRequest(undefined), ctx());
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "Idea no encontrada" }, 404));
+    const res = await historyGET(req(), ctx());
     expect(res.status).toBe(404);
   });
 
-  it("responde 404 (IDOR) fuera de la jerarquía visible", async () => {
+  it("devuelve el historial mapeado", async () => {
     mockSession({});
-    improvementIdeaFindUnique.mockResolvedValue({ authorId: "autor-oculto" });
-    getVisibleIdeaAuthorIds.mockResolvedValue(["otro"]);
-    const res = await historyGET(jsonRequest(undefined), ctx());
-    expect(res.status).toBe(404);
-  });
-
-  it("devuelve el historial ordenado ascendentemente", async () => {
-    mockSession({});
-    improvementIdeaFindUnique.mockResolvedValue({ authorId: "u1" });
-    ideaStatusHistoryFindMany.mockResolvedValue([{ id: "h1" }]);
-    const res = await historyGET(jsonRequest(undefined), ctx());
-    expect(res.status).toBe(200);
-    expect(ideaStatusHistoryFindMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { ideaId: "idea-1" }, orderBy: { createdAt: "asc" } })
+    djangoApiFetch.mockResolvedValue(
+      djangoResponse(true, [{ id: 1, from_status: "PROPUESTA", to_status: "EN_REVISION", comment: null, created_at: "2026-08-02T00:00:00Z", changer: DJANGO_USER_REF }])
     );
+    const res = await historyGET(req(), ctx());
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body[0]).toMatchObject({ fromStatus: "PROPUESTA", toStatus: "EN_REVISION" });
   });
 });
 
@@ -378,48 +257,21 @@ describe("POST /api/ideas/[id]/vote", () => {
 
   it("responde 401 si no hay sesión", async () => {
     mockSession(null);
-    const res = await votePOST(jsonRequest(undefined), ctx());
+    const res = await votePOST(req(), ctx());
     expect(res.status).toBe(401);
   });
 
-  it("responde 404 si la idea no existe", async () => {
+  it("responde 404 (IDOR) fuera de la visibilidad", async () => {
     mockSession({});
-    improvementIdeaFindUnique.mockResolvedValue(null);
-    const res = await votePOST(jsonRequest(undefined), ctx());
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "Idea no encontrada" }, 404));
+    const res = await votePOST(req(), ctx());
     expect(res.status).toBe(404);
   });
 
-  it("responde 404 (IDOR) fuera de la jerarquía visible", async () => {
+  it("mapea el toggle de voto a camelCase", async () => {
     mockSession({});
-    improvementIdeaFindUnique.mockResolvedValue({ id: "idea-1", authorId: "autor-oculto" });
-    getVisibleIdeaAuthorIds.mockResolvedValue(["otro"]);
-    const res = await votePOST(jsonRequest(undefined), ctx());
-    expect(res.status).toBe(404);
-  });
-
-  it("crea el voto si el usuario aún no había votado, y responde votedByMe=true", async () => {
-    mockSession({ userId: "u1" });
-    improvementIdeaFindUnique.mockResolvedValue({ id: "idea-1", authorId: "u1" });
-    ideaVoteFindUnique.mockResolvedValue(null);
-    ideaVoteCount.mockResolvedValue(4);
-
-    const res = await votePOST(jsonRequest(undefined), ctx());
-    expect(ideaVoteCreate).toHaveBeenCalledWith({ data: { ideaId: "idea-1", userId: "u1" } });
-    expect(ideaVoteDelete).not.toHaveBeenCalled();
-    const body = await res.json();
-    expect(body).toEqual({ voteCount: 4, votedByMe: true });
-  });
-
-  it("elimina el voto existente (toggle) y responde votedByMe=false", async () => {
-    mockSession({ userId: "u1" });
-    improvementIdeaFindUnique.mockResolvedValue({ id: "idea-1", authorId: "u1" });
-    ideaVoteFindUnique.mockResolvedValue({ id: "vote-existing" });
-    ideaVoteCount.mockResolvedValue(3);
-
-    const res = await votePOST(jsonRequest(undefined), ctx());
-    expect(ideaVoteDelete).toHaveBeenCalledWith({ where: { id: "vote-existing" } });
-    expect(ideaVoteCreate).not.toHaveBeenCalled();
-    const body = await res.json();
-    expect(body).toEqual({ voteCount: 3, votedByMe: false });
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, { vote_count: 4, voted_by_me: true }));
+    const res = await votePOST(req(), ctx());
+    expect(await res.json()).toEqual({ voteCount: 4, votedByMe: true });
   });
 });

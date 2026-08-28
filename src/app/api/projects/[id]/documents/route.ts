@@ -1,40 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { canViewProject, isProjectParticipant } from "@/lib/projectAccess";
-import { logProjectHistory } from "@/lib/projectHistory";
-import type { ProjectDocumentCategory } from "@/generated/prisma/client";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import {
+  extractDjangoProjectErrorMessage,
+  mapDjangoProjectDocumentListItemToNexoShape,
+  type DjangoProjectDocumentListItem,
+} from "@/lib/djangoProjectsAdapter";
+
+// Fase 5f de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-14):
+// esta ruta pasó de Prisma a Django. El límite de tamaño (413) ya lo
+// valida `ProjectViewSet.documents` en Django con el mismo literal
+// `MAX_BASE64_LENGTH = 6_000_000` — no hace falta repetir el chequeo acá.
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
 type Ctx = { params: Promise<{ id: string }> };
-
-// Mismo límite que el adjunto de Mejora Continua (§Vercel: cuerpos grandes en
-// base64 fallan silenciosamente en producción) — ~4.5MB de binario.
-const MAX_BASE64_LENGTH = 6_000_000;
-
-const documentSelect = {
-  id: true,
-  category: true,
-  fileName: true,
-  mimeType: true,
-  version: true,
-  previousVersionId: true,
-  activityId: true,
-  uploadedBy: { select: { id: true, name: true } },
-  createdAt: true,
-} as const;
-
-async function loadProjectForAccess(id: string) {
-  return prisma.project.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      name: true,
-      responsibleId: true,
-      createdById: true,
-      participants: { select: { userId: true } },
-    },
-  });
-}
 
 export async function GET(_req: NextRequest, ctx: Ctx) {
   const session = await getSession();
@@ -43,21 +23,22 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
   }
 
   const { id: projectId } = await ctx.params;
-  const project = await loadProjectForAccess(projectId);
-  if (!project) {
+  const response = await djangoApiFetch(`/projects/${projectId}/documents/`);
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 404) {
     return NextResponse.json({ error: "Proyecto no encontrado" }, { status: 404 });
   }
-  if (!canViewProject(session, project, project.participants.map((p) => p.userId))) {
+  if (response.status === 403) {
     return NextResponse.json({ error: "No tienes acceso a este proyecto" }, { status: 403 });
   }
+  if (!response.ok) {
+    return NextResponse.json({ error: "No se pudieron obtener los documentos" }, { status: 400 });
+  }
 
-  const documents = await prisma.projectDocument.findMany({
-    where: { projectId },
-    select: documentSelect,
-    orderBy: { createdAt: "desc" },
-  });
-
-  return NextResponse.json(documents);
+  const documents: DjangoProjectDocumentListItem[] = await response.json();
+  return NextResponse.json(documents.map(mapDjangoProjectDocumentListItemToNexoShape));
 }
 
 export async function POST(request: NextRequest, ctx: Ctx) {
@@ -67,77 +48,45 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   }
 
   const { id: projectId } = await ctx.params;
-  const project = await loadProjectForAccess(projectId);
-  if (!project) {
-    return NextResponse.json({ error: "Proyecto no encontrado" }, { status: 404 });
-  }
-
-  const participantIds = project.participants.map((p) => p.userId);
-  if (!isProjectParticipant(session, project, participantIds)) {
-    return NextResponse.json({ error: "Solo los participantes del proyecto pueden subir documentos" }, { status: 403 });
-  }
-
-  let body: Record<string, unknown>;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Cuerpo de la solicitud inválido" }, { status: 400 });
-  }
-
+  const body = (await request.json()) as Record<string, unknown>;
   const { fileName, mimeType, fileData, category, activityId, previousVersionId } = body as {
     fileName?: string;
     mimeType?: string;
     fileData?: string;
-    category?: ProjectDocumentCategory;
+    category?: string;
     activityId?: string;
     previousVersionId?: string;
   };
 
-  if (!fileName?.trim() || !fileData) {
-    return NextResponse.json({ error: "Faltan campos requeridos" }, { status: 400 });
+  const response = await djangoApiFetch(`/projects/${projectId}/documents/`, {
+    method: "POST",
+    body: JSON.stringify({
+      file_name: fileName,
+      mime_type: mimeType ?? "",
+      file_data: fileData,
+      category: category ?? undefined,
+      activity: activityId ? Number(activityId) : null,
+      previous_version_id: previousVersionId ? Number(previousVersionId) : null,
+    }),
+  });
+
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
   }
-  if (fileData.length > MAX_BASE64_LENGTH) {
+  if (response.status === 404) {
+    return NextResponse.json({ error: "Proyecto no encontrado" }, { status: 404 });
+  }
+  if (response.status === 403) {
+    return NextResponse.json({ error: "Solo los participantes del proyecto pueden subir documentos" }, { status: 403 });
+  }
+  if (response.status === 413) {
     return NextResponse.json({ error: "El archivo es demasiado grande (máximo ~4.5MB)" }, { status: 413 });
   }
-
-  if (activityId) {
-    const activity = await prisma.projectActivity.findUnique({ where: { id: activityId } });
-    if (!activity || activity.projectId !== projectId) {
-      return NextResponse.json({ error: "Actividad inválida" }, { status: 400 });
-    }
+  if (!response.ok) {
+    const message = await extractDjangoProjectErrorMessage(response, "Faltan campos requeridos");
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 
-  let version = 1;
-  if (previousVersionId) {
-    const previous = await prisma.projectDocument.findUnique({ where: { id: previousVersionId } });
-    if (!previous || previous.projectId !== projectId) {
-      return NextResponse.json({ error: "Versión anterior inválida" }, { status: 400 });
-    }
-    version = previous.version + 1;
-  }
-
-  const document = await prisma.projectDocument.create({
-    data: {
-      projectId,
-      activityId: activityId || null,
-      category: category ?? "OTRO",
-      fileName: fileName.trim(),
-      mimeType: mimeType || null,
-      fileData,
-      version,
-      previousVersionId: previousVersionId || null,
-      uploadedById: session.userId,
-    },
-    select: documentSelect,
-  });
-
-  await logProjectHistory({
-    projectId,
-    actorId: session.userId,
-    event: "DOCUMENTO_AGREGADO",
-    description: `${session.name} subió el documento "${document.fileName}"${version > 1 ? ` (v${version})` : ""} a "${project.name}"`,
-    newValue: { documentId: document.id, fileName: document.fileName, version },
-  });
-
-  return NextResponse.json(document, { status: 201 });
+  const document: DjangoProjectDocumentListItem = await response.json();
+  return NextResponse.json(mapDjangoProjectDocumentListItemToNexoShape(document), { status: 201 });
 }

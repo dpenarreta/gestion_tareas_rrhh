@@ -278,7 +278,7 @@ Gestionar internamente los recursos humanos de la organización: asignación y s
 - Envío de contenido potencialmente sensible (consultas de RRHH, contenido de documentos internos) a un proveedor externo de procesamiento de lenguaje (Groq) como parte del funcionamiento del asistente Nova.
 - Almacenamiento de documentos internos de RRHH, que pueden contener datos de personal, en un repositorio de un proveedor externo (GitHub), fuera del perímetro directo de la base de datos de la aplicación.
 - Transferencia de datos de invitados (nombre/correo) a la API de Zoom al programar reuniones.
-- Dependencia de proveedores de infraestructura (Neon para la base de datos, Vercel para el hosting) que alojan la totalidad de los datos personales del sistema, sin acuerdos de encargado de tratamiento formalizados aún con ninguno de los cinco proveedores externos utilizados.
+- Sin acuerdos de encargado de tratamiento formalizados aún con ninguno de los tres proveedores externos vigentes (Groq, GitHub, Zoom). Neon (base de datos) y Vercel (hosting) se retiraron de la arquitectura el 2026-08-28 tras la migración de stack a Django/SQL Server (ver `docs/RAT.md`, sección 6).
 - Almacenamiento de datos de salud (permisos médicos, `LeaveRecord`) sin plazo de conservación definido ni base de legitimación diferenciada — categoría especial de datos que requiere evaluación legal específica (ver `docs/RAT.md`, secciones 3, 9 y 11).
 
 ### Estado de cumplimiento — mecanismos técnicos implementados
@@ -294,8 +294,8 @@ Gestionar internamente los recursos humanos de la organización: asignación y s
 
 ### Pendiente — responsabilidad del área legal (no es un pendiente técnico)
 
-- Formalizar acuerdos de encargado de tratamiento (o equivalentes) con los cinco proveedores externos que procesan datos personales de Nexo: **Groq** (IA), **GitHub** (almacenamiento documental), **Zoom** (videoconferencia), **Neon** (base de datos PostgreSQL gestionada) y **Vercel** (hosting/despliegue).
-- Validación legal formal del cumplimiento LOPDP por asesoría jurídica especializada en protección de datos en Ecuador, incluyendo la evaluación de transferencias internacionales de datos (los cinco proveedores operan infraestructura fuera de Ecuador) y de que el flujo de eliminación de cuenta (gestión manual del Administrador tras la solicitud) cumple los plazos y garantías exigidos por la ley.
+- Formalizar acuerdos de encargado de tratamiento (o equivalentes) con los tres proveedores externos vigentes que procesan datos personales de Nexo: **Groq** (IA), **GitHub** (almacenamiento documental) y **Zoom** (videoconferencia). **Neon** (base de datos) y **Vercel** (hosting) se retiraron de la arquitectura el 2026-08-28 — su baja efectiva como cuentas/proyectos activos queda como gestión operativa del responsable del tratamiento.
+- Validación legal formal del cumplimiento LOPDP por asesoría jurídica especializada en protección de datos en Ecuador, incluyendo la evaluación de transferencias internacionales de datos (los tres proveedores vigentes operan infraestructura fuera de Ecuador) y de que el flujo de eliminación de cuenta (gestión manual del Administrador tras la solicitud) cumple los plazos y garantías exigidos por la ley.
 - Completar los campos pendientes de `docs/RAT.md` (razón social, RUC, delegado de protección de datos, etc.) con información que solo el área legal/administrativa de la organización posee.
 - Definir la base de legitimación y el plazo de conservación de los permisos médicos y personales (`LeaveRecord`), dado que incluyen datos de salud — categoría especial sin cobertura aún en la política de retención (ver `docs/RAT.md`, secciones 3 y 9).
 - Validación legal urgente de la categoría especial de datos de salud (permisos médicos, maternidad/lactancia) conforme al Art. 26 LOPDP, incluyendo si la base de consentimiento actual es suficiente y si es necesario minimizar el dato almacenado (ver `docs/PENDIENTES_LEGALES.md`, sección 5).
@@ -310,7 +310,7 @@ Este análisis es de carácter técnico y funcional, basado en la revisión del 
 
 - **TypeScript**: modo estricto habilitado; se prefiere `type` sobre `interface` para formas de objetos.
 - **Tipos co-ubicados**: los tipos se co-ubican con el módulo que los define; se extraen a una carpeta compartida solo si se reutilizan en tres o más archivos.
-- **Prisma 7**: siempre inicializar `PrismaClient` con el driver adapter de PostgreSQL; nunca instanciarlo sin adapter. Importar tipos desde el cliente generado, no desde el paquete raíz.
+- **Backend Django**: el frontend Next.js no toca ninguna base de datos directo — todo `route.ts` habla con `backend/` (Django/DRF + SQL Server) vía `djangoApiFetch` (`src/lib/djangoSession.ts`); ver `docs/AUDIT_LOG.md` § 2026-08-28 (migración de stack completa, Fases 87-90).
 - **Validación de permisos**: toda regla de visibilidad o acceso debe validarse en el servidor (route handler), no solo en el componente de cliente.
 - **Variables de entorno**: nunca versionar `.env` ni `.env.local`; usar `.env.example` como referencia de las claves requeridas.
 - **Nomenclatura de commits**: se sigue el formato `tipo(alcance): asunto` (por ejemplo, `feat`, `fix`, `chore`, `docs`), documentado también de forma automática en la sección de Changelog de este archivo.
@@ -323,7 +323,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 **Los elementos técnicos han sido implementados. Los puntos restantes son de gestión legal y administrativa externa.**
 
-- Formalizar acuerdos de encargado de tratamiento con proveedores externos (Groq, GitHub, Zoom, Neon, Vercel) — responsabilidad del área legal.
+- Formalizar acuerdos de encargado de tratamiento con proveedores externos vigentes (Groq, GitHub, Zoom) — responsabilidad del área legal. Neon y Vercel se retiraron de la arquitectura el 2026-08-28.
 - Validar formalmente el cumplimiento LOPDP con asesoría jurídica especializada.
 - Definir base de legitimación y plazo de conservación para los permisos médicos y personales (`LeaveRecord`) — dato de salud sin política de retención técnica aún (área legal + posterior implementación técnica).
 
@@ -331,6 +331,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-08-28: feat: completa migracion de stack Next.js/Prisma/PostgreSQL a Next.js/Django/SQL Server
 - 2026-08-03: feat(tasks): aprobacion masiva de fecha fin con edicion por fila (v1.26.0)
 - 2026-08-03: refactor(tasks): consolida validacion de fecha fin en la pantalla de tiempo objetivo (v1.25.1)
 - 2026-08-03: feat(tasks): validacion de fecha fin por lideres (v1.25.0)

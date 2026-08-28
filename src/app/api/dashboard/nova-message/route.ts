@@ -1,16 +1,18 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { prisma } from "@/lib/prisma";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import { fetchOwnDjangoTasks } from "@/lib/djangoTasksAdapter";
 import { isTaskOverdue } from "@/lib/utils";
 import { weekBounds, monthBounds } from "@/lib/dateRanges";
-import { computeCargaTiempo } from "@/lib/workload";
 import { isLeadershipRole } from "@/lib/roles";
-import { getEffectiveNovaCacheTtlMinutes } from "@/lib/systemConfig";
+import { fetchDjangoNovaCacheTtlMinutes } from "@/lib/djangoNovaCacheConfig";
 import Groq from "groq-sdk";
 
 const cache = new Map<string, { message: string; expiresAt: number; generatedAt: number }>();
 
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+
+const GENERIC_FALLBACK_MESSAGE = "Bienvenido a Nexo. Revisa tus tareas pendientes para comenzar el día.";
 
 function pluralize(n: number, singular: string, plural: string) {
   return n === 1 ? singular : plural;
@@ -43,9 +45,17 @@ function buildFallback(ctx: {
   if (ctx.esLiderazgo) {
     return "Bienvenido a Nexo. Revisa los indicadores del equipo para comenzar el día.";
   }
-  return "Bienvenido a Nexo. Revisa tus tareas pendientes para comenzar el día.";
+  return GENERIC_FALLBACK_MESSAGE;
 }
 
+type DjangoDiariaCarga = { real_hours: number; base_hours: number; pct: number; is_weekend: boolean };
+type DjangoKpiMePayload = { carga_tiempo: { diaria: DjangoDiariaCarga } };
+
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-24): tareas propias vía
+// `fetchOwnDjangoTasks` (`apps.tasks`, Fase 3a — ya filtra
+// assigned_to=request.user + archived_month__isnull=True, igual que la
+// query de Prisma original) y carga de tiempo del día vía `GET /kpis/me/`
+// (`apps.analytics`, Fase 4a/4b — único endpoint que ya expone `diaria`).
 export async function POST() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
@@ -54,33 +64,42 @@ export async function POST() {
   if (cached && cached.expiresAt > Date.now()) {
     return NextResponse.json({ message: cached.message, cached: true });
   }
-  const cacheTtlMs = (await getEffectiveNovaCacheTtlMinutes()) * 60 * 1000;
+  const cacheTtlMs = (await fetchDjangoNovaCacheTtlMinutes()) * 60 * 1000;
 
   const now = new Date();
   const { end: weekEnd } = weekBounds(now);
   const { start: monthStart, end: monthEnd } = monthBounds(now);
 
-  const tasks = await prisma.task.findMany({
-    where: { assignedToId: session.userId, archivedMonth: null },
-    select: { status: true, endDate: true },
-  });
+  const [tasks, kpiResponse] = await Promise.all([fetchOwnDjangoTasks(), djangoApiFetch("/kpis/me/")]);
 
-  const tareasVencidas = tasks.filter((t) => isTaskOverdue(t.endDate, t.status, now)).length;
+  // Ruta puramente cosmética (saludo del Dashboard) — nunca falló por un
+  // problema de datos antes de este cutover; si la sesión todavía no tiene
+  // acceso a Django, se degrada al mismo saludo genérico en vez de exponer
+  // un error, en vez de adoptar el patrón de 401 usado en el resto de la
+  // migración (criterio distinto, deliberado para esta única ruta).
+  if (tasks === null || !kpiResponse || !kpiResponse.ok) {
+    cache.set(session.userId, { message: GENERIC_FALLBACK_MESSAGE, expiresAt: Date.now() + cacheTtlMs, generatedAt: Date.now() });
+    return NextResponse.json({ message: GENERIC_FALLBACK_MESSAGE, cached: false });
+  }
+
+  const kpi = (await kpiResponse.json()) as DjangoKpiMePayload;
+  const diaria = kpi.carga_tiempo.diaria;
+
+  const tareasVencidas = tasks.filter((t) => isTaskOverdue(t.end_date, t.status, now)).length;
   const tareasPorVencer = tasks.filter(
-    (t) => t.status !== "COMPLETADA" && t.endDate >= now && t.endDate <= weekEnd
+    (t) => t.status !== "COMPLETADA" && new Date(t.end_date) >= now && new Date(t.end_date) <= weekEnd
   ).length;
   const completadasMes = tasks.filter(
-    (t) => t.status === "COMPLETADA" && t.endDate >= monthStart && t.endDate <= monthEnd
+    (t) => t.status === "COMPLETADA" && new Date(t.end_date) >= monthStart && new Date(t.end_date) <= monthEnd
   ).length;
 
-  const cargaTiempo = await computeCargaTiempo(session.userId, now);
   const ctx = {
     tareasVencidas,
     tareasPorVencer,
-    cargaHoyPct: cargaTiempo.diaria.pct,
-    cargaHoyHoras: cargaTiempo.diaria.realHours,
-    cargaHoyBase: cargaTiempo.diaria.baseHours,
-    esFinDeSemana: cargaTiempo.diaria.isWeekend,
+    cargaHoyPct: diaria.pct,
+    cargaHoyHoras: diaria.real_hours,
+    cargaHoyBase: diaria.base_hours,
+    esFinDeSemana: diaria.is_weekend,
     completadasMes,
     esLiderazgo: isLeadershipRole(session.role),
   };

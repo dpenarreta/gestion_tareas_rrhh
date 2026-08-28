@@ -2,35 +2,24 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { SessionPayload } from "@/lib/session";
 import type { NextRequest } from "next/server";
 
-const taskFindUnique = vi.fn();
-const taskUpdate = vi.fn();
-const endDateAuditLogFindMany = vi.fn();
-const endDateAuditLogCreate = vi.fn();
-const notificationCreate = vi.fn();
-const $transaction = vi.fn(async (fn: (tx: unknown) => unknown) =>
-  fn({
-    task: { findUnique: taskFindUnique, update: taskUpdate },
-    endDateAuditLog: { create: endDateAuditLogCreate },
-    notification: { create: notificationCreate },
-  })
-);
+// Fase 3c de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-07):
+// GET/POST /api/tasks/[id]/end-date pasaron de Prisma a Django — este
+// archivo mockeaba `@/lib/prisma` hasta esta actualización, probando
+// lógica (permisos de validación, transición de estado, notificaciones)
+// que ya NO vive en `route.ts`. Acá solo se cubre lo que el wrapper de
+// Next.js realmente hace.
+const getSession = vi.fn();
+vi.mock("@/lib/session", () => ({ getSession: (...args: unknown[]) => getSession(...args) }));
 
-vi.mock("@/lib/prisma", () => ({
-  prisma: {
-    task: { findUnique: taskFindUnique, update: taskUpdate },
-    endDateAuditLog: { findMany: endDateAuditLogFindMany, create: endDateAuditLogCreate },
-    notification: { create: notificationCreate },
-    $transaction,
-  },
+const djangoApiFetch = vi.fn();
+vi.mock("@/lib/djangoSession", () => ({
+  djangoApiFetch: (...args: unknown[]) => djangoApiFetch(...args),
 }));
 
-vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
-
-const { getSession } = await import("@/lib/session");
 const { GET, POST } = await import("@/app/api/tasks/[id]/end-date/route");
 
 function mockSession(overrides: Partial<SessionPayload> | null) {
-  vi.mocked(getSession).mockResolvedValue(
+  getSession.mockResolvedValue(
     overrides === null
       ? null
       : {
@@ -44,7 +33,7 @@ function mockSession(overrides: Partial<SessionPayload> | null) {
   );
 }
 
-function ctx(id = "task-1") {
+function ctx(id = "1") {
   return { params: Promise.resolve({ id }) };
 }
 
@@ -53,35 +42,26 @@ function postRequest(body: unknown): NextRequest {
 }
 
 function resetAll() {
-  taskFindUnique.mockReset();
-  taskUpdate.mockReset();
-  endDateAuditLogFindMany.mockReset().mockResolvedValue([]);
-  endDateAuditLogCreate.mockReset().mockResolvedValue({});
-  notificationCreate.mockReset().mockResolvedValue({});
-  $transaction.mockClear();
-  vi.mocked(getSession).mockReset();
+  getSession.mockReset();
+  djangoApiFetch.mockReset();
 }
 
-const ASSIGNEE = "colaborador-1";
-const LEADER = "jefe-1";
+function djangoResponse(ok: boolean, data: unknown, status = ok ? 200 : 400) {
+  return { ok, status, json: async () => data } as Response;
+}
 
-function taskForGet(overrides: Partial<{ endDateApprovalStatus: string }> = {}) {
+const DJANGO_USER_REF = { id: 2, username: "jefe", first_name: "Jefe", email: "jefe@nexo.com", roles: [{ id: 1, name: "JEFE_NACIONAL" }] };
+
+function djangoEndDateInfo(overrides: Partial<Record<string, unknown>> = {}) {
   return {
-    id: "task-1",
-    title: "Revisión de Nómina",
-    endDate: new Date(Date.UTC(2026, 7, 15)),
-    endDateApprovalStatus: "PENDIENTE",
-    endDateApprovedAt: null,
-    endDateApprover: null,
-    assignedToId: ASSIGNEE,
-    createdById: ASSIGNEE,
-    assignedTo: { role: "ASISTENTE_GH" },
+    end_date: "2026-08-15T00:00:00Z",
+    end_date_approval_status: "PENDIENTE",
+    end_date_approved_at: null,
+    approved_by: null,
+    can_validate: false,
+    audit_history: [],
     ...overrides,
   };
-}
-
-function taskForPost() {
-  return { id: "task-1", assignedToId: ASSIGNEE, assignedTo: { role: "ASISTENTE_GH" } };
 }
 
 describe("GET /api/tasks/[id]/end-date", () => {
@@ -93,37 +73,29 @@ describe("GET /api/tasks/[id]/end-date", () => {
     expect(res.status).toBe(401);
   });
 
+  it("responde 401 si Django no tiene sesión disponible", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(null);
+    const res = await GET({} as NextRequest, ctx());
+    expect(res.status).toBe(401);
+  });
+
   it("responde 404 si la tarea no existe", async () => {
-    mockSession({ userId: ASSIGNEE });
-    taskFindUnique.mockResolvedValue(null);
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, {}, 404));
     const res = await GET({} as NextRequest, ctx());
     expect(res.status).toBe(404);
   });
 
-  it("responde 403 si no es responsable, creador, ni jerarquía visible", async () => {
-    // TRABAJO_SOCIAL solo ve TRABAJO_SOCIAL (VISIBLE_ROLES) — la tarea es de un ASISTENTE_GH, un rol distinto sin relación jerárquica.
-    mockSession({ role: "TRABAJO_SOCIAL", userId: "otro-user" });
-    taskFindUnique.mockResolvedValue(taskForGet());
-    const res = await GET({} as NextRequest, ctx());
-    expect(res.status).toBe(403);
-  });
+  it("devuelve el estado de Fecha Fin mapeado a la forma Nexo", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, djangoEndDateInfo({ can_validate: true, approved_by: DJANGO_USER_REF })));
 
-  it("el responsable puede ver el estado pero canValidate es false", async () => {
-    mockSession({ role: "ASISTENTE_GH", userId: ASSIGNEE });
-    taskFindUnique.mockResolvedValue(taskForGet());
-    const res = await GET({} as NextRequest, ctx());
-    const body = await res.json();
+    const res = await GET({} as NextRequest, ctx("1"));
     expect(res.status).toBe(200);
-    expect(body.canValidate).toBe(false);
-    expect(body.endDateApprovalStatus).toBe("PENDIENTE");
-  });
-
-  it("un líder autorizado ve canValidate=true", async () => {
-    mockSession({ role: "JEFE_NACIONAL", userId: LEADER });
-    taskFindUnique.mockResolvedValue(taskForGet());
-    const res = await GET({} as NextRequest, ctx());
+    expect(djangoApiFetch).toHaveBeenCalledWith("/tasks/1/end-date/");
     const body = await res.json();
-    expect(body.canValidate).toBe(true);
+    expect(body).toMatchObject({ endDateApprovalStatus: "PENDIENTE", canValidate: true, approvedBy: { id: "2", name: "Jefe" } });
   });
 });
 
@@ -136,100 +108,50 @@ describe("POST /api/tasks/[id]/end-date", () => {
     expect(res.status).toBe(401);
   });
 
-  it("responde 403 si el responsable intenta validar su propia fecha fin", async () => {
-    mockSession({ role: "JEFE_NACIONAL", userId: ASSIGNEE });
-    taskFindUnique.mockResolvedValue(taskForPost());
+  it("responde 404 si Django rechaza por permisos (403)", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, {}, 403));
     const res = await POST(postRequest({ action: "APROBAR" }), ctx());
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
   });
 
-  it("responde 403 para un rol sin permiso de validación (fuera de la whitelist)", async () => {
-    mockSession({ role: "COORDINADOR_ZS", userId: "coord-1" });
-    taskFindUnique.mockResolvedValue(taskForPost());
-    const res = await POST(postRequest({ action: "APROBAR" }), ctx());
-    expect(res.status).toBe(403);
-  });
-
-  it("responde 400 con una acción inválida", async () => {
-    mockSession({ role: "JEFE_NACIONAL", userId: LEADER });
-    taskFindUnique.mockResolvedValue(taskForPost());
+  it("responde 400 con el mensaje de Django ante una acción inválida", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(
+      djangoResponse(false, { error: { details: { non_field_errors: ["Acción inválida"] } } }, 400)
+    );
     const res = await POST(postRequest({ action: "INVALIDA" }), ctx());
     expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("Acción inválida");
   });
 
-  it("responde 400 si MODIFICAR no trae una nueva fecha válida", async () => {
-    mockSession({ role: "JEFE_NACIONAL", userId: LEADER });
-    taskFindUnique.mockResolvedValue(taskForPost());
-    const res = await POST(postRequest({ action: "MODIFICAR" }), ctx());
-    expect(res.status).toBe(400);
-  });
+  it("mapea action/newEndDate/observaciones a snake_case y devuelve el estado actualizado", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, djangoEndDateInfo({ end_date_approval_status: "MODIFICADA" })));
 
-  it("APROBAR: no cambia endDate, marca APROBADA, audita, y NO notifica al colaborador", async () => {
-    mockSession({ role: "JEFE_NACIONAL", userId: LEADER });
-    taskFindUnique.mockResolvedValue(taskForPost());
-    // Dentro de applyEndDateAction, el findUnique interno (vía tx) reutiliza el mismo mock.
-    taskFindUnique.mockResolvedValueOnce(taskForPost()).mockResolvedValueOnce({
-      endDate: new Date(Date.UTC(2026, 7, 15)),
-      title: "Revisión de Nómina",
-      assignedToId: ASSIGNEE,
-    });
-    taskUpdate.mockResolvedValue({ endDate: new Date(Date.UTC(2026, 7, 15)), endDateApprovalStatus: "APROBADA", endDateApprovedAt: new Date() });
-
-    const res = await POST(postRequest({ action: "APROBAR" }), ctx());
+    const res = await POST(
+      postRequest({ action: "MODIFICAR", newEndDate: "2026-08-18", observaciones: "  se corre la fecha  " }),
+      ctx("1")
+    );
     expect(res.status).toBe(200);
-
-    expect(taskUpdate).toHaveBeenCalledWith(
+    expect(djangoApiFetch).toHaveBeenCalledWith(
+      "/tasks/1/end-date/",
       expect.objectContaining({
-        data: expect.objectContaining({ endDate: new Date(Date.UTC(2026, 7, 15)), endDateApprovalStatus: "APROBADA" }),
+        method: "POST",
+        body: JSON.stringify({ action: "MODIFICAR", new_end_date: "2026-08-18", observaciones: "se corre la fecha" }),
       })
     );
-    expect(endDateAuditLogCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ action: "APROBADA" }) })
-    );
-    expect(notificationCreate).not.toHaveBeenCalled();
+    expect((await res.json()).endDateApprovalStatus).toBe("MODIFICADA");
   });
 
-  it("MODIFICAR: cambia endDate al nuevo valor, marca MODIFICADA, audita, y notifica al colaborador", async () => {
-    mockSession({ role: "JEFE_NACIONAL", userId: LEADER, name: "Jefe" });
-    taskFindUnique.mockResolvedValueOnce(taskForPost()).mockResolvedValueOnce({
-      endDate: new Date(Date.UTC(2026, 7, 15)),
-      title: "Revisión de Nómina",
-      assignedToId: ASSIGNEE,
-    });
-    taskUpdate.mockResolvedValue({ endDate: new Date(Date.UTC(2026, 7, 18)), endDateApprovalStatus: "MODIFICADA", endDateApprovedAt: new Date() });
+  it("observaciones vacías/ausentes se envían como null", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, djangoEndDateInfo()));
 
-    const res = await POST(postRequest({ action: "MODIFICAR", newEndDate: "2026-08-18" }), ctx());
-    expect(res.status).toBe(200);
-
-    expect(taskUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ endDate: new Date("2026-08-18"), endDateApprovalStatus: "MODIFICADA" }) })
+    await POST(postRequest({ action: "APROBAR" }), ctx("1"));
+    expect(djangoApiFetch).toHaveBeenCalledWith(
+      "/tasks/1/end-date/",
+      expect.objectContaining({ body: JSON.stringify({ action: "APROBAR", new_end_date: null, observaciones: null }) })
     );
-    expect(notificationCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ userId: ASSIGNEE, taskId: "task-1" }),
-      })
-    );
-    const message = notificationCreate.mock.calls[0][0].data.message as string;
-    expect(message).toContain("Revisión de Nómina");
-    expect(message).toContain("15/08/2026");
-    expect(message).toContain("18/08/2026");
-  });
-
-  it("RECHAZAR: NO cambia endDate, marca RECHAZADA, audita, y notifica al colaborador", async () => {
-    mockSession({ role: "JEFE_NACIONAL", userId: LEADER });
-    taskFindUnique.mockResolvedValueOnce(taskForPost()).mockResolvedValueOnce({
-      endDate: new Date(Date.UTC(2026, 7, 15)),
-      title: "Revisión de Nómina",
-      assignedToId: ASSIGNEE,
-    });
-    taskUpdate.mockResolvedValue({ endDate: new Date(Date.UTC(2026, 7, 15)), endDateApprovalStatus: "RECHAZADA", endDateApprovedAt: new Date() });
-
-    const res = await POST(postRequest({ action: "RECHAZAR" }), ctx());
-    expect(res.status).toBe(200);
-
-    expect(taskUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ endDate: new Date(Date.UTC(2026, 7, 15)), endDateApprovalStatus: "RECHAZADA" }) })
-    );
-    expect(notificationCreate).toHaveBeenCalledTimes(1);
   });
 });

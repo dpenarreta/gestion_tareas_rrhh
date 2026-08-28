@@ -13,7 +13,7 @@ import {
 } from "@dnd-kit/core";
 import { useDroppable, useDraggable } from "@dnd-kit/core";
 import type { Task, TaskStatus } from "./types";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import type { ActivityFormat } from "@/lib/activityFormat";
 import TaskCard from "./TaskCard";
 import CommentPanel from "./CommentPanel";

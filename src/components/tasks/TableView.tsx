@@ -4,7 +4,7 @@ import { useState, useRef, useMemo, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import * as XLSX from "xlsx";
 import type { Task, AssignableUser, TaskStatus } from "./types";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import type { ActivityFormat } from "@/lib/activityFormat";
 import { taskColorHex } from "./colors";
 import { fireCelebrationConfetti } from "@/lib/confetti";

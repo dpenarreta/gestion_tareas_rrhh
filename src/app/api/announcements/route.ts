@@ -1,65 +1,72 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { getVisibleRoles } from "@/lib/roles";
+import { djangoApiFetch, extractDjangoFlatErrorMessage } from "@/lib/djangoSession";
 
-const CAN_POST: string[] = ["ADMINISTRADOR", "JEFE_NACIONAL", "COORDINADOR_NACIONAL"];
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
+type DjangoAnnouncement = {
+  id: number;
+  title: string;
+  content: string;
+  authorId: number;
+  author: { name: string; role: string };
+  pinned: boolean;
+  expiresAt: string;
+  createdAt: string;
+};
+
+function mapDjangoAnnouncementToNexoShape(a: DjangoAnnouncement) {
+  return {
+    id: String(a.id),
+    title: a.title,
+    content: a.content,
+    authorId: String(a.authorId),
+    author: a.author,
+    pinned: a.pinned,
+    expiresAt: a.expiresAt,
+    createdAt: a.createdAt,
+  };
+}
+
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-21): esta ruta pasó de
+// Prisma a Django. La visibilidad de a quién notificar (todos los usuarios
+// visibles, excluyendo al autor) ya vive en
+// `apps.announcements.services.create_announcement`.
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const now = new Date();
-  const announcements = await prisma.announcement.findMany({
-    where: { expiresAt: { gt: now } },
-    include: { author: { select: { name: true, role: true } } },
-    orderBy: [{ pinned: "desc" }, { createdAt: "desc" }],
-  });
+  const response = await djangoApiFetch("/announcements/");
+  if (!response || !response.ok) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
 
-  return NextResponse.json(announcements);
+  const announcements: DjangoAnnouncement[] = await response.json();
+  return NextResponse.json(announcements.map(mapDjangoAnnouncementToNexoShape));
 }
 
 export async function POST(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-  if (!CAN_POST.includes(session.role)) {
-    return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
-  }
 
   const { title, content, durationDays, pinned } = await request.json();
-  if (!title?.trim() || !content?.trim() || !durationDays) {
-    return NextResponse.json({ error: "Faltan campos requeridos" }, { status: 400 });
+
+  const response = await djangoApiFetch("/announcements/", {
+    method: "POST",
+    body: JSON.stringify({ title, content, durationDays, pinned }),
+  });
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
   }
-  const days = Math.max(1, Math.min(30, Number(durationDays)));
-
-  const expiresAt = new Date();
-  expiresAt.setDate(expiresAt.getDate() + days);
-
-  const announcement = await prisma.announcement.create({
-    data: {
-      title: title.trim(),
-      content: content.trim(),
-      authorId: session.userId,
-      expiresAt,
-      pinned: Boolean(pinned),
-    },
-  });
-
-  // Notify all visible users
-  const visibleRoles = getVisibleRoles(session.role);
-  const targets = await prisma.user.findMany({
-    where: { role: { in: visibleRoles }, id: { not: session.userId } },
-    select: { id: true },
-  });
-
-  if (targets.length > 0) {
-    await prisma.notification.createMany({
-      data: targets.map((u) => ({
-        userId: u.id,
-        message: `Nuevo comunicado: "${announcement.title}"`,
-      })),
-    });
+  if (response.status === 403) {
+    return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
+  }
+  if (!response.ok) {
+    const message = await extractDjangoFlatErrorMessage(response);
+    return NextResponse.json({ error: message ?? "Faltan campos requeridos" }, { status: 400 });
   }
 
-  return NextResponse.json(announcement, { status: 201 });
+  const created: DjangoAnnouncement = await response.json();
+  return NextResponse.json(mapDjangoAnnouncementToNexoShape(created), { status: 201 });
 }

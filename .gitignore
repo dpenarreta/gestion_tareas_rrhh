@@ -41,8 +41,6 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-/src/generated/prisma
-
 # uploaded attachments
 /public/uploads
 
@@ -51,3 +49,16 @@ next-env.d.ts
 
 # temp migration scripts (may reference env-provided DB creds, never commit)
 /_migration_tmp
+
+# backend (Django, Fase 1 de la migracion de stack)
+backend/.venv
+backend/__pycache__
+backend/**/__pycache__
+backend/**/migrations/__pycache__
+backend/staticfiles
+backend/db.sqlite3
+backend/.pytest_cache
+
+# frontend (Vite/React, Fase 1 de la migracion de stack)
+frontend/node_modules
+frontend/dist

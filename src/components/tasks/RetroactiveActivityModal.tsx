@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import type { Task } from "./types";
 import type { ActivityFormat } from "@/lib/activityFormat";
 import { fetchActivityReasons, selectableReasons, formatDuration, type ActivityReasonConfig } from "./activityReasons";

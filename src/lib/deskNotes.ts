@@ -1,5 +1,11 @@
 import "server-only";
-import type { DeskNotePriority, DeskNoteColor } from "@/generated/prisma/client";
+
+// Cutover de stack — Fase 90 (ver docs/AUDIT_LOG.md § 2026-08-28): ya no se
+// importan del cliente Prisma generado (retirado del repo) — mismos
+// valores que `prisma/schema.prisma` tenía, réplica exacta de
+// `DeskNote.priority`/`.color` (Django).
+export type DeskNotePriority = "INFORMACION" | "RECORDATORIO" | "IMPORTANTE" | "URGENTE";
+export type DeskNoteColor = "AMARILLO" | "ROSADO" | "CELESTE" | "VERDE" | "NARANJA" | "LILA";
 
 // Compartido entre las rutas de /api/desk-notes — un route.ts de Next.js solo
 // puede exportar handlers HTTP y un puñado de config reconocida, así que

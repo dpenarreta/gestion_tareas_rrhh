@@ -1,28 +1,36 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { getVisibleRoles } from "@/lib/roles";
-import { getEffectiveAnalyticsConfig } from "@/lib/systemConfig";
-import { cached, computeTargetTimePrecision, ANALYTICS_ENGINE_VERSION } from "@/lib/analytics";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import { mapDjangoAnalyticsPayloadToNexoShape } from "@/lib/djangoAnalyticsAdapter";
+
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
 type Ctx = { params: Promise<{ userId: string }> };
 
-/** Precisión del Tiempo Objetivo (§Sprint 6 S6-F) — nuevo KPI, no reemplaza ningún indicador existente. */
-export async function GET(_req: Request, ctx: Ctx) {
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-24): réplica de
+// `TargetTimePrecisionView` (backend, Fase 17) — mismo patrón que
+// `analytics/insights/[userId]/route.ts`.
+export async function GET(request: Request, ctx: Ctx) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
   const { userId } = await ctx.params;
-  const targetUser = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true } });
-  if (!targetUser) return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
 
-  const isSelf = session.userId === userId;
-  if (!isSelf && !getVisibleRoles(session.role).includes(targetUser.role)) {
+  const response = await djangoApiFetch(`/analytics/target-time/${userId}/`);
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 404) {
+    return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
+  }
+  if (response.status === 403) {
     return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
   }
+  if (!response.ok) {
+    return NextResponse.json({ error: "Error al obtener la precisión de Tiempo Objetivo" }, { status: response.status });
+  }
 
-  const config = await getEffectiveAnalyticsConfig();
-  const { value, computedAt } = await cached(`target-time-precision:${userId}`, config.cacheTtlMinutes, () => computeTargetTimePrecision(userId));
-
-  return NextResponse.json({ ...value, engineVersion: ANALYTICS_ENGINE_VERSION, lastUpdated: new Date(computedAt).toISOString() });
+  const payload = mapDjangoAnalyticsPayloadToNexoShape(await response.json());
+  return NextResponse.json(payload);
 }

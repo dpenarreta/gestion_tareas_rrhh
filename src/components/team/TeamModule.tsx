@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useSearchParams } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import { ROLE_LABEL } from "@/lib/roles";
 import type { Task, TaskStatus } from "@/components/tasks/types";
 import CommentPanel from "@/components/tasks/CommentPanel";

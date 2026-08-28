@@ -4,10 +4,11 @@ import { useState, useEffect, useCallback } from "react";
 import { Spinner } from "@/components/ui/Skeleton";
 import { useTheme } from "next-themes";
 import { ROLE_LABEL } from "@/lib/roles";
+import type { Role } from "@/lib/roles";
 import { useHasMounted } from "@/hooks/useHasMounted";
 import { Modal, ModalHeader } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
-import type { Role, DataRequestType, DataRequestStatus } from "@/generated/prisma/client";
+import type { DataRequestType, DataRequestStatus } from "@/components/settings/DataRequestsSection";
 import type { ActivityFormat } from "@/lib/activityFormat";
 
 type UserInfo = {

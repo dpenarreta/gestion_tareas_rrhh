@@ -1,41 +1,31 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { SessionPayload } from "@/lib/session";
 
-const taskFindMany = vi.fn();
-const taskFindUnique = vi.fn();
-const taskCreate = vi.fn();
-const taskUpdate = vi.fn();
-const taskDelete = vi.fn();
-const notificationCreate = vi.fn();
-// Validación de Fecha Fin (mejora) — PATCH /api/tasks/[id] envuelve la
-// actualización en una transacción SOLO cuando reinicia la aprobación a
-// Pendiente (ver "shouldResetEndDateApproval"); tx.task.update reusa el
-// mismo spy taskUpdate para que las aserciones existentes sigan
-// funcionando sin importar qué camino tomó la ruta.
-const endDateAuditLogCreate = vi.fn();
-const $transaction = vi.fn(async (fn: (tx: unknown) => unknown) => fn({ task: { update: taskUpdate }, endDateAuditLog: { create: endDateAuditLogCreate } }));
-
-vi.mock("@/lib/prisma", () => ({
-  prisma: {
-    task: { findMany: taskFindMany, findUnique: taskFindUnique, create: taskCreate, update: taskUpdate, delete: taskDelete },
-    notification: { create: notificationCreate },
-    $transaction,
-  },
+// Fase 3a de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-07):
+// GET/POST /api/tasks y PATCH/DELETE /api/tasks/[id] pasaron de Prisma a
+// Django — este archivo mockeaba `@/lib/prisma` hasta esta actualización,
+// probando lógica (permisos, cálculo de progress/completedAt, reset de
+// aprobación de Fecha Fin) que ya NO vive en `route.ts`, se movió a
+// `backend/apps/tasks/services.py` (ya cubierta ahí, ver
+// `backend/apps/tasks/tests/test_tasks.py`). Acá solo se cubre lo que el
+// wrapper de Next.js realmente hace: sesión, mapeo de body/respuesta,
+// forwarding a Django — mismo criterio que `auth.test.ts` tras su propio
+// cutover (Fase 6a-6c).
+const getSession = vi.fn();
+vi.mock("@/lib/session", () => ({
+  getSession: (...args: unknown[]) => getSession(...args),
 }));
 
-vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
-
-const attachUnreadComments = vi.fn(async (tasks: unknown[]) => tasks.map((t) => ({ ...(t as object), hasUnreadComments: false })));
-vi.mock("@/lib/commentViews", () => ({
-  attachUnreadComments: (...args: [unknown[], string]) => attachUnreadComments(...args),
+const djangoApiFetch = vi.fn();
+vi.mock("@/lib/djangoSession", () => ({
+  djangoApiFetch: (...args: unknown[]) => djangoApiFetch(...args),
 }));
 
-const { getSession } = await import("@/lib/session");
 const { GET: tasksGET, POST: tasksPOST } = await import("@/app/api/tasks/route");
 const { PATCH: taskPATCH, DELETE: taskDELETE } = await import("@/app/api/tasks/[id]/route");
 
 function mockSession(overrides: Partial<SessionPayload> | null) {
-  vi.mocked(getSession).mockResolvedValue(
+  getSession.mockResolvedValue(
     overrides === null
       ? null
       : {
@@ -49,7 +39,7 @@ function mockSession(overrides: Partial<SessionPayload> | null) {
   );
 }
 
-function ctx(id = "task-1") {
+function ctx(id = "1") {
   return { params: Promise.resolve({ id }) };
 }
 
@@ -58,16 +48,41 @@ function jsonRequest(body: unknown) {
 }
 
 function resetAll() {
-  taskFindMany.mockReset();
-  taskFindUnique.mockReset();
-  taskCreate.mockReset();
-  taskUpdate.mockReset();
-  taskDelete.mockReset();
-  notificationCreate.mockReset().mockResolvedValue({});
-  attachUnreadComments.mockClear();
-  endDateAuditLogCreate.mockReset().mockResolvedValue({});
-  $transaction.mockClear();
-  vi.mocked(getSession).mockReset();
+  getSession.mockReset();
+  djangoApiFetch.mockReset();
+}
+
+function djangoResponse(ok: boolean, data: unknown, status = ok ? 200 : 400) {
+  return { ok, status, json: async () => data } as Response;
+}
+
+const DJANGO_USER_REF = { id: 5, username: "otro", first_name: "Otro", email: "otro@nexo.com", roles: [{ id: 1, name: "ASISTENTE_GH" }] };
+
+function djangoTask(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: 1,
+    title: "Tarea",
+    description: "",
+    type: "FIJA",
+    status: "PENDIENTE",
+    priority: "MEDIA",
+    frequency: "PUNTUAL",
+    start_date: "2026-08-01T00:00:00Z",
+    end_date: "2026-08-05T00:00:00Z",
+    estimated_hours: 4,
+    real_hours: 0,
+    target_time_validated: null,
+    progress: 0,
+    color: "",
+    corrected: false,
+    assigned_to: DJANGO_USER_REF,
+    created_by: DJANGO_USER_REF,
+    comment_count: 0,
+    has_unread_comments: false,
+    created_at: "2026-08-01T00:00:00Z",
+    updated_at: "2026-08-01T00:00:00Z",
+    ...overrides,
+  };
 }
 
 describe("GET /api/tasks", () => {
@@ -79,49 +94,37 @@ describe("GET /api/tasks", () => {
     expect(res.status).toBe(401);
   });
 
-  it("filtra por las tareas propias no archivadas", async () => {
+  it("responde 401 si Django no tiene sesión disponible", async () => {
     mockSession({});
-    taskFindMany.mockResolvedValue([]);
-    await tasksGET();
-    expect(taskFindMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { assignedToId: "u1", archivedMonth: null } })
-    );
+    djangoApiFetch.mockResolvedValue(null);
+    const res = await tasksGET();
+    expect(res.status).toBe(401);
   });
 
-  it("solo devuelve tareas del usuario autenticado (integración: query + respuesta)", async () => {
-    mockSession({ userId: "u1" });
-    const ownTasks = [
-      { id: "t1", title: "Propia 1", assignedToId: "u1" },
-      { id: "t2", title: "Propia 2", assignedToId: "u1" },
-    ];
-    taskFindMany.mockResolvedValue(ownTasks);
+  it("responde 200 con las tareas mapeadas a la forma Nexo (camelCase)", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, [djangoTask({ id: 7, title: "Propia" })]));
 
     const res = await tasksGET();
-
     expect(res.status).toBe(200);
-    // La consulta a Prisma nunca pide tareas de otro usuario, sin importar quién esté logueado.
-    expect(taskFindMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { assignedToId: "u1", archivedMonth: null } })
-    );
     const body = await res.json();
-    expect(body).toHaveLength(2);
-    expect(body.every((t: { assignedToId: string }) => t.assignedToId === "u1")).toBe(true);
-  });
-
-  it("con otro usuario autenticado, la consulta se acota a ese otro userId", async () => {
-    mockSession({ userId: "u2" });
-    taskFindMany.mockResolvedValue([{ id: "t3", title: "De u2", assignedToId: "u2" }]);
-
-    await tasksGET();
-
-    expect(taskFindMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { assignedToId: "u2", archivedMonth: null } })
-    );
+    expect(body).toHaveLength(1);
+    expect(body[0]).toMatchObject({ id: "7", title: "Propia", assignedTo: { id: "5", name: "Otro" } });
   });
 });
 
 describe("POST /api/tasks", () => {
   beforeEach(resetAll);
+
+  const validBody = {
+    title: "Nueva tarea",
+    priority: "ALTA",
+    frequency: "PUNTUAL",
+    startDate: "2026-08-01",
+    endDate: "2026-08-05",
+    estimatedHours: "4",
+    assignedToId: "5",
+  };
 
   it("responde 401 si no hay sesión", async () => {
     mockSession(null);
@@ -133,67 +136,57 @@ describe("POST /api/tasks", () => {
     mockSession({});
     const res = await tasksPOST(jsonRequest({ title: "Tarea" }));
     expect(res.status).toBe(400);
+    expect(djangoApiFetch).not.toHaveBeenCalled();
   });
 
-  it("crea la tarea con status/progress por defecto y notifica al asignado si es otra persona", async () => {
-    mockSession({ userId: "u1", name: "Ana" });
-    taskCreate.mockResolvedValue({ id: "task-1", title: "Nueva tarea" });
+  it("responde 401 si Django no tiene sesión disponible", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(null);
+    const res = await tasksPOST(jsonRequest(validBody));
+    expect(res.status).toBe(401);
+  });
 
-    const res = await tasksPOST(
-      jsonRequest({
-        title: "Nueva tarea",
-        priority: "ALTA",
-        frequency: "PUNTUAL",
-        startDate: "2026-01-01",
-        endDate: "2026-01-05",
-        estimatedHours: "4",
-        assignedToId: "other-user",
-      })
-    );
-    expect(res.status).toBe(201);
-    expect(taskCreate).toHaveBeenCalledWith(
+  it("responde 400 si Django rechaza la creación", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "x" }));
+    const res = await tasksPOST(jsonRequest(validBody));
+    expect(res.status).toBe(400);
+  });
+
+  it("mapea el body a snake_case y aplica los defaults de type/status", async () => {
+    mockSession({ userId: "u1" });
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, djangoTask({ id: 9 }), 201));
+
+    await tasksPOST(jsonRequest(validBody));
+
+    expect(djangoApiFetch).toHaveBeenCalledWith(
+      "/tasks/",
       expect.objectContaining({
-        data: expect.objectContaining({ status: "PENDIENTE", progress: 0, assignedToId: "other-user", createdById: "u1" }),
+        method: "POST",
+        body: JSON.stringify({
+          title: "Nueva tarea",
+          description: "",
+          priority: "ALTA",
+          frequency: "PUNTUAL",
+          type: "FIJA",
+          status: "PENDIENTE",
+          start_date: "2026-08-01",
+          end_date: "2026-08-05",
+          estimated_hours: "4",
+          assigned_to: 5,
+        }),
       })
-    );
-    expect(notificationCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ userId: "other-user", taskId: "task-1" }) })
     );
   });
 
-  it("no notifica si la tarea se autoasigna", async () => {
-    mockSession({ userId: "u1" });
-    taskCreate.mockResolvedValue({ id: "task-1", title: "Tarea propia" });
-    await tasksPOST(
-      jsonRequest({
-        title: "Tarea propia",
-        priority: "MEDIA",
-        frequency: "PUNTUAL",
-        startDate: "2026-01-01",
-        endDate: "2026-01-05",
-        estimatedHours: "2",
-        assignedToId: "u1",
-      })
-    );
-    expect(notificationCreate).not.toHaveBeenCalled();
-  });
+  it("responde 201 con la tarea creada mapeada a la forma Nexo", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, djangoTask({ id: 9, title: "Nueva tarea" }), 201));
 
-  it("con status inicial COMPLETADA, el progreso se establece en 100", async () => {
-    mockSession({ userId: "u1" });
-    taskCreate.mockResolvedValue({ id: "task-1" });
-    await tasksPOST(
-      jsonRequest({
-        title: "Tarea",
-        status: "COMPLETADA",
-        priority: "MEDIA",
-        frequency: "PUNTUAL",
-        startDate: "2026-01-01",
-        endDate: "2026-01-05",
-        estimatedHours: "2",
-        assignedToId: "u1",
-      })
-    );
-    expect(taskCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ progress: 100 }) }));
+    const res = await tasksPOST(jsonRequest(validBody));
+    expect(res.status).toBe(201);
+    const body = await res.json();
+    expect(body).toMatchObject({ id: "9", title: "Nueva tarea" });
   });
 });
 
@@ -206,207 +199,80 @@ describe("PATCH /api/tasks/[id]", () => {
     expect(res.status).toBe(401);
   });
 
+  it("responde 401 si Django no tiene sesión disponible al buscar la tarea", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(null);
+    const res = await taskPATCH(jsonRequest({ title: "x" }), ctx());
+    expect(res.status).toBe(401);
+  });
+
   it("responde 404 si la tarea no existe", async () => {
     mockSession({});
-    taskFindUnique.mockResolvedValue(null);
-    const res = await taskPATCH(jsonRequest({}), ctx());
+    djangoApiFetch.mockResolvedValueOnce(djangoResponse(false, {}, 404));
+    const res = await taskPATCH(jsonRequest({ title: "x" }), ctx());
     expect(res.status).toBe(404);
   });
 
-  it("responde 403 si no es el responsable, el creador, ni está dentro de la jerarquía visible", async () => {
-    mockSession({ role: "ASISTENTE_GH", userId: "u1" });
-    taskFindUnique.mockResolvedValue({
-      id: "task-1",
-      assignedToId: "otro",
-      createdById: "otro-creador",
-      archivedMonth: null,
-      assignedTo: { role: "COORDINADOR_ZS" },
-    });
-    const res = await taskPATCH(jsonRequest({ title: "x" }), ctx());
-    expect(res.status).toBe(403);
-  });
-
   it("responde 403 si la tarea está archivada", async () => {
-    mockSession({ userId: "u1" });
-    taskFindUnique.mockResolvedValue({
-      id: "task-1",
-      assignedToId: "u1",
-      createdById: "u1",
-      archivedMonth: "2026-01",
-      assignedTo: { role: "ASISTENTE_GH" },
-    });
+    mockSession({});
+    djangoApiFetch.mockResolvedValueOnce(djangoResponse(true, djangoTask({ archived_month: "2026-01" })));
     const res = await taskPATCH(jsonRequest({ title: "x" }), ctx());
     expect(res.status).toBe(403);
   });
 
-  it("un creador que no es el responsable puede editar campos generales pero no horas/color/estado", async () => {
-    mockSession({ role: "JEFE_NACIONAL", userId: "creador-1" });
-    taskFindUnique.mockResolvedValue({
-      id: "task-1",
-      assignedToId: "otro-usuario",
-      createdById: "creador-1",
-      archivedMonth: null,
-      assignedTo: { role: "ASISTENTE_GH" },
-    });
+  it("responde 403 si Django rechaza la edición por permisos", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValueOnce(djangoResponse(true, djangoTask()));
+    djangoApiFetch.mockResolvedValueOnce(djangoResponse(false, {}, 403));
 
-    const resStatus = await taskPATCH(jsonRequest({ status: "COMPLETADA" }), ctx());
-    expect(resStatus.status).toBe(403);
-
-    const resHours = await taskPATCH(jsonRequest({ realHours: 5 }), ctx());
-    expect(resHours.status).toBe(403);
-
-    const resColor = await taskPATCH(jsonRequest({ color: "#fff" }), ctx());
-    expect(resColor.status).toBe(403);
+    const res = await taskPATCH(jsonRequest({ status: "COMPLETADA" }), ctx());
+    expect(res.status).toBe(403);
   });
 
-  it("el responsable puede actualizar horas reales, color y estado, con progreso/completedAt derivados", async () => {
-    mockSession({ userId: "u1" });
-    taskFindUnique.mockResolvedValue({
-      id: "task-1",
-      assignedToId: "u1",
-      createdById: "otro",
-      archivedMonth: null,
-      assignedTo: { role: "ASISTENTE_GH" },
-    });
-    taskUpdate.mockResolvedValue({ id: "task-1", status: "COMPLETADA" });
+  it("responde 400 si Django rechaza la edición por otro motivo", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValueOnce(djangoResponse(true, djangoTask()));
+    djangoApiFetch.mockResolvedValueOnce(djangoResponse(false, {}, 400));
 
-    await taskPATCH(jsonRequest({ status: "COMPLETADA", realHours: 5.128 }), ctx());
-    expect(taskUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({ status: "COMPLETADA", progress: 100, completedAt: expect.any(Date), realHours: 5.13 }),
-      })
+    const res = await taskPATCH(jsonRequest({ realHours: 5 }), ctx());
+    expect(res.status).toBe(400);
+  });
+
+  it("solo reenvía a Django los campos presentes en el body, mapeados a snake_case", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValueOnce(djangoResponse(true, djangoTask()));
+    djangoApiFetch.mockResolvedValueOnce(djangoResponse(true, djangoTask({ id: 1 })));
+
+    await taskPATCH(jsonRequest({ status: "COMPLETADA", realHours: 5.128 }), ctx("1"));
+
+    expect(djangoApiFetch).toHaveBeenLastCalledWith(
+      "/tasks/1/",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ status: "COMPLETADA", real_hours: 5.128 }) })
     );
   });
 
-  it("volver a PENDIENTE reinicia el progreso a 0 y limpia completedAt", async () => {
-    mockSession({ userId: "u1" });
-    taskFindUnique.mockResolvedValue({
-      id: "task-1",
-      assignedToId: "u1",
-      createdById: "u1",
-      archivedMonth: null,
-      assignedTo: { role: "ASISTENTE_GH" },
-    });
-    taskUpdate.mockResolvedValue({});
+  it("mapea assignedToId a assigned_to numérico", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValueOnce(djangoResponse(true, djangoTask()));
+    djangoApiFetch.mockResolvedValueOnce(djangoResponse(true, djangoTask()));
 
-    await taskPATCH(jsonRequest({ status: "PENDIENTE" }), ctx());
-    expect(taskUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ progress: 0, completedAt: null }) })
+    await taskPATCH(jsonRequest({ assignedToId: "8" }), ctx("1"));
+
+    expect(djangoApiFetch).toHaveBeenLastCalledWith(
+      "/tasks/1/",
+      expect.objectContaining({ body: JSON.stringify({ assigned_to: 8 }) })
     );
   });
 
-  it("un rol dentro de la jerarquía visible (aunque no sea responsable ni creador) puede editar campos generales", async () => {
-    mockSession({ role: "COORDINADOR_ZS", userId: "coordinador-1" });
-    taskFindUnique.mockResolvedValue({
-      id: "task-1",
-      assignedToId: "subordinado-1",
-      createdById: "subordinado-1",
-      archivedMonth: null,
-      assignedTo: { role: "ASISTENTE_GH_ZS" },
-    });
-    taskUpdate.mockResolvedValue({});
-    const res = await taskPATCH(jsonRequest({ title: "Editado por coordinador" }), ctx());
+  it("responde 200 con la tarea editada mapeada a la forma Nexo", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValueOnce(djangoResponse(true, djangoTask()));
+    djangoApiFetch.mockResolvedValueOnce(djangoResponse(true, djangoTask({ status: "COMPLETADA" })));
+
+    const res = await taskPATCH(jsonRequest({ status: "COMPLETADA" }), ctx());
     expect(res.status).toBe(200);
-  });
-});
-
-describe("PATCH /api/tasks/[id] — validación de Fecha Fin (mejora)", () => {
-  beforeEach(resetAll);
-
-  function baseTask(overrides: Partial<{ endDate: Date; endDateApprovalStatus: string }> = {}) {
-    return {
-      id: "task-1",
-      assignedToId: "u1",
-      createdById: "u1",
-      archivedMonth: null,
-      assignedTo: { role: "ASISTENTE_GH" },
-      endDate: new Date(Date.UTC(2026, 7, 15)),
-      endDateApprovalStatus: "PENDIENTE",
-      ...overrides,
-    };
-  }
-
-  it("editar endDate cuando el estado ya es PENDIENTE actualiza normal, sin transacción ni audit log", async () => {
-    mockSession({ userId: "u1" });
-    taskFindUnique.mockResolvedValue(baseTask());
-    taskUpdate.mockResolvedValue({});
-
-    await taskPATCH(jsonRequest({ endDate: "2026-08-20" }), ctx());
-
-    expect($transaction).not.toHaveBeenCalled();
-    expect(endDateAuditLogCreate).not.toHaveBeenCalled();
-    expect(taskUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ endDate: new Date("2026-08-20") }) })
-    );
-  });
-
-  it("editar endDate a un valor DISTINTO cuando el estado ya era APROBADA reinicia a PENDIENTE y audita PROPUESTA", async () => {
-    mockSession({ userId: "u1" });
-    taskFindUnique.mockResolvedValue(baseTask({ endDateApprovalStatus: "APROBADA" }));
-    taskUpdate.mockResolvedValue({});
-
-    await taskPATCH(jsonRequest({ endDate: "2026-08-20" }), ctx());
-
-    expect($transaction).toHaveBeenCalledTimes(1);
-    expect(taskUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          endDate: new Date("2026-08-20"),
-          endDateApprovalStatus: "PENDIENTE",
-          endDateApprovedAt: null,
-          endDateApprovedById: null,
-        }),
-      })
-    );
-    expect(endDateAuditLogCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          taskId: "task-1",
-          userId: "u1",
-          action: "PROPUESTA",
-          previousValue: new Date(Date.UTC(2026, 7, 15)),
-          newValue: new Date("2026-08-20"),
-        }),
-      })
-    );
-  });
-
-  it("reeditar tras RECHAZADA también reinicia a PENDIENTE (mismo criterio que APROBADA/MODIFICADA)", async () => {
-    mockSession({ userId: "u1" });
-    taskFindUnique.mockResolvedValue(baseTask({ endDateApprovalStatus: "RECHAZADA" }));
-    taskUpdate.mockResolvedValue({});
-
-    await taskPATCH(jsonRequest({ endDate: "2026-08-21" }), ctx());
-
-    expect($transaction).toHaveBeenCalledTimes(1);
-    expect(taskUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ endDateApprovalStatus: "PENDIENTE" }) })
-    );
-  });
-
-  it("re-enviar la MISMA fecha (sin cambio real) no reinicia el estado, aunque ya estuviera decidido", async () => {
-    mockSession({ userId: "u1" });
-    const sameDate = new Date(Date.UTC(2026, 7, 15));
-    taskFindUnique.mockResolvedValue(baseTask({ endDate: sameDate, endDateApprovalStatus: "APROBADA" }));
-    taskUpdate.mockResolvedValue({});
-
-    await taskPATCH(jsonRequest({ endDate: sameDate.toISOString() }), ctx());
-
-    expect($transaction).not.toHaveBeenCalled();
-    expect(endDateAuditLogCreate).not.toHaveBeenCalled();
-  });
-
-  it("un PATCH que no toca endDate nunca reinicia el estado de aprobación, aunque ya estuviera decidido", async () => {
-    mockSession({ userId: "u1" });
-    taskFindUnique.mockResolvedValue(baseTask({ endDateApprovalStatus: "MODIFICADA" }));
-    taskUpdate.mockResolvedValue({});
-
-    await taskPATCH(jsonRequest({ title: "Solo cambio el título" }), ctx());
-
-    expect($transaction).not.toHaveBeenCalled();
-    expect(taskUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.not.objectContaining({ endDateApprovalStatus: expect.anything() }) })
-    );
+    const body = await res.json();
+    expect(body.status).toBe("COMPLETADA");
   });
 });
 
@@ -421,39 +287,43 @@ describe("DELETE /api/tasks/[id]", () => {
 
   it("responde 404 si la tarea no existe", async () => {
     mockSession({});
-    taskFindUnique.mockResolvedValue(null);
+    djangoApiFetch.mockResolvedValueOnce(djangoResponse(false, {}, 404));
     const res = await taskDELETE(jsonRequest(undefined), ctx());
     expect(res.status).toBe(404);
   });
 
   it("responde 403 si la tarea está archivada", async () => {
     mockSession({});
-    taskFindUnique.mockResolvedValue({ id: "task-1", archivedMonth: "2026-01", createdById: "otro" });
+    djangoApiFetch.mockResolvedValueOnce(djangoResponse(true, djangoTask({ archived_month: "2026-01" })));
     const res = await taskDELETE(jsonRequest(undefined), ctx());
     expect(res.status).toBe(403);
   });
 
-  it("responde 403 si no es el creador ni un rol administrativo", async () => {
-    mockSession({ role: "ASISTENTE_GH", userId: "u1" });
-    taskFindUnique.mockResolvedValue({ id: "task-1", archivedMonth: null, createdById: "otro" });
+  it("responde 403 si Django rechaza el borrado por permisos", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValueOnce(djangoResponse(true, djangoTask()));
+    djangoApiFetch.mockResolvedValueOnce(djangoResponse(false, {}, 403));
+
     const res = await taskDELETE(jsonRequest(undefined), ctx());
     expect(res.status).toBe(403);
-    expect(taskDelete).not.toHaveBeenCalled();
   });
 
-  it("el creador puede eliminar su propia tarea", async () => {
-    mockSession({ role: "ASISTENTE_GH", userId: "u1" });
-    taskFindUnique.mockResolvedValue({ id: "task-1", archivedMonth: null, createdById: "u1" });
-    taskDelete.mockResolvedValue({});
+  it("responde 500 si Django falla el borrado por otro motivo", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValueOnce(djangoResponse(true, djangoTask()));
+    djangoApiFetch.mockResolvedValueOnce(djangoResponse(false, {}, 500));
+
     const res = await taskDELETE(jsonRequest(undefined), ctx());
-    expect(res.status).toBe(200);
+    expect(res.status).toBe(500);
   });
 
-  it("un rol administrativo (JEFE_NACIONAL) puede eliminar tareas de otros", async () => {
-    mockSession({ role: "JEFE_NACIONAL", userId: "jefe-1" });
-    taskFindUnique.mockResolvedValue({ id: "task-1", archivedMonth: null, createdById: "otro" });
-    taskDelete.mockResolvedValue({});
+  it("responde 200 cuando Django confirma el borrado", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValueOnce(djangoResponse(true, djangoTask()));
+    djangoApiFetch.mockResolvedValueOnce(djangoResponse(true, {}));
+
     const res = await taskDELETE(jsonRequest(undefined), ctx());
     expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
   });
 });

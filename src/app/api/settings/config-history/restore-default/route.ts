@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { setConfigValue } from "@/lib/systemConfig";
+import { djangoApiFetch, extractDjangoFlatErrorMessage } from "@/lib/djangoSession";
 
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
+
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-24): réplica de
+// `ConfigHistoryRestoreDefaultView` (backend, Fase 33, completo).
 export async function POST(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
@@ -21,9 +26,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "defaults es requerido" }, { status: 400 });
   }
 
-  await Promise.all(
-    Object.entries(defaults).map(([key, value]) => setConfigValue(key, value, session.userId))
-  );
+  const response = await djangoApiFetch("/settings/config-history/restore-default/", {
+    method: "POST",
+    body: JSON.stringify({ defaults }),
+  });
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (!response.ok) {
+    const message = await extractDjangoFlatErrorMessage(response);
+    return NextResponse.json({ error: message ?? "Datos inválidos" }, { status: 400 });
+  }
 
   return NextResponse.json({ ok: true });
 }

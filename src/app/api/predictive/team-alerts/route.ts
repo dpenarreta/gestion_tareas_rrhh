@@ -1,50 +1,30 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { canViewTeam, getSubordinateRoles, ROLE_LEVEL } from "@/lib/roles";
-import { cached } from "@/lib/analytics";
-import { computeTeamPreventiveAlerts } from "@/lib/preventiveIntelligence";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import { mapDjangoPredictivePayloadToNexoShape } from "@/lib/djangoPredictiveAdapter";
 
-const TEAM_SCAN_TTL_MINUTES = 5;
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-24): réplica de
+// `TeamPreventiveAlertsView` (backend, Fase 9b) — subordinados + proyectos
+// activos visibles ya resueltos del lado Django (`get_team_members`/
+// `get_visible_team_project_ids`).
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-  if (!canViewTeam(session.role)) return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
 
-  const subordinateRoles = getSubordinateRoles(session.role);
-  const members = await prisma.user.findMany({ where: { role: { in: subordinateRoles } }, select: { id: true } });
-  const userIds = members.map((m) => m.id);
+  const response = await djangoApiFetch("/predictive/team-alerts/");
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 403) {
+    return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
+  }
+  if (!response.ok) {
+    return NextResponse.json({ error: "Error al obtener las alertas del equipo" }, { status: response.status });
+  }
 
-  // Nivel >= 3 (mismo umbral que canViewProject) ve todos los proyectos
-  // activos; el resto solo los propios (responsable/creador/participante,
-  // propio o de un subordinado directo) — mismo criterio que projectAccess.ts,
-  // extendido aquí a una lista en vez de un proyecto puntual.
-  const isLeadershipWide = ROLE_LEVEL[session.role] >= 3;
-  const projects = await prisma.project.findMany({
-    where: {
-      deletedAt: null,
-      status: { notIn: ["COMPLETADO", "CANCELADO"] },
-      ...(isLeadershipWide
-        ? {}
-        : {
-            OR: [
-              { responsibleId: session.userId },
-              { createdById: session.userId },
-              { participants: { some: { userId: { in: [session.userId, ...userIds] } } } },
-            ],
-          }),
-    },
-    select: { id: true },
-  });
-
-  const now = new Date();
-  const { value, fromCache } = await cached(`team-preventive-alerts:${session.userId}`, TEAM_SCAN_TTL_MINUTES, () =>
-    computeTeamPreventiveAlerts(
-      userIds,
-      projects.map((p) => p.id),
-      now
-    )
-  );
-  return NextResponse.json({ alerts: value, fromCache });
+  const payload = mapDjangoPredictivePayloadToNexoShape(await response.json());
+  return NextResponse.json(payload);
 }

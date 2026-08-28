@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Menu, Search, LogOut } from "lucide-react";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import { getPageTitle } from "@/lib/navLinks";
 import ThemeToggle from "@/components/ThemeToggle";
 import NotificationBell from "@/components/NotificationBell";
@@ -11,6 +11,7 @@ import NotificationBell from "@/components/NotificationBell";
 type Props = {
   role: Role;
   userId: string;
+  djangoUserId: string;
   userName: string;
   roleLabel: string;
   onOpenMobileMenu: () => void;
@@ -21,6 +22,7 @@ type Props = {
 export default function Topbar({
   role,
   userId,
+  djangoUserId,
   userName,
   roleLabel,
   onOpenMobileMenu,
@@ -63,7 +65,11 @@ export default function Topbar({
         </button>
 
         <ThemeToggle userId={userId} />
-        <NotificationBell currentUserId={userId} />
+        {/* Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-21):
+            `taskAssignedToId` que compara `NotificationBell` ya es el id
+            numérico de Django (Tareas cutover) — necesita `djangoUserId`,
+            no el `cuid` de Postgres que sigue usando `ThemeToggle`. */}
+        <NotificationBell currentUserId={djangoUserId} />
 
         <Link
           href="/profile"

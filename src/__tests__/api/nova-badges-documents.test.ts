@@ -1,34 +1,29 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import type { SessionPayload } from "@/lib/session";
 
-const taskFindMany = vi.fn();
-const taskCount = vi.fn();
 const userFindUnique = vi.fn();
 const userUpdate = vi.fn();
 const commentCount = vi.fn();
 const commentFindMany = vi.fn();
 const taskActivityFindMany = vi.fn();
-const knowledgeDocumentFindUnique = vi.fn();
-const knowledgeDocumentDelete = vi.fn();
-const systemConfigHistoryFindFirst = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    task: { findMany: taskFindMany, count: taskCount },
     user: { findUnique: userFindUnique, update: userUpdate },
     comment: { count: commentCount, findMany: commentFindMany },
     taskActivity: { findMany: taskActivityFindMany },
-    knowledgeDocument: { findUnique: knowledgeDocumentFindUnique, delete: knowledgeDocumentDelete },
-    // getEffectiveNovaCacheTtlMinutes (Sprint O) consulta esto — sin registro
-    // guardado, cae al default (DEFAULT_NOVA_CACHE_TTL_MINUTES = 240).
-    systemConfigHistory: { findFirst: systemConfigHistoryFindFirst },
   },
 }));
 
 vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
 
-const computeCargaTiempo = vi.fn();
-vi.mock("@/lib/workload", () => ({ computeCargaTiempo: (...a: unknown[]) => computeCargaTiempo(...a) }));
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-24): `nova-message`
+// pasó de Prisma (`task.findMany`/`computeCargaTiempo`) a Django
+// (`fetchOwnDjangoTasks` + `GET /kpis/me/`).
+const fetchOwnDjangoTasks = vi.fn();
+vi.mock("@/lib/djangoTasksAdapter", () => ({
+  fetchOwnDjangoTasks: (...a: unknown[]) => fetchOwnDjangoTasks(...a),
+}));
 
 const groqCreate = vi.fn();
 class MockGroq {
@@ -38,6 +33,18 @@ vi.mock("groq-sdk", () => ({ default: MockGroq }));
 
 const deleteFromGithub = vi.fn();
 vi.mock("@/lib/githubDocuments", () => ({ deleteFromGithub: (...a: unknown[]) => deleteFromGithub(...a) }));
+
+// GET /api/profile/badges pasó de Prisma a Django en el cutover de stack
+// (ver docs/AUDIT_LOG.md § 2026-08-21): Tareas/Comentarios/Actividades (los
+// insumos del cálculo) ya se escriben exclusivamente en Django.
+const djangoApiFetch = vi.fn();
+vi.mock("@/lib/djangoSession", () => ({
+  djangoApiFetch: (...args: unknown[]) => djangoApiFetch(...args),
+}));
+
+function djangoResponse(ok: boolean, data: unknown, status = ok ? 200 : 400) {
+  return { ok, status, json: async () => data } as Response;
+}
 
 const { getSession } = await import("@/lib/session");
 const { POST: novaMessagePOST } = await import("@/app/api/dashboard/nova-message/route");
@@ -59,23 +66,19 @@ function ctx(id = "doc-1") {
   return { params: Promise.resolve({ id }) };
 }
 
-const NEUTRAL_CARGA = { diaria: { pct: 80, realHours: 5, baseHours: 6.5, isWeekend: false } };
+const NEUTRAL_KPI_PAYLOAD = { carga_tiempo: { diaria: { pct: 80, real_hours: 5, base_hours: 6.5, is_weekend: false } } };
 
 function resetAll() {
-  taskFindMany.mockReset().mockResolvedValue([]);
-  taskCount.mockReset();
+  fetchOwnDjangoTasks.mockReset().mockResolvedValue([]);
   userFindUnique.mockReset();
   userUpdate.mockReset().mockResolvedValue({});
   commentCount.mockReset().mockResolvedValue(0);
   commentFindMany.mockReset().mockResolvedValue([]);
   taskActivityFindMany.mockReset().mockResolvedValue([]);
-  knowledgeDocumentFindUnique.mockReset();
-  knowledgeDocumentDelete.mockReset().mockResolvedValue({});
   deleteFromGithub.mockReset().mockResolvedValue(undefined);
-  computeCargaTiempo.mockReset().mockResolvedValue(NEUTRAL_CARGA);
   groqCreate.mockReset();
-  systemConfigHistoryFindFirst.mockReset().mockResolvedValue(null);
   vi.mocked(getSession).mockReset();
+  djangoApiFetch.mockReset().mockResolvedValue(djangoResponse(true, NEUTRAL_KPI_PAYLOAD));
   delete process.env.GROQ_API_KEY;
 }
 
@@ -95,7 +98,7 @@ describe("POST /api/dashboard/nova-message", () => {
 
   it("prioriza el mensaje de tareas vencidas cuando existen", async () => {
     mockSession("nova-overdue");
-    taskFindMany.mockResolvedValue([{ status: "PENDIENTE", endDate: new Date("2026-07-01") }]);
+    fetchOwnDjangoTasks.mockResolvedValue([{ status: "PENDIENTE", end_date: new Date(2026, 6, 1).toISOString() }]);
     const res = await novaMessagePOST();
     const body = await res.json();
     expect(body.message).toMatch(/vencida/);
@@ -104,7 +107,7 @@ describe("POST /api/dashboard/nova-message", () => {
 
   it("si no hay vencidas, prioriza tareas por vencer esta semana", async () => {
     mockSession("nova-porvencer");
-    taskFindMany.mockResolvedValue([{ status: "PENDIENTE", endDate: new Date(2026, 7, 14) }]);
+    fetchOwnDjangoTasks.mockResolvedValue([{ status: "PENDIENTE", end_date: new Date(2026, 7, 14).toISOString() }]);
     const res = await novaMessagePOST();
     const body = await res.json();
     expect(body.message).toMatch(/próxima.*vencer|próximas.*vencer/);
@@ -112,7 +115,9 @@ describe("POST /api/dashboard/nova-message", () => {
 
   it("sin vencidas/por vencer y con carga extrema entre semana, comenta la carga laboral", async () => {
     mockSession("nova-carga", { role: "ANALISTA_CC" });
-    computeCargaTiempo.mockResolvedValue({ diaria: { pct: 150, realHours: 9, baseHours: 6, isWeekend: false } });
+    djangoApiFetch.mockResolvedValue(
+      djangoResponse(true, { carga_tiempo: { diaria: { pct: 150, real_hours: 9, base_hours: 6, is_weekend: false } } })
+    );
     const res = await novaMessagePOST();
     const body = await res.json();
     expect(body.message).toMatch(/carga laboral/);
@@ -120,7 +125,9 @@ describe("POST /api/dashboard/nova-message", () => {
 
   it("roles de dirección (Administrador/Jefe Nacional) nunca reciben comentario de carga laboral individual", async () => {
     mockSession("nova-carga-liderazgo", { role: "ADMINISTRADOR" });
-    computeCargaTiempo.mockResolvedValue({ diaria: { pct: 150, realHours: 9, baseHours: 6, isWeekend: false } });
+    djangoApiFetch.mockResolvedValue(
+      djangoResponse(true, { carga_tiempo: { diaria: { pct: 150, real_hours: 9, base_hours: 6, is_weekend: false } } })
+    );
     const res = await novaMessagePOST();
     const body = await res.json();
     expect(body.message).not.toMatch(/carga laboral/);
@@ -129,7 +136,7 @@ describe("POST /api/dashboard/nova-message", () => {
 
   it("sin nada urgente, felicita por las tareas completadas del mes", async () => {
     mockSession("nova-completadas");
-    taskFindMany.mockResolvedValue([{ status: "COMPLETADA", endDate: new Date(2026, 7, 5) }]);
+    fetchOwnDjangoTasks.mockResolvedValue([{ status: "COMPLETADA", end_date: new Date(2026, 7, 5).toISOString() }]);
     const res = await novaMessagePOST();
     const body = await res.json();
     expect(body.message).toMatch(/Buen ritmo/);
@@ -144,18 +151,18 @@ describe("POST /api/dashboard/nova-message", () => {
 
   it("responde el mensaje cacheado en llamadas repetidas dentro del TTL, sin recalcular", async () => {
     mockSession("nova-cache");
-    taskFindMany.mockResolvedValue([{ status: "PENDIENTE", endDate: new Date("2026-07-01") }]);
+    fetchOwnDjangoTasks.mockResolvedValue([{ status: "PENDIENTE", end_date: new Date(2026, 6, 1).toISOString() }]);
 
     const first = await novaMessagePOST();
     const firstBody = await first.json();
     expect(firstBody.cached).toBe(false);
-    taskFindMany.mockClear();
+    fetchOwnDjangoTasks.mockClear();
 
     const second = await novaMessagePOST();
     const secondBody = await second.json();
     expect(secondBody.cached).toBe(true);
     expect(secondBody.message).toBe(firstBody.message);
-    expect(taskFindMany).not.toHaveBeenCalled();
+    expect(fetchOwnDjangoTasks).not.toHaveBeenCalled();
   });
 
   it("con GROQ_API_KEY configurada, usa el mensaje generado por la IA", async () => {
@@ -176,80 +183,76 @@ describe("POST /api/dashboard/nova-message", () => {
     const body = await res.json();
     expect(body.message).toMatch(/Bienvenido a Nexo/);
   });
+
+  // Cutover de stack: ruta puramente cosmética (saludo del Dashboard) — si
+  // la sesión de Next.js todavía no tiene acceso a Django, se degrada al
+  // saludo genérico en vez de fallar (criterio distinto al 401 usado en el
+  // resto de la migración, ver docs/AUDIT_LOG.md § 2026-08-24).
+  it("si Django no tiene tareas disponibles para esta sesión, degrada al saludo genérico (200, no error)", async () => {
+    mockSession("nova-no-django");
+    fetchOwnDjangoTasks.mockResolvedValue(null);
+    const res = await novaMessagePOST();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.message).toMatch(/Bienvenido a Nexo/);
+  });
+
+  it("si Django no tiene la carga de tiempo disponible para esta sesión, degrada al saludo genérico (200, no error)", async () => {
+    mockSession("nova-no-kpi");
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "no disponible" }, 401));
+    const res = await novaMessagePOST();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.message).toMatch(/Bienvenido a Nexo/);
+  });
 });
 
 describe("GET /api/profile/badges", () => {
-  beforeEach(() => {
-    resetAll();
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(2026, 7, 15, 12, 0, 0));
-  });
-  afterEach(() => vi.useRealTimers());
+  beforeEach(resetAll);
 
   it("responde 401 si no hay sesión", async () => {
     vi.mocked(getSession).mockResolvedValue(null);
     const res = await badgesGET();
     expect(res.status).toBe(401);
+    expect(djangoApiFetch).not.toHaveBeenCalled();
   });
 
-  it("otorga 'Cumplidor' y 'Confiable' con 100% de cumplimiento del mes", async () => {
+  it("responde 401 si Django no tiene sesión disponible", async () => {
     mockSession("u1");
-    userFindUnique.mockResolvedValue({ badges: [], createdAt: new Date("2025-01-01") });
-    taskFindMany.mockResolvedValue([
-      { status: "COMPLETADA", endDate: new Date(2026, 7, 5) },
-      { status: "COMPLETADA", endDate: new Date(2026, 7, 10) },
-    ]);
-    taskCount.mockResolvedValue(2);
-
+    djangoApiFetch.mockResolvedValue(null);
     const res = await badgesGET();
-    const body = await res.json();
-    const byId = Object.fromEntries(body.badges.map((b: { id: string; earned: boolean }) => [b.id, b.earned]));
-    expect(byId.cumplidor).toBe(true);
-    expect(byId.confiable).toBe(true);
-    expect(byId.innovador).toBe(false);
+    expect(res.status).toBe(401);
   });
 
-  it("otorga 'Colaborador' con 20+ comentarios totales", async () => {
+  it("devuelve el payload de Django tal cual (ya en camelCase)", async () => {
     mockSession("u1");
-    userFindUnique.mockResolvedValue({ badges: [], createdAt: new Date() });
-    commentCount.mockResolvedValue(25);
-
+    const payload = {
+      badges: [{ id: "cumplidor", icon: "🎯", name: "Cumplidor", description: "...", earned: true }],
+      stats: { totalCompleted: 5, totalComments: 2, currentStreak: 3, earnedCount: 1 },
+    };
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, payload));
     const res = await badgesGET();
-    const body = await res.json();
-    const byId = Object.fromEntries(body.badges.map((b: { id: string; earned: boolean }) => [b.id, b.earned]));
-    expect(byId.colaborador).toBe(true);
-  });
-
-  it("'Innovador' refleja la insignia ya persistida, no se recalcula", async () => {
-    mockSession("u1");
-    userFindUnique.mockResolvedValue({ badges: ["innovador"], createdAt: new Date() });
-
-    const res = await badgesGET();
-    const body = await res.json();
-    const byId = Object.fromEntries(body.badges.map((b: { id: string; earned: boolean }) => [b.id, b.earned]));
-    expect(byId.innovador).toBe(true);
-  });
-
-  it("no actualiza la base de datos si las insignias ganadas ya estaban registradas", async () => {
-    mockSession("u1");
-    userFindUnique.mockResolvedValue({ badges: ["innovador"], createdAt: new Date() });
-    // Sin tareas/comentarios/actividades: solo se mantiene 'innovador' (ya persistida).
-    await badgesGET();
-    expect(userUpdate).not.toHaveBeenCalled();
-  });
-
-  it("actualiza la base de datos cuando se gana una insignia nueva", async () => {
-    mockSession("u1");
-    userFindUnique.mockResolvedValue({ badges: [], createdAt: new Date() });
-    commentCount.mockResolvedValue(25); // gana 'colaborador'
-
-    await badgesGET();
-    expect(userUpdate).toHaveBeenCalledWith({ where: { id: "u1" }, data: { badges: ["colaborador"] } });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual(payload);
+    expect(djangoApiFetch).toHaveBeenCalledWith("/profile/badges/");
   });
 });
 
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-25, Fase 58): esta ruta
+// pasó de Prisma a Django (`apps.assistant`) — mockeado con `djangoApiFetch`,
+// enrutado por método ya que el mismo detalle (`GET`) y el borrado
+// (`DELETE`) comparten la misma URL `/assistant/documents/<id>/`.
 describe("DELETE /api/assistant/documents/[id]", () => {
   beforeEach(resetAll);
+
+  function mockDoc(doc: { github_path: string | null; github_sha: string | null } | null) {
+    djangoApiFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url !== "/assistant/documents/doc-1/") throw new Error(`ruta Django no mockeada: ${url}`);
+      if (init?.method === "DELETE") return djangoResponse(true, { ok: true });
+      if (!doc) return djangoResponse(false, { error: "no encontrado" }, 404);
+      return djangoResponse(true, { id: 1, title: "Manual", ...doc });
+    });
+  }
 
   it("responde 401 si no hay sesión", async () => {
     vi.mocked(getSession).mockResolvedValue(null);
@@ -265,33 +268,33 @@ describe("DELETE /api/assistant/documents/[id]", () => {
 
   it("responde 404 si el documento no existe", async () => {
     mockSession("u1", { role: "ADMINISTRADOR" });
-    knowledgeDocumentFindUnique.mockResolvedValue(null);
+    mockDoc(null);
     const res = await documentDELETE(undefined as never, ctx());
     expect(res.status).toBe(404);
   });
 
   it("elimina también el archivo de GitHub cuando hay path/sha registrados", async () => {
     mockSession("u1", { role: "ADMINISTRADOR" });
-    knowledgeDocumentFindUnique.mockResolvedValue({ id: "doc-1", githubPath: "docs/doc-1.pdf", githubSha: "sha123" });
+    mockDoc({ github_path: "docs/doc-1.pdf", github_sha: "sha123" });
     const res = await documentDELETE(undefined as never, ctx());
     expect(res.status).toBe(200);
     expect(deleteFromGithub).toHaveBeenCalledWith("docs/doc-1.pdf", "sha123");
-    expect(knowledgeDocumentDelete).toHaveBeenCalledWith({ where: { id: "doc-1" } });
+    expect(djangoApiFetch).toHaveBeenCalledWith("/assistant/documents/doc-1/", { method: "DELETE" });
   });
 
   it("no falla si eliminar de GitHub rechaza (se captura y continúa)", async () => {
     mockSession("u1", { role: "ADMINISTRADOR" });
-    knowledgeDocumentFindUnique.mockResolvedValue({ id: "doc-1", githubPath: "docs/doc-1.pdf", githubSha: "sha123" });
+    mockDoc({ github_path: "docs/doc-1.pdf", github_sha: "sha123" });
     deleteFromGithub.mockRejectedValue(new Error("GitHub no disponible"));
     vi.spyOn(console, "error").mockImplementation(() => {});
     const res = await documentDELETE(undefined as never, ctx());
     expect(res.status).toBe(200);
-    expect(knowledgeDocumentDelete).toHaveBeenCalled();
+    expect(djangoApiFetch).toHaveBeenCalledWith("/assistant/documents/doc-1/", { method: "DELETE" });
   });
 
   it("no intenta eliminar de GitHub si el documento no tiene path/sha (falló antes de subir)", async () => {
     mockSession("u1", { role: "ADMINISTRADOR" });
-    knowledgeDocumentFindUnique.mockResolvedValue({ id: "doc-1", githubPath: null, githubSha: null });
+    mockDoc({ github_path: null, github_sha: null });
     await documentDELETE(undefined as never, ctx());
     expect(deleteFromGithub).not.toHaveBeenCalled();
   });

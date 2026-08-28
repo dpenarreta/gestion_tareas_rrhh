@@ -1,54 +1,30 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { SessionPayload } from "@/lib/session";
 
-const taskActivityFindMany = vi.fn();
-const taskActivityFindUnique = vi.fn();
-const taskActivityCreate = vi.fn();
-const taskActivityDelete = vi.fn();
-const taskActivityCount = vi.fn();
-const taskFindUnique = vi.fn();
-const taskUpdate = vi.fn();
-const commentFindMany = vi.fn();
-const commentCreate = vi.fn();
-const commentCount = vi.fn();
-const taskCommentViewUpsert = vi.fn();
-const notificationCreateMany = vi.fn();
-const userFindMany = vi.fn();
-const activityReasonFindUnique = vi.fn();
-const activityReasonUpsert = vi.fn();
-const systemConfigHistoryFindFirst = vi.fn();
+// Fases 3a/3b/3f de la migración de stack (ver docs/AUDIT_LOG.md §
+// 2026-08-07): GET/POST /api/tasks/[id]/activities, PATCH/DELETE
+// /api/tasks/[id]/activities/[activityId] y GET/POST
+// /api/tasks/[id]/comments pasaron de Prisma a Django — este archivo
+// mockeaba `@/lib/prisma` hasta esta actualización, probando lógica
+// (migración de historial, límite de registros Fija, solapamiento de
+// horarios, notificaciones jerárquicas) que ya NO vive en `route.ts`, se
+// movió a `backend/apps/tasks/services.py` (ya cubierta ahí). Acá solo se
+// cubre lo que el wrapper de Next.js realmente hace: sesión, mapeo de
+// body/respuesta, forwarding a Django.
+const getSession = vi.fn();
+vi.mock("@/lib/session", () => ({ getSession: (...args: unknown[]) => getSession(...args) }));
 
-// $transaction simulado: invoca el callback con el mismo objeto prisma
-// mockeado a modo de `tx` — no se simula aislamiento real, solo la forma de
-// la API (necesario desde que migrateFijaHistoryIfNeeded usa una
-// transacción interactiva, ver docs/AUDIT_LOG.md § auditoría de registros
-// retroactivos).
-const prismaMock: Record<string, unknown> = {
-  taskActivity: { findMany: taskActivityFindMany, findUnique: taskActivityFindUnique, create: taskActivityCreate, delete: taskActivityDelete, count: taskActivityCount },
-  task: { findUnique: taskFindUnique, update: taskUpdate },
-  comment: { findMany: commentFindMany, create: commentCreate, count: commentCount },
-  taskCommentView: { upsert: taskCommentViewUpsert },
-  notification: { createMany: notificationCreateMany },
-  user: { findMany: userFindMany },
-  activityReason: { findUnique: activityReasonFindUnique, upsert: activityReasonUpsert },
-  systemConfigHistory: { findFirst: systemConfigHistoryFindFirst },
-};
-const transactionMock = vi.fn(async (fn: (tx: unknown) => unknown) => fn(prismaMock));
-prismaMock.$transaction = transactionMock;
-
-vi.mock("@/lib/prisma", () => ({
-  prisma: prismaMock,
+const djangoApiFetch = vi.fn();
+vi.mock("@/lib/djangoSession", () => ({
+  djangoApiFetch: (...args: unknown[]) => djangoApiFetch(...args),
 }));
 
-vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
-
-const { getSession } = await import("@/lib/session");
 const { GET: activitiesGET, POST: activitiesPOST } = await import("@/app/api/tasks/[id]/activities/route");
-const { DELETE: activityDELETE } = await import("@/app/api/tasks/[id]/activities/[activityId]/route");
+const { PATCH: activityPATCH, DELETE: activityDELETE } = await import("@/app/api/tasks/[id]/activities/[activityId]/route");
 const { GET: commentsGET, POST: commentsPOST } = await import("@/app/api/tasks/[id]/comments/route");
 
 function mockSession(overrides: Partial<SessionPayload> | null) {
-  vi.mocked(getSession).mockResolvedValue(
+  getSession.mockResolvedValue(
     overrides === null
       ? null
       : {
@@ -62,11 +38,11 @@ function mockSession(overrides: Partial<SessionPayload> | null) {
   );
 }
 
-function ctx(id = "task-1") {
+function ctx(id = "1") {
   return { params: Promise.resolve({ id }) };
 }
 
-function ctxActivity(id = "task-1", activityId = "activity-1") {
+function ctxActivity(id = "1", activityId = "1") {
   return { params: Promise.resolve({ id, activityId }) };
 }
 
@@ -74,37 +50,40 @@ function jsonRequest(body: unknown) {
   return { json: async () => body } as never;
 }
 
-function badJsonRequest() {
-  return {
-    json: async () => {
-      throw new Error("bad json");
-    },
-  } as never;
+function resetAll() {
+  getSession.mockReset();
+  djangoApiFetch.mockReset();
 }
 
-function resetAll() {
-  taskActivityFindMany.mockReset();
-  taskActivityFindUnique.mockReset();
-  taskActivityCreate.mockReset();
-  taskActivityDelete.mockReset();
-  taskActivityCount.mockReset().mockResolvedValue(0);
-  taskFindUnique.mockReset();
-  taskUpdate.mockReset().mockResolvedValue({});
-  commentFindMany.mockReset();
-  commentCreate.mockReset();
-  taskCommentViewUpsert.mockReset().mockResolvedValue({});
-  notificationCreateMany.mockReset().mockResolvedValue({});
-  userFindMany.mockReset();
-  activityReasonFindUnique.mockReset().mockResolvedValue({
-    key: "REUNION",
-    isActive: true,
-    assignedRoles: ["ASISTENTE_GH", "JEFE_NACIONAL"],
-  });
-  activityReasonUpsert.mockReset().mockResolvedValue({});
-  commentCount.mockReset().mockResolvedValue(1);
-  systemConfigHistoryFindFirst.mockReset().mockResolvedValue(null);
-  transactionMock.mockClear();
-  vi.mocked(getSession).mockReset();
+function djangoResponse(ok: boolean, data: unknown, status = ok ? 200 : 400) {
+  return { ok, status, json: async () => data } as Response;
+}
+
+const DJANGO_USER_REF = { id: 1, username: "ana", first_name: "Ana", email: "ana@nexo.com", roles: [{ id: 1, name: "ASISTENTE_GH" }] };
+
+function djangoActivity(overrides: Partial<Record<string, unknown>> = {}) {
+  return {
+    id: 1,
+    task: 1,
+    author: DJANGO_USER_REF,
+    reason: "REUNION",
+    start_time: null,
+    end_time: null,
+    duration: 90,
+    description: "",
+    is_retroactive: false,
+    activity_date: null,
+    admin_comment: null,
+    modified_by_admin: false,
+    modified_at: null,
+    comment_count: 0,
+    created_at: "2026-08-01T00:00:00Z",
+    ...overrides,
+  };
+}
+
+function djangoComment(overrides: Partial<Record<string, unknown>> = {}) {
+  return { id: 1, text: "hola", author: DJANGO_USER_REF, created_at: "2026-08-01T00:00:00Z", ...overrides };
 }
 
 describe("GET /api/tasks/[id]/activities", () => {
@@ -116,137 +95,28 @@ describe("GET /api/tasks/[id]/activities", () => {
     expect(res.status).toBe(401);
   });
 
-  it("devuelve las actividades ordenadas ascendentemente", async () => {
+  it("responde 401 si Django no tiene sesión disponible", async () => {
     mockSession({});
-    taskFindUnique.mockResolvedValue({ id: "task-1", assignedToId: "u1" });
-    taskActivityFindMany.mockResolvedValue([{ id: "a1" }]);
+    djangoApiFetch.mockResolvedValue(null);
     const res = await activitiesGET(jsonRequest(undefined), ctx());
-    expect(res.status).toBe(200);
-    expect(taskActivityFindMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { taskId: "task-1" }, orderBy: { createdAt: "asc" } })
-    );
+    expect(res.status).toBe(401);
   });
 
-  it("responde lista vacía (sin consultar actividades) si la tarea no existe o no es visible para el solicitante", async () => {
-    mockSession({ userId: "u2", role: "ASISTENTE_GH" });
-    taskFindUnique.mockResolvedValue({
-      id: "task-1",
-      assignedToId: "owner-x",
-      createdById: "owner-y",
-      assignedTo: { role: "ASISTENTE_SELECCION" },
-    });
-    const res = await activitiesGET(jsonRequest(undefined), ctx());
-    expect(res.status).toBe(200);
-    expect(await res.json()).toEqual([]);
-    expect(taskActivityFindMany).not.toHaveBeenCalled();
-  });
-
-  it("ante un error inesperado, responde 200 con lista vacía en vez de propagar el error", async () => {
+  it("responde lista vacía (sin revelar si la tarea existe) si Django rechaza el acceso", async () => {
     mockSession({});
-    taskFindUnique.mockResolvedValue({ id: "task-1", assignedToId: "u1" });
-    taskActivityFindMany.mockRejectedValue(new Error("db down"));
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, {}, 403));
     const res = await activitiesGET(jsonRequest(undefined), ctx());
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual([]);
   });
 
-  it("migra automáticamente el historial de una tarea Fija con horas reales y cero actividades", async () => {
-    mockSession({ userId: "owner-1" });
-    const completedAt = new Date("2026-06-15T10:00:00.000Z");
-    taskFindUnique.mockResolvedValue({
-      id: "task-1",
-      type: "FIJA",
-      realHours: 4.5,
-      assignedToId: "owner-1",
-      completedAt,
-      updatedAt: new Date("2026-06-16T00:00:00.000Z"),
-    });
-    taskActivityCount.mockResolvedValue(0);
-    taskActivityFindMany.mockResolvedValue([{ id: "migrated-1" }]);
-
+  it("devuelve las actividades mapeadas a la forma Nexo", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, [djangoActivity({ id: 7, duration: 45 })]));
     const res = await activitiesGET(jsonRequest(undefined), ctx());
     expect(res.status).toBe(200);
-
-    expect(activityReasonUpsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { key: "migracion_automatica_registro_historico" },
-        create: expect.objectContaining({
-          key: "migracion_automatica_registro_historico",
-          label: "Registro migrado automáticamente",
-          assignedRoles: [],
-        }),
-      })
-    );
-    expect(taskActivityCreate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          taskId: "task-1",
-          authorId: "owner-1",
-          reason: "migracion_automatica_registro_historico",
-          duration: 270, // 4.5h * 60
-          description: "Actividad creada automáticamente durante la estandarización del sistema para conservar el historial.",
-          isRetroactive: true,
-          activityDate: completedAt,
-          createdAt: completedAt,
-        }),
-      })
-    );
-  });
-
-  it("no migra una tarea Fija que ya tiene actividades registradas", async () => {
-    mockSession({ userId: "owner-1" });
-    taskFindUnique.mockResolvedValue({
-      id: "task-1",
-      type: "FIJA",
-      realHours: 4.5,
-      assignedToId: "owner-1",
-      completedAt: null,
-      updatedAt: new Date(),
-    });
-    taskActivityCount.mockResolvedValue(1);
-    taskActivityFindMany.mockResolvedValue([{ id: "a1" }]);
-
-    const res = await activitiesGET(jsonRequest(undefined), ctx());
-    expect(res.status).toBe(200);
-    expect(activityReasonUpsert).not.toHaveBeenCalled();
-    expect(taskActivityCreate).not.toHaveBeenCalled();
-  });
-
-  it("no migra una tarea Seguimiento (la migración es exclusiva de Fija)", async () => {
-    mockSession({ userId: "owner-1" });
-    taskFindUnique.mockResolvedValue({
-      id: "task-1",
-      type: "SEGUIMIENTO",
-      realHours: 4.5,
-      assignedToId: "owner-1",
-      completedAt: null,
-      updatedAt: new Date(),
-    });
-    taskActivityCount.mockResolvedValue(0);
-    taskActivityFindMany.mockResolvedValue([]);
-
-    const res = await activitiesGET(jsonRequest(undefined), ctx());
-    expect(res.status).toBe(200);
-    expect(taskActivityCreate).not.toHaveBeenCalled();
-  });
-
-  it("no migra una tarea Fija con realHours en 0", async () => {
-    mockSession({ userId: "owner-1" });
-    taskFindUnique.mockResolvedValue({
-      id: "task-1",
-      type: "FIJA",
-      realHours: 0,
-      assignedToId: "owner-1",
-      completedAt: null,
-      updatedAt: new Date(),
-    });
-    taskActivityFindMany.mockResolvedValue([]);
-
-    const res = await activitiesGET(jsonRequest(undefined), ctx());
-    expect(res.status).toBe(200);
-    expect(taskActivityCount).not.toHaveBeenCalled();
-    expect(taskActivityCreate).not.toHaveBeenCalled();
+    const body = await res.json();
+    expect(body).toEqual([expect.objectContaining({ id: "7", duration: 45, author: { id: "1", name: "Ana" } })]);
   });
 });
 
@@ -259,160 +129,89 @@ describe("POST /api/tasks/[id]/activities", () => {
     expect(res.status).toBe(401);
   });
 
-  it("responde 400 si el body no es JSON válido", async () => {
-    mockSession({});
-    const res = await activitiesPOST(badJsonRequest(), ctx());
-    expect(res.status).toBe(400);
-  });
-
   it("responde 400 si faltan campos requeridos", async () => {
     mockSession({});
     const res = await activitiesPOST(jsonRequest({ reason: "REUNION" }), ctx());
     expect(res.status).toBe(400);
+    expect(djangoApiFetch).not.toHaveBeenCalled();
   });
 
-  it("responde 400 si las horas están fuera de [0,23]", async () => {
+  it("responde 404 si Django rechaza por permisos (tarea no visible)", async () => {
     mockSession({});
-    const res = await activitiesPOST(jsonRequest({ reason: "REUNION", hours: 24, minutes: 0 }), ctx());
-    expect(res.status).toBe(400);
-  });
-
-  it("responde 400 si los minutos están fuera de [0,59]", async () => {
-    mockSession({});
-    const res = await activitiesPOST(jsonRequest({ reason: "REUNION", hours: 1, minutes: 60 }), ctx());
-    expect(res.status).toBe(400);
-  });
-
-  it("responde 400 si la duración total es 0", async () => {
-    mockSession({});
-    const res = await activitiesPOST(jsonRequest({ reason: "REUNION", hours: 0, minutes: 0 }), ctx());
-    expect(res.status).toBe(400);
-  });
-
-  it("responde 404 si la tarea no existe", async () => {
-    mockSession({});
-    taskFindUnique.mockResolvedValue(null);
-    const res = await activitiesPOST(jsonRequest({ reason: "REUNION", hours: 1, minutes: 30 }), ctx());
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, {}, 403));
+    const res = await activitiesPOST(jsonRequest({ reason: "REUNION", hours: 1, minutes: 0 }), ctx());
     expect(res.status).toBe(404);
   });
 
-  it("responde 404 si la tarea existe pero no es visible para el solicitante", async () => {
-    mockSession({ userId: "u2", role: "ASISTENTE_GH" });
-    taskFindUnique.mockResolvedValue({
-      id: "task-1",
-      assignedToId: "owner-x",
-      createdById: "owner-y",
-      assignedTo: { role: "ASISTENTE_SELECCION" },
-    });
-    const res = await activitiesPOST(jsonRequest({ reason: "REUNION", hours: 1, minutes: 30 }), ctx());
-    expect(res.status).toBe(404);
-    expect(taskActivityCreate).not.toHaveBeenCalled();
-  });
-
-  it("crea la actividad y recalcula realHours de la tarea a partir de la suma de duraciones", async () => {
-    mockSession({ userId: "u1" });
-    taskFindUnique.mockResolvedValue({ id: "task-1", assignedToId: "u1" });
-    taskActivityCreate.mockResolvedValue({ id: "a1", duration: 90 });
-    taskActivityFindMany.mockResolvedValue([{ duration: 90 }, { duration: 30 }]);
-
-    const res = await activitiesPOST(jsonRequest({ reason: "REUNION", hours: 1, minutes: 30 }), ctx());
-    expect(res.status).toBe(201);
-    expect(taskActivityCreate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ duration: 90, authorId: "u1" }) })
-    );
-    // (90+30)/60 = 2 horas
-    expect(taskUpdate).toHaveBeenCalledWith({ where: { id: "task-1" }, data: { realHours: 2 } });
-  });
-
-  it("responde 409 si el horario se solapa con una actividad existente (de cualquier tarea) ese mismo día", async () => {
-    mockSession({ userId: "u1" });
-    taskFindUnique.mockResolvedValue({ id: "task-1", assignedToId: "u1" });
-    taskActivityFindMany.mockResolvedValue([
-      { startTime: "08:40", endTime: "10:30", duration: 110, task: { title: "Otra tarea" } },
-    ]);
-    const res = await activitiesPOST(
-      jsonRequest({ reason: "REUNION", hours: 0, minutes: 45, startTime: "09:30", endTime: "10:15" }),
-      ctx()
-    );
-    expect(res.status).toBe(409);
-    const body = await res.json();
-    expect(body.error).toContain('de 08:40 a 10:30 en la tarea "Otra tarea"');
-    expect(taskActivityCreate).not.toHaveBeenCalled();
-  });
-
-  it("permite guardar cuando el horario no se solapa con nada ese día", async () => {
-    mockSession({ userId: "u1" });
-    taskFindUnique.mockResolvedValue({ id: "task-1", assignedToId: "u1" });
-    taskActivityCreate.mockResolvedValue({ id: "a1", duration: 45, startTime: "11:00", endTime: "11:45" });
-    taskActivityFindMany.mockResolvedValue([
-      { startTime: "08:40", endTime: "10:30", duration: 110, task: { title: "Otra tarea" } },
-    ]);
-    const res = await activitiesPOST(
-      jsonRequest({ reason: "REUNION", hours: 0, minutes: 45, startTime: "11:00", endTime: "11:45" }),
-      ctx()
-    );
-    expect(res.status).toBe(201);
-    expect(taskActivityCreate).toHaveBeenCalled();
-  });
-
-  it("responde 400 si la hora fin no es posterior a la hora inicio", async () => {
+  it("responde 400 con el mensaje de Django cuando la validación de negocio falla", async () => {
     mockSession({});
-    taskFindUnique.mockResolvedValue({ id: "task-1", assignedToId: "u1" });
-    const res = await activitiesPOST(
-      jsonRequest({ reason: "REUNION", hours: 0, minutes: 30, startTime: "10:00", endTime: "09:30" }),
-      ctx()
+    djangoApiFetch.mockResolvedValue(
+      djangoResponse(false, { error: { details: { non_field_errors: ["El horario se solapa"] } } }, 400)
     );
+    const res = await activitiesPOST(jsonRequest({ reason: "REUNION", hours: 1, minutes: 0 }), ctx());
     expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("El horario se solapa");
   });
 
-  it("no ejecuta el validador de solapamiento si no se usa el formato hora inicio/fin", async () => {
+  it("mapea el body a snake_case y crea la actividad", async () => {
     mockSession({ userId: "u1" });
-    taskFindUnique.mockResolvedValue({ id: "task-1", assignedToId: "u1" });
-    taskActivityCreate.mockResolvedValue({ id: "a1", duration: 90 });
-    taskActivityFindMany.mockResolvedValue([]);
-    const res = await activitiesPOST(jsonRequest({ reason: "REUNION", hours: 1, minutes: 30 }), ctx());
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, djangoActivity({ id: 9 }), 201));
+
+    const res = await activitiesPOST(
+      jsonRequest({ reason: "REUNION", hours: 1, minutes: 30, startTime: "09:00", endTime: "10:30" }),
+      ctx("1")
+    );
     expect(res.status).toBe(201);
-    // Solo se llama una vez (recalcRealHours), no hay verificación de solapamiento previa.
-    expect(taskActivityFindMany).toHaveBeenCalledTimes(1);
+    expect(djangoApiFetch).toHaveBeenCalledWith(
+      "/tasks/1/activities/",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ reason: "REUNION", hours: 1, minutes: 30, description: "", start_time: "09:00", end_time: "10:30" }),
+      })
+    );
+  });
+});
+
+describe("PATCH /api/tasks/[id]/activities/[activityId]", () => {
+  beforeEach(resetAll);
+
+  it("responde 401 si no hay sesión", async () => {
+    mockSession(null);
+    const res = await activityPATCH(jsonRequest({}), ctxActivity());
+    expect(res.status).toBe(401);
   });
 
-  it("ante un error inesperado, responde 500", async () => {
+  it("responde 400 si faltan campos requeridos", async () => {
     mockSession({});
-    taskFindUnique.mockRejectedValue(new Error("boom"));
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    const res = await activitiesPOST(jsonRequest({ reason: "REUNION", hours: 1, minutes: 0 }), ctx());
-    expect(res.status).toBe(500);
+    const res = await activityPATCH(jsonRequest({}), ctxActivity());
+    expect(res.status).toBe(400);
+    expect(djangoApiFetch).not.toHaveBeenCalled();
   });
 
-  it("responde 409 si una tarea Fija ya tiene 2 registros", async () => {
-    mockSession({ userId: "u1" });
-    taskFindUnique.mockResolvedValue({ id: "task-1", type: "FIJA", assignedToId: "u1" });
-    taskActivityCount.mockResolvedValue(2);
-    const res = await activitiesPOST(jsonRequest({ reason: "REUNION", hours: 1, minutes: 0 }), ctx());
-    expect(res.status).toBe(409);
-    expect((await res.json()).error).toBe("Esta tarea fija ya alcanzó el número máximo de registros permitidos.");
-    expect(taskActivityCreate).not.toHaveBeenCalled();
+  it("responde 403 si Django rechaza por permisos", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, {}, 403));
+    const res = await activityPATCH(jsonRequest({ hours: 1, minutes: 0 }), ctxActivity());
+    expect(res.status).toBe(403);
   });
 
-  it("permite el segundo registro de una tarea Fija (aún no llegó al máximo)", async () => {
-    mockSession({ userId: "u1" });
-    taskFindUnique.mockResolvedValue({ id: "task-1", type: "FIJA", assignedToId: "u1" });
-    taskActivityCount.mockResolvedValue(1);
-    taskActivityCreate.mockResolvedValue({ id: "a2", duration: 60 });
-    taskActivityFindMany.mockResolvedValue([{ duration: 60 }]);
-    const res = await activitiesPOST(jsonRequest({ reason: "REUNION", hours: 1, minutes: 0 }), ctx());
-    expect(res.status).toBe(201);
-    expect(taskActivityCreate).toHaveBeenCalled();
+  it("responde 404 si la actividad no existe", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, {}, 404));
+    const res = await activityPATCH(jsonRequest({ hours: 1, minutes: 0 }), ctxActivity());
+    expect(res.status).toBe(404);
   });
 
-  it("una tarea Seguimiento no está sujeta al límite de 2 registros", async () => {
-    mockSession({ userId: "u1" });
-    taskFindUnique.mockResolvedValue({ id: "task-1", type: "SEGUIMIENTO", assignedToId: "u1" });
-    taskActivityCount.mockResolvedValue(5);
-    taskActivityCreate.mockResolvedValue({ id: "a6", duration: 60 });
-    taskActivityFindMany.mockResolvedValue([{ duration: 60 }]);
-    const res = await activitiesPOST(jsonRequest({ reason: "REUNION", hours: 1, minutes: 0 }), ctx());
-    expect(res.status).toBe(201);
+  it("edita la actividad y devuelve la forma Nexo", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, djangoActivity({ duration: 60 })));
+    const res = await activityPATCH(jsonRequest({ hours: 1, minutes: 0, comment: "corregido" }), ctxActivity("1", "3"));
+    expect(res.status).toBe(200);
+    expect(djangoApiFetch).toHaveBeenCalledWith(
+      "/tasks/1/activities/3/",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ hours: 1, minutes: 0, comment: "corregido" }) })
+    );
+    expect((await res.json()).duration).toBe(60);
   });
 });
 
@@ -427,43 +226,24 @@ describe("DELETE /api/tasks/[id]/activities/[activityId]", () => {
 
   it("responde 404 si la actividad no existe", async () => {
     mockSession({});
-    taskActivityFindUnique.mockResolvedValue(null);
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, {}, 404));
     const res = await activityDELETE(jsonRequest(undefined), ctxActivity());
     expect(res.status).toBe(404);
   });
 
-  it("responde 404 si la actividad pertenece a otra tarea", async () => {
+  it("responde 403 si quien elimina no es el autor", async () => {
     mockSession({});
-    taskActivityFindUnique.mockResolvedValue({ id: "activity-1", taskId: "otra-tarea", authorId: "u1" });
-    const res = await activityDELETE(jsonRequest(undefined), ctxActivity());
-    expect(res.status).toBe(404);
-  });
-
-  it("responde 403 si quien elimina no es el autor de la actividad", async () => {
-    mockSession({ userId: "u1" });
-    taskActivityFindUnique.mockResolvedValue({ id: "activity-1", taskId: "task-1", authorId: "otro-autor" });
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, {}, 403));
     const res = await activityDELETE(jsonRequest(undefined), ctxActivity());
     expect(res.status).toBe(403);
-    expect(taskActivityDelete).not.toHaveBeenCalled();
   });
 
-  it("elimina la actividad propia y recalcula realHours", async () => {
-    mockSession({ userId: "u1" });
-    taskActivityFindUnique.mockResolvedValue({ id: "activity-1", taskId: "task-1", authorId: "u1" });
-    taskActivityDelete.mockResolvedValue({});
-    taskActivityFindMany.mockResolvedValue([{ duration: 45 }]);
-
+  it("elimina la actividad propia", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, {}));
     const res = await activityDELETE(jsonRequest(undefined), ctxActivity());
     expect(res.status).toBe(200);
-    expect(taskUpdate).toHaveBeenCalledWith({ where: { id: "task-1" }, data: { realHours: 0.75 } });
-  });
-
-  it("ante un error inesperado, responde 500", async () => {
-    mockSession({});
-    taskActivityFindUnique.mockRejectedValue(new Error("boom"));
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    const res = await activityDELETE(jsonRequest(undefined), ctxActivity());
-    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ ok: true });
   });
 });
 
@@ -476,30 +256,20 @@ describe("GET /api/tasks/[id]/comments", () => {
     expect(res.status).toBe(401);
   });
 
-  it("devuelve los comentarios y marca la tarea como vista (upsert)", async () => {
-    mockSession({ userId: "u1" });
-    taskFindUnique.mockResolvedValue({ id: "task-1", assignedToId: "u1" });
-    commentFindMany.mockResolvedValue([{ id: "c1" }]);
-    const res = await commentsGET(jsonRequest(undefined), ctx());
-    expect(res.status).toBe(200);
-    expect(taskCommentViewUpsert).toHaveBeenCalledWith({
-      where: { taskId_userId: { taskId: "task-1", userId: "u1" } },
-      update: { viewedAt: expect.any(Date) },
-      create: { taskId: "task-1", userId: "u1" },
-    });
-  });
-
-  it("responde 404 si la tarea existe pero no es visible para el solicitante", async () => {
-    mockSession({ userId: "u2", role: "ASISTENTE_GH" });
-    taskFindUnique.mockResolvedValue({
-      id: "task-1",
-      assignedToId: "owner-x",
-      createdById: "owner-y",
-      assignedTo: { role: "ASISTENTE_SELECCION" },
-    });
+  it("responde 404 si la tarea no es visible para el solicitante", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, {}, 403));
     const res = await commentsGET(jsonRequest(undefined), ctx());
     expect(res.status).toBe(404);
-    expect(commentFindMany).not.toHaveBeenCalled();
+  });
+
+  it("devuelve los comentarios mapeados a la forma Nexo", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, [djangoComment({ id: 5, text: "listo" })]));
+    const res = await commentsGET(jsonRequest(undefined), ctx());
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body).toEqual([expect.objectContaining({ id: "5", text: "listo" })]);
   });
 });
 
@@ -516,65 +286,23 @@ describe("POST /api/tasks/[id]/comments", () => {
     mockSession({});
     expect((await commentsPOST(jsonRequest({ text: "   " }), ctx())).status).toBe(400);
     expect((await commentsPOST(jsonRequest({}), ctx())).status).toBe(400);
+    expect(djangoApiFetch).not.toHaveBeenCalled();
   });
 
-  it("responde 404 si la tarea no existe", async () => {
+  it("responde 404 si la tarea no es visible para el solicitante", async () => {
     mockSession({});
-    taskFindUnique.mockResolvedValue(null);
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, {}, 403));
     const res = await commentsPOST(jsonRequest({ text: "hola" }), ctx());
     expect(res.status).toBe(404);
   });
 
-  it("responde 404 si la tarea existe pero no es visible para el solicitante", async () => {
-    mockSession({ userId: "u2", role: "ASISTENTE_GH" });
-    taskFindUnique.mockResolvedValue({
-      id: "task-1",
-      assignedToId: "owner-x",
-      createdById: "owner-y",
-      assignedTo: { role: "ASISTENTE_SELECCION" },
-    });
-    const res = await commentsPOST(jsonRequest({ text: "hola" }), ctx());
-    expect(res.status).toBe(404);
-    expect(commentCreate).not.toHaveBeenCalled();
-  });
+  it("crea el comentario recortado y devuelve 201 con la forma Nexo", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, djangoComment({ id: 9, text: "comentario" }), 201));
 
-  it("no notifica a nadie si el rol no tiene objetivos de notificación (ej. JEFE_NACIONAL)", async () => {
-    mockSession({ role: "JEFE_NACIONAL", name: "Jefe" });
-    taskFindUnique.mockResolvedValue({ id: "task-1", title: "Tarea", assignedToId: "u1" });
-    commentCreate.mockResolvedValue({ id: "c1" });
-
-    await commentsPOST(jsonRequest({ text: "comentario" }), ctx());
-    expect(userFindMany).not.toHaveBeenCalled();
-    expect(notificationCreateMany).not.toHaveBeenCalled();
-  });
-
-  it("notifica a los roles objetivo (hacia arriba en la jerarquía), con el texto recortado a 60 caracteres", async () => {
-    mockSession({ role: "ASISTENTE_GH", name: "Ana" });
-    taskFindUnique.mockResolvedValue({ id: "task-1", title: "Tarea importante", assignedToId: "u1" });
-    commentCreate.mockResolvedValue({ id: "c1" });
-    userFindMany.mockResolvedValue([{ id: "analista-1" }, { id: "analista-2" }]);
-
-    const longText = "x".repeat(80);
-    await commentsPOST(jsonRequest({ text: longText }), ctx());
-
-    expect(notificationCreateMany).toHaveBeenCalledWith({
-      data: [
-        expect.objectContaining({ userId: "analista-1", taskId: "task-1" }),
-        expect.objectContaining({ userId: "analista-2", taskId: "task-1" }),
-      ],
-    });
-    const message: string = notificationCreateMany.mock.calls[0][0].data[0].message;
-    expect(message).toContain("x".repeat(60) + "…");
-    expect(message).not.toContain("x".repeat(61));
-  });
-
-  it("no crea notificaciones si no hay usuarios con los roles objetivo", async () => {
-    mockSession({ role: "ASISTENTE_GH" });
-    taskFindUnique.mockResolvedValue({ id: "task-1", title: "Tarea", assignedToId: "u1" });
-    commentCreate.mockResolvedValue({ id: "c1" });
-    userFindMany.mockResolvedValue([]);
-
-    await commentsPOST(jsonRequest({ text: "hola" }), ctx());
-    expect(notificationCreateMany).not.toHaveBeenCalled();
+    const res = await commentsPOST(jsonRequest({ text: "  comentario  " }), ctx("1"));
+    expect(res.status).toBe(201);
+    expect(djangoApiFetch).toHaveBeenCalledWith("/tasks/1/comments/", expect.objectContaining({ body: JSON.stringify({ text: "comentario" }) }));
+    expect((await res.json())).toMatchObject({ id: "9", text: "comentario" });
   });
 });

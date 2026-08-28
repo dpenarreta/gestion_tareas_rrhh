@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import { ROLE_LEVEL } from "@/lib/roles";
 import type { Idea, IdeaImpact } from "./types";
 import { IMPACT_LABELS, STATUS_INFO, BOARD_COLUMNS } from "./constants";

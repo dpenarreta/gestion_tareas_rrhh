@@ -1,46 +1,20 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { SessionPayload } from "@/lib/session";
 
-const dataSubjectRequestFindMany = vi.fn();
-const dataSubjectRequestFindUnique = vi.fn();
-const dataSubjectRequestCreate = vi.fn();
-const dataSubjectRequestUpdate = vi.fn();
-const userFindMany = vi.fn();
-const userFindUnique = vi.fn();
-const taskFindMany = vi.fn();
-const taskActivityFindMany = vi.fn();
-const commentFindMany = vi.fn();
-const meetingFindMany = vi.fn();
-const meetingInviteeFindMany = vi.fn();
-const improvementIdeaFindMany = vi.fn();
-const ideaVoteFindMany = vi.fn();
-const notificationCreateMany = vi.fn();
-const announcementFindMany = vi.fn();
-const announcementCreate = vi.fn();
-const announcementDelete = vi.fn();
+// Solicitudes LOPD y Comunicados se cortaron a Django en el cutover de
+// stack (Fases 45/44, ver docs/AUDIT_LOG.md § 2026-08-24/2026-08-21) —
+// mockeado con `@/lib/djangoSession`, ningún consumidor de Prisma queda en
+// este archivo.
+vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
 
-vi.mock("@/lib/prisma", () => ({
-  prisma: {
-    dataSubjectRequest: {
-      findMany: dataSubjectRequestFindMany,
-      findUnique: dataSubjectRequestFindUnique,
-      create: dataSubjectRequestCreate,
-      update: dataSubjectRequestUpdate,
-    },
-    user: { findMany: userFindMany, findUnique: userFindUnique },
-    task: { findMany: taskFindMany },
-    taskActivity: { findMany: taskActivityFindMany },
-    comment: { findMany: commentFindMany },
-    meeting: { findMany: meetingFindMany },
-    meetingInvitee: { findMany: meetingInviteeFindMany },
-    improvementIdea: { findMany: improvementIdeaFindMany },
-    ideaVote: { findMany: ideaVoteFindMany },
-    notification: { createMany: notificationCreateMany },
-    announcement: { findMany: announcementFindMany, create: announcementCreate, delete: announcementDelete },
+const djangoApiFetch = vi.fn();
+vi.mock("@/lib/djangoSession", () => ({
+  djangoApiFetch: (...args: unknown[]) => djangoApiFetch(...args),
+  extractDjangoFlatErrorMessage: async (response: Response) => {
+    const data = await response.json().catch(() => null);
+    return typeof (data as { error?: unknown })?.error === "string" ? (data as { error: string }).error : undefined;
   },
 }));
-
-vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
 
 const { getSession } = await import("@/lib/session");
 const { GET: requestsGET, POST: requestsPOST } = await import("@/app/api/data-requests/route");
@@ -64,7 +38,7 @@ function mockSession(overrides: Partial<SessionPayload> | null) {
   );
 }
 
-function ctx(id = "req-1") {
+function ctx(id = "1") {
   return { params: Promise.resolve({ id }) };
 }
 
@@ -77,25 +51,20 @@ function badJsonRequest() {
 }
 
 function resetAll() {
-  dataSubjectRequestFindMany.mockReset();
-  dataSubjectRequestFindUnique.mockReset();
-  dataSubjectRequestCreate.mockReset().mockResolvedValue({});
-  dataSubjectRequestUpdate.mockReset();
-  userFindMany.mockReset();
-  userFindUnique.mockReset();
-  taskFindMany.mockReset().mockResolvedValue([]);
-  taskActivityFindMany.mockReset().mockResolvedValue([]);
-  commentFindMany.mockReset().mockResolvedValue([]);
-  meetingFindMany.mockReset().mockResolvedValue([]);
-  meetingInviteeFindMany.mockReset().mockResolvedValue([]);
-  improvementIdeaFindMany.mockReset().mockResolvedValue([]);
-  ideaVoteFindMany.mockReset().mockResolvedValue([]);
-  notificationCreateMany.mockReset().mockResolvedValue({});
-  announcementFindMany.mockReset();
-  announcementCreate.mockReset();
-  announcementDelete.mockReset();
+  djangoApiFetch.mockReset();
   vi.mocked(getSession).mockReset();
 }
+
+function djangoResponse(ok: boolean, data: unknown, status = ok ? 200 : 400) {
+  return { ok, status, json: async () => data } as Response;
+}
+
+const DJANGO_REQUEST_FIXTURE = {
+  id: 1, user_id: 7, type: "RECTIFICACION", description: "Cambiar mi nombre", status: "PENDIENTE",
+  resolved_by_id: null, resolved_at: null, created_at: "2026-08-01T00:00:00Z",
+  user: { id: 7, username: "ana", first_name: "Ana", email: "ana@nexo.com", roles: [{ id: 1, name: "ASISTENTE_GH" }] },
+  resolver: null,
+};
 
 describe("GET /api/data-requests", () => {
   beforeEach(resetAll);
@@ -106,18 +75,14 @@ describe("GET /api/data-requests", () => {
     expect(res.status).toBe(401);
   });
 
-  it("un Administrador ve todas las solicitudes (sin filtro)", async () => {
+  it("mapea la lista de Django a la forma Nexo (ids como string)", async () => {
     mockSession({ role: "ADMINISTRADOR" });
-    dataSubjectRequestFindMany.mockResolvedValue([]);
-    await requestsGET();
-    expect(dataSubjectRequestFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: undefined }));
-  });
-
-  it("un usuario normal solo ve sus propias solicitudes", async () => {
-    mockSession({ role: "ASISTENTE_GH", userId: "u1" });
-    dataSubjectRequestFindMany.mockResolvedValue([]);
-    await requestsGET();
-    expect(dataSubjectRequestFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { userId: "u1" } }));
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, [DJANGO_REQUEST_FIXTURE]));
+    const res = await requestsGET();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body[0]).toMatchObject({ id: "1", userId: "7", resolvedBy: null, user: { id: "7", name: "Ana" } });
+    expect(djangoApiFetch).toHaveBeenCalledWith("/data-requests/");
   });
 });
 
@@ -134,36 +99,27 @@ describe("POST /api/data-requests", () => {
     mockSession({});
     const res = await requestsPOST(badJsonRequest());
     expect(res.status).toBe(400);
+    expect(djangoApiFetch).not.toHaveBeenCalled();
   });
 
-  it("responde 400 ante un tipo de solicitud inválido", async () => {
+  it("responde 400 con Django ante un tipo de solicitud inválido", async () => {
     mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "Tipo de solicitud inválido" }, 400));
     const res = await requestsPOST(jsonRequest({ type: "OTRO" }));
     expect(res.status).toBe(400);
   });
 
-  it("una solicitud de tipo ACCESO no notifica a los administradores", async () => {
-    mockSession({});
-    await requestsPOST(jsonRequest({ type: "ACCESO" }));
-    expect(userFindMany).not.toHaveBeenCalled();
-    expect(notificationCreateMany).not.toHaveBeenCalled();
-  });
-
-  it("una solicitud de RECTIFICACION notifica a los administradores existentes", async () => {
+  it("crea la solicitud y mapea la respuesta (visibilidad/notificación a admins ya resueltas en Django)", async () => {
     mockSession({ name: "Ana" });
-    userFindMany.mockResolvedValue([{ id: "admin-1" }]);
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, { ...DJANGO_REQUEST_FIXTURE, user: undefined, resolver: undefined }, 201));
     const res = await requestsPOST(jsonRequest({ type: "RECTIFICACION", description: "Cambiar mi nombre" }));
     expect(res.status).toBe(201);
-    expect(notificationCreateMany).toHaveBeenCalledWith({
-      data: [expect.objectContaining({ userId: "admin-1", message: expect.stringContaining("rectificación") })],
-    });
-  });
-
-  it("no notifica si no hay administradores registrados", async () => {
-    mockSession({});
-    userFindMany.mockResolvedValue([]);
-    await requestsPOST(jsonRequest({ type: "ELIMINACION" }));
-    expect(notificationCreateMany).not.toHaveBeenCalled();
+    expect(djangoApiFetch).toHaveBeenCalledWith(
+      "/data-requests/",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ type: "RECTIFICACION", description: "Cambiar mi nombre" }) })
+    );
+    const body = await res.json();
+    expect(body).toMatchObject({ id: "1", type: "RECTIFICACION" });
   });
 });
 
@@ -178,6 +134,7 @@ describe("PATCH /api/data-requests/[id]", () => {
 
   it("responde 403 si quien resuelve no es Administrador", async () => {
     mockSession({ role: "JEFE_NACIONAL" });
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "Sin permisos" }, 403));
     const res = await requestPATCH(jsonRequest({ status: "RESUELTA" }), ctx());
     expect(res.status).toBe(403);
   });
@@ -186,41 +143,33 @@ describe("PATCH /api/data-requests/[id]", () => {
     mockSession({ role: "ADMINISTRADOR" });
     const res = await requestPATCH(badJsonRequest(), ctx());
     expect(res.status).toBe(400);
+    expect(djangoApiFetch).not.toHaveBeenCalled();
   });
 
-  it("responde 400 ante un estado inválido", async () => {
+  it("responde 400 con Django ante un estado inválido", async () => {
     mockSession({ role: "ADMINISTRADOR" });
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "Estado inválido" }, 400));
     const res = await requestPATCH(jsonRequest({ status: "CANCELADA" }), ctx());
     expect(res.status).toBe(400);
   });
 
   it("responde 404 si la solicitud no existe", async () => {
     mockSession({ role: "ADMINISTRADOR" });
-    dataSubjectRequestFindUnique.mockResolvedValue(null);
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "Solicitud no encontrada" }, 404));
     const res = await requestPATCH(jsonRequest({ status: "EN_PROCESO" }), ctx());
     expect(res.status).toBe(404);
   });
 
-  it("marcar RESUELTA registra quién y cuándo la resolvió", async () => {
+  it("marca RESUELTA y mapea resolvedBy/resolvedAt", async () => {
     mockSession({ role: "ADMINISTRADOR", userId: "admin-1" });
-    dataSubjectRequestFindUnique.mockResolvedValue({ id: "req-1" });
-    dataSubjectRequestUpdate.mockResolvedValue({});
-    await requestPATCH(jsonRequest({ status: "RESUELTA" }), ctx());
-    expect(dataSubjectRequestUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: { status: "RESUELTA", resolvedBy: "admin-1", resolvedAt: expect.any(Date) },
-      })
+    djangoApiFetch.mockResolvedValue(
+      djangoResponse(true, { ...DJANGO_REQUEST_FIXTURE, status: "RESUELTA", resolved_by_id: 9, resolved_at: "2026-08-02T00:00:00Z" })
     );
-  });
-
-  it("un estado no resuelto limpia resolvedBy/resolvedAt", async () => {
-    mockSession({ role: "ADMINISTRADOR" });
-    dataSubjectRequestFindUnique.mockResolvedValue({ id: "req-1" });
-    dataSubjectRequestUpdate.mockResolvedValue({});
-    await requestPATCH(jsonRequest({ status: "EN_PROCESO" }), ctx());
-    expect(dataSubjectRequestUpdate).toHaveBeenCalledWith(
-      expect.objectContaining({ data: { status: "EN_PROCESO", resolvedBy: null, resolvedAt: null } })
-    );
+    const res = await requestPATCH(jsonRequest({ status: "RESUELTA" }), ctx("1"));
+    expect(res.status).toBe(200);
+    expect(djangoApiFetch).toHaveBeenCalledWith("/data-requests/1/", expect.objectContaining({ method: "PATCH", body: JSON.stringify({ status: "RESUELTA" }) }));
+    const body = await res.json();
+    expect(body).toMatchObject({ status: "RESUELTA", resolvedBy: "9", resolvedAt: "2026-08-02T00:00:00Z" });
   });
 });
 
@@ -233,30 +182,45 @@ describe("GET /api/data-requests/my-data", () => {
     expect(res.status).toBe(401);
   });
 
-  it("responde 404 si el usuario ya no existe", async () => {
+  it("responde 401 si Django no tiene sesión disponible", async () => {
     mockSession({});
-    userFindUnique.mockResolvedValue(null);
+    djangoApiFetch.mockResolvedValue(null);
     const res = await myDataGET();
-    expect(res.status).toBe(404);
+    expect(res.status).toBe(401);
   });
 
-  it("registra un ACCESO resuelto y devuelve un JSON descargable con todos los datos del usuario", async () => {
+  it("mapea el export de Django (snake_case) a la forma Nexo y arma la descarga", async () => {
     mockSession({ userId: "u1" });
-    userFindUnique.mockResolvedValue({ id: "u1", name: "Ana" });
-    taskFindMany.mockResolvedValue([{ id: "t1" }]);
+    djangoApiFetch.mockResolvedValue(
+      djangoResponse(true, {
+        generado_el: "2026-08-24T00:00:00Z",
+        usuario: { id: 7, username: "ana", first_name: "Ana", email: "ana@nexo.com", roles: ["ASISTENTE_GH"], last_login: null, created_at: "2026-01-01T00:00:00Z" },
+        tareas: [{ id: 1, title: "T", description: "d", status: "PENDIENTE", priority: "ALTA", frequency: "UNICA", type: "FIJA", start_date: "2026-01-01", end_date: "2026-01-05", estimated_hours: 5, real_hours: 3, progress: 50, completed_at: null, created_at: "2026-01-01T00:00:00Z" }],
+        actividades: [],
+        comentarios: [],
+        reuniones_organizadas: [],
+        reuniones_invitado: [],
+        ideas_propuestas: [],
+        votos_en_ideas: [],
+        solicitudes_previas: [],
+      })
+    );
 
     const res = await myDataGET();
     expect(res.status).toBe(200);
-    expect(dataSubjectRequestCreate).toHaveBeenCalledWith({
-      data: { userId: "u1", type: "ACCESO", status: "RESUELTA", resolvedAt: expect.any(Date) },
-    });
+    expect(djangoApiFetch).toHaveBeenCalledWith("/data-requests/my-data/");
     expect(res.headers.get("Content-Disposition")).toContain("nexo-mis-datos-u1.json");
 
     const body = JSON.parse(await res.text());
-    expect(body.usuario).toEqual({ id: "u1", name: "Ana" });
-    expect(body.tareas).toEqual([{ id: "t1" }]);
+    expect(body.usuario).toMatchObject({ id: "7", name: "Ana", role: "ASISTENTE_GH" });
+    expect(body.tareas[0]).toMatchObject({ id: "1", estimatedHours: 5, realHours: 3 });
   });
 });
+
+const DJANGO_ANNOUNCEMENT_FIXTURE = {
+  id: 1, title: "Aviso", content: "Contenido", authorId: 5, author: { name: "Ana", role: "ADMINISTRADOR" },
+  pinned: false, expiresAt: "2026-09-01T00:00:00Z", createdAt: "2026-08-01T00:00:00Z",
+};
 
 describe("GET /api/announcements", () => {
   beforeEach(resetAll);
@@ -267,16 +231,14 @@ describe("GET /api/announcements", () => {
     expect(res.status).toBe(401);
   });
 
-  it("filtra comunicados vigentes, fijados primero", async () => {
+  it("mapea la lista de Django a la forma Nexo (ids como string)", async () => {
     mockSession({});
-    announcementFindMany.mockResolvedValue([]);
-    await announcementsGET();
-    expect(announcementFindMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { expiresAt: { gt: expect.any(Date) } },
-        orderBy: [{ pinned: "desc" }, { createdAt: "desc" }],
-      })
-    );
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, [DJANGO_ANNOUNCEMENT_FIXTURE]));
+    const res = await announcementsGET();
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body[0]).toMatchObject({ id: "1", authorId: "5", author: { name: "Ana", role: "ADMINISTRADOR" } });
+    expect(djangoApiFetch).toHaveBeenCalledWith("/announcements/");
   });
 });
 
@@ -291,59 +253,29 @@ describe("POST /api/announcements", () => {
 
   it("responde 403 para un rol sin permiso de publicación", async () => {
     mockSession({ role: "COORDINADOR_ZS" });
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "Sin permisos" }, 403));
     const res = await announcementsPOST(jsonRequest({}));
     expect(res.status).toBe(403);
   });
 
-  it("responde 400 si faltan campos requeridos", async () => {
+  it("responde 400 con el mensaje de Django si faltan campos requeridos", async () => {
     mockSession({ role: "ADMINISTRADOR" });
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "Faltan campos requeridos" }, 400));
     const res = await announcementsPOST(jsonRequest({ title: "Aviso" }));
     expect(res.status).toBe(400);
   });
 
-  it("recorta la duración a un mínimo de 1 día", async () => {
+  it("publica el comunicado y mapea la respuesta (recorte de duración/notificación ya resueltos en Django)", async () => {
     mockSession({ role: "ADMINISTRADOR" });
-    announcementCreate.mockResolvedValue({ id: "a1", title: "Aviso" });
-    userFindMany.mockResolvedValue([]);
-    await announcementsPOST(jsonRequest({ title: "Aviso", content: "Contenido", durationDays: -5 }));
-    const call = announcementCreate.mock.calls[0][0];
-    const expiresAt: Date = call.data.expiresAt;
-    const daysDiff = Math.round((expiresAt.getTime() - Date.now()) / 86400000);
-    expect(daysDiff).toBe(1);
-  });
-
-  it("recorta la duración a un máximo de 30 días", async () => {
-    mockSession({ role: "ADMINISTRADOR" });
-    announcementCreate.mockResolvedValue({ id: "a1", title: "Aviso" });
-    userFindMany.mockResolvedValue([]);
-    await announcementsPOST(jsonRequest({ title: "Aviso", content: "Contenido", durationDays: 365 }));
-    const call = announcementCreate.mock.calls[0][0];
-    const expiresAt: Date = call.data.expiresAt;
-    const daysDiff = Math.round((expiresAt.getTime() - Date.now()) / 86400000);
-    expect(daysDiff).toBe(30);
-  });
-
-  it("notifica a los usuarios visibles, excluyendo al propio autor", async () => {
-    mockSession({ userId: "u1", role: "ADMINISTRADOR" });
-    announcementCreate.mockResolvedValue({ id: "a1", title: "Aviso importante" });
-    userFindMany.mockResolvedValue([{ id: "target-1" }]);
-
-    const res = await announcementsPOST(jsonRequest({ title: "Aviso importante", content: "Contenido", durationDays: 7 }));
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, DJANGO_ANNOUNCEMENT_FIXTURE, 201));
+    const res = await announcementsPOST(jsonRequest({ title: "Aviso", content: "Contenido", durationDays: 7 }));
     expect(res.status).toBe(201);
-    expect(userFindMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: expect.objectContaining({ id: { not: "u1" } }) })
+    expect(djangoApiFetch).toHaveBeenCalledWith(
+      "/announcements/",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ title: "Aviso", content: "Contenido", durationDays: 7, pinned: undefined }) })
     );
-    expect(notificationCreateMany).toHaveBeenCalledWith({
-      data: [expect.objectContaining({ userId: "target-1", message: expect.stringContaining("Aviso importante") })],
-    });
-  });
-
-  it("no notifica si no hay usuarios visibles", async () => {
-    mockSession({ role: "ADMINISTRADOR" });
-    announcementCreate.mockResolvedValue({ id: "a1", title: "Aviso" });
-    userFindMany.mockResolvedValue([]);
-    await announcementsPOST(jsonRequest({ title: "Aviso", content: "Contenido", durationDays: 7 }));
-    expect(notificationCreateMany).not.toHaveBeenCalled();
+    const body = await res.json();
+    expect(body).toMatchObject({ id: "1" });
   });
 });
 
@@ -352,21 +284,22 @@ describe("DELETE /api/announcements/[id]", () => {
 
   it("responde 401 si no hay sesión", async () => {
     mockSession(null);
-    const res = await announcementDELETE(jsonRequest(undefined), ctx("a1"));
+    const res = await announcementDELETE(jsonRequest(undefined), ctx("1"));
     expect(res.status).toBe(401);
   });
 
   it("responde 403 para un rol sin permiso de eliminación", async () => {
     mockSession({ role: "COORDINADOR_ZS" });
-    const res = await announcementDELETE(jsonRequest(undefined), ctx("a1"));
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "Sin permisos" }, 403));
+    const res = await announcementDELETE(jsonRequest(undefined), ctx("1"));
     expect(res.status).toBe(403);
   });
 
   it("elimina el comunicado para un rol autorizado", async () => {
     mockSession({ role: "JEFE_NACIONAL" });
-    announcementDelete.mockResolvedValue({});
-    const res = await announcementDELETE(jsonRequest(undefined), ctx("a1"));
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, { ok: true }));
+    const res = await announcementDELETE(jsonRequest(undefined), ctx("1"));
     expect(res.status).toBe(200);
-    expect(announcementDelete).toHaveBeenCalledWith({ where: { id: "a1" } });
+    expect(djangoApiFetch).toHaveBeenCalledWith("/announcements/1/", { method: "DELETE" });
   });
 });

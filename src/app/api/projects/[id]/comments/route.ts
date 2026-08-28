@@ -1,22 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { canViewProject, isProjectParticipant } from "@/lib/projectAccess";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import {
+  extractDjangoProjectErrorMessage,
+  mapDjangoProjectCommentToNexoShape,
+  type DjangoProjectComment,
+} from "@/lib/djangoProjectsAdapter";
+
+// Fase 5f de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-14):
+// esta ruta pasó de Prisma a Django.
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
 type Ctx = { params: Promise<{ id: string }> };
-
-async function loadProjectForAccess(id: string) {
-  return prisma.project.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      name: true,
-      responsibleId: true,
-      createdById: true,
-      participants: { select: { userId: true } },
-    },
-  });
-}
 
 export async function GET(_req: NextRequest, ctx: Ctx) {
   const session = await getSession();
@@ -25,21 +21,22 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
   }
 
   const { id: projectId } = await ctx.params;
-  const project = await loadProjectForAccess(projectId);
-  if (!project) {
+  const response = await djangoApiFetch(`/projects/${projectId}/comments/`);
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 404) {
     return NextResponse.json({ error: "Proyecto no encontrado" }, { status: 404 });
   }
-  if (!canViewProject(session, project, project.participants.map((p) => p.userId))) {
+  if (response.status === 403) {
     return NextResponse.json({ error: "No tienes acceso a este proyecto" }, { status: 403 });
   }
+  if (!response.ok) {
+    return NextResponse.json({ error: "No se pudieron obtener los comentarios" }, { status: 400 });
+  }
 
-  const comments = await prisma.projectComment.findMany({
-    where: { projectId },
-    select: { id: true, text: true, author: { select: { id: true, name: true, role: true } }, createdAt: true },
-    orderBy: { createdAt: "asc" },
-  });
-
-  return NextResponse.json(comments);
+  const comments: DjangoProjectComment[] = await response.json();
+  return NextResponse.json(comments.map(mapDjangoProjectCommentToNexoShape));
 }
 
 export async function POST(request: NextRequest, ctx: Ctx) {
@@ -49,36 +46,28 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   }
 
   const { id: projectId } = await ctx.params;
-  const project = await loadProjectForAccess(projectId);
-  if (!project) {
-    return NextResponse.json({ error: "Proyecto no encontrado" }, { status: 404 });
-  }
-
-  const participantIds = project.participants.map((p) => p.userId);
-  if (!isProjectParticipant(session, project, participantIds)) {
-    return NextResponse.json({ error: "Solo los participantes del proyecto pueden comentar" }, { status: 403 });
-  }
-
-  let body: Record<string, unknown>;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Cuerpo de la solicitud inválido" }, { status: 400 });
-  }
-
+  const body = (await request.json()) as Record<string, unknown>;
   const { text } = body as { text?: string };
-  if (!text?.trim()) {
-    return NextResponse.json({ error: "El comentario no puede estar vacío" }, { status: 400 });
-  }
 
-  const comment = await prisma.projectComment.create({
-    data: { projectId, authorId: session.userId, text: text.trim() },
-    select: { id: true, text: true, author: { select: { id: true, name: true, role: true } }, createdAt: true },
+  const response = await djangoApiFetch(`/projects/${projectId}/comments/`, {
+    method: "POST",
+    body: JSON.stringify({ text }),
   });
 
-  // Sprint 2.1 §1: los comentarios ya no generan un evento en el historial —
-  // tienen su propia pestaña con orden cronológico; duplicarlo en Historial
-  // era ruido, no un evento relevante de negocio.
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 404) {
+    return NextResponse.json({ error: "Proyecto no encontrado" }, { status: 404 });
+  }
+  if (response.status === 403) {
+    return NextResponse.json({ error: "Solo los participantes del proyecto pueden comentar" }, { status: 403 });
+  }
+  if (!response.ok) {
+    const message = await extractDjangoProjectErrorMessage(response, "El comentario no puede estar vacío");
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
 
-  return NextResponse.json(comment, { status: 201 });
+  const comment: DjangoProjectComment = await response.json();
+  return NextResponse.json(mapDjangoProjectCommentToNexoShape(comment), { status: 201 });
 }

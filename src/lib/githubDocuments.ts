@@ -1,9 +1,9 @@
 import "server-only";
 import "@/lib/pdfPolyfill";
 import { PDFParse } from "pdf-parse";
-import { prisma } from "@/lib/prisma";
 import { getEmbedding } from "@/lib/embeddings";
 import { safeLog } from "@/lib/logger";
+import { bulkCreateDjangoDocumentChunks, updateDjangoKnowledgeDocument } from "@/lib/djangoAssistantAdapter";
 
 const FETCH_TIMEOUT_MS = 45_000;
 const FRIENDLY_PENDING_MESSAGE = "Documento agregado. El texto se procesará cuando esté disponible.";
@@ -234,9 +234,9 @@ export async function processGithubDocument(documentId: string, path: string, sh
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     safeLog("error", `[githubDocuments] documento ${documentId}: descarga falló:`, err);
-    await prisma.knowledgeDocument
-      .update({ where: { id: documentId }, data: { status: "ERROR", processingError: message } })
-      .catch((updateErr) => safeLog("error", `[githubDocuments] documento ${documentId}: no se pudo guardar el error:`, updateErr));
+    await updateDjangoKnowledgeDocument(documentId, { status: "ERROR", processingError: message }).catch((updateErr) =>
+      safeLog("error", `[githubDocuments] documento ${documentId}: no se pudo guardar el error:`, updateErr)
+    );
     return;
   }
 
@@ -245,9 +245,13 @@ export async function processGithubDocument(documentId: string, path: string, sh
     pages = await extractPages(buffer);
   } catch (err) {
     safeLog("error", `[githubDocuments] documento ${documentId}: extracción de texto falló:`, err);
-    await prisma.knowledgeDocument
-      .update({ where: { id: documentId }, data: { status: "LISTO", content: null, processingError: FRIENDLY_PENDING_MESSAGE } })
-      .catch((updateErr) => safeLog("error", `[githubDocuments] documento ${documentId}: no se pudo guardar el estado pendiente:`, updateErr));
+    await updateDjangoKnowledgeDocument(documentId, {
+      status: "LISTO",
+      content: null,
+      processingError: FRIENDLY_PENDING_MESSAGE,
+    }).catch((updateErr) =>
+      safeLog("error", `[githubDocuments] documento ${documentId}: no se pudo guardar el estado pendiente:`, updateErr)
+    );
     return;
   }
 
@@ -262,37 +266,39 @@ export async function processGithubDocument(documentId: string, path: string, sh
 
   if (fullText.length < 80 || chunkInputs.length === 0) {
     safeLog("error", `[githubDocuments] documento ${documentId}: sin contenido de texto suficiente para indexar`);
-    await prisma.knowledgeDocument
-      .update({ where: { id: documentId }, data: { status: "LISTO", content: fullText || null, processingError: FRIENDLY_PENDING_MESSAGE } })
-      .catch((updateErr) => safeLog("error", `[githubDocuments] documento ${documentId}: no se pudo guardar el estado pendiente:`, updateErr));
+    await updateDjangoKnowledgeDocument(documentId, {
+      status: "LISTO",
+      content: fullText || null,
+      processingError: FRIENDLY_PENDING_MESSAGE,
+    }).catch((updateErr) =>
+      safeLog("error", `[githubDocuments] documento ${documentId}: no se pudo guardar el estado pendiente:`, updateErr)
+    );
     return;
   }
 
   const chunksWithEmbeddings = await embedChunks(chunkInputs);
 
   try {
-    await prisma.documentChunk.deleteMany({ where: { documentId } });
-    await prisma.knowledgeDocument.update({
-      where: { id: documentId },
-      data: {
-        content: fullText,
-        status: "LISTO",
-        processingError: null,
-        chunks: {
-          create: chunksWithEmbeddings.map((c) => ({
-            content: c.content,
-            pageNumber: c.pageNumber,
-            chunkIndex: c.chunkIndex,
-            embedding: c.embedding,
-          })),
-        },
-      },
-    });
+    const ok = await bulkCreateDjangoDocumentChunks(
+      documentId,
+      chunksWithEmbeddings.map((c) => ({
+        content: c.content,
+        embedding: c.embedding,
+        page_number: c.pageNumber,
+        chunk_index: c.chunkIndex,
+      })),
+      fullText
+    );
+    if (!ok) throw new Error("Django devolvió un error guardando los chunks.");
     safeLog("error", `[githubDocuments] documento ${documentId}: procesado OK, ${chunksWithEmbeddings.length} chunks`);
   } catch (err) {
     safeLog("error", `[githubDocuments] documento ${documentId}: fallo guardando chunks:`, err);
-    await prisma.knowledgeDocument
-      .update({ where: { id: documentId }, data: { status: "LISTO", content: fullText, processingError: FRIENDLY_PENDING_MESSAGE } })
-      .catch((updateErr) => safeLog("error", `[githubDocuments] documento ${documentId}: no se pudo guardar el estado pendiente:`, updateErr));
+    await updateDjangoKnowledgeDocument(documentId, {
+      status: "LISTO",
+      content: fullText,
+      processingError: FRIENDLY_PENDING_MESSAGE,
+    }).catch((updateErr) =>
+      safeLog("error", `[githubDocuments] documento ${documentId}: no se pudo guardar el estado pendiente:`, updateErr)
+    );
   }
 }

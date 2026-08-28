@@ -1,73 +1,36 @@
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
-import { prisma } from "@/lib/prisma";
-import { canCreateProject, canManageUsers, getSubordinateRoles, ROLE_LEVEL } from "@/lib/roles";
+import { canCreateProject, canManageUsers, getSubordinateRoles } from "@/lib/roles";
 import { maskEmailUnless } from "@/lib/mask-email";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import { mapDjangoProjectListItemToNexoShape, type DjangoProjectListItem } from "@/lib/djangoProjectsAdapter";
+import { fetchAllDjangoUsers, mapDjangoUserToNexoShape } from "@/lib/djangoUsersAdapter";
 import ProjectsModule from "@/components/projects/ProjectsModule";
 
-const projectListSelect = {
-  id: true,
-  name: true,
-  description: true,
-  status: true,
-  priority: true,
-  area: true,
-  tags: true,
-  startDate: true,
-  targetDate: true,
-  targetTimeHours: true,
-  realHours: true,
-  completedAt: true,
-  responsible: { select: { id: true, name: true, role: true } },
-  createdBy: { select: { id: true, name: true } },
-  _count: { select: { participants: true, phases: true, comments: true, documents: true } },
-  createdAt: true,
-  updatedAt: true,
-} as const;
-
+// Cutover de stack — Fase 86 (ver docs/AUDIT_LOG.md § 2026-08-28): réplica
+// de `GET /api/projects` (Django completo desde la Fase 5f) llamado
+// directo desde la página, mismo patrón que `tasks/page.tsx`. El filtro de
+// visibilidad por rol (antes el `OR` de responsable/creador/participante)
+// ya lo aplica `ProjectViewSet.get_queryset` server-side. `candidateUsers`
+// reusa el mismo `fetchAllDjangoUsers` + filtro por jerarquía que ya usa
+// `tasks/page.tsx` para `assignableUsers`. Si Django no responde, ambas
+// listas degradan a vacías en vez de romper la página.
 export default async function ProjectsPage() {
   const session = await getSession();
   if (!session) redirect("/login");
 
-  const isLeadership = ROLE_LEVEL[session.role] >= 3;
+  const [projectsResponse, djangoUsers] = await Promise.all([djangoApiFetch("/projects/"), fetchAllDjangoUsers()]);
 
-  const [projects, candidateUsers] = await Promise.all([
-    prisma.project.findMany({
-      where: {
-        deletedAt: null,
-        ...(isLeadership
-          ? {}
-          : {
-              OR: [
-                { responsibleId: session.userId },
-                { createdById: session.userId },
-                { participants: { some: { userId: session.userId } } },
-              ],
-            }),
-      },
-      select: projectListSelect,
-      orderBy: { createdAt: "desc" },
-    }),
-    canManageUsers(session.role)
-      ? prisma.user.findMany({ select: { id: true, name: true, email: true, role: true }, orderBy: { name: "asc" } })
-      : prisma.user.findMany({
-          where: { role: { in: getSubordinateRoles(session.role) } },
-          select: { id: true, name: true, email: true, role: true },
-          orderBy: { name: "asc" },
-        }),
-  ]);
-
-  const serialized = projects.map((p) => ({
-    ...p,
-    startDate: p.startDate.toISOString(),
-    targetDate: p.targetDate.toISOString(),
-    completedAt: p.completedAt?.toISOString() ?? null,
-    createdAt: p.createdAt.toISOString(),
-    updatedAt: p.updatedAt.toISOString(),
-  }));
+  const serialized =
+    projectsResponse?.ok ? ((await projectsResponse.json()) as DjangoProjectListItem[]).map(mapDjangoProjectListItemToNexoShape) : [];
 
   const canSeeRealEmails = canManageUsers(session.role);
-  const serializedCandidates = candidateUsers.map((u) => ({ ...u, email: maskEmailUnless(u.email, canSeeRealEmails) }));
+  const visibleRoles = canManageUsers(session.role) ? null : getSubordinateRoles(session.role);
+  const serializedCandidates = (djangoUsers ?? [])
+    .map(mapDjangoUserToNexoShape)
+    .filter((u) => visibleRoles === null || visibleRoles.includes(u.role))
+    .sort((a, b) => a.name.localeCompare(b.name))
+    .map((u) => ({ ...u, email: maskEmailUnless(u.email, canSeeRealEmails) }));
 
   return (
     <ProjectsModule

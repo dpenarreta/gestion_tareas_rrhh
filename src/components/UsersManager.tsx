@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { ROLE_LABEL, ALL_ROLES, ROLE_LEVEL } from "@/lib/roles";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import { Button } from "@/components/ui/Button";
 import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
 import { SkeletonRow } from "@/components/ui/Skeleton";
@@ -244,7 +244,7 @@ export default function UsersManager({ currentUserRole }: Props) {
         <div className="bg-surface rounded-xl border border-border p-5">
           <h3 className="font-semibold text-title mb-4">Crear usuario</h3>
           <p className="text-xs text-secondary mb-4">
-            La contraseña por defecto será: <strong>123456</strong>
+            La contraseña inicial será: <strong>NexoTemporal2026!</strong>
           </p>
           <form onSubmit={handleCreate} className="space-y-3">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

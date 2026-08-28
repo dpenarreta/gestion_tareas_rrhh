@@ -2,43 +2,25 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import type { SessionPayload } from "@/lib/session";
 import type { NextRequest } from "next/server";
 
-const userFindMany = vi.fn();
-const taskFindMany = vi.fn();
-const taskActivityFindMany = vi.fn();
-const commentGroupBy = vi.fn();
+// GET /api/kpis/team pasó a Django en el cutover de stack (Fase 47, ver
+// docs/AUDIT_LOG.md § 2026-08-24) — mockeado con `@/lib/djangoSession`, el
+// cálculo real ya vive en `TeamKpiView`. GET /api/kpis/me/range pasó a
+// Django en la Fase 4c (ver docs/AUDIT_LOG.md § 2026-08-11) — mockeado
+// igual; el cálculo real (validación de from/to, agregación por mes) ya no
+// vive en `route.ts`, se movió a `KpiMeRangeView`.
+const getSession = vi.fn();
+vi.mock("@/lib/session", () => ({ getSession: (...args: unknown[]) => getSession(...args) }));
 
-vi.mock("@/lib/prisma", () => ({
-  prisma: {
-    user: { findMany: userFindMany },
-    task: { findMany: taskFindMany },
-    taskActivity: { findMany: taskActivityFindMany },
-    comment: { groupBy: commentGroupBy },
-  },
+const djangoApiFetch = vi.fn();
+vi.mock("@/lib/djangoSession", () => ({
+  djangoApiFetch: (...args: unknown[]) => djangoApiFetch(...args),
 }));
 
-vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
-
-const monthlyBusinessBase = vi.fn();
-vi.mock("@/lib/workload", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/workload")>();
-  return {
-    ...actual,
-    monthlyBusinessBase: (...args: unknown[]) => monthlyBusinessBase(...args),
-    // Sin usuarios con estado especial en estos tests — perUser vacío hace que los
-    // llamadores usen siempre la base compartida (mock de monthlyBusinessBase).
-    monthlyBusinessBaseForUsers: async (_userIds: string[], year: number, month: number) => ({
-      shared: await monthlyBusinessBase(year, month),
-      perUser: new Map(),
-    }),
-  };
-});
-
-const { getSession } = await import("@/lib/session");
 const { GET: teamGET } = await import("@/app/api/kpis/team/route");
 const { GET: rangeGET } = await import("@/app/api/kpis/me/range/route");
 
 function mockSession(overrides: Partial<SessionPayload> | null) {
-  vi.mocked(getSession).mockResolvedValue(
+  getSession.mockResolvedValue(
     overrides === null
       ? null
       : {
@@ -56,26 +38,13 @@ function getRequest(url: string): NextRequest {
   return { nextUrl: new URL(url) } as unknown as NextRequest;
 }
 
+function djangoResponse(ok: boolean, data: unknown, status = ok ? 200 : 400) {
+  return { ok, status, json: async () => data } as Response;
+}
+
 function resetAll() {
-  userFindMany.mockReset();
-  taskFindMany.mockReset().mockResolvedValue([]);
-  taskActivityFindMany.mockReset().mockResolvedValue([]);
-  commentGroupBy.mockReset().mockResolvedValue([]);
-  monthlyBusinessBase.mockReset().mockImplementation(async (year: number, month: number) => ({
-    start: new Date(Date.UTC(year, month - 1, 1)),
-    end: new Date(Date.UTC(year, month, 1) - 1),
-    businessDays: 20,
-    baseHours: 100,
-    hoursPerDay: 6.5,
-    limitLowPerDay: 5.5,
-    limitHighPerDay: 7.5,
-    limitOverloadPerDay: 8.5,
-    limitLowHours: 80,
-    limitBaseHours: 100,
-    limitHighHours: 120,
-    limitOverloadHours: 140,
-  }));
-  vi.mocked(getSession).mockReset();
+  getSession.mockReset();
+  djangoApiFetch.mockReset();
 }
 
 beforeEach(() => {
@@ -93,48 +62,29 @@ describe("GET /api/kpis/team", () => {
     mockSession(null);
     const res = await teamGET(getRequest("http://localhost/api/kpis/team"));
     expect(res.status).toBe(401);
+    expect(djangoApiFetch).not.toHaveBeenCalled();
   });
 
-  it("responde 403 para un rol de nivel 1 (no puede ver equipo)", async () => {
+  it("responde 403 si Django rechaza por permisos", async () => {
     mockSession({ role: "ASISTENTE_GH" });
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "Sin permisos" }, 403));
     const res = await teamGET(getRequest("http://localhost/api/kpis/team"));
     expect(res.status).toBe(403);
   });
 
-  it("devuelve users=[] sin consultar tareas si no hay subordinados", async () => {
+  it("reenvía month como query string y mapea el payload a camelCase", async () => {
     mockSession({ role: "JEFE_NACIONAL" });
-    userFindMany.mockResolvedValue([]);
-    const res = await teamGET(getRequest("http://localhost/api/kpis/team"));
-    const body = await res.json();
-    expect(body).toEqual({ users: [] });
-    expect(taskFindMany).not.toHaveBeenCalled();
-  });
-
-  it("calcula completedPct/cargaRatio/score por subordinado a partir de sus tareas y comentarios", async () => {
-    mockSession({ role: "JEFE_NACIONAL" });
-    userFindMany.mockResolvedValue([
-      { id: "sub1", name: "Ana", role: "ASISTENTE_GH" },
-      { id: "sub2", name: "Beto", role: "ASISTENTE_SELECCION" },
-    ]);
-    taskFindMany.mockResolvedValue([
-      { assignedToId: "sub1", status: "COMPLETADA", estimatedHours: 4, realHours: 4, endDate: new Date("2026-06-10"), progress: 100 },
-      { assignedToId: "sub1", status: "PENDIENTE", estimatedHours: 2, realHours: 0, endDate: new Date("2026-06-05"), progress: 0 },
-      { assignedToId: "sub2", status: "EN_PROGRESO", estimatedHours: 3, realHours: 2, endDate: new Date("2026-06-25"), progress: 60 },
-    ]);
-    commentGroupBy.mockResolvedValue([{ authorId: "sub1", _count: { id: 3 } }]);
+    djangoApiFetch.mockResolvedValue(
+      djangoResponse(true, {
+        users: [{ id: "sub1", name: "Ana", completed_pct: 50, carga_ratio: 67, total_tasks: 2, score: 46 }],
+      })
+    );
 
     const res = await teamGET(getRequest("http://localhost/api/kpis/team?month=2026-06"));
     expect(res.status).toBe(200);
+    expect(djangoApiFetch).toHaveBeenCalledWith("/kpis/team/?month=2026-06");
     const body = await res.json();
-
-    const sub1 = body.users.find((u: { id: string }) => u.id === "sub1");
-    const sub2 = body.users.find((u: { id: string }) => u.id === "sub2");
-
-    expect(sub1).toMatchObject({ name: "Ana", completedPct: 50, cargaRatio: Math.round((4 / 6) * 100), totalTasks: 2 });
-    expect(sub1.score).toBe(46); // 20(cumpl) + 20(carga, sin sobrecarga) + 0(calidad) + 6(actividad: 3 comentarios)
-
-    expect(sub2).toMatchObject({ name: "Beto", completedPct: 0, cargaRatio: Math.round((2 / 3) * 100), totalTasks: 1 });
-    expect(sub2.score).toBe(32); // 0(cumpl) + 20(carga) + 12(calidad: progreso 60%) + 0(actividad: sin comentarios)
+    expect(body.users[0]).toMatchObject({ id: "sub1", completedPct: 50, cargaRatio: 67, totalTasks: 2 });
   });
 });
 
@@ -147,51 +97,32 @@ describe("GET /api/kpis/me/range", () => {
     expect(res.status).toBe(401);
   });
 
-  it("responde 400 si faltan los parámetros from/to", async () => {
+  it("responde 401 si Django no tiene sesión disponible", async () => {
     mockSession({});
+    djangoApiFetch.mockResolvedValue(null);
+    const res = await rangeGET(getRequest("http://localhost/api/kpis/me/range?from=2026-01&to=2026-02"));
+    expect(res.status).toBe(401);
+  });
+
+  it("responde 400 con el mensaje de Django si faltan los parámetros from/to", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, { detail: "Faltan los parámetros from/to" }, 400));
     const res = await rangeGET(getRequest("http://localhost/api/kpis/me/range"));
     expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("Faltan los parámetros from/to");
   });
 
-  it("responde 400 si from no es anterior a to", async () => {
-    mockSession({});
-    const res = await rangeGET(getRequest("http://localhost/api/kpis/me/range?from=2026-06&to=2026-06"));
-    expect(res.status).toBe(400);
-  });
-
-  it("responde 400 si el rango resultante tiene menos de 2 meses (meses sin cero a la izquierda invierten el orden numérico)", async () => {
-    mockSession({});
-    // "2026-12" < "2026-2" lexicográficamente, pasa la validación from<to como
-    // string, pero numéricamente diciembre es posterior a febrero → 0 meses generados.
-    const res = await rangeGET(getRequest("http://localhost/api/kpis/me/range?from=2026-12&to=2026-2"));
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toMatch(/al menos 2 meses/);
-  });
-
-  it("responde 400 si el rango supera 24 meses", async () => {
-    mockSession({});
-    const res = await rangeGET(getRequest("http://localhost/api/kpis/me/range?from=2024-01&to=2026-06"));
-    expect(res.status).toBe(400);
-    const body = await res.json();
-    expect(body.error).toMatch(/no puede superar 24 meses/);
-  });
-
-  it("agrega un rango válido de 2 meses con los totales correctos", async () => {
+  it("reenvía from/to como query string y devuelve el reporte mapeado a camelCase", async () => {
     mockSession({ userId: "u1" });
-    taskFindMany.mockResolvedValue([
-      { endDate: new Date("2026-01-15"), status: "COMPLETADA", type: "FIJA", estimatedHours: 5, realHours: 5, progress: 100 },
-      { endDate: new Date("2026-02-10"), status: "PENDIENTE", type: "FIJA", estimatedHours: 3, realHours: 0, progress: 0 },
-    ]);
+    djangoApiFetch.mockResolvedValue(
+      djangoResponse(true, { report: { months: [{ month: "2026-01" }, { month: "2026-02" }], total_tasks: 2 } })
+    );
 
     const res = await rangeGET(getRequest("http://localhost/api/kpis/me/range?from=2026-01&to=2026-02"));
     expect(res.status).toBe(200);
+    expect(djangoApiFetch).toHaveBeenCalledWith("/kpis/me/range/?from=2026-01&to=2026-02");
     const body = await res.json();
-
     expect(body.report.months).toHaveLength(2);
-    expect(body.report.months.map((m: { month: string }) => m.month)).toEqual(["2026-01", "2026-02"]);
-    expect(body.report.aggregated.totalTasks).toBe(2);
-    expect(body.report.aggregated.totalCompletedTasks).toBe(1);
-    expect(["mejora", "deterioro", "estancamiento"]).toContain(body.report.trends.cumplimientoTrend);
+    expect(body.report.totalTasks).toBe(2);
   });
 });

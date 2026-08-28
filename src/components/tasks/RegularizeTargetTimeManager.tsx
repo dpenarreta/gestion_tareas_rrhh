@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import { hoursToDisplay, displayToHours, validateDisplayHours, INVALID_HOURS_MESSAGE } from "@/lib/timeFormat";
 import { formatDate } from "@/lib/utils";
 import { ROLE_LABEL, ALL_ROLES } from "@/lib/roles";

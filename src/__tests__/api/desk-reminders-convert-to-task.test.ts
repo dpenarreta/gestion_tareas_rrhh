@@ -2,29 +2,23 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { SessionPayload } from "@/lib/session";
 import type { NextRequest } from "next/server";
 
-vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
+// Fase 7g de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-18):
+// esta ruta pasó de Prisma a Django — la lógica real (permisos,
+// traducción de prioridad, reutilización de TaskService.create_task) ya
+// vive en `DeskReminderViewSet.convert_to_task`, cubierta en
+// `backend/apps/desk/tests/`.
+const getSession = vi.fn();
+vi.mock("@/lib/session", () => ({ getSession: (...args: unknown[]) => getSession(...args) }));
 
-const personalReminderFindUnique = vi.fn();
-const personalReminderUpdate = vi.fn();
-const taskCreate = vi.fn();
-
-vi.mock("@/lib/prisma", () => ({
-  prisma: {
-    personalReminder: { findUnique: personalReminderFindUnique, update: personalReminderUpdate },
-    task: { create: taskCreate },
-  },
+const djangoApiFetch = vi.fn();
+vi.mock("@/lib/djangoSession", () => ({
+  djangoApiFetch: (...args: unknown[]) => djangoApiFetch(...args),
 }));
 
-vi.mock("@/lib/analytics", () => ({ invalidateAnalyticsCache: vi.fn() }));
-
-const logDeskAudit = vi.fn();
-vi.mock("@/lib/deskAudit", () => ({ logDeskAudit: (...args: unknown[]) => logDeskAudit(...args) }));
-
-const { getSession } = await import("@/lib/session");
 const { POST: convertToTask } = await import("@/app/api/desk-reminders/[id]/convert-to-task/route");
 
 function mockSession(overrides: Partial<SessionPayload> | null) {
-  vi.mocked(getSession).mockResolvedValue(
+  getSession.mockResolvedValue(
     overrides === null
       ? null
       : {
@@ -38,7 +32,7 @@ function mockSession(overrides: Partial<SessionPayload> | null) {
   );
 }
 
-function ctx(id = "r1") {
+function ctx(id = "1") {
   return { params: Promise.resolve({ id }) };
 }
 
@@ -48,21 +42,13 @@ function jsonRequest(body: unknown): NextRequest {
 
 const CONVERT_BODY = { startDate: "2026-08-01", endDate: "2026-08-08", estimatedHours: 1 };
 
-const REMINDER_ROW = {
-  userId: "u1",
-  title: "Llamar a Finanzas",
-  description: "No olvides revisar el contrato",
-  priority: "URGENTE",
-  attachmentName: "contrato.pdf",
-  convertedToTaskId: null,
-};
-
 function resetAll() {
-  personalReminderFindUnique.mockReset();
-  personalReminderUpdate.mockReset();
-  taskCreate.mockReset();
-  logDeskAudit.mockReset();
-  vi.mocked(getSession).mockReset();
+  getSession.mockReset();
+  djangoApiFetch.mockReset();
+}
+
+function djangoResponse(ok: boolean, data: unknown, status = ok ? 200 : 400) {
+  return { ok, status, json: async () => data } as Response;
 }
 
 describe("POST /api/desk-reminders/[id]/convert-to-task", () => {
@@ -76,58 +62,52 @@ describe("POST /api/desk-reminders/[id]/convert-to-task", () => {
 
   it("responde 404 si el recordatorio no existe", async () => {
     mockSession({});
-    personalReminderFindUnique.mockResolvedValue(null);
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, {}, 404));
     const res = await convertToTask(jsonRequest(CONVERT_BODY), ctx());
     expect(res.status).toBe(404);
   });
 
   it("responde 403 si quien convierte no es el dueño del recordatorio", async () => {
-    mockSession({ userId: "u1" });
-    personalReminderFindUnique.mockResolvedValue({ ...REMINDER_ROW, userId: "otro" });
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, {}, 403));
     const res = await convertToTask(jsonRequest(CONVERT_BODY), ctx());
     expect(res.status).toBe(403);
   });
 
   it("responde 409 si ya fue convertido antes", async () => {
-    mockSession({ userId: "u1" });
-    personalReminderFindUnique.mockResolvedValue({ ...REMINDER_ROW, convertedToTaskId: "task-old" });
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, {}, 409));
     const res = await convertToTask(jsonRequest(CONVERT_BODY), ctx());
     expect(res.status).toBe(409);
   });
 
   it("responde 400 si faltan campos requeridos", async () => {
-    mockSession({ userId: "u1" });
-    personalReminderFindUnique.mockResolvedValue(REMINDER_ROW);
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: { details: { estimated_hours: ["Faltan campos requeridos"] } } }, 400));
     const res = await convertToTask(jsonRequest({}), ctx());
     expect(res.status).toBe(400);
   });
 
-  it("URGENTE se traduce a ALTA, referencia el adjunto en la descripción, y marca el recordatorio sin eliminarlo", async () => {
-    mockSession({ userId: "u1" });
-    personalReminderFindUnique.mockResolvedValue(REMINDER_ROW);
-    taskCreate.mockResolvedValue({ id: "task-1", title: "Llamar a Finanzas" });
-    personalReminderUpdate.mockResolvedValue({});
+  it("mapea el body a snake_case y devuelve taskId/taskTitle", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, { task_id: 9, task_title: "Llamar a Finanzas" }, 201));
 
-    const res = await convertToTask(jsonRequest(CONVERT_BODY), ctx("r1"));
+    const res = await convertToTask(jsonRequest(CONVERT_BODY), ctx("1"));
     expect(res.status).toBe(201);
-
-    expect(taskCreate).toHaveBeenCalledWith(
+    expect(djangoApiFetch).toHaveBeenCalledWith(
+      "/desk-reminders/1/convert-to-task/",
       expect.objectContaining({
-        data: expect.objectContaining({
-          title: "Llamar a Finanzas",
-          priority: "ALTA",
-          assignedToId: "u1",
-          createdById: "u1",
-          description: expect.stringContaining("contrato.pdf"),
+        method: "POST",
+        body: JSON.stringify({
+          title: undefined,
+          type: undefined,
+          frequency: undefined,
+          start_date: "2026-08-01",
+          end_date: "2026-08-08",
+          estimated_hours: 1,
         }),
       })
     );
-    expect(personalReminderUpdate).toHaveBeenCalledWith({
-      where: { id: "r1" },
-      data: expect.objectContaining({ convertedToTaskId: "task-1" }),
-    });
-    expect(logDeskAudit).toHaveBeenCalledWith(
-      expect.objectContaining({ entityType: "REMINDER", action: "CONVERTED_TO_TASK", metadata: { taskId: "task-1" } })
-    );
+    expect(await res.json()).toEqual({ taskId: "9", taskTitle: "Llamar a Finanzas" });
   });
 });

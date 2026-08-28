@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Search } from "lucide-react";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import { getNavLinks } from "@/lib/navLinks";
 
 type Props = {

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import { SETTINGS_CATEGORY_LABEL, type SettingsCategory } from "@/lib/settingsCategories";
 import CategoryNav from "@/components/settings/CategoryNav";
 import SearchBox from "@/components/settings/SearchBox";

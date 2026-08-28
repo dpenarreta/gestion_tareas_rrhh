@@ -2,33 +2,23 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { SessionPayload } from "@/lib/session";
 import type { NextRequest } from "next/server";
 
-vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
+// Fase 7g de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-18):
+// esta ruta pasó de Prisma a Django — la lógica real (participantes,
+// límite de 2 respuestas, notificación a la otra parte) ya vive en
+// `DeskNoteViewSet.replies`/`DeskNoteReplyService`, cubierta en
+// `backend/apps/desk/tests/`.
+const getSession = vi.fn();
+vi.mock("@/lib/session", () => ({ getSession: (...args: unknown[]) => getSession(...args) }));
 
-const deskNoteFindUnique = vi.fn();
-const deskNoteReplyFindMany = vi.fn();
-const deskNoteReplyCreate = vi.fn();
-const notificationCreate = vi.fn();
-const systemConfigHistoryFindFirst = vi.fn();
-
-vi.mock("@/lib/prisma", () => ({
-  prisma: {
-    deskNote: { findUnique: deskNoteFindUnique },
-    deskNoteReply: { findMany: deskNoteReplyFindMany, create: deskNoteReplyCreate },
-    notification: { create: notificationCreate },
-    // getEffectiveDeskNoteMaxReplies (Sprint O) consulta esto — sin registro
-    // guardado, cae al default (DEFAULT_DESK_NOTE_MAX_REPLIES = 2).
-    systemConfigHistory: { findFirst: systemConfigHistoryFindFirst },
-  },
+const djangoApiFetch = vi.fn();
+vi.mock("@/lib/djangoSession", () => ({
+  djangoApiFetch: (...args: unknown[]) => djangoApiFetch(...args),
 }));
 
-const logDeskAudit = vi.fn();
-vi.mock("@/lib/deskAudit", () => ({ logDeskAudit: (...args: unknown[]) => logDeskAudit(...args) }));
-
-const { getSession } = await import("@/lib/session");
 const { GET, POST } = await import("@/app/api/desk-notes/[id]/replies/route");
 
 function mockSession(overrides: Partial<SessionPayload> | null) {
-  vi.mocked(getSession).mockResolvedValue(
+  getSession.mockResolvedValue(
     overrides === null
       ? null
       : {
@@ -42,7 +32,7 @@ function mockSession(overrides: Partial<SessionPayload> | null) {
   );
 }
 
-function ctx(id = "n1") {
+function ctx(id = "1") {
   return { params: Promise.resolve({ id }) };
 }
 
@@ -51,35 +41,39 @@ function jsonRequest(body: unknown): NextRequest {
 }
 
 function resetAll() {
-  deskNoteFindUnique.mockReset();
-  deskNoteReplyFindMany.mockReset();
-  deskNoteReplyCreate.mockReset();
-  notificationCreate.mockReset();
-  logDeskAudit.mockReset();
-  systemConfigHistoryFindFirst.mockReset().mockResolvedValue(null);
-  vi.mocked(getSession).mockReset();
+  getSession.mockReset();
+  djangoApiFetch.mockReset();
+}
+
+function djangoResponse(ok: boolean, data: unknown, status = ok ? 200 : 400) {
+  return { ok, status, json: async () => data } as Response;
 }
 
 describe("GET /api/desk-notes/[id]/replies", () => {
   beforeEach(resetAll);
 
+  it("responde 401 si no hay sesión", async () => {
+    mockSession(null);
+    const res = await GET(jsonRequest(undefined), ctx());
+    expect(res.status).toBe(401);
+  });
+
   it("responde 403 si no es participante de la nota", async () => {
-    mockSession({ userId: "otro" });
-    deskNoteFindUnique.mockResolvedValue({ senderId: "s1", recipientId: "u1", deletedAt: null });
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, {}, 403));
     const res = await GET(jsonRequest(undefined), ctx());
     expect(res.status).toBe(403);
   });
 
-  it("devuelve las respuestas en orden cronológico", async () => {
-    mockSession({ userId: "u1" });
-    deskNoteFindUnique.mockResolvedValue({ senderId: "s1", recipientId: "u1", deletedAt: null });
-    deskNoteReplyFindMany.mockResolvedValue([
-      { id: "r1", message: "Ok, reviso", authorId: "u1", author: { name: "Ana" }, createdAt: new Date("2026-07-23T10:00:00Z") },
-    ]);
+  it("devuelve las respuestas mapeadas a la forma Nexo", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(
+      djangoResponse(true, [{ id: 1, message: "Ok, reviso", author: { id: 5, name: "Ana" }, created_at: "2026-07-23T10:00:00Z" }])
+    );
     const res = await GET(jsonRequest(undefined), ctx());
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual([
-      { id: "r1", message: "Ok, reviso", authorId: "u1", authorName: "Ana", createdAt: "2026-07-23T10:00:00.000Z" },
+      { id: "1", message: "Ok, reviso", authorId: "5", authorName: "Ana", createdAt: "2026-07-23T10:00:00Z" },
     ]);
   });
 });
@@ -87,56 +81,43 @@ describe("GET /api/desk-notes/[id]/replies", () => {
 describe("POST /api/desk-notes/[id]/replies", () => {
   beforeEach(resetAll);
 
+  it("responde 401 si no hay sesión", async () => {
+    mockSession(null);
+    const res = await POST(jsonRequest({ message: "hola" }), ctx());
+    expect(res.status).toBe(401);
+  });
+
   it("responde 403 si no es remitente ni destinatario", async () => {
-    mockSession({ userId: "otro" });
-    deskNoteFindUnique.mockResolvedValue({ senderId: "s1", recipientId: "u1", deletedAt: null, _count: { replies: 0 } });
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, {}, 403));
     const res = await POST(jsonRequest({ message: "hola" }), ctx());
     expect(res.status).toBe(403);
   });
 
-  it("responde 409 con el mensaje exacto del pedido al llegar al límite de 2 respuestas", async () => {
-    mockSession({ userId: "u1" });
-    deskNoteFindUnique.mockResolvedValue({ senderId: "s1", recipientId: "u1", deletedAt: null, _count: { replies: 2 } });
+  it("responde 409 con el mensaje exacto del pedido al llegar al límite de respuestas", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, {}, 409));
     const res = await POST(jsonRequest({ message: "una más" }), ctx());
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ error: "Esta conversación alcanzó el límite permitido." });
-    expect(deskNoteReplyCreate).not.toHaveBeenCalled();
   });
 
   it("responde 400 si el mensaje está vacío", async () => {
-    mockSession({ userId: "u1" });
-    deskNoteFindUnique.mockResolvedValue({ senderId: "s1", recipientId: "u1", deletedAt: null, _count: { replies: 0 } });
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: { details: { message: ["Escribe un mensaje"] } } }, 400));
     const res = await POST(jsonRequest({ message: "   " }), ctx());
     expect(res.status).toBe(400);
   });
 
-  it("el destinatario responde: notifica al remitente (la otra parte) y audita REPLIED", async () => {
-    mockSession({ userId: "u1", name: "Bea" });
-    deskNoteFindUnique.mockResolvedValue({ senderId: "s1", recipientId: "u1", deletedAt: null, _count: { replies: 0 } });
-    deskNoteReplyCreate.mockResolvedValue({
-      id: "r1", message: "Ok, reviso", authorId: "u1", author: { name: "Bea" }, createdAt: new Date("2026-07-23T10:00:00Z"),
-    });
-
-    const res = await POST(jsonRequest({ message: "Ok, reviso" }), ctx("n1"));
-    expect(res.status).toBe(201);
-    expect(notificationCreate).toHaveBeenCalledWith({
-      data: { userId: "s1", message: "Bea respondió tu Nota Rápida." },
-    });
-    expect(logDeskAudit).toHaveBeenCalledWith(
-      expect.objectContaining({ entityType: "NOTE", entityId: "n1", action: "REPLIED" })
+  it("crea la respuesta y devuelve 201 con la forma Nexo", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(
+      djangoResponse(true, { id: 1, message: "Ok, reviso", author: { id: 5, name: "Bea" }, created_at: "2026-07-23T10:00:00Z" }, 201)
     );
-  });
 
-  it("el remitente responde: notifica al destinatario (la otra parte)", async () => {
-    mockSession({ userId: "s1", name: "Carlos" });
-    deskNoteFindUnique.mockResolvedValue({ senderId: "s1", recipientId: "u1", deletedAt: null, _count: { replies: 1 } });
-    deskNoteReplyCreate.mockResolvedValue({
-      id: "r2", message: "Gracias", authorId: "s1", author: { name: "Carlos" }, createdAt: new Date("2026-07-23T11:00:00Z"),
-    });
-
-    await POST(jsonRequest({ message: "Gracias" }), ctx("n1"));
-    expect(notificationCreate).toHaveBeenCalledWith({
-      data: { userId: "u1", message: "Carlos respondió tu Nota Rápida." },
-    });
+    const res = await POST(jsonRequest({ message: "Ok, reviso" }), ctx("1"));
+    expect(res.status).toBe(201);
+    expect(djangoApiFetch).toHaveBeenCalledWith("/desk-notes/1/replies/", expect.objectContaining({ body: JSON.stringify({ message: "Ok, reviso" }) }));
+    expect(await res.json()).toEqual({ id: "1", message: "Ok, reviso", authorId: "5", authorName: "Bea", createdAt: "2026-07-23T10:00:00Z" });
   });
 });

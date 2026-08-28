@@ -1,32 +1,26 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import type { DataRequestType } from "@/generated/prisma/client";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import { mapDjangoDataRequestToNexoShape, type DjangoDataSubjectRequest } from "@/lib/djangoDataRequestsAdapter";
 
-const VALID_TYPES: DataRequestType[] = ["ACCESO", "RECTIFICACION", "ELIMINACION"];
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
-const TYPE_LABEL: Record<DataRequestType, string> = {
-  ACCESO: "acceso a mis datos",
-  RECTIFICACION: "rectificación de datos",
-  ELIMINACION: "eliminación de cuenta",
-};
-
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-24): esta ruta pasó de
+// Prisma a Django. La visibilidad (todas si es Administrador, solo propias
+// si no) y la notificación a administradores (rectificación/eliminación)
+// ya viven en `apps.data_requests.services`.
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const isAdmin = session.role === "ADMINISTRADOR";
+  const response = await djangoApiFetch("/data-requests/");
+  if (!response || !response.ok) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
 
-  const requests = await prisma.dataSubjectRequest.findMany({
-    where: isAdmin ? undefined : { userId: session.userId },
-    include: {
-      user: { select: { id: true, name: true, email: true, role: true } },
-      resolver: { select: { id: true, name: true } },
-    },
-    orderBy: { createdAt: "desc" },
-  });
-
-  return NextResponse.json(requests);
+  const requests: DjangoDataSubjectRequest[] = await response.json();
+  return NextResponse.json(requests.map(mapDjangoDataRequestToNexoShape));
 }
 
 export async function POST(request: NextRequest) {
@@ -40,35 +34,17 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Cuerpo inválido" }, { status: 400 });
   }
 
-  const { type, description } = body;
-  if (!type || !VALID_TYPES.includes(type as DataRequestType)) {
+  const response = await djangoApiFetch("/data-requests/", {
+    method: "POST",
+    body: JSON.stringify({ type: body.type, description: body.description }),
+  });
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (!response.ok) {
     return NextResponse.json({ error: "Tipo de solicitud inválido" }, { status: 400 });
   }
 
-  const dataRequest = await prisma.dataSubjectRequest.create({
-    data: {
-      userId: session.userId,
-      type: type as DataRequestType,
-      description: description?.trim() || null,
-    },
-  });
-
-  // El acceso directo se resuelve al instante desde /api/data-requests/my-data;
-  // solo rectificación y eliminación requieren gestión manual del Administrador.
-  if (type !== "ACCESO") {
-    const admins = await prisma.user.findMany({
-      where: { role: "ADMINISTRADOR" },
-      select: { id: true },
-    });
-    if (admins.length > 0) {
-      await prisma.notification.createMany({
-        data: admins.map((a) => ({
-          userId: a.id,
-          message: `${session.name} solicitó ${TYPE_LABEL[type as DataRequestType]}`,
-        })),
-      });
-    }
-  }
-
-  return NextResponse.json(dataRequest, { status: 201 });
+  const created: DjangoDataSubjectRequest = await response.json();
+  return NextResponse.json(mapDjangoDataRequestToNexoShape(created), { status: 201 });
 }

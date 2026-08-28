@@ -1,5 +1,12 @@
 import "server-only";
-import type { ReminderPriority, ReminderStatus, ReminderRepeat } from "@/generated/prisma/client";
+
+// Cutover de stack — Fase 90 (ver docs/AUDIT_LOG.md § 2026-08-28): ya no se
+// importan del cliente Prisma generado (retirado del repo) — mismos
+// valores que `prisma/schema.prisma` tenía, réplica exacta de
+// `PersonalReminder.priority`/`.status`/`.repeat` (Django).
+export type ReminderPriority = "BAJA" | "MEDIA" | "ALTA" | "URGENTE";
+export type ReminderStatus = "PENDIENTE" | "COMPLETADO";
+export type ReminderRepeat = "UNA_VEZ" | "DIARIO" | "SEMANAL" | "MENSUAL";
 
 // Compartido entre las rutas de /api/desk-reminders.
 export const reminderSelect = {

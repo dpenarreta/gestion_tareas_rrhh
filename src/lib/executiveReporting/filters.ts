@@ -3,7 +3,7 @@
 // shape, discriminado por `periodo.tipoReporte`, en vez de parámetros sueltos
 // distintos por endpoint. `roles`/`areas`/`colaboradores` siempre NARROWAN el
 // roster ya acotado por seguridad — nunca lo amplían (ver resolveRoster.ts).
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 
 export type ExecutiveReportPeriodFilter =
   | { tipoReporte: "MENSUAL"; month: number; year: number }

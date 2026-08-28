@@ -1,51 +1,37 @@
-import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { getVisibleRoles } from "@/lib/roles";
-import { cached } from "@/lib/analytics";
-import { getEffectiveAnalyticsConfig } from "@/lib/systemConfig";
-import { computeCumplimientoProjection, computeSobrecargaProbability, computeOperationalStability, computeTaskDelayPrediction } from "@/lib/predictionEngine";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import { mapDjangoPredictivePayloadToNexoShape } from "@/lib/djangoPredictiveAdapter";
+
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
 type Ctx = { params: Promise<{ userId: string }> };
 
-// Máximo de tareas abiertas evaluadas por predicción de retraso individual —
-// cada llamada a computeTaskDelayPrediction recalcula capacidad/consistencia
-// del MISMO usuario (redundante entre tareas), acotado para no degradar el
-// tiempo de respuesta cuando alguien tiene muchas tareas abiertas a la vez.
-const MAX_TASK_DELAY_PREDICTIONS = 10;
-
-async function computeBundle(userId: string, now: Date) {
-  const [cumplimiento, sobrecarga, estabilidad, openTasks] = await Promise.all([
-    computeCumplimientoProjection(userId, now),
-    computeSobrecargaProbability(userId, now),
-    computeOperationalStability(userId, now),
-    prisma.task.findMany({
-      where: { assignedToId: userId, status: { not: "COMPLETADA" }, archivedMonth: null },
-      select: { id: true, title: true, endDate: true },
-      orderBy: { endDate: "asc" },
-      take: MAX_TASK_DELAY_PREDICTIONS,
-    }),
-  ]);
-  const taskDelays = await Promise.all(
-    openTasks.map(async (t) => ({ taskId: t.id, title: t.title, prediction: await computeTaskDelayPrediction(t.id, now) }))
-  );
-  return { cumplimiento, sobrecarga, estabilidad, taskDelays };
-}
-
-export async function GET(request: NextRequest, ctx: Ctx) {
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-24): réplica de
+// `PredictionBundleView` (backend, Fase 9) — mismo patrón que
+// `analytics/[userId]/route.ts` (Fase 4m). La visibilidad jerárquica real
+// (404/403) vive en `PredictionBundleView`.
+export async function GET(request: Request, ctx: Ctx) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+
   const { userId } = await ctx.params;
 
-  if (session.userId !== userId) {
-    const target = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } });
-    if (!target || !getVisibleRoles(session.role).includes(target.role)) {
-      return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
-    }
+  const response = await djangoApiFetch(`/predictive/predictions/${userId}/`);
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 404) {
+    return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
+  }
+  if (response.status === 403) {
+    return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
+  }
+  if (!response.ok) {
+    return NextResponse.json({ error: "Error al obtener las predicciones" }, { status: response.status });
   }
 
-  const now = new Date();
-  const config = await getEffectiveAnalyticsConfig(now);
-  const { value, fromCache } = await cached(`prediction-engine:${userId}`, config.cacheTtlMinutes, () => computeBundle(userId, now));
-  return NextResponse.json({ ...value, fromCache });
+  const payload = mapDjangoPredictivePayloadToNexoShape(await response.json());
+  return NextResponse.json(payload);
 }

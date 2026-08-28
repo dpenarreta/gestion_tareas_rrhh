@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import type { TaskActivity, ActivityComment } from "./types";
 import { reasonLabel, reasonIsActive, reasonIsArchived, reasonColorClass, formatDuration, type ActivityReasonConfig } from "./activityReasons";
 import { Modal, ModalHeader } from "@/components/ui/Modal";

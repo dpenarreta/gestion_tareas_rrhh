@@ -1,6 +1,6 @@
 # Registro de Actividades de Tratamiento (RAT) — Nexo
 
-> **Estado: borrador técnico.** Este documento fue generado a partir de la revisión del código fuente, el esquema de base de datos (`prisma/schema.prisma`) y la configuración del repositorio de Nexo. Describe con precisión **qué hace el sistema hoy**, no constituye una conclusión legal ni sustituye la validación formal exigida por la Ley Orgánica de Protección de Datos Personales (LOPDP) de Ecuador. Los campos marcados como `[Completar: ...]` requieren información que solo el área legal/administrativa de la organización puede proporcionar. Ver también README, sección 16.
+> **Estado: borrador técnico.** Este documento fue generado originalmente a partir de la revisión del código fuente, el esquema de base de datos (`prisma/schema.prisma`) y la configuración del repositorio de Nexo, sobre el stack Next.js/Prisma/PostgreSQL desplegado en Vercel + Neon. **Actualizado el 2026-08-28** tras completarse una migración de stack completa a Django/DRF + SQL Server (ver `docs/AUDIT_LOG.md` § 2026-08-28, "Fases 87-90" y "Decommission del servicio físico de PostgreSQL local") — Neon y Vercel ya NO forman parte de la arquitectura del sistema (sección 6). Describe con precisión **qué hace el sistema hoy**, no constituye una conclusión legal ni sustituye la validación formal exigida por la Ley Orgánica de Protección de Datos Personales (LOPDP) de Ecuador. Los campos marcados como `[Completar: ...]` requieren información que solo el área legal/administrativa de la organización puede proporcionar. Ver también README, sección 16.
 
 > **Este documento es un borrador técnico. Los campos marcados como PENDIENTE deben ser completados y validados por el área legal de la organización antes de su uso formal como Registro de Actividades de Tratamiento conforme a la LOPDP Ecuador.**
 
@@ -77,14 +77,33 @@ Los tres tipos de dato que introduce el módulo de ausencias/estado especial (`L
 | Groq | Procesamiento de lenguaje natural para el asistente Nova y el análisis automático de informes | Contenido de las consultas al asistente y, cuando corresponde, texto de documentos de la base de conocimiento |
 | GitHub | Almacenamiento del repositorio privado de documentos de la base de conocimiento de RRHH | Documentos cargados a la base de conocimiento (pueden contener datos de personal) |
 | Zoom | Coordinación de reuniones (API Server-to-Server OAuth) | Título, fecha/hora y lista de invitados (nombre/correo) de las reuniones creadas |
-| Neon | Alojamiento de la base de datos PostgreSQL gestionada donde reside toda la información estructurada del sistema | La totalidad de los datos personales listados en la sección 5 |
-| Vercel | Hosting y despliegue de la aplicación (incluye la ejecución de las funciones serverless que procesan cada solicitud) | Todo el tráfico de la aplicación en tránsito |
 
-**Los acuerdos de encargado de tratamiento (o equivalentes) con estos cinco proveedores, así como la evaluación de transferencias internacionales de datos que su uso implica, son responsabilidad del área legal de la organización — no son un pendiente técnico del sistema.** El sistema no puede formalizar por sí mismo estos acuerdos contractuales.
+**RETIRADOS (2026-08-28) — Neon (base de datos PostgreSQL gestionada) y Vercel
+(hosting/despliegue) dejaron de formar parte de la arquitectura del sistema.**
+El código ya no tiene ninguna dependencia técnica de ninguno de los dos
+(verificado: sin `prisma`, sin `DATABASE_URL`, sin configuración de Vercel en
+el repositorio) — la migración de stack reemplazó esa infraestructura por
+Django/DRF + SQL Server. **Salvedad operativa, no técnica:** la baja EFECTIVA
+de las cuentas/proyectos de Neon y Vercel (o su continuidad) es una gestión
+que el responsable del tratamiento debe completar directamente en los
+paneles de esos proveedores — este documento registra que el sistema ya no
+los necesita, no certifica que las cuentas externas ya estén dadas de baja.
+Si en el momento de leer esto esas cuentas siguen activas sin usarse, no
+cambia la evaluación de riesgo LOPDP más allá de mantener la obligación de
+formalizar (o, si corresponde, dar de baja) cualquier acuerdo de encargado de
+tratamiento pendiente con ellos por el período en que sí procesaron datos.
+
+**Los acuerdos de encargado de tratamiento (o equivalentes) con los tres
+proveedores vigentes (Groq, GitHub, Zoom), así como la evaluación de
+transferencias internacionales de datos que su uso implica, son
+responsabilidad del área legal de la organización — no son un pendiente
+técnico del sistema.** El sistema no puede formalizar por sí mismo estos
+acuerdos contractuales.
 
 ## 7. Transferencias internacionales de datos
 
-Los cinco proveedores listados en la sección 6 operan infraestructura fuera de Ecuador. `[Completar: el área legal debe evaluar si esto constituye una transferencia internacional de datos personales bajo la LOPDP y, de ser así, qué garantías adicionales aplican]`.
+Los tres proveedores vigentes listados en la sección 6 (Groq, GitHub, Zoom)
+operan infraestructura fuera de Ecuador. `[Completar: el área legal debe evaluar si esto constituye una transferencia internacional de datos personales bajo la LOPDP y, de ser así, qué garantías adicionales aplican]`.
 
 ## 8. Ejercicio de derechos de los titulares
 
@@ -128,7 +147,7 @@ La depuración de informes/tareas/documentos no es automática: el Administrador
 - Envío de contenido potencialmente sensible (consultas de RRHH, contenido de documentos internos) a un proveedor externo de procesamiento de lenguaje (Groq) como parte del funcionamiento del asistente Nova.
 - Almacenamiento de documentos internos de RRHH, que pueden contener datos de personal, en un repositorio de un proveedor externo (GitHub), fuera del perímetro directo de la base de datos de la aplicación.
 - Transferencia de datos de invitados (nombre/correo) a la API de Zoom al programar reuniones.
-- Dependencia de proveedores de infraestructura (Neon, Vercel) que alojan la totalidad de los datos personales y el tráfico de la aplicación, sin que existan hoy acuerdos de encargado de tratamiento formalizados con ninguno de los cinco proveedores externos.
+- Sin acuerdos de encargado de tratamiento formalizados con ninguno de los tres proveedores externos vigentes (Groq, GitHub, Zoom). Neon y Vercel dejaron de ser parte de la arquitectura (ver sección 6) — cualquier obligación pendiente con ellos queda acotada al período en que sí procesaron datos.
 - Almacenamiento de datos de salud (permisos médicos, `LeaveRecord`) sin plazo de conservación definido ni base de legitimación diferenciada — categoría especial de datos que requiere una evaluación legal específica, distinta del resto del tratamiento de RRHH (ver sección 3 y sección 9).
 
 ## 12. Validación pendiente
@@ -137,7 +156,7 @@ Este documento es de carácter técnico y funcional, basado en la revisión del 
 
 1. Completar los campos `[Completar: ...]` de este documento con información que solo el área legal/administrativa de la organización posee.
 2. Validación formal por parte de asesoría legal especializada en protección de datos en Ecuador.
-3. Formalización de acuerdos de encargado de tratamiento con Groq, GitHub, Zoom, Neon y Vercel.
+3. Formalización de acuerdos de encargado de tratamiento con los proveedores vigentes (Groq, GitHub, Zoom) — Neon y Vercel se retiraron de la arquitectura el 2026-08-28 (ver sección 6).
 
 ---
 

@@ -10,12 +10,12 @@
 
 ## 2. Acuerdos de encargado de tratamiento con proveedores externos
 
-Nexo utiliza cinco proveedores externos que procesan datos personales: **Groq** (IA), **GitHub** (almacenamiento documental), **Zoom** (videoconferencia), **Neon** (base de datos PostgreSQL gestionada) y **Vercel** (hosting/despliegue). Ninguno tiene hoy un acuerdo de encargado de tratamiento (o equivalente) formalizado. Esto es responsabilidad del área legal — el sistema no puede formalizar estos acuerdos por sí mismo (`docs/RAT.md`, sección 6).
+Nexo utiliza tres proveedores externos vigentes que procesan datos personales: **Groq** (IA), **GitHub** (almacenamiento documental) y **Zoom** (videoconferencia). Ninguno tiene hoy un acuerdo de encargado de tratamiento (o equivalente) formalizado. Esto es responsabilidad del área legal — el sistema no puede formalizar estos acuerdos por sí mismo (`docs/RAT.md`, sección 6). **Neon** (base de datos PostgreSQL gestionada) y **Vercel** (hosting/despliegue) se retiraron de la arquitectura el 2026-08-28 tras la migración de stack a Django/SQL Server — cualquier obligación pendiente con ellos queda acotada al período en que sí procesaron datos; su baja efectiva como cuentas/proyectos activos es una gestión operativa del responsable del tratamiento, fuera del alcance técnico del sistema.
 
 ## 3. Validación legal formal LOPDP y transferencias internacionales
 
 - Validación formal del cumplimiento LOPDP por asesoría jurídica especializada en protección de datos en Ecuador.
-- Evaluar si el uso de los cinco proveedores externos (todos con infraestructura fuera de Ecuador) constituye una transferencia internacional de datos personales bajo la LOPDP y, de ser así, qué garantías adicionales aplican (`docs/RAT.md`, sección 7).
+- Evaluar si el uso de los tres proveedores externos vigentes (todos con infraestructura fuera de Ecuador) constituye una transferencia internacional de datos personales bajo la LOPDP y, de ser así, qué garantías adicionales aplican (`docs/RAT.md`, sección 7).
 - Validar que el flujo de eliminación de cuenta (gestión manual del Administrador tras la solicitud del titular) cumple los plazos y garantías exigidos por la ley (`docs/RAT.md`, sección 8).
 
 ## 4. Plazo de conservación de permisos médicos y personales (`LeaveRecord`)

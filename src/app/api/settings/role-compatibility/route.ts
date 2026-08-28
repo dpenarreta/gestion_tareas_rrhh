@@ -1,22 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { canManageUsers, ALL_ROLES, ROLE_LABEL, ROLE_LEVEL } from "@/lib/roles";
-import { getAllEffectiveRoleCompatibility, setRoleCompatibility } from "@/lib/systemConfig";
-import { invalidateAnalyticsCache } from "@/lib/analytics";
-import type { Role } from "@/generated/prisma/client";
+import { ALL_ROLES, ROLE_LABEL, ROLE_LEVEL, canManageUsers } from "@/lib/roles";
+import { djangoApiFetch, extractDjangoFlatErrorMessage } from "@/lib/djangoSession";
+import type { Role } from "@/lib/roles";
+
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
+
+type DjangoRoleCompatibilityResponse = { matrix: Record<string, string[]> };
 
 /**
  * Matriz de Compatibilidad Operativa — usada únicamente por el motor
- * determinista de recomendaciones (`computeTeamRecommendations`, `analytics.ts`)
- * para decidir con qué otros cargos del MISMO nivel jerárquico puede
- * redistribuirse carga cuando no hay nadie disponible del mismo cargo.
- * Mismo grupo de acceso que el resto de configuración de Analytics.
+ * determinista de recomendaciones (Django, `analytics/recommendations/team`,
+ * Fase 24/47 — el único caller real que le quedaba del lado Next.js,
+ * `analytics.ts::computeTeamRecommendations`, es código muerto desde la
+ * Fase 47, ver docs/AUDIT_LOG.md § 2026-08-24).
  */
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-  const matrix = await getAllEffectiveRoleCompatibility(ALL_ROLES);
-  return NextResponse.json({ matrix, roles: ALL_ROLES, roleLabels: ROLE_LABEL, roleLevels: ROLE_LEVEL });
+
+  const response = await djangoApiFetch("/settings/role-compatibility/");
+  if (!response || !response.ok) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+
+  const data = (await response.json()) as DjangoRoleCompatibilityResponse;
+  return NextResponse.json({ matrix: data.matrix, roles: ALL_ROLES, roleLabels: ROLE_LABEL, roleLevels: ROLE_LEVEL });
 }
 
 export async function PATCH(request: NextRequest) {
@@ -39,8 +49,8 @@ export async function PATCH(request: NextRequest) {
   }
 
   // Regla 4 (dura): nunca configurable entre niveles jerárquicos distintos —
-  // se rechaza aquí ADEMÁS del filtro absoluto en computeTeamRecommendations
-  // (defensa en profundidad, no redundancia inútil).
+  // se rechaza aquí ADEMÁS del filtro absoluto en Django
+  // (compute_team_recommendations), defensa en profundidad.
   const invalidLevel = (compatibleRoles as Role[]).find((r) => ROLE_LEVEL[r] !== ROLE_LEVEL[role as Role]);
   if (invalidLevel) {
     return NextResponse.json(
@@ -50,9 +60,19 @@ export async function PATCH(request: NextRequest) {
   }
 
   const cleaned = (compatibleRoles as Role[]).filter((r) => r !== role);
-  await setRoleCompatibility(role as Role, cleaned, session.userId);
-  invalidateAnalyticsCache();
 
-  const matrix = await getAllEffectiveRoleCompatibility(ALL_ROLES);
-  return NextResponse.json({ matrix });
+  const response = await djangoApiFetch("/settings/role-compatibility/", {
+    method: "PATCH",
+    body: JSON.stringify({ role, compatible_roles: cleaned }),
+  });
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (!response.ok) {
+    const message = await extractDjangoFlatErrorMessage(response);
+    return NextResponse.json({ error: message ?? "Datos inválidos" }, { status: response.status === 403 ? 403 : 400 });
+  }
+
+  const data = (await response.json()) as DjangoRoleCompatibilityResponse;
+  return NextResponse.json({ matrix: data.matrix });
 }

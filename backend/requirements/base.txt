@@ -1,0 +1,27 @@
+Django==5.1.15
+djangorestframework==3.15.2
+djangorestframework-simplejwt==5.5.1
+django-cors-headers==4.6.0
+django-environ==0.11.2
+mssql-django==1.7.4
+pyodbc==5.2.0
+argon2-cffi==23.1.0
+python-json-logger==2.0.7
+drf-spectacular==0.30.0
+# requests: primera integración HTTP saliente del backend (Zoom OAuth
+# Server-to-Server, apps.meetings, Fase 10 — ver docs/AUDIT_LOG.md §
+# 2026-08-19). Sin precedente previo que copiar (NOVA/Groq no se
+# portaron); se elige por ser el cliente HTTP síncrono más simple y
+# probado, consistente con el resto del stack síncrono DRF.
+requests==2.32.3
+# openpyxl: lectura/escritura de .xlsx para la plantilla e importador
+# masivo de Tareas (Fase 3e, ver docs plan de esa sub-fase).
+openpyxl==3.1.5
+# --- Ventana de migracion de usuarios legacy (ver docs plan Fase 1) ---
+# bcrypt: fallback de PASSWORD_HASHERS para verificar hashes bcryptjs
+# importados de Postgres hasta que cada usuario vuelva a loguearse (re-hash
+# perezoso a Argon2). psycopg2-binary: lectura de la tabla User de Postgres
+# desde el comando de management `migrate_users_from_postgres`. Ambos se
+# retiran en la tarea de limpieza de decommission (ver hoja de ruta).
+bcrypt==4.2.1
+psycopg2-binary==2.9.10

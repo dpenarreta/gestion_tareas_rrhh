@@ -1,10 +1,11 @@
 import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { getSession } from "@/lib/session";
-import { prisma } from "@/lib/prisma";
 import { getVisibleRoles } from "@/lib/roles";
-import { attachUnreadComments } from "@/lib/commentViews";
 import { getActivityFormat } from "@/lib/activityFormat";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import { fetchOwnDjangoTasks, fetchDjangoCurrentUserId, mapDjangoTaskToNexoShape } from "@/lib/djangoTasksAdapter";
+import { fetchAllDjangoUsers, mapDjangoUserToNexoShape } from "@/lib/djangoUsersAdapter";
 import TasksModule from "@/components/tasks/TasksModule";
 import type { ViewType } from "@/components/tasks/types";
 
@@ -18,59 +19,34 @@ export default async function TasksPage() {
 
   const visibleRoles = getVisibleRoles(session.role);
 
-  const [user, tasks, assignableUsers] = await Promise.all([
-    prisma.user.findUnique({
-      where: { id: session.userId },
-      select: { viewPreferences: true },
-    }),
-    prisma.task.findMany({
-      where: { assignedToId: session.userId, archivedMonth: null },
-      select: {
-        id: true,
-        title: true,
-        description: true,
-        type: true,
-        status: true,
-        priority: true,
-        frequency: true,
-        startDate: true,
-        endDate: true,
-        estimatedHours: true,
-        realHours: true,
-        targetTimeValidated: true,
-        progress: true,
-        color: true,
-        corrected: true,
-        assignedTo: { select: { id: true, name: true, email: true, role: true } },
-        createdBy: { select: { id: true, name: true } },
-        _count: { select: { comments: true } },
-        createdAt: true,
-        updatedAt: true,
-      },
-      orderBy: { createdAt: "desc" },
-    }),
-    prisma.user.findMany({
-      where: { role: { in: visibleRoles } },
-      select: { id: true, name: true, email: true, role: true },
-      orderBy: { name: "asc" },
-    }),
+  // Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-25, Fase 55): cierra
+  // el gap explícito documentado desde la Fase 3a — `view_preferences` ya
+  // vive en Django (`GET /users/<id>/view-preferences/`), así que
+  // `currentUserId` pasa a ser el id numérico de Django (antes era el cuid
+  // de Postgres, porque este mismo endpoint seguía comparando contra
+  // `session.userId`). Si no hay sesión Django todavía (puente no
+  // establecido para esta sesión), se degrada a listas vacías/valores por
+  // defecto — nunca rompe la página.
+  const [djangoUserId, djangoTasks, djangoUsers] = await Promise.all([
+    fetchDjangoCurrentUserId(),
+    fetchOwnDjangoTasks(),
+    fetchAllDjangoUsers(),
   ]);
 
-  const tasksWithUnread = await attachUnreadComments(tasks, session.userId);
-  const serializedTasks = tasksWithUnread.map((t) => ({
-    ...t,
-    startDate: t.startDate.toISOString(),
-    endDate: t.endDate.toISOString(),
-    createdAt: t.createdAt.toISOString(),
-    updatedAt: t.updatedAt.toISOString(),
-  }));
+  const viewPreferencesResponse = djangoUserId ? await djangoApiFetch(`/users/${djangoUserId}/view-preferences/`) : null;
+  const viewPreferences: string[] =
+    viewPreferencesResponse?.ok ? ((await viewPreferencesResponse.json()) as { view_preferences: string[] }).view_preferences : [];
+
+  const serializedTasks = (djangoTasks ?? []).map(mapDjangoTaskToNexoShape);
+  const assignableUsers = (djangoUsers ?? [])
+    .map(mapDjangoUserToNexoShape)
+    .filter((u) => visibleRoles.includes(u.role))
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   const VALID_VIEWS: ViewType[] = ["KANBAN", "TABLA", "GANTT"];
-  const taskViews = (user?.viewPreferences ?? ["KANBAN", "TABLA"]).filter((v) =>
-    VALID_VIEWS.includes(v as ViewType)
-  ) as ViewType[];
+  const taskViews = viewPreferences.filter((v) => VALID_VIEWS.includes(v as ViewType)) as ViewType[];
 
-  const currentActivityFormat = getActivityFormat(user?.viewPreferences);
+  const currentActivityFormat = getActivityFormat(viewPreferences);
 
   return (
     <div>
@@ -79,7 +55,7 @@ export default async function TasksPage() {
           initialTasks={serializedTasks}
           initialViews={taskViews.length > 0 ? taskViews : ["KANBAN", "TABLA"]}
           initialUsers={assignableUsers}
-          currentUserId={session.userId}
+          currentUserId={djangoUserId ?? session.userId}
           currentUserRole={session.role}
           currentActivityFormat={currentActivityFormat}
         />

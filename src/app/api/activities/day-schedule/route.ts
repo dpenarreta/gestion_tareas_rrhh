@@ -1,51 +1,38 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { businessCalendarDay, businessDayRealRange } from "@/lib/businessTime";
-
-/** "YYYY-MM-DD" -> Date UTC-medianoche. */
-function parseDateOnly(value: string): Date | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const [y, m, d] = value.split("-").map(Number);
-  const parsed = new Date(Date.UTC(y, m - 1, d));
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
-}
+import { djangoApiFetch } from "@/lib/djangoSession";
 
 /**
  * Actividades del usuario en sesión, con hora inicio/fin registrada, en
  * cualquier tarea SEGUIMIENTO (no FIJA), para un día dado — usado por el
  * cliente para validar solapamientos de horario antes de guardar. Sin
  * `date`, usa el día calendario de negocio actual.
+ *
+ * Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-21): las Actividades que
+ * este endpoint valida ya se escriben exclusivamente en Django desde el
+ * cutover de Tareas — la versión anterior leía Postgres, sin ver las
+ * actividades registradas después de ese cutover (validación de solapamiento
+ * incompleta). `DayScheduleView` (Fase 26) es réplica exacta, ya en
+ * camelCase — no requiere mapeo de campos.
  */
 export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
   const dateParam = request.nextUrl.searchParams.get("date");
-  const day = dateParam ? parseDateOnly(dateParam) : businessCalendarDay(new Date());
-  if (!day) {
-    return NextResponse.json({ error: "Fecha inválida" }, { status: 400 });
+  const query = dateParam ? `?date=${encodeURIComponent(dateParam)}` : "";
+
+  const response = await djangoApiFetch(`/activities/day-schedule/${query}`);
+  if (!response) {
+    return NextResponse.json(
+      { error: "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión." },
+      { status: 401 }
+    );
+  }
+  if (!response.ok) {
+    const data = await response.json().catch(() => null);
+    return NextResponse.json({ error: data?.error ?? "Fecha inválida" }, { status: 400 });
   }
 
-  const { start, end } = businessDayRealRange(day);
-  const activities = await prisma.taskActivity.findMany({
-    where: {
-      authorId: session.userId,
-      createdAt: { gte: start, lte: end },
-      startTime: { not: null },
-      endTime: { not: null },
-      task: { type: "SEGUIMIENTO" },
-    },
-    select: { id: true, startTime: true, endTime: true, taskId: true, task: { select: { title: true } } },
-  });
-
-  return NextResponse.json(
-    activities.map((a) => ({
-      id: a.id,
-      startTime: a.startTime,
-      endTime: a.endTime,
-      taskId: a.taskId,
-      taskTitle: a.task.title,
-    }))
-  );
+  return NextResponse.json(await response.json());
 }

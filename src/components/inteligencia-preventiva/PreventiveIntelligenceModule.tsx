@@ -1,6 +1,6 @@
 "use client";
 
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import { isExecutorRole, canViewTeam } from "@/lib/roles";
 import TrendOverviewCards from "./TrendOverviewCards";
 import OperationalStabilityCard from "./OperationalStabilityCard";

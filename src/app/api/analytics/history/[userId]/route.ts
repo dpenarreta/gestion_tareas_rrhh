@@ -1,42 +1,44 @@
-import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { getVisibleRoles } from "@/lib/roles";
-import { getScoreSeries, type AuditKind } from "@/lib/analyticsAuditHistory";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import { mapDjangoAnalyticsPayloadToNexoShape } from "@/lib/djangoAnalyticsAdapter";
+
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
 type Ctx = { params: Promise<{ userId: string }> };
 
-const VALID_KINDS: AuditKind[] = ["performance_score", "operational_risk", "health_score"];
-const VALID_MONTHS = [1, 3, 6, 12] as const;
-
-/**
- * Sprint A §7 — histórico de evolución con selector de período. Lectura pura
- * sobre `AnalyticsAuditLog` vía `analyticsAuditHistory.ts` (capa complementaria,
- * no el motor) — nunca recalcula un score, solo lee lo que el motor ya
- * persistió en cada corrida.
- */
-export async function GET(request: Request, ctx: Ctx) {
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-24): réplica de
+// `HistoryView` (backend, Fase 17) — mismo patrón que
+// `analytics/insights/[userId]/route.ts`, con `kind`/`months` reenviados
+// como query params tal cual (la validación/default de ambos ya vive en
+// Django).
+export async function GET(request: NextRequest, ctx: Ctx) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
   const { userId } = await ctx.params;
-  const targetUser = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true } });
-  if (!targetUser) return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
+  const kind = request.nextUrl.searchParams.get("kind");
+  const months = request.nextUrl.searchParams.get("months");
+  const query = new URLSearchParams();
+  if (kind) query.set("kind", kind);
+  if (months) query.set("months", months);
+  const suffix = query.toString() ? `?${query.toString()}` : "";
 
-  const isSelf = session.userId === userId;
-  if (!isSelf && !getVisibleRoles(session.role).includes(targetUser.role)) {
+  const response = await djangoApiFetch(`/analytics/history/${userId}/${suffix}`);
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 404) {
+    return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
+  }
+  if (response.status === 403) {
     return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
   }
+  if (!response.ok) {
+    return NextResponse.json({ error: "Error al obtener el histórico" }, { status: response.status });
+  }
 
-  const { searchParams } = new URL(request.url);
-  const kindParam = searchParams.get("kind");
-  const monthsParam = Number(searchParams.get("months"));
-
-  const kind = VALID_KINDS.includes(kindParam as AuditKind) ? (kindParam as AuditKind) : "performance_score";
-  const months = (VALID_MONTHS as readonly number[]).includes(monthsParam) ? monthsParam : 3;
-
-  const now = new Date();
-  const points = await getScoreSeries(userId, kind, now, months * 31);
-
-  return NextResponse.json({ kind, months, points });
+  const payload = mapDjangoAnalyticsPayloadToNexoShape(await response.json());
+  return NextResponse.json(payload);
 }

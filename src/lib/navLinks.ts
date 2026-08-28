@@ -14,7 +14,7 @@ import {
   Radar,
   type LucideIcon,
 } from "lucide-react";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import { canManageUsers, canViewTeam, canUseDeskNotes } from "@/lib/roles";
 
 export type NavSection = "general" | "gestion" | "inteligencia";

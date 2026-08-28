@@ -2,19 +2,18 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import type { SessionPayload } from "@/lib/session";
 import type { NextRequest } from "next/server";
 
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-25, Fase 58): estas
+// rutas pasaron de Prisma a Django (`apps.assistant`) — mockeado con
+// `@/lib/djangoSession`, mismo patrón que `team.test.ts`. El procesamiento
+// del PDF (`uploadPdfToGithub`/`processGithubDocument`) sigue mockeado
+// aparte, sin cambios de comportamiento.
 vi.mock("@/lib/session", () => ({
   getSession: vi.fn(),
 }));
 
-const findMany = vi.fn();
-const create = vi.fn();
-const update = vi.fn();
-const findUnique = vi.fn();
-
-vi.mock("@/lib/prisma", () => ({
-  prisma: {
-    knowledgeDocument: { findMany, create, update, findUnique },
-  },
+const djangoApiFetch = vi.fn();
+vi.mock("@/lib/djangoSession", () => ({
+  djangoApiFetch: (...args: unknown[]) => djangoApiFetch(...args),
 }));
 
 const uploadPdfToGithub = vi.fn();
@@ -44,6 +43,23 @@ function mockSession(overrides: Partial<SessionPayload> | null) {
   );
 }
 
+function djangoResponse(ok: boolean, data: unknown, status = ok ? 200 : 400) {
+  return { ok, status, json: async () => data } as Response;
+}
+
+const BASE_DOC = {
+  id: 1,
+  title: "Manual",
+  file_name: "manual.pdf",
+  github_path: null,
+  github_sha: null,
+  created_at: "2026-08-25T00:00:00Z",
+  status: "PROCESANDO",
+  processing_error: null,
+  uploaded_by_name: "Ana",
+  chunk_count: 0,
+};
+
 // La ruta real solo usa request.headers.get("content-length") y request.formData()
 // — se construye un doble mínimo en vez de un NextRequest/FormData reales para
 // controlar con precisión el content-length declarado y forzar errores de parseo,
@@ -69,7 +85,7 @@ function makePdfFile(name = "manual.pdf", sizeBytes = 100, type = "application/p
 describe("GET /api/assistant/documents", () => {
   beforeEach(() => {
     vi.mocked(getSession).mockReset();
-    findMany.mockReset();
+    djangoApiFetch.mockReset();
   });
 
   it("responde 401 si no hay sesión", async () => {
@@ -90,23 +106,34 @@ describe("GET /api/assistant/documents", () => {
     expect(res.status).toBe(403);
   });
 
-  it("un rol autorizado recibe la lista de documentos ordenada por fecha descendente", async () => {
+  it("responde 401 si Django no tiene sesión disponible", async () => {
     mockSession({ role: "JEFE_NACIONAL" });
-    findMany.mockResolvedValue([{ id: "doc1", title: "Manual" }]);
+    djangoApiFetch.mockResolvedValue(null);
+    const res = await GET();
+    expect(res.status).toBe(401);
+  });
+
+  it("un rol autorizado recibe la lista de documentos mapeada a la forma Nexo", async () => {
+    mockSession({ role: "JEFE_NACIONAL" });
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, [BASE_DOC]));
     const res = await GET();
     expect(res.status).toBe(200);
-    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ orderBy: { createdAt: "desc" } }));
+    expect(djangoApiFetch).toHaveBeenCalledWith("/assistant/documents/");
     const body = await res.json();
-    expect(body).toEqual([{ id: "doc1", title: "Manual" }]);
+    expect(body[0]).toMatchObject({
+      id: "1",
+      title: "Manual",
+      fileName: "manual.pdf",
+      uploadedBy: { name: "Ana" },
+      _count: { chunks: 0 },
+    });
   });
 });
 
 describe("POST /api/assistant/documents", () => {
   beforeEach(() => {
     vi.mocked(getSession).mockReset();
-    create.mockReset();
-    update.mockReset();
-    findUnique.mockReset();
+    djangoApiFetch.mockReset();
     uploadPdfToGithub.mockReset();
     processGithubDocument.mockReset();
     mockSession({ role: "ADMINISTRADOR" });
@@ -202,11 +229,9 @@ describe("POST /api/assistant/documents", () => {
 
   it("acepta un archivo .pdf sin mime type declarado (file.type vacío)", async () => {
     const file = makePdfFile("manual.pdf", 100, "");
-    create.mockResolvedValue({ id: "doc1" });
-    update.mockResolvedValue({});
-    uploadPdfToGithub.mockResolvedValue({ path: "docs/doc1.pdf", sha: "sha123" });
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, BASE_DOC));
+    uploadPdfToGithub.mockResolvedValue({ path: "docs/1.pdf", sha: "sha123" });
     processGithubDocument.mockResolvedValue(undefined);
-    findUnique.mockResolvedValue({ id: "doc1", status: "COMPLETADO" });
 
     const res = await POST(
       fakeRequest({ contentLength: "0", formData: async () => formDataWith({ file, title: "Manual" }) })
@@ -215,11 +240,20 @@ describe("POST /api/assistant/documents", () => {
   });
 
   it("camino feliz: crea el documento, sube a GitHub, procesa y devuelve 201 con el documento final", async () => {
-    create.mockResolvedValue({ id: "doc1" });
-    update.mockResolvedValue({});
-    uploadPdfToGithub.mockResolvedValue({ path: "docs/doc1.pdf", sha: "sha123" });
+    djangoApiFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === "/assistant/documents/" && init?.method === "POST") {
+        return djangoResponse(true, { ...BASE_DOC, id: 1 }, 201);
+      }
+      if (url === "/assistant/documents/1/" && init?.method === "PATCH") {
+        return djangoResponse(true, { ...BASE_DOC, id: 1, github_path: "docs/1.pdf", github_sha: "sha123" });
+      }
+      if (url === "/assistant/documents/1/" && !init) {
+        return djangoResponse(true, { ...BASE_DOC, id: 1, status: "LISTO", chunk_count: 3 });
+      }
+      throw new Error(`ruta Django no mockeada: ${url}`);
+    });
+    uploadPdfToGithub.mockResolvedValue({ path: "docs/1.pdf", sha: "sha123" });
     processGithubDocument.mockResolvedValue(undefined);
-    findUnique.mockResolvedValue({ id: "doc1", title: "Manual", status: "COMPLETADO" });
 
     const res = await POST(
       fakeRequest({
@@ -229,26 +263,33 @@ describe("POST /api/assistant/documents", () => {
     );
 
     expect(res.status).toBe(201);
-    expect(create).toHaveBeenCalledWith(
-      expect.objectContaining({ data: expect.objectContaining({ title: "Manual", status: "PROCESANDO", uploadedById: "u1" }) })
+    expect(djangoApiFetch).toHaveBeenCalledWith(
+      "/assistant/documents/",
+      expect.objectContaining({ method: "POST", body: JSON.stringify({ title: "Manual", file_name: "manual.pdf" }) })
     );
-    expect(uploadPdfToGithub).toHaveBeenCalledWith("doc1", "manual.pdf", expect.any(Buffer));
-    expect(update).toHaveBeenCalledWith({
-      where: { id: "doc1" },
-      data: { githubPath: "docs/doc1.pdf", githubSha: "sha123" },
-    });
-    expect(processGithubDocument).toHaveBeenCalledWith("doc1", "docs/doc1.pdf", "sha123");
+    expect(uploadPdfToGithub).toHaveBeenCalledWith("1", "manual.pdf", expect.any(Buffer));
+    expect(djangoApiFetch).toHaveBeenCalledWith(
+      "/assistant/documents/1/",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ github_path: "docs/1.pdf", github_sha: "sha123" }) })
+    );
+    expect(processGithubDocument).toHaveBeenCalledWith("1", "docs/1.pdf", "sha123");
 
     const body = await res.json();
-    expect(body).toEqual({ id: "doc1", title: "Manual", status: "COMPLETADO" });
+    expect(body).toMatchObject({ id: "1", title: "Manual", status: "LISTO", _count: { chunks: 3 } });
   });
 
   it("si la subida a GitHub falla, marca el documento como ERROR y aun así responde 201 con el estado de error", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    create.mockResolvedValue({ id: "doc1" });
+    djangoApiFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === "/assistant/documents/" && init?.method === "POST") {
+        return djangoResponse(true, { ...BASE_DOC, id: 1 }, 201);
+      }
+      if (url === "/assistant/documents/1/" && init?.method === "PATCH") {
+        return djangoResponse(true, { ...BASE_DOC, id: 1, status: "ERROR", processing_error: "GitHub no disponible" });
+      }
+      throw new Error(`ruta Django no mockeada: ${url}`);
+    });
     uploadPdfToGithub.mockRejectedValue(new Error("GitHub no disponible"));
-    update.mockResolvedValue({});
-    findUnique.mockResolvedValue({ id: "doc1", status: "ERROR", processingError: "GitHub no disponible" });
 
     const res = await POST(
       fakeRequest({
@@ -258,10 +299,10 @@ describe("POST /api/assistant/documents", () => {
     );
 
     expect(res.status).toBe(201);
-    expect(update).toHaveBeenCalledWith({
-      where: { id: "doc1" },
-      data: { status: "ERROR", processingError: "GitHub no disponible" },
-    });
+    expect(djangoApiFetch).toHaveBeenCalledWith(
+      "/assistant/documents/1/",
+      expect.objectContaining({ method: "PATCH", body: JSON.stringify({ status: "ERROR", processing_error: "GitHub no disponible" }) })
+    );
     expect(processGithubDocument).not.toHaveBeenCalled();
     const body = await res.json();
     expect(body.status).toBe("ERROR");
@@ -269,9 +310,16 @@ describe("POST /api/assistant/documents", () => {
 
   it("un error inesperado durante el procesamiento se captura y responde 500 con el mensaje", async () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    create.mockResolvedValue({ id: "doc1" });
-    uploadPdfToGithub.mockResolvedValue({ path: "docs/doc1.pdf", sha: "sha123" });
-    update.mockResolvedValue({});
+    djangoApiFetch.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url === "/assistant/documents/" && init?.method === "POST") {
+        return djangoResponse(true, { ...BASE_DOC, id: 1 }, 201);
+      }
+      if (url === "/assistant/documents/1/" && init?.method === "PATCH") {
+        return djangoResponse(true, { ...BASE_DOC, id: 1 });
+      }
+      throw new Error(`ruta Django no mockeada: ${url}`);
+    });
+    uploadPdfToGithub.mockResolvedValue({ path: "docs/1.pdf", sha: "sha123" });
     processGithubDocument.mockRejectedValue(new Error("fallo inesperado de embeddings"));
 
     const res = await POST(

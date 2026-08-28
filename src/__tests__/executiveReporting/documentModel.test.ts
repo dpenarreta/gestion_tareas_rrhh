@@ -126,6 +126,7 @@ function fixtureSnapshot(overrides: Partial<ExecutiveReportSnapshotData> = {}): 
       scenarios: null,
     },
     novaDegraded: false,
+    integrityCheck: null,
   };
   return { ...base, ...overrides };
 }

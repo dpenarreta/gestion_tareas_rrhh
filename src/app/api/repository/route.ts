@@ -1,51 +1,26 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { getVisibleRoles } from "@/lib/roles";
+import { fetchDjangoRepositoryMonths, mapDjangoRepositoryMonthsToNexoShape } from "@/lib/djangoTasksAdapter";
+
+// Sub-fase 3d de la migración de stack (ver docs/AUDIT_LOG.md §
+// 2026-08-07): cortado a Django. Gap de visibilidad documentado en
+// `MonthClosureService.list_repository_months` — sin `apps.hierarchy`
+// conectado a las vistas, cada usuario ve solo SUS propias tareas
+// archivadas (nunca de más respecto al legacy, que usaba `getVisibleRoles`).
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const visibleRoles = getVisibleRoles(session.role);
-  const visibleUsers = await prisma.user.findMany({
-    where: { role: { in: visibleRoles } },
-    select: { id: true },
-  });
-  const visibleIds = visibleUsers.map((u) => u.id);
-
-  const [closures, archivedTasks] = await Promise.all([
-    prisma.monthClosure.findMany({ orderBy: [{ year: "desc" }, { month: "desc" }] }),
-    prisma.task.findMany({
-      where: { assignedToId: { in: visibleIds }, archivedMonth: { not: null } },
-      select: { archivedMonth: true, status: true, realHours: true },
-    }),
-  ]);
-
-  const byMonth = new Map<string, { totalTasks: number; completedTasks: number; totalHours: number }>();
-  for (const t of archivedTasks) {
-    const key = t.archivedMonth!;
-    const cur = byMonth.get(key) ?? { totalTasks: 0, completedTasks: 0, totalHours: 0 };
-    cur.totalTasks += 1;
-    if (t.status === "COMPLETADA") cur.completedTasks += 1;
-    cur.totalHours += t.realHours;
-    byMonth.set(key, cur);
+  const months = await fetchDjangoRepositoryMonths();
+  if (months === "no_session") {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (months === null) {
+    return NextResponse.json({ error: "No se pudo cargar el repositorio" }, { status: 400 });
   }
 
-  const result = closures
-    .map((c) => {
-      const key = `${c.year}-${String(c.month).padStart(2, "0")}`;
-      const agg = byMonth.get(key);
-      if (!agg) return null;
-      return {
-        year: c.year,
-        month: c.month,
-        totalTasks: agg.totalTasks,
-        completedTasks: agg.completedTasks,
-        totalHours: Math.round(agg.totalHours * 100) / 100,
-      };
-    })
-    .filter((v): v is NonNullable<typeof v> => v !== null);
-
-  return NextResponse.json(result);
+  return NextResponse.json(mapDjangoRepositoryMonthsToNexoShape(months));
 }

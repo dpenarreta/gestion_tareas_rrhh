@@ -1,47 +1,20 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { SessionPayload } from "@/lib/session";
 
-const userFindUnique = vi.fn();
-const userUpdate = vi.fn();
-const userFindMany = vi.fn();
-const taskFindMany = vi.fn();
-const announcementFindMany = vi.fn();
-const meetingFindMany = vi.fn();
-const systemConfigHistoryFindFirst = vi.fn();
-const taskActivityFindMany = vi.fn();
-const holidayFindMany = vi.fn();
-const leaveRecordFindMany = vi.fn();
-const specialStatusFindMany = vi.fn();
-const projectFindMany = vi.fn();
-const monthClosureFindUnique = vi.fn();
-
-// computeCargaTiempo/computeMonthlyHistory (motor central, ver Analytics
-// Calculation Registry § D6) tocan estos modelos además de task/user —
-// deben mockearse igual que el resto o el dashboard responde 500.
-// monthClosure.findUnique: monthlyBusinessBase (workload.ts) lo consulta
-// desde el Motor de Cierre Inteligente con Fecha de Corte para saber si el
-// mes tiene un corte anticipado — sin mockear, el mock global de prisma
-// lanza y el dashboard responde 500.
-vi.mock("@/lib/prisma", () => ({
-  prisma: {
-    user: { findUnique: userFindUnique, update: userUpdate, findMany: userFindMany },
-    task: { findMany: taskFindMany },
-    taskActivity: { findMany: taskActivityFindMany },
-    announcement: { findMany: announcementFindMany },
-    meeting: { findMany: meetingFindMany },
-    systemConfigHistory: { findFirst: systemConfigHistoryFindFirst },
-    holiday: { findMany: holidayFindMany },
-    leaveRecord: { findMany: leaveRecordFindMany },
-    specialStatus: { findMany: specialStatusFindMany },
-    project: { findMany: projectFindMany },
-    monthClosure: { findUnique: monthClosureFindUnique },
-  },
-}));
-
+// GET /api/dashboard pasó a Django en el cutover de stack (Fase 51, ver
+// docs/AUDIT_LOG.md § 2026-08-24) — mockeado con `@/lib/djangoSession`, el
+// cálculo real (tareas prioritarias, actividad de área, alertas de equipo,
+// comunicados, reuniones, proyectos) ya vive en `build_dashboard_payload`
+// (backend, Fase 25), cubierto en `backend/apps/dashboard/tests/`. Acá solo
+// se prueba ruteo/mapeo de ids numéricos a `string`. PATCH
+// /api/dashboard/card-order se cortó en la Fase 55 (ver docs/AUDIT_LOG.md §
+// 2026-08-25) — ya no toca Prisma.
 vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
 
-const getVisibleIdeaAuthorIds = vi.fn();
-vi.mock("@/lib/ideas", () => ({ getVisibleIdeaAuthorIds: (...a: unknown[]) => getVisibleIdeaAuthorIds(...a) }));
+const djangoApiFetch = vi.fn();
+vi.mock("@/lib/djangoSession", () => ({
+  djangoApiFetch: (...args: unknown[]) => djangoApiFetch(...args),
+}));
 
 const { getSession } = await import("@/lib/session");
 const { GET: dashboardGET } = await import("@/app/api/dashboard/route");
@@ -67,73 +40,82 @@ function jsonRequest(body: unknown) {
 }
 
 function resetAll() {
-  userFindUnique.mockReset();
-  userUpdate.mockReset().mockResolvedValue({});
-  userFindMany.mockReset().mockResolvedValue([]);
-  taskFindMany.mockReset().mockResolvedValue([]);
-  announcementFindMany.mockReset().mockResolvedValue([]);
-  meetingFindMany.mockReset().mockResolvedValue([]);
-  getVisibleIdeaAuthorIds.mockReset().mockResolvedValue([]);
-  systemConfigHistoryFindFirst.mockReset().mockResolvedValue(null);
-  taskActivityFindMany.mockReset().mockResolvedValue([]);
-  holidayFindMany.mockReset().mockResolvedValue([]);
-  leaveRecordFindMany.mockReset().mockResolvedValue([]);
-  specialStatusFindMany.mockReset().mockResolvedValue([]);
-  projectFindMany.mockReset().mockResolvedValue([]);
-  monthClosureFindUnique.mockReset().mockResolvedValue(null);
+  djangoApiFetch.mockReset();
   vi.mocked(getSession).mockReset();
 }
 
+function djangoResponse(ok: boolean, data: unknown, status = ok ? 200 : 400) {
+  return { ok, status, json: async () => data } as Response;
+}
+
+const MINIMAL_DASHBOARD_PAYLOAD = {
+  workloadPct: 0,
+  completedPct: 0,
+  overdue: 0,
+  priorityTasks: [],
+  stats: { today: { pending: 0, inProgress: 0, completed: 0 }, week: { pending: 0, inProgress: 0, completed: 0 }, month: { pending: 0, inProgress: 0, completed: 0 } },
+  areaActivity: [],
+  teamAlerts: 0,
+  welcomeMessage: "",
+  welcomeMessageActive: false,
+  announcements: [],
+  lastLoginAt: null,
+  badges: [],
+  upcomingMeetings: [],
+  myProjects: [],
+};
+
 describe("GET /api/dashboard", () => {
-  beforeEach(() => {
-    resetAll();
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date(2026, 7, 15, 12, 0, 0));
-  });
-  afterEach(() => vi.useRealTimers());
+  beforeEach(resetAll);
 
   it("responde 401 si no hay sesión", async () => {
     mockSession(null);
     const res = await dashboardGET();
     expect(res.status).toBe(401);
+    expect(djangoApiFetch).not.toHaveBeenCalled();
   });
 
-  it("responde 500 ante un error inesperado", async () => {
+  it("responde 401 si Django no tiene sesión disponible", async () => {
     mockSession({});
-    userFindUnique.mockRejectedValue(new Error("db down"));
-    vi.spyOn(console, "error").mockImplementation(() => {});
+    djangoApiFetch.mockResolvedValue(null);
+    const res = await dashboardGET();
+    expect(res.status).toBe(401);
+  });
+
+  it("propaga el status de error de Django", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, {}, 500));
     const res = await dashboardGET();
     expect(res.status).toBe(500);
   });
 
-  it("prioriza las tareas vencidas con la mayor urgencia y calcula el resumen del dashboard", async () => {
-    mockSession({ userId: "u1", role: "JEFE_NACIONAL" });
-    userFindUnique.mockResolvedValue({ lastLoginAt: new Date("2026-08-10T00:00:00Z"), badges: ["cumplidor"] });
-    taskFindMany.mockResolvedValue([
-      { id: "t1", title: "Vencida", status: "PENDIENTE", endDate: new Date("2026-07-01"), estimatedHours: 2, realHours: 1 },
-      { id: "t2", title: "Completada", status: "COMPLETADA", endDate: new Date("2026-08-15"), estimatedHours: 3, realHours: 3 },
-    ]);
-    announcementFindMany.mockResolvedValue([]);
-    meetingFindMany.mockResolvedValue([]);
-
+  it("reenvía a /dashboard/ y devuelve el payload tal cual cuando no hay ids que convertir", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, MINIMAL_DASHBOARD_PAYLOAD));
     const res = await dashboardGET();
     expect(res.status).toBe(200);
+    expect(djangoApiFetch).toHaveBeenCalledWith("/dashboard/");
     const body = await res.json();
-
-    expect(body.overdue).toBe(1);
-    expect(body.priorityTasks[0]).toMatchObject({ id: "t1", urgency: 4 });
-    expect(body.badges).toEqual(["cumplidor"]);
-    expect(body.lastLoginAt).toBe("2026-08-10T00:00:00.000Z");
-    expect(body.teamAlerts).toBe(0); // sin subordinados visibles (userFindMany -> [])
-    expect(body.areaActivity).toEqual([]);
+    expect(body).toEqual(MINIMAL_DASHBOARD_PAYLOAD);
   });
 
-  it("no calcula alertas de equipo para roles de nivel 1", async () => {
-    mockSession({ role: "ASISTENTE_GH" });
-    userFindUnique.mockResolvedValue({ lastLoginAt: null, badges: [] });
+  it("convierte los ids numéricos de priorityTasks/announcements/upcomingMeetings/myProjects a string", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(
+      djangoResponse(true, {
+        ...MINIMAL_DASHBOARD_PAYLOAD,
+        priorityTasks: [{ id: 5, title: "Vencida", status: "PENDIENTE", endDate: "2026-08-01", urgency: 4 }],
+        announcements: [{ id: 1, title: "Aviso", content: "c", pinned: true, expiresAt: "2026-09-01", createdAt: "2026-08-01", authorName: "Ana" }],
+        upcomingMeetings: [{ id: 2, title: "Futura", meetingDate: "2026-09-01", duration: 30, status: "PROGRAMADA", hostName: "Beto" }],
+        myProjects: [{ id: 3, name: "Proyecto X", status: "EN_CURSO", priority: "ALTA", targetDate: "2026-10-01" }],
+      })
+    );
     const res = await dashboardGET();
     const body = await res.json();
-    expect(body.teamAlerts).toBe(0);
+    expect(body.priorityTasks[0].id).toBe("5");
+    expect(body.announcements[0].id).toBe("1");
+    expect(body.upcomingMeetings[0].id).toBe("2");
+    expect(body.myProjects[0].id).toBe("3");
   });
 });
 
@@ -152,24 +134,28 @@ describe("PATCH /api/dashboard/card-order", () => {
     expect((await cardOrderPATCH(jsonRequest({ order: "a,b" }))).status).toBe(400);
   });
 
-  it("reemplaza solo la entrada DASHBOARD_CARDS, preservando otras preferencias", async () => {
+  it("responde 401 si la sesión de Next.js todavía no tiene acceso a Django", async () => {
     mockSession({ userId: "u1" });
-    userFindUnique.mockResolvedValue({ viewPreferences: ["tasks:kanban", "DASHBOARD_CARDS:old,order"] });
+    djangoApiFetch.mockResolvedValue(null);
+    const res = await cardOrderPATCH(jsonRequest({ order: ["carga"] }));
+    expect(res.status).toBe(401);
+  });
+
+  it("reenvía el nuevo orden a Django", async () => {
+    mockSession({ userId: "u1" });
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, { ok: true }));
     const res = await cardOrderPATCH(jsonRequest({ order: ["carga", "tareas", "reuniones"] }));
     expect(res.status).toBe(200);
-    expect(userUpdate).toHaveBeenCalledWith({
-      where: { id: "u1" },
-      data: { viewPreferences: ["tasks:kanban", "DASHBOARD_CARDS:carga,tareas,reuniones"] },
+    expect(djangoApiFetch).toHaveBeenCalledWith("/dashboard/card-order/", {
+      method: "PATCH",
+      body: JSON.stringify({ order: ["carga", "tareas", "reuniones"] }),
     });
   });
 
-  it("funciona sin preferencias previas", async () => {
+  it("propaga un error de validación de Django", async () => {
     mockSession({ userId: "u1" });
-    userFindUnique.mockResolvedValue(null);
-    await cardOrderPATCH(jsonRequest({ order: ["carga"] }));
-    expect(userUpdate).toHaveBeenCalledWith({
-      where: { id: "u1" },
-      data: { viewPreferences: ["DASHBOARD_CARDS:carga"] },
-    });
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "order debe ser un array no vacío" }, 400));
+    const res = await cardOrderPATCH(jsonRequest({ order: ["carga"] }));
+    expect(res.status).toBe(400);
   });
 });

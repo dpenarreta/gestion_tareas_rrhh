@@ -1,47 +1,38 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { getVisibleRoles } from "@/lib/roles";
-import { getEffectiveAnalyticsConfig } from "@/lib/systemConfig";
-import { cached, runAnalyticsPipeline, ANALYTICS_ENGINE_VERSION, FORMULA_SET_VERSION } from "@/lib/analytics";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import { mapDjangoAnalyticsPayloadToNexoShape } from "@/lib/djangoAnalyticsAdapter";
+
+// Fase 4m de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-12):
+// cortado a Django. `getSession()` se mantiene solo para el 401 — la
+// visibilidad jerárquica real (404/403) y la redacción admin-only de
+// `validationWarnings` viven en `AnalyticsBundleView`/`build_analytics_
+// bundle_payload` (`backend/apps/analytics/views.py`/`services.py`).
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
 type Ctx = { params: Promise<{ userId: string }> };
 
-/**
- * Paquete completo de Analytics para UN colaborador (Equilibrio Operativo, alertas,
- * tendencias, consistencia, anomalías, predicción, calidad de datos) — un
- * solo fetch para toda la vista individual, cacheado como unidad (ver
- * Analytics § Caché y performance). El cálculo en sí sigue el pipeline único
- * del motor (`runAnalyticsPipeline`, ver Sprint 4 § S4-F) — este endpoint
- * solo autentica, cachea y renderiza (pasos 7-8 del pipeline).
- */
 export async function GET(request: Request, ctx: Ctx) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
   const { userId } = await ctx.params;
-  const targetUser = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true } });
-  if (!targetUser) return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
 
-  const isSelf = session.userId === userId;
-  if (!isSelf && !getVisibleRoles(session.role).includes(targetUser.role)) {
+  const response = await djangoApiFetch(`/analytics/${userId}/`);
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 404) {
+    return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
+  }
+  if (response.status === 403) {
     return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
   }
+  if (!response.ok) {
+    return NextResponse.json({ error: "Error al obtener Analytics" }, { status: response.status });
+  }
 
-  const config = await getEffectiveAnalyticsConfig();
-  const { value, computedAt, fromCache } = await cached(`bundle:${userId}`, config.cacheTtlMinutes, () => runAnalyticsPipeline(userId));
-
-  // El detalle de la validación de consistencia (§S3-C) solo se expone al
-  // Administrador; para cualquier otro viewer se oculta por completo (ya
-  // quedó registrado en auditoría dentro del pipeline).
-  const { validationFailures, ...bundle } = value;
-
-  return NextResponse.json({
-    ...bundle,
-    engineVersion: ANALYTICS_ENGINE_VERSION,
-    formulaSetVersion: FORMULA_SET_VERSION,
-    lastUpdated: new Date(computedAt).toISOString(),
-    cacheActive: fromCache,
-    ...(session.role === "ADMINISTRADOR" && validationFailures.length > 0 ? { validationWarnings: validationFailures } : {}),
-  });
+  const payload = mapDjangoAnalyticsPayloadToNexoShape(await response.json());
+  return NextResponse.json(payload);
 }

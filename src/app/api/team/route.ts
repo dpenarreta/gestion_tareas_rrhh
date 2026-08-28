@@ -1,44 +1,33 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { getSubordinateRoles, canViewTeam } from "@/lib/roles";
-import { maskEmail } from "@/lib/mask-email";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import { mapDjangoTeamMemberToNexoShape, type DjangoTeamMember } from "@/lib/djangoTeamAdapter";
 
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-24): esta ruta pasó de
+// Prisma a Django. `TeamListView` (Fase 18 del backend) ya enmascara el
+// email (`mask_email`) y arma el conteo de tareas por estado — el
+// `route.ts` no repite esa lógica. Cierra staleness: los conteos de tareas
+// leían Postgres, desactualizado desde el cutover de Tareas.
 export async function GET() {
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   }
-  if (!canViewTeam(session.role)) {
+
+  const response = await djangoApiFetch("/team/");
+  if (!response) {
+    return NextResponse.json(
+      { error: "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión." },
+      { status: 401 }
+    );
+  }
+  if (response.status === 403) {
     return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
   }
+  if (!response.ok) {
+    return NextResponse.json({ error: "No se pudo obtener el equipo" }, { status: 400 });
+  }
 
-  const subordinateRoles = getSubordinateRoles(session.role);
-
-  const users = await prisma.user.findMany({
-    where: { role: { in: subordinateRoles } },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      role: true,
-      assignedTasks: { select: { status: true } },
-    },
-    orderBy: { name: "asc" },
-  });
-
-  const members = users.map((u) => ({
-    id: u.id,
-    name: u.name,
-    email: maskEmail(u.email),
-    role: u.role,
-    tasks: {
-      total: u.assignedTasks.length,
-      completed: u.assignedTasks.filter((t) => t.status === "COMPLETADA").length,
-      inProgress: u.assignedTasks.filter((t) => t.status === "EN_PROGRESO").length,
-      pending: u.assignedTasks.filter((t) => t.status === "PENDIENTE").length,
-    },
-  }));
-
-  return NextResponse.json(members);
+  const members: DjangoTeamMember[] = await response.json();
+  return NextResponse.json(members.map(mapDjangoTeamMemberToNexoShape));
 }

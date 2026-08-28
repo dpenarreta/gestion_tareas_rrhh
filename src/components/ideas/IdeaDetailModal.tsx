@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import { canReviewIdeas, ROLE_LABEL } from "@/lib/roles";
 import type { IdeaDetail, Idea } from "./types";
 import { IMPACT_LABELS, IMPACT_STYLES, STATUS_INFO } from "./constants";

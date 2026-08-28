@@ -2,29 +2,24 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { SessionPayload } from "@/lib/session";
 import type { NextRequest } from "next/server";
 
-vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
+// Fase 7g de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-18):
+// ambas rutas pasaron de Prisma a Django — la lógica real (permisos,
+// traducción de prioridad, copia de adjunto) ya vive en
+// `DeskNoteViewSet.convert_to_reminder`/`unread_count`, cubierta en
+// `backend/apps/desk/tests/`.
+const getSession = vi.fn();
+vi.mock("@/lib/session", () => ({ getSession: (...args: unknown[]) => getSession(...args) }));
 
-const deskNoteFindUnique = vi.fn();
-const deskNoteUpdate = vi.fn();
-const deskNoteCount = vi.fn();
-const personalReminderCreate = vi.fn();
-
-vi.mock("@/lib/prisma", () => ({
-  prisma: {
-    deskNote: { findUnique: deskNoteFindUnique, update: deskNoteUpdate, count: deskNoteCount },
-    personalReminder: { create: personalReminderCreate },
-  },
+const djangoApiFetch = vi.fn();
+vi.mock("@/lib/djangoSession", () => ({
+  djangoApiFetch: (...args: unknown[]) => djangoApiFetch(...args),
 }));
 
-const logDeskAudit = vi.fn();
-vi.mock("@/lib/deskAudit", () => ({ logDeskAudit: (...args: unknown[]) => logDeskAudit(...args) }));
-
-const { getSession } = await import("@/lib/session");
 const { POST: convertToReminder } = await import("@/app/api/desk-notes/[id]/convert-to-reminder/route");
 const { GET: unreadCount } = await import("@/app/api/desk-notes/unread-count/route");
 
 function mockSession(overrides: Partial<SessionPayload> | null) {
-  vi.mocked(getSession).mockResolvedValue(
+  getSession.mockResolvedValue(
     overrides === null
       ? null
       : {
@@ -38,7 +33,7 @@ function mockSession(overrides: Partial<SessionPayload> | null) {
   );
 }
 
-function ctx(id = "n1") {
+function ctx(id = "1") {
   return { params: Promise.resolve({ id }) };
 }
 
@@ -49,12 +44,12 @@ function jsonRequest(body: unknown): NextRequest {
 const CONVERT_BODY = { dueAt: "2026-08-01T10:00:00Z" };
 
 function resetAll() {
-  deskNoteFindUnique.mockReset();
-  deskNoteUpdate.mockReset();
-  deskNoteCount.mockReset();
-  personalReminderCreate.mockReset();
-  logDeskAudit.mockReset();
-  vi.mocked(getSession).mockReset();
+  getSession.mockReset();
+  djangoApiFetch.mockReset();
+}
+
+function djangoResponse(ok: boolean, data: unknown, status = ok ? 200 : 400) {
+  return { ok, status, json: async () => data } as Response;
 }
 
 describe("POST /api/desk-notes/[id]/convert-to-reminder", () => {
@@ -66,82 +61,50 @@ describe("POST /api/desk-notes/[id]/convert-to-reminder", () => {
     expect(res.status).toBe(401);
   });
 
-  it("responde 404 si la nota no existe o está eliminada", async () => {
+  it("responde 404 si la nota no existe", async () => {
     mockSession({});
-    deskNoteFindUnique.mockResolvedValue(null);
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, {}, 404));
     const res = await convertToReminder(jsonRequest(CONVERT_BODY), ctx());
     expect(res.status).toBe(404);
   });
 
   it("responde 403 si quien convierte no es el destinatario", async () => {
-    mockSession({ userId: "u1" });
-    deskNoteFindUnique.mockResolvedValue({
-      recipientId: "otro", deletedAt: null, message: "x", priority: "INFORMACION",
-      attachmentName: null, attachmentMime: null, attachmentData: null, convertedToReminderId: null,
-    });
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, {}, 403));
     const res = await convertToReminder(jsonRequest(CONVERT_BODY), ctx());
     expect(res.status).toBe(403);
   });
 
   it("responde 409 si la nota ya fue convertida antes", async () => {
-    mockSession({ userId: "u1" });
-    deskNoteFindUnique.mockResolvedValue({
-      recipientId: "u1", deletedAt: null, message: "x", priority: "INFORMACION",
-      attachmentName: null, attachmentMime: null, attachmentData: null, convertedToReminderId: "r-old",
-    });
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, {}, 409));
     const res = await convertToReminder(jsonRequest(CONVERT_BODY), ctx());
     expect(res.status).toBe(409);
   });
 
-  it("responde 400 si falta dueAt", async () => {
-    mockSession({ userId: "u1" });
-    deskNoteFindUnique.mockResolvedValue({
-      recipientId: "u1", deletedAt: null, message: "x", priority: "INFORMACION",
-      attachmentName: null, attachmentMime: null, attachmentData: null, convertedToReminderId: null,
-    });
+  it("responde 400 con el mensaje de Django si falta dueAt", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(
+      djangoResponse(false, { error: { details: { due_at: ["Este campo es requerido."] } } }, 400)
+    );
     const res = await convertToReminder(jsonRequest({}), ctx());
     expect(res.status).toBe(400);
   });
 
-  it("URGENTE se traduce a URGENTE, copia el adjunto, y marca la nota como convertida sin eliminarla", async () => {
-    mockSession({ userId: "u1", name: "Ana" });
-    deskNoteFindUnique.mockResolvedValue({
-      recipientId: "u1",
-      deletedAt: null,
-      message: "No olvides revisar el contrato",
-      priority: "URGENTE",
-      attachmentName: "contrato.pdf",
-      attachmentMime: "application/pdf",
-      attachmentData: "data:application/pdf;base64,xxx",
-      convertedToReminderId: null,
-    });
-    personalReminderCreate.mockResolvedValue({ id: "rem-1", title: "No olvides revisar el contrato" });
-    deskNoteUpdate.mockResolvedValue({});
+  it("mapea el body (dueAt->due_at) y devuelve reminderId/reminderTitle", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, { reminder_id: 7, reminder_title: "No olvides revisar el contrato" }, 201));
 
-    const res = await convertToReminder(jsonRequest(CONVERT_BODY), ctx("n1"));
+    const res = await convertToReminder(jsonRequest({ title: "custom", dueAt: "2026-08-01T10:00:00Z", priority: "URGENTE" }), ctx("1"));
     expect(res.status).toBe(201);
-
-    expect(personalReminderCreate).toHaveBeenCalledWith(
+    expect(djangoApiFetch).toHaveBeenCalledWith(
+      "/desk-notes/1/convert-to-reminder/",
       expect.objectContaining({
-        data: expect.objectContaining({
-          userId: "u1",
-          priority: "URGENTE",
-          attachmentName: "contrato.pdf",
-          attachmentData: "data:application/pdf;base64,xxx",
-        }),
+        method: "POST",
+        body: JSON.stringify({ title: "custom", due_at: "2026-08-01T10:00:00Z", priority: "URGENTE" }),
       })
     );
-    // La nota original NUNCA se borra ni se edita su contenido — solo se marca.
-    expect(deskNoteUpdate).toHaveBeenCalledWith({
-      where: { id: "n1" },
-      data: expect.objectContaining({ convertedToReminderId: "rem-1" }),
-    });
-    expect(logDeskAudit).toHaveBeenCalledWith(
-      expect.objectContaining({ entityType: "NOTE", action: "CONVERTED_TO_REMINDER", metadata: { reminderId: "rem-1" } })
-    );
-    expect(logDeskAudit).toHaveBeenCalledWith(
-      expect.objectContaining({ entityType: "REMINDER", entityId: "rem-1", action: "CREATED" })
-    );
+    expect(await res.json()).toEqual({ reminderId: "7", reminderTitle: "No olvides revisar el contrato" });
   });
 });
 
@@ -154,21 +117,24 @@ describe("GET /api/desk-notes/unread-count", () => {
     expect(res.status).toBe(401);
   });
 
-  it("Administrador siempre ve 0 sin consultar la base de datos", async () => {
-    mockSession({ role: "ADMINISTRADOR" });
+  it("responde 401 si Django no tiene sesión disponible", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(null);
     const res = await unreadCount();
-    const body = await res.json();
-    expect(body).toEqual({ unread: 0 });
-    expect(deskNoteCount).not.toHaveBeenCalled();
+    expect(res.status).toBe(401);
   });
 
-  it("cuenta solo notas propias, no leídas, activas y no archivadas", async () => {
-    mockSession({ userId: "u1" });
-    deskNoteCount.mockResolvedValue(3);
+  it("Administrador siempre ve 0 — réplica de que Django tampoco gatea por rol acá", async () => {
+    mockSession({ role: "ADMINISTRADOR" });
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, { unread: 0 }));
     const res = await unreadCount();
-    expect(deskNoteCount).toHaveBeenCalledWith({
-      where: { recipientId: "u1", read: false, archived: false, deletedAt: null },
-    });
+    expect(await res.json()).toEqual({ unread: 0 });
+  });
+
+  it("devuelve el conteo tal cual lo entrega Django", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, { unread: 3 }));
+    const res = await unreadCount();
     expect(await res.json()).toEqual({ unread: 3 });
   });
 });

@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { ALL_ROLES } from "@/lib/roles";
-import { invalidateAnalyticsCache } from "@/lib/analytics";
-import type { Role } from "@/generated/prisma/client";
+import { djangoApiFetch, extractDjangoFlatErrorMessage } from "@/lib/djangoSession";
+import { mapDjangoActivityReasonToNexoShape, type DjangoActivityReason } from "@/lib/djangoTasksAdapter";
+import type { Role } from "@/lib/roles";
 
 type Ctx = { params: Promise<{ id: string }> };
+
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
 function validRoles(input: unknown): Role[] | null {
   if (!Array.isArray(input) || input.length === 0) return null;
@@ -13,6 +16,10 @@ function validRoles(input: unknown): Role[] | null {
   return roles.length === input.length ? roles : null;
 }
 
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-21): mismo motivo que
+// `settings/activity-reasons/route.ts` (POST) — el `id` que llega acá ya es
+// el id numérico de Django, porque el listado que lo origina (`GET
+// /api/activity-reasons`) lee de Django desde la Fase 3b.
 export async function PATCH(request: NextRequest, ctx: Ctx) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
@@ -37,51 +44,39 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     isArchived?: boolean;
   };
 
-  const data: {
-    label?: string;
-    description?: string | null;
-    assignedRoles?: Role[];
-    isActive?: boolean;
-    isArchived?: boolean;
-    archivedAt?: Date | null;
-  } = {};
-
-  if (label !== undefined) {
-    if (!label.trim()) {
-      return NextResponse.json({ error: "El nombre del motivo es obligatorio" }, { status: 400 });
-    }
-    data.label = label.trim();
+  if (label !== undefined && !label.trim()) {
+    return NextResponse.json({ error: "El nombre del motivo es obligatorio" }, { status: 400 });
   }
-  if (description !== undefined) {
-    data.description = description?.trim() || null;
-  }
+  let roles: Role[] | null | undefined;
   if (assignedRoles !== undefined) {
-    const roles = validRoles(assignedRoles);
+    roles = validRoles(assignedRoles);
     if (!roles) {
       return NextResponse.json({ error: "Selecciona al menos un rol válido" }, { status: 400 });
     }
-    data.assignedRoles = roles;
-  }
-  if (isActive !== undefined) {
-    data.isActive = Boolean(isActive);
-  }
-  // Archivar retira el motivo del listado principal (sin borrarlo) y lo
-  // fuerza a no-seleccionable; restaurar solo lo devuelve al listado — no
-  // reactiva automáticamente su selectabilidad.
-  if (isArchived !== undefined) {
-    data.isArchived = Boolean(isArchived);
-    data.archivedAt = isArchived ? new Date() : null;
-    if (isArchived) data.isActive = false;
   }
 
-  const existing = await prisma.activityReason.findUnique({ where: { id } });
-  if (!existing) {
+  const data: Record<string, unknown> = {};
+  if (label !== undefined) data.label = label.trim();
+  if (description !== undefined) data.description = description;
+  if (roles !== undefined) data.assigned_roles = roles;
+  if (isActive !== undefined) data.is_active = Boolean(isActive);
+  if (isArchived !== undefined) data.is_archived = Boolean(isArchived);
+
+  const response = await djangoApiFetch(`/settings/activity-reasons/${id}/`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 404) {
     return NextResponse.json({ error: "Motivo no encontrado" }, { status: 404 });
   }
+  if (!response.ok) {
+    const message = await extractDjangoFlatErrorMessage(response);
+    return NextResponse.json({ error: message ?? "El nombre del motivo es obligatorio" }, { status: 400 });
+  }
 
-  const updated = await prisma.activityReason.update({ where: { id }, data });
-  // Mismo motivo que en el POST: assignedRoles/isActive/isArchived afectan
-  // qué actividades puede registrar cada rol (Sprint D, ver docs/AUDIT_LOG.md).
-  invalidateAnalyticsCache();
-  return NextResponse.json(updated);
+  const reason = (await response.json()) as DjangoActivityReason;
+  return NextResponse.json(mapDjangoActivityReasonToNexoShape(reason));
 }

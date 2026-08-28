@@ -1,77 +1,36 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { SessionPayload } from "@/lib/session";
 
-const getEffectiveHorasEfectivas = vi.fn();
-const getEffectiveWorkloadLimitLow = vi.fn();
-const getEffectiveWorkloadLimitHigh = vi.fn();
-const getEffectiveWorkloadLimitOverload = vi.fn();
-const setConfigValue = vi.fn();
-const getEffectiveWelcomeMessage = vi.fn();
-const getEffectiveWelcomeMessageActive = vi.fn();
+// GET/PUT /api/settings/retention-policy y GET/POST .../purge pasaron a
+// Django en el cutover de stack (Fase 83, ver docs/AUDIT_LOG.md §
+// 2026-08-27) — mockeados con `@/lib/djangoSession` como el resto de las
+// rutas de este archivo, ya no con `@/lib/retentionPolicy` (Prisma,
+// eliminado en esa misma fase). La limpieza de GitHub post-purga
+// (`deleteFromGithub`) se mockea aparte para que el POST no dispare un
+// fetch real.
+const deleteFromGithub = vi.fn();
+vi.mock("@/lib/githubDocuments", () => ({ deleteFromGithub: (...a: unknown[]) => deleteFromGithub(...a) }));
 
-vi.mock("@/lib/systemConfig", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/systemConfig")>();
-  return {
-    ...actual,
-    getEffectiveHorasEfectivas: (...a: unknown[]) => getEffectiveHorasEfectivas(...a),
-    getEffectiveWorkloadLimitLow: (...a: unknown[]) => getEffectiveWorkloadLimitLow(...a),
-    getEffectiveWorkloadLimitHigh: (...a: unknown[]) => getEffectiveWorkloadLimitHigh(...a),
-    getEffectiveWorkloadLimitOverload: (...a: unknown[]) => getEffectiveWorkloadLimitOverload(...a),
-    setConfigValue: (...a: unknown[]) => setConfigValue(...a),
-    getEffectiveWelcomeMessage: (...a: unknown[]) => getEffectiveWelcomeMessage(...a),
-    getEffectiveWelcomeMessageActive: (...a: unknown[]) => getEffectiveWelcomeMessageActive(...a),
-  };
-});
-
-const getNotificationRules = vi.fn();
-const saveNotificationRules = vi.fn();
-
-vi.mock("@/lib/notificationRules", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/notificationRules")>();
-  return {
-    ...actual,
-    getNotificationRules: (...a: unknown[]) => getNotificationRules(...a),
-    saveNotificationRules: (...a: unknown[]) => saveNotificationRules(...a),
-  };
-});
-
-const getEffectivePolicy = vi.fn();
-const findPurgeCandidates = vi.fn();
-const executePurge = vi.fn();
-
-vi.mock("@/lib/retentionPolicy", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/retentionPolicy")>();
-  return {
-    ...actual,
-    getEffectivePolicy: (...a: unknown[]) => getEffectivePolicy(...a),
-    findPurgeCandidates: (...a: unknown[]) => findPurgeCandidates(...a),
-    executePurge: (...a: unknown[]) => executePurge(...a),
-  };
-});
-
-vi.mock("@/lib/prisma", () => ({
-  prisma: {
-    user: { count: vi.fn().mockResolvedValue(10) },
-    task: { count: vi.fn().mockResolvedValue(20) },
-    meeting: { count: vi.fn().mockResolvedValue(3) },
-    improvementIdea: { count: vi.fn().mockResolvedValue(5) },
-  },
+// GET/POST /api/settings/login-attempts/cleanup pasó de `@/lib/rate-limit`
+// (Postgres) a Django en el cutover de stack (ver docs/AUDIT_LOG.md §
+// 2026-08-21): el login real ya resuelve el rate limiting del lado Django
+// desde la Fase 6a, así que el `LoginAttempt` de Postgres que este endpoint
+// purgaba ya no recibía escrituras.
+const djangoApiFetch = vi.fn();
+vi.mock("@/lib/djangoSession", () => ({
+  djangoApiFetch: (...args: unknown[]) => djangoApiFetch(...args),
+  extractDjangoFlatErrorMessage: async (response: Response) => (await response.json().catch(() => null))?.error,
 }));
 
-const countExpiredLoginAttempts = vi.fn();
-const cleanupExpiredLoginAttempts = vi.fn();
-
-vi.mock("@/lib/rate-limit", () => ({
-  countExpiredLoginAttempts: (...a: unknown[]) => countExpiredLoginAttempts(...a),
-  cleanupExpiredLoginAttempts: (...a: unknown[]) => cleanupExpiredLoginAttempts(...a),
-}));
+function djangoResponse(ok: boolean, data: unknown, status = ok ? 200 : 400) {
+  return { ok, status, json: async () => data } as Response;
+}
 
 vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
 
 const { getSession } = await import("@/lib/session");
 const { GET: retentionGET, PUT: retentionPUT } = await import("@/app/api/settings/retention-policy/route");
 const { GET: purgeGET, POST: purgePOST } = await import("@/app/api/settings/retention-policy/purge/route");
-const { GET: systemInfoGET } = await import("@/app/api/settings/system-info/route");
 const { GET: workloadGET, PUT: workloadPUT } = await import("@/app/api/settings/workload-config/route");
 const { GET: loginAttemptsCleanupGET, POST: loginAttemptsCleanupPOST } = await import(
   "@/app/api/settings/login-attempts/cleanup/route"
@@ -105,24 +64,8 @@ function badJsonRequest() {
 }
 
 function resetAll() {
-  getEffectiveHorasEfectivas.mockReset().mockResolvedValue(6.5);
-  getEffectiveWorkloadLimitLow.mockReset().mockResolvedValue(5.5);
-  getEffectiveWorkloadLimitHigh.mockReset().mockResolvedValue(7.5);
-  getEffectiveWorkloadLimitOverload.mockReset().mockResolvedValue(8.5);
-  setConfigValue.mockReset().mockResolvedValue(undefined);
-  getEffectivePolicy.mockReset().mockResolvedValue({ monthlyReportsMonths: "24", archivedTasksMonths: "24", knowledgeDocsMonths: "indefinite" });
-  findPurgeCandidates.mockReset();
-  executePurge.mockReset();
-  countExpiredLoginAttempts.mockReset();
-  cleanupExpiredLoginAttempts.mockReset();
-  getEffectiveWelcomeMessage.mockReset().mockResolvedValue("");
-  getEffectiveWelcomeMessageActive.mockReset().mockResolvedValue(false);
-  getNotificationRules.mockReset().mockResolvedValue({
-    commentTargets: {},
-    firstCommentRole: null,
-    retroactiveNotifyRoles: ["COORDINADOR_NACIONAL"],
-  });
-  saveNotificationRules.mockReset().mockResolvedValue(undefined);
+  deleteFromGithub.mockReset().mockResolvedValue(undefined);
+  djangoApiFetch.mockReset();
   vi.mocked(getSession).mockReset();
 }
 
@@ -135,17 +78,22 @@ describe("GET/PUT /api/settings/retention-policy", () => {
     expect(res.status).toBe(401);
   });
 
-  it("GET devuelve la política efectiva vigente", async () => {
+  it("GET devuelve la política efectiva vigente, mapeada a camelCase", async () => {
     mockSession({});
+    djangoApiFetch.mockResolvedValue(
+      djangoResponse(true, { monthly_reports_months: "24", archived_tasks_months: "24", knowledge_docs_months: "indefinite" })
+    );
     const res = await retentionGET();
+    expect(djangoApiFetch).toHaveBeenCalledWith("/settings/retention-policy/");
     const body = await res.json();
     expect(body.monthlyReportsMonths).toBe("24");
   });
 
-  it("PUT responde 403 para un rol no Administrador", async () => {
+  it("PUT responde 403 para un rol no Administrador, sin llamar a Django", async () => {
     mockSession({ role: "JEFE_NACIONAL" });
     const res = await retentionPUT(jsonRequest({}));
     expect(res.status).toBe(403);
+    expect(djangoApiFetch).not.toHaveBeenCalled();
   });
 
   it("PUT responde 400 si el body no es JSON válido", async () => {
@@ -154,18 +102,23 @@ describe("GET/PUT /api/settings/retention-policy", () => {
     expect(res.status).toBe(400);
   });
 
-  it("PUT responde 400 ante una opción de retención inválida", async () => {
+  it("PUT propaga un mensaje de validación de Django ante una opción inválida", async () => {
     mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "monthly_reports_months inválido" }, 400));
     const res = await retentionPUT(jsonRequest({ monthlyReportsMonths: "999" }));
     expect(res.status).toBe(400);
-    expect(setConfigValue).not.toHaveBeenCalled();
   });
 
-  it("PUT solo actualiza los campos provistos", async () => {
+  it("PUT reenvía solo los campos provistos, traducidos a snake_case", async () => {
     mockSession({ userId: "admin-1" });
+    djangoApiFetch.mockResolvedValue(
+      djangoResponse(true, { monthly_reports_months: "24", archived_tasks_months: "12", knowledge_docs_months: "indefinite" })
+    );
     await retentionPUT(jsonRequest({ archivedTasksMonths: "12" }));
-    expect(setConfigValue).toHaveBeenCalledTimes(1);
-    expect(setConfigValue).toHaveBeenCalledWith("retention_archived_tasks", "12", "admin-1");
+    expect(djangoApiFetch).toHaveBeenCalledWith("/settings/retention-policy/", {
+      method: "PUT",
+      body: JSON.stringify({ archived_tasks_months: "12" }),
+    });
   });
 });
 
@@ -181,10 +134,11 @@ describe("GET/POST /api/settings/retention-policy/purge", () => {
 
   it("GET devuelve la vista previa de candidatos a depurar", async () => {
     mockSession({});
-    findPurgeCandidates.mockResolvedValue({ policy: {}, reportIds: ["r1", "r2"], taskIds: ["t1"], docIds: [] });
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, { reportsToDelete: 2, tasksToDelete: 1, docsToDelete: 0 }));
     const res = await purgeGET();
+    expect(djangoApiFetch).toHaveBeenCalledWith("/settings/retention-policy/purge/");
     const body = await res.json();
-    expect(body).toMatchObject({ reportsToDelete: 2, tasksToDelete: 1, docsToDelete: 0 });
+    expect(body).toEqual({ reportsToDelete: 2, tasksToDelete: 1, docsToDelete: 0 });
   });
 
   it("POST responde 401/403 según sesión y rol", async () => {
@@ -200,37 +154,30 @@ describe("GET/POST /api/settings/retention-policy/purge", () => {
     expect(res.status).toBe(400);
   });
 
-  it("POST responde 400 sin confirmación explícita", async () => {
+  it("POST responde 400 sin confirmación explícita, sin llamar a Django", async () => {
     mockSession({});
     const res = await purgePOST(jsonRequest({}));
     expect(res.status).toBe(400);
-    expect(executePurge).not.toHaveBeenCalled();
+    expect(djangoApiFetch).not.toHaveBeenCalled();
   });
 
-  it("POST ejecuta la depuración con confirm=true", async () => {
+  it("POST ejecuta la depuración con confirm=true y limpia GitHub best-effort", async () => {
     mockSession({ userId: "admin-1" });
-    executePurge.mockResolvedValue({ reportsDeleted: 2, tasksDeleted: 1, docsDeleted: 0 });
+    djangoApiFetch.mockResolvedValue(
+      djangoResponse(true, {
+        reportsDeleted: 2,
+        tasksDeleted: 1,
+        docsDeleted: 1,
+        deletedDocs: [{ githubPath: "docs/a.pdf", githubSha: "sha1" }],
+      })
+    );
     const res = await purgePOST(jsonRequest({ confirm: true }));
     expect(res.status).toBe(200);
-    expect(executePurge).toHaveBeenCalledWith("admin-1");
-  });
-});
-
-describe("GET /api/settings/system-info", () => {
-  beforeEach(resetAll);
-
-  it("responde 401/403 según sesión y rol", async () => {
-    mockSession(null);
-    expect((await systemInfoGET()).status).toBe(401);
-    mockSession({ role: "JEFE_NACIONAL" });
-    expect((await systemInfoGET()).status).toBe(403);
-  });
-
-  it("devuelve los conteos globales del sistema", async () => {
-    mockSession({});
-    const res = await systemInfoGET();
+    expect(djangoApiFetch).toHaveBeenCalledWith("/settings/retention-policy/purge/", { method: "POST" });
+    expect(deleteFromGithub).toHaveBeenCalledWith("docs/a.pdf", "sha1");
     const body = await res.json();
-    expect(body).toMatchObject({ totalUsers: 10, totalTasks: 20, totalMeetings: 3, totalIdeas: 5 });
+    // deletedDocs es interno (limpieza de GitHub) — nunca se reenvía al frontend.
+    expect(body).toEqual({ reportsDeleted: 2, tasksDeleted: 1, docsDeleted: 1 });
   });
 });
 
@@ -246,11 +193,11 @@ describe("GET/POST /api/settings/login-attempts/cleanup", () => {
 
   it("GET devuelve el conteo de intentos expirados sin borrar nada", async () => {
     mockSession({});
-    countExpiredLoginAttempts.mockResolvedValue(7);
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, { expired_count: 7 }));
     const res = await loginAttemptsCleanupGET();
     const body = await res.json();
     expect(body).toEqual({ expiredCount: 7 });
-    expect(cleanupExpiredLoginAttempts).not.toHaveBeenCalled();
+    expect(djangoApiFetch).toHaveBeenCalledWith("/settings/login-attempts/cleanup/");
   });
 
   it("POST responde 401/403 según sesión y rol", async () => {
@@ -262,14 +209,21 @@ describe("GET/POST /api/settings/login-attempts/cleanup", () => {
 
   it("POST ejecuta la limpieza y devuelve la cantidad eliminada", async () => {
     mockSession({});
-    cleanupExpiredLoginAttempts.mockResolvedValue(4);
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, { deleted: 4 }));
     const res = await loginAttemptsCleanupPOST();
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body).toEqual({ deleted: 4 });
+    expect(djangoApiFetch).toHaveBeenCalledWith("/settings/login-attempts/cleanup/", { method: "POST" });
   });
 });
 
+// GET/PUT /api/settings/workload-config pasó a Django en el cutover de
+// stack (Fase 52, ver docs/AUDIT_LOG.md § 2026-08-24) — mockeado con
+// `@/lib/djangoSession`. Ya consumida por el bundle de Analytics/Dashboard
+// desde la Fase 4m — esta config editada desde Ajustes no tenía ningún
+// efecto real hasta este cutover (gap preexistente, cerrado acá). El
+// cálculo/validación real ya lo cubre la suite de Django.
 describe("GET/PUT /api/settings/workload-config", () => {
   beforeEach(resetAll);
 
@@ -279,17 +233,22 @@ describe("GET/PUT /api/settings/workload-config", () => {
     expect(res.status).toBe(401);
   });
 
-  it("GET devuelve los 4 valores efectivos", async () => {
+  it("GET devuelve los 4 valores efectivos, mapeados a camelCase", async () => {
     mockSession({});
+    djangoApiFetch.mockResolvedValue(
+      djangoResponse(true, { hours_per_day: 6.5, workload_limit_low: 5.5, workload_limit_high: 7.5, workload_limit_overload: 8.5 })
+    );
     const res = await workloadGET();
+    expect(djangoApiFetch).toHaveBeenCalledWith("/settings/workload-config/");
     const body = await res.json();
     expect(body).toEqual({ hoursPerDay: 6.5, workloadLimitLow: 5.5, workloadLimitHigh: 7.5, workloadLimitOverload: 8.5 });
   });
 
-  it("PUT responde 403 para un rol no Administrador", async () => {
+  it("PUT responde 403 para un rol no Administrador, sin llamar a Django", async () => {
     mockSession({ role: "JEFE_NACIONAL" });
     const res = await workloadPUT(jsonRequest({}));
     expect(res.status).toBe(403);
+    expect(djangoApiFetch).not.toHaveBeenCalled();
   });
 
   it("PUT responde 400 si el body no es JSON válido", async () => {
@@ -298,42 +257,38 @@ describe("GET/PUT /api/settings/workload-config", () => {
     expect(res.status).toBe(400);
   });
 
-  it("PUT responde 400 si no se envía ningún campo", async () => {
+  it("PUT propaga un mensaje de validación de Django (ej. orden de límites)", async () => {
     mockSession({});
-    const res = await workloadPUT(jsonRequest({}));
-    expect(res.status).toBe(400);
-  });
-
-  it("PUT responde 400 si hoursPerDay está fuera de [4,8]", async () => {
-    mockSession({});
-    const res = await workloadPUT(jsonRequest({ hoursPerDay: 9 }));
-    expect(res.status).toBe(400);
-  });
-
-  it("PUT responde 400 si un límite no es un número finito", async () => {
-    mockSession({});
-    const res = await workloadPUT(jsonRequest({ workloadLimitLow: Number.NaN }));
-    expect(res.status).toBe(400);
-  });
-
-  it("PUT responde 400 si el orden de los límites queda inconsistente", async () => {
-    mockSession({});
-    // low(5.5) < hours(6.5) <= high(7.5) < overload — se rompe si low llega a igualar hours.
+    djangoApiFetch.mockResolvedValue(
+      djangoResponse(false, { error: "Los límites deben mantener el orden: Subutilización (6.5) < Horas efectivas (6.5) <= Límite óptimo (7.5) < Sobrecarga (8.5)" }, 400)
+    );
     const res = await workloadPUT(jsonRequest({ workloadLimitLow: 6.5 }));
     expect(res.status).toBe(400);
     const body = await res.json();
     expect(body.error).toMatch(/deben mantener el orden/);
   });
 
-  it("PUT guarda solo los campos provistos y devuelve los valores efectivos finales", async () => {
+  it("PUT reenvía solo los campos provistos, traducidos a snake_case, y devuelve los valores efectivos mapeados", async () => {
     mockSession({ userId: "admin-1" });
+    djangoApiFetch.mockResolvedValue(
+      djangoResponse(true, { hours_per_day: 7, workload_limit_low: 5.5, workload_limit_high: 7.5, workload_limit_overload: 8.5 })
+    );
     const res = await workloadPUT(jsonRequest({ hoursPerDay: 7 }));
     expect(res.status).toBe(200);
-    expect(setConfigValue).toHaveBeenCalledTimes(1);
-    expect(setConfigValue).toHaveBeenCalledWith("HORAS_EFECTIVAS_DIA", "7", "admin-1");
+    expect(djangoApiFetch).toHaveBeenCalledWith("/settings/workload-config/", {
+      method: "PUT",
+      body: JSON.stringify({ hours_per_day: 7 }),
+    });
+    const body = await res.json();
+    expect(body.hoursPerDay).toBe(7);
   });
 });
 
+// GET/PUT /api/settings/welcome-message pasó a Django en el cutover de
+// stack (Fase 51, ver docs/AUDIT_LOG.md § 2026-08-24) — mockeado con
+// `@/lib/djangoSession`. Se cortó junto con `GET /api/dashboard` en la
+// misma fase (el Dashboard ya leía este mensaje de Django) para no dejar
+// una escritura en Postgres desincronizada de una lectura en SQL Server.
 describe("GET/PUT /api/settings/welcome-message", () => {
   beforeEach(resetAll);
 
@@ -341,23 +296,25 @@ describe("GET/PUT /api/settings/welcome-message", () => {
     mockSession(null);
     const res = await welcomeMessageGET();
     expect(res.status).toBe(401);
+    expect(djangoApiFetch).not.toHaveBeenCalled();
   });
 
   it("GET devuelve el mensaje efectivo — accesible para cualquier usuario autenticado, no solo Administrador", async () => {
     mockSession({ role: "ASISTENTE_GH" });
-    getEffectiveWelcomeMessage.mockResolvedValue("Bienvenidos al nuevo mes");
-    getEffectiveWelcomeMessageActive.mockResolvedValue(true);
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, { message: "Bienvenidos al nuevo mes", active: true }));
     const res = await welcomeMessageGET();
     expect(res.status).toBe(200);
+    expect(djangoApiFetch).toHaveBeenCalledWith("/settings/welcome-message/");
     const body = await res.json();
     expect(body).toEqual({ message: "Bienvenidos al nuevo mes", active: true });
   });
 
-  it("PUT responde 401/403 según sesión y rol", async () => {
+  it("PUT responde 401/403 según sesión y rol, sin llamar a Django", async () => {
     mockSession(null);
     expect((await welcomeMessagePUT(jsonRequest({ message: "x", active: true }))).status).toBe(401);
     mockSession({ role: "COORDINADOR_NACIONAL" });
     expect((await welcomeMessagePUT(jsonRequest({ message: "x", active: true }))).status).toBe(403);
+    expect(djangoApiFetch).not.toHaveBeenCalled();
   });
 
   it("PUT responde 400 si el body no es JSON válido", async () => {
@@ -366,31 +323,41 @@ describe("GET/PUT /api/settings/welcome-message", () => {
     expect(res.status).toBe(400);
   });
 
-  it("PUT responde 400 si message o active tienen tipo incorrecto", async () => {
+  it("PUT responde 400 si message o active tienen tipo incorrecto, sin llamar a Django", async () => {
     mockSession({});
     expect((await welcomeMessagePUT(jsonRequest({ message: 123, active: true }))).status).toBe(400);
     expect((await welcomeMessagePUT(jsonRequest({ message: "x", active: "true" }))).status).toBe(400);
+    expect(djangoApiFetch).not.toHaveBeenCalled();
   });
 
-  it("PUT recorta espacios y guarda ambas claves de configuración", async () => {
+  it("PUT reenvía message/active a Django y devuelve la respuesta", async () => {
     mockSession({ userId: "admin-1" });
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, { message: "Hola equipo", active: true }));
     const res = await welcomeMessagePUT(jsonRequest({ message: "  Hola equipo  ", active: true }));
     expect(res.status).toBe(200);
+    expect(djangoApiFetch).toHaveBeenCalledWith("/settings/welcome-message/", {
+      method: "PUT",
+      body: JSON.stringify({ message: "  Hola equipo  ", active: true }),
+    });
     const body = await res.json();
     expect(body).toEqual({ message: "Hola equipo", active: true });
-    expect(setConfigValue).toHaveBeenCalledWith("welcome_message", "Hola equipo", "admin-1");
-    expect(setConfigValue).toHaveBeenCalledWith("welcome_message_active", "true", "admin-1");
   });
 
-  it("PUT permite desactivar y vaciar el mensaje", async () => {
-    mockSession({ userId: "admin-1" });
+  it("PUT propaga el mensaje de error plano de Django", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "Datos inválidos" }, 400));
     const res = await welcomeMessagePUT(jsonRequest({ message: "", active: false }));
-    expect(res.status).toBe(200);
-    expect(setConfigValue).toHaveBeenCalledWith("welcome_message", "", "admin-1");
-    expect(setConfigValue).toHaveBeenCalledWith("welcome_message_active", "false", "admin-1");
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("Datos inválidos");
   });
 });
 
+// GET/PUT /api/settings/notification-rules pasó a Django en el cutover de
+// stack (Fase 86, ver docs/AUDIT_LOG.md § 2026-08-28) — mockeado con
+// `@/lib/djangoSession`, mismo patrón que `welcome-message`. La validación
+// de forma (roles válidos, los 3 campos obligatorios) ahora la hace Django
+// (`validate_notification_rules_body`, con su propia cobertura en
+// `backend/apps/configuration/tests`) — este `route.ts` solo la propaga.
 describe("GET/PUT /api/settings/notification-rules", () => {
   beforeEach(resetAll);
 
@@ -398,93 +365,71 @@ describe("GET/PUT /api/settings/notification-rules", () => {
     mockSession(null);
     const res = await notificationRulesGET();
     expect(res.status).toBe(401);
+    expect(djangoApiFetch).not.toHaveBeenCalled();
   });
 
   it("GET devuelve la configuración vigente para cualquier usuario autenticado", async () => {
     mockSession({ role: "ASISTENTE_GH" });
+    djangoApiFetch.mockResolvedValue(
+      djangoResponse(true, { comment_targets: {}, first_comment_role: null, retroactive_notify_roles: ["COORDINADOR_NACIONAL"] })
+    );
     const res = await notificationRulesGET();
     expect(res.status).toBe(200);
+    expect(djangoApiFetch).toHaveBeenCalledWith("/settings/notification-rules/");
     const body = await res.json();
-    expect(body.retroactiveNotifyRoles).toEqual(["COORDINADOR_NACIONAL"]);
+    expect(body).toEqual({ commentTargets: {}, firstCommentRole: null, retroactiveNotifyRoles: ["COORDINADOR_NACIONAL"] });
   });
 
-  it("PUT responde 401/403 según sesión y rol", async () => {
+  it("PUT responde 401/403 según sesión y rol, sin llamar a Django", async () => {
     mockSession(null);
     expect((await notificationRulesPUT(jsonRequest({}))).status).toBe(401);
     mockSession({ role: "COORDINADOR_NACIONAL" });
     expect((await notificationRulesPUT(jsonRequest({}))).status).toBe(403);
+    expect(djangoApiFetch).not.toHaveBeenCalled();
   });
 
   it("PUT responde 400 si el body no es JSON válido", async () => {
     mockSession({});
     const res = await notificationRulesPUT(badJsonRequest());
     expect(res.status).toBe(400);
+    expect(djangoApiFetch).not.toHaveBeenCalled();
   });
 
-  it("PUT responde 400 si commentTargets falta o no es un objeto", async () => {
+  it("PUT propaga el mensaje de error plano de Django (ej. configuración inválida)", async () => {
     mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "Configuración inválida" }, 400));
     const res = await notificationRulesPUT(
       jsonRequest({ commentTargets: null, firstCommentRole: null, retroactiveNotifyRoles: [] })
     );
     expect(res.status).toBe(400);
-    expect(saveNotificationRules).not.toHaveBeenCalled();
+    expect((await res.json()).error).toBe("Configuración inválida");
   });
 
-  it("PUT responde 400 si una clave de commentTargets no es un rol válido", async () => {
-    mockSession({});
-    const res = await notificationRulesPUT(
-      jsonRequest({
-        commentTargets: { ROL_INVENTADO: ["JEFE_NACIONAL"] },
-        firstCommentRole: null,
-        retroactiveNotifyRoles: [],
-      })
-    );
-    expect(res.status).toBe(400);
-  });
-
-  it("PUT responde 400 si algún rol destino no es válido", async () => {
-    mockSession({});
-    const res = await notificationRulesPUT(
-      jsonRequest({
-        commentTargets: { ASISTENTE_GH: ["NO_EXISTE"] },
-        firstCommentRole: null,
-        retroactiveNotifyRoles: [],
-      })
-    );
-    expect(res.status).toBe(400);
-  });
-
-  it("PUT responde 400 si firstCommentRole no es null ni un rol válido", async () => {
-    mockSession({});
-    const res = await notificationRulesPUT(
-      jsonRequest({ commentTargets: {}, firstCommentRole: "INVALIDO", retroactiveNotifyRoles: [] })
-    );
-    expect(res.status).toBe(400);
-  });
-
-  it("PUT acepta commentTargets vacío (equivalente a 'Nadie' para todos los roles)", async () => {
-    mockSession({ userId: "admin-1" });
-    const res = await notificationRulesPUT(
-      jsonRequest({ commentTargets: {}, firstCommentRole: null, retroactiveNotifyRoles: [] })
-    );
-    expect(res.status).toBe(200);
-    expect(saveNotificationRules).toHaveBeenCalledWith(
-      { commentTargets: {}, firstCommentRole: null, retroactiveNotifyRoles: [] },
-      "admin-1"
-    );
-  });
-
-  it("PUT guarda una configuración válida completa", async () => {
+  it("PUT reenvía la configuración a Django y devuelve la vigente", async () => {
     mockSession({ userId: "admin-1" });
     const config = {
       commentTargets: { ASISTENTE_GH: ["ANALISTA_CC"], ANALISTA_CC: [] },
       firstCommentRole: "COORDINADOR_NACIONAL" as const,
       retroactiveNotifyRoles: ["COORDINADOR_NACIONAL", "JEFE_NACIONAL"],
     };
+    djangoApiFetch.mockResolvedValueOnce(djangoResponse(true, {})).mockResolvedValueOnce(
+      djangoResponse(true, {
+        comment_targets: config.commentTargets,
+        first_comment_role: config.firstCommentRole,
+        retroactive_notify_roles: config.retroactiveNotifyRoles,
+      })
+    );
     const res = await notificationRulesPUT(jsonRequest(config));
     expect(res.status).toBe(200);
+    expect(djangoApiFetch).toHaveBeenCalledWith("/settings/notification-rules/", {
+      method: "PUT",
+      body: JSON.stringify({
+        comment_targets: config.commentTargets,
+        first_comment_role: config.firstCommentRole,
+        retroactive_notify_roles: config.retroactiveNotifyRoles,
+      }),
+    });
     const body = await res.json();
     expect(body).toEqual(config);
-    expect(saveNotificationRules).toHaveBeenCalledWith(config, "admin-1");
   });
 });

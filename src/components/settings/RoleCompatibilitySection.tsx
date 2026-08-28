@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import SectionCard from "./SectionCard";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import { ROLE_LABEL, ROLE_LEVEL, isExecutorRole } from "@/lib/roles";
 import { Spinner } from "@/components/ui/Skeleton";
 import { useToast, TOAST_MESSAGES } from "@/components/ui/Toast";

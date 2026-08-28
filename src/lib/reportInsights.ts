@@ -1,44 +1,41 @@
-import "server-only";
-import { prisma } from "@/lib/prisma";
-import { monthlyBusinessBaseForUsers, computeWorkloadRange, computeWorkloadPct, sumWeightedBaseHours, sumWeightedLimit } from "@/lib/workload";
-import { businessDayRealRange } from "@/lib/businessTime";
-import { computeCompletedPctAny, computeEffectiveHistoryStart, classifyEstadoOperativo, type EstadoOperativoResult } from "@/lib/analytics";
-import { getTeamSpecialStatusDayMap } from "@/lib/specialStatus";
-import { getHolidaySet } from "@/lib/holidays";
 import type { WorkloadLabel } from "@/components/kpis/types";
+import { classifyEstadoOperativo, type EstadoOperativoResult } from "@/lib/analytics";
 
 /**
  * Motor de interpretación de Informes Ejecutivos (Sprint Reportes
  * Ejecutivos 2.0) — capa de composición sobre datos ya calculados por
- * `analytics.ts` (Cumplimiento/Carga/etc.) y `workload.ts`. NUNCA recalcula
+ * `analytics.ts`/`workload.ts` (o, desde las Fases 67-73, por el bundle
+ * de Django que reemplazó esos cálculos — ver
+ * `src/lib/executiveReporting/djangoReportKpisBridge.ts`). NUNCA recalcula
  * un KPI ni usa IA: cada función de aquí es una regla fija sobre números
- * que otro módulo ya produjo. Mismo principio que `insightsEngine.ts`,
- * pero a nivel de reporte de equipo consolidado, no de indicador
- * individual. El "Análisis IA" (Groq) del reporte es un módulo aparte,
- * independiente de este — ver `docs/DECISIONS.md` § Sprint Reportes
- * Ejecutivos 2.0.
+ * que otro módulo ya produjo. El "Análisis IA" (Groq) del reporte es un
+ * módulo aparte, independiente de este — ver `docs/DECISIONS.md` § Sprint
+ * Reportes Ejecutivos 2.0.
+ *
+ * Fase 84 (ver docs/AUDIT_LOG.md § 2026-08-27): se retiraron las funciones
+ * que calculaban `TeamMonthlyPoint`/`TrendComparison`/`RiskQuadrant`/
+ * `Finding`/`Recommendation`/`IndicatorExplanation` localmente contra
+ * Prisma — ese cálculo ya lo hace Django (Fases 67-73,
+ * `backend/apps/reports/insights.py`) y llega servido en el bundle. Los
+ * TIPOS se conservan intactos: siguen siendo el contrato de forma que
+ * `buildSnapshotData.ts`/`snapshotData.ts`/`documentModel.ts`/`nova/*`
+ * usan para tipar esos mismos campos ya viniendo de Django.
  */
 
-// ── Bloque 11 — Índice Ejecutivo del Equipo ─────────────────────────────────
 // El clasificador puro vive en `executiveReporting/indiceEjecutivo.ts` (SIN
 // "server-only" — no tiene I/O) para que un Client Component pueda
-// importarlo sin arrastrar este archivo completo (Prisma, `getHolidaySet`,
-// etc.) a su bundle — ver el comentario de ese archivo (causa raíz de un
-// fallo real de build, docs/AUDIT_LOG.md § Fix Índice Ejecutivo). Se
-// reexporta aquí solo para no romper a los consumidores existentes
-// (`buildSnapshotData.ts`, `report-insights.test.ts`) — código nuevo que
-// necesite `classifyIndiceEjecutivo` desde un contexto potencialmente
-// cliente debe importarlo de `executiveReporting/indiceEjecutivo.ts`
-// directamente, nunca de aquí.
+// importarlo sin arrastrar este archivo completo a su bundle — ver el
+// comentario de ese archivo (causa raíz de un fallo real de build,
+// docs/AUDIT_LOG.md § Fix Índice Ejecutivo). Se reexporta aquí solo para no
+// romper a los consumidores existentes (`buildSnapshotData.ts`,
+// `report-insights.test.ts`) — código nuevo que necesite
+// `classifyIndiceEjecutivo` desde un contexto potencialmente cliente debe
+// importarlo de `executiveReporting/indiceEjecutivo.ts` directamente, nunca
+// de aquí.
 export { classifyIndiceEjecutivo, type IndiceEjecutivoNivel, type IndiceEjecutivoResult } from "@/lib/executiveReporting/indiceEjecutivo";
 
-// ── Bloque 9 — Tendencias (mes anterior / trimestre / semestre) ────────────
-// Snapshots mensuales livianos (cumplimiento/carga/consultas, vía
-// computeSimpleScore-equivalentes ya seguros para meses pasados — nada
-// forward-looking) para las 3 tarjetas comparativas del Resumen Ejecutivo.
-// Solo se usa desde el informe de UN mes (`reports/generate`) — el informe
-// de rango ya expone su propia evolución mes a mes (`months[]`), no
-// necesita esto.
+// ── Tipos servidos hoy por Django (Fases 67-73) — el cálculo se retiró de
+// acá, el contrato de forma se conserva. ──
 
 export type TeamMonthlyPoint = {
   month: string;
@@ -49,101 +46,6 @@ export type TeamMonthlyPoint = {
   totalTasks: number;
 };
 
-function monthBoundsUtil(year: number, month: number) {
-  const start = new Date(year, month - 1, 1);
-  const end = new Date(year, month, 0, 23, 59, 59, 999);
-  return { start, end };
-}
-
-function monthLabelShort(year: number, month: number) {
-  return new Date(year, month - 1, 1).toLocaleDateString("es-CL", { month: "short", year: "2-digit" });
-}
-
-/** Construye hasta `monthsBack + 1` snapshots mensuales (el mes `endYear/endMonth` incluido, más los `monthsBack` anteriores), en una sola tanda de queries. */
-export async function computeTeamMonthlySnapshots(
-  userIds: string[],
-  endYear: number,
-  endMonth: number,
-  monthsBack: number,
-): Promise<TeamMonthlyPoint[]> {
-  if (userIds.length === 0) return [];
-
-  const months = Array.from({ length: monthsBack + 1 }, (_, i) => {
-    const d = new Date(endYear, endMonth - 1 - (monthsBack - i), 1);
-    return { year: d.getFullYear(), month: d.getMonth() + 1 };
-  });
-
-  const rangeStart = monthBoundsUtil(months[0].year, months[0].month).start;
-  const rangeEnd = monthBoundsUtil(months[months.length - 1].year, months[months.length - 1].month).end;
-
-  const monthBusinessInfo = await Promise.all(
-    months.map(async ({ year, month }) => {
-      const { shared, perUser } = await monthlyBusinessBaseForUsers(userIds, year, month);
-      const { start: realStart } = businessDayRealRange(shared.start);
-      const { end: realEnd } = businessDayRealRange(shared.end);
-      return { year, month, ...shared, realStart, realEnd, perUser };
-    }),
-  );
-  const rangeRealStart = monthBusinessInfo[0].realStart;
-  const rangeRealEnd = monthBusinessInfo[monthBusinessInfo.length - 1].realEnd;
-
-  const [allTasks, allActivities, fijaTasksForCarga, activitiesForCarga] = await Promise.all([
-    prisma.task.findMany({
-      where: { assignedToId: { in: userIds }, endDate: { gte: rangeStart, lte: rangeEnd } },
-      select: { assignedToId: true, status: true, endDate: true },
-    }),
-    prisma.taskActivity.findMany({
-      where: { authorId: { in: userIds }, createdAt: { gte: rangeStart, lte: rangeEnd }, task: { type: "SEGUIMIENTO" } },
-      select: { authorId: true, createdAt: true },
-    }),
-    prisma.task.findMany({
-      where: { assignedToId: { in: userIds }, type: "FIJA", completedAt: { gte: rangeRealStart, lte: rangeRealEnd } },
-      select: { assignedToId: true, realHours: true, completedAt: true },
-    }),
-    prisma.taskActivity.findMany({
-      where: { authorId: { in: userIds }, createdAt: { gte: rangeRealStart, lte: rangeRealEnd } },
-      select: { authorId: true, duration: true, createdAt: true },
-    }),
-  ]);
-
-  function bizForUser(bizInfo: (typeof monthBusinessInfo)[number], userId: string) {
-    return bizInfo.perUser.get(userId) ?? bizInfo;
-  }
-
-  return monthBusinessInfo.map((bizInfo) => {
-    const { start, end } = monthBoundsUtil(bizInfo.year, bizInfo.month);
-    const monthTasks = allTasks.filter((t) => t.endDate >= start && t.endDate <= end);
-    const monthActs = allActivities.filter((a) => a.createdAt >= start && a.createdAt <= end);
-    const monthFija = fijaTasksForCarga.filter((t) => t.completedAt! >= bizInfo.realStart && t.completedAt! <= bizInfo.realEnd);
-    const monthCargaActs = activitiesForCarga.filter((a) => a.createdAt >= bizInfo.realStart && a.createdAt <= bizInfo.realEnd);
-
-    const memberStats = userIds.map((userId) => {
-      const tasks = monthTasks.filter((t) => t.assignedToId === userId);
-      const completedPct = computeCompletedPctAny(tasks);
-      const fijaHours = monthFija.filter((t) => t.assignedToId === userId).reduce((s, t) => s + t.realHours, 0);
-      const activityHours = monthCargaActs.filter((a) => a.authorId === userId).reduce((s, a) => s + a.duration, 0) / 60;
-      const cargaRealHours = Math.round((fijaHours + activityHours) * 100) / 100;
-      const userBiz = bizForUser(bizInfo, userId);
-      const cargaRange = computeWorkloadRange(cargaRealHours, userBiz.limitBaseHours, userBiz.limitLowHours, userBiz.limitHighHours, userBiz.limitOverloadHours);
-      const cargaPct = computeWorkloadPct(cargaRealHours, userBiz.limitBaseHours, cargaRange.max);
-      return { completedPct, cargaPct, totalTasks: tasks.length };
-    });
-
-    const activeMembers = memberStats.filter((m) => m.totalTasks > 0);
-    const avgCumplimiento = activeMembers.length > 0 ? Math.round(activeMembers.reduce((s, m) => s + m.completedPct, 0) / activeMembers.length) : 0;
-    const avgCargaPct = memberStats.length > 0 ? Math.round(memberStats.reduce((s, m) => s + m.cargaPct, 0) / memberStats.length) : 0;
-
-    return {
-      month: `${bizInfo.year}-${String(bizInfo.month).padStart(2, "0")}`,
-      label: monthLabelShort(bizInfo.year, bizInfo.month),
-      avgCumplimiento,
-      avgCargaPct,
-      totalConsultas: monthActs.length,
-      totalTasks: monthTasks.length,
-    };
-  });
-}
-
 export type TrendComparison = {
   label: string;
   currentValue: number;
@@ -152,88 +54,7 @@ export type TrendComparison = {
   direction: "mejora" | "deterioro" | "estable" | "sin-datos";
 };
 
-function classifyDelta(delta: number): "mejora" | "deterioro" | "estable" {
-  if (delta >= 5) return "mejora";
-  if (delta <= -5) return "deterioro";
-  return "estable";
-}
-
-/** A partir de los snapshots (más antiguo → más reciente, el último es el mes del informe), arma las 3 comparaciones del Bloque 9. */
-export function computeTrendComparisons(points: TeamMonthlyPoint[]): { mesAnterior: TrendComparison; trimestre: TrendComparison; semestre: TrendComparison } {
-  const current = points[points.length - 1];
-  const currentValue = current?.avgCumplimiento ?? 0;
-
-  function comparisonFrom(label: string, window: TeamMonthlyPoint[]): TrendComparison {
-    const withData = window.filter((p) => p.totalTasks > 0);
-    if (withData.length === 0) return { label, currentValue, compareValue: null, delta: null, direction: "sin-datos" };
-    const compareValue = Math.round(withData.reduce((s, p) => s + p.avgCumplimiento, 0) / withData.length);
-    const delta = currentValue - compareValue;
-    return { label, currentValue, compareValue, delta, direction: classifyDelta(delta) };
-  }
-
-  const priorMonths = points.slice(0, -1); // todo lo anterior al mes actual, más antiguo primero
-  const mesAnterior = comparisonFrom("Mes anterior", priorMonths.slice(-1));
-  const trimestre = comparisonFrom("Trimestre (prom. 3 meses)", priorMonths.slice(-3));
-  const semestre = comparisonFrom("Semestre (prom. 6 meses)", priorMonths.slice(-6));
-  return { mesAnterior, trimestre, semestre };
-}
-
-// ── Bloque 8 — Mapa de Riesgo (Cumplimiento vs Carga) ───────────────────────
-
 export type RiskQuadrant = "criticos" | "atencion-carga" | "atencion-cumplimiento" | "saludables";
-export type RiskQuadrantPoint<T extends { completedPct: number; cargaPct: number }> = T & { quadrant: RiskQuadrant };
-
-export const RISK_QUADRANT_LABEL: Record<RiskQuadrant, string> = {
-  criticos: "Crítico — bajo cumplimiento y sobrecarga",
-  "atencion-carga": "Atención — sobrecarga con cumplimiento aceptable",
-  "atencion-cumplimiento": "Atención — bajo cumplimiento sin sobrecarga",
-  saludables: "Saludable — cumplimiento y carga dentro de rango",
-};
-
-/** Umbrales del mapa: cumplimiento <60% = bajo; carga >100% del rango óptimo = sobrecarga relativa (mismo umbral que usan las alertas ya existentes del reporte). */
-export function computeRiskQuadrant<T extends { completedPct: number; cargaPct: number }>(members: T[]): RiskQuadrantPoint<T>[] {
-  return members.map((m) => {
-    const lowCumplimiento = m.completedPct < 60;
-    const highCarga = m.cargaPct > 100;
-    let quadrant: RiskQuadrant;
-    if (lowCumplimiento && highCarga) quadrant = "criticos";
-    else if (highCarga) quadrant = "atencion-carga";
-    else if (lowCumplimiento) quadrant = "atencion-cumplimiento";
-    else quadrant = "saludables";
-    return { ...m, quadrant };
-  });
-}
-
-// ── Bloque 6 — Distribución por Motivo (con %, tendencia e interpretación) ──
-
-/** Pistas de negocio por motivo conocido (catálogo por defecto del seed) — motivos personalizados creados en Ajustes usan el texto genérico. */
-const REASON_HINT: Record<string, string> = {
-  NOVEDADES_PAGO: "puede indicar un incremento en ajustes de nómina o mayor demanda operativa",
-  RETENCION_PAGO: "puede reflejar casos de retención salarial que requieren seguimiento legal/administrativo",
-  FACTURAS: "puede indicar mayor volumen de gestión documental con proveedores o colaboradores",
-  CONSULTA_OPERACIONES: "sugiere una mayor necesidad de soporte operativo del equipo",
-  SOLICITUD_VACACIONES: "es esperable en períodos de alta demanda de vacaciones",
-  SOLICITUD_PERMISO: "puede indicar mayor ausentismo planificado en el período",
-  VISITA_DOMICILIARIA: "refleja actividad de campo — puede impactar la disponibilidad de quienes las realizan",
-  SEGUIMIENTO_AUSENTISMOS: "sugiere mayor necesidad de gestión de ausentismos en el período",
-  RECLUTAMIENTO_SELECCION: "puede indicar apertura de nuevas vacantes o procesos de selección activos",
-  SEGUIMIENTO_DOCUMENTACION: "puede indicar pendientes documentales acumulados que requieren cierre",
-  SOLICITUDES_INTERNAS: "sugiere mayor demanda de gestión interna del equipo",
-};
-
-export function explainMotivoDistribution(reasonKey: string, label: string, pctOfTotal: number, trendPct: number | null): string {
-  const hint = REASON_HINT[reasonKey];
-  let text = `${label} representa el ${pctOfTotal}% de las consultas del período`;
-  text += pctOfTotal >= 30 ? ", convirtiéndose en el principal motivo de gestión del equipo." : ".";
-  if (hint) text += ` Esto ${hint}.`;
-  if (trendPct !== null) {
-    if (trendPct >= 20) text += ` Aumentó ${trendPct}% respecto al período anterior.`;
-    else if (trendPct <= -20) text += ` Disminuyó ${Math.abs(trendPct)}% respecto al período anterior.`;
-  }
-  return text;
-}
-
-// ── Bloque 2 — Hallazgos Automáticos y Bloque 3 — Recomendaciones ──────────
 
 export type Finding = { text: string; tone: "positive" | "risk" | "neutral" };
 /**
@@ -243,84 +64,7 @@ export type Finding = { text: string; tone: "positive" | "risk" | "neutral" };
  */
 export type Recommendation = { id: string; text: string; priority: "alta" | "media" };
 
-export type ReportInsightMember = {
-  name: string;
-  cargaLabel: WorkloadLabel;
-  completedPct: number;
-  overdueCount: number;
-};
-
-/** Reglas fijas sobre datos ya calculados por el reporte — ninguna generada por IA (Bloque 2, "generar automáticamente"). */
-export function computeFindings(input: {
-  avgCumplimiento: number;
-  avgCumplimientoDelta: number | null;
-  members: ReportInsightMember[];
-  totalOverdue: number;
-  topReason: { label: string; pct: number } | null;
-}): Finding[] {
-  const findings: Finding[] = [];
-
-  if (input.avgCumplimientoDelta !== null) {
-    const d = input.avgCumplimientoDelta;
-    if (d >= 3) findings.push({ text: `El cumplimiento del equipo aumentó ${d} puntos porcentuales respecto al mes anterior.`, tone: "positive" });
-    else if (d <= -3) findings.push({ text: `El cumplimiento del equipo disminuyó ${Math.abs(d)} puntos porcentuales respecto al mes anterior.`, tone: "risk" });
-  }
-
-  const subutilizados = input.members.filter((m) => m.cargaLabel === "Subutilización");
-  const sobrecargados = input.members.filter((m) => m.cargaLabel === "Sobrecarga");
-  if (subutilizados.length > 0) {
-    findings.push({ text: `Existen ${subutilizados.length} colaborador(es) subutilizados: ${subutilizados.map((m) => m.name).join(", ")}.`, tone: "neutral" });
-  }
-  if (sobrecargados.length > 0) {
-    findings.push({ text: `Existen ${sobrecargados.length} colaborador(es) en sobrecarga: ${sobrecargados.map((m) => m.name).join(", ")}.`, tone: "risk" });
-  } else {
-    findings.push({ text: "La carga general del equipo es adecuada — nadie está en sobrecarga este período.", tone: "positive" });
-  }
-
-  if (input.totalOverdue === 0) {
-    findings.push({ text: "No existen tareas vencidas en el equipo este período.", tone: "positive" });
-  } else {
-    findings.push({ text: `Existen ${input.totalOverdue} tarea(s) vencida(s) en el equipo.`, tone: "risk" });
-  }
-
-  if (input.topReason && input.topReason.pct >= 30) {
-    findings.push({ text: `"${input.topReason.label}" concentra el ${input.topReason.pct}% de las consultas del período.`, tone: "neutral" });
-  }
-
-  return findings;
-}
-
-/** Reglas fijas, no IA (Bloque 3 lo exige explícitamente) — cada recomendación nace de una condición concreta ya presente en `computeFindings`. */
-export function computeRecommendations(input: {
-  avgCumplimiento: number;
-  members: ReportInsightMember[];
-  topReason: { label: string; pct: number } | null;
-}): Recommendation[] {
-  const recs: Recommendation[] = [];
-  const subutilizados = input.members.filter((m) => m.cargaLabel === "Subutilización");
-  const sobrecargados = input.members.filter((m) => m.cargaLabel === "Sobrecarga");
-  const bajoCumplimiento = input.members.filter((m) => m.completedPct < 60);
-
-  if (sobrecargados.length > 0 && subutilizados.length > 0) {
-    recs.push({ id: "redistribuir-carga-mixta", text: `Redistribuir carga: ${sobrecargados.map((m) => m.name).join(", ")} está(n) en sobrecarga mientras ${subutilizados.map((m) => m.name).join(", ")} tiene(n) capacidad disponible.`, priority: "alta" });
-  } else if (sobrecargados.length > 0) {
-    recs.push({ id: "redistribuir-carga-sobrecarga", text: `Redistribuir carga de ${sobrecargados.map((m) => m.name).join(", ")} hacia colaboradores con capacidad disponible.`, priority: "alta" });
-  }
-
-  if (bajoCumplimiento.length > 0) {
-    recs.push({ id: "revisar-bajo-cumplimiento", text: `Revisar proyectos/tareas de ${bajoCumplimiento.map((m) => m.name).join(", ")} — cumplimiento por debajo del 60%.`, priority: "alta" });
-  }
-
-  if (input.topReason && input.topReason.pct >= 30) {
-    recs.push({ id: "reforzar-motivo-concentrado", text: `Evaluar capacitar o reforzar el proceso de "${input.topReason.label}" — concentra ${input.topReason.pct}% de las consultas del equipo.`, priority: "media" });
-  }
-
-  if (sobrecargados.length === 0 && bajoCumplimiento.length === 0 && input.avgCumplimiento >= 80) {
-    recs.push({ id: "mantener-planificacion", text: "Mantener la planificación actual — los indicadores del equipo están dentro de rangos saludables.", priority: "media" });
-  }
-
-  return recs;
-}
+export type IndicatorExplanation = { meaning: string; why: string; impact: string; action: string };
 
 // ── Bloque 10 — Insights ────────────────────────────────────────────────────
 
@@ -348,107 +92,6 @@ export function computeTeamInsights(input: {
   }
 
   return insights;
-}
-
-// ── Bloque 5 — Interpretación por indicador (qué significa/por qué/impacto/acción) ──
-
-export type IndicatorExplanation = { meaning: string; why: string; impact: string; action: string };
-
-export function explainCumplimientoIndicator(pct: number, memberCount: number): IndicatorExplanation {
-  return {
-    meaning: "Porcentaje de tareas del equipo cerradas como Completada sobre el total del período.",
-    why: pct >= 80
-      ? `El ${pct}% de las tareas de los ${memberCount} colaboradores incluidos se completaron en el período.`
-      : `Solo el ${pct}% de las tareas del equipo se completaron — por debajo del objetivo mínimo del 60%.`,
-    impact: pct >= 80 ? "El equipo mantiene su capacidad de respuesta y compromisos al día." : "Los pendientes acumulados pueden derivar en retrasos operativos si la tendencia continúa.",
-    action: pct >= 80 ? "Mantener el ritmo actual de cierre de tareas." : "Priorizar el cierre de tareas próximas a vencer y revisar la carga de quienes están por debajo del objetivo.",
-  };
-}
-
-export function explainCargaIndicator(pct: number): IndicatorExplanation {
-  return {
-    meaning: "Porcentaje de horas reales registradas por el equipo frente a su base laboral esperada del período.",
-    why: pct > 100
-      ? `El equipo registró ${pct}% de su base laboral — por encima del rango óptimo.`
-      : `El equipo registró ${pct}% de su base laboral, dentro o por debajo del rango esperado.`,
-    impact: pct > 100 ? "Una carga sostenida por encima del rango óptimo eleva el riesgo de sobrecarga y desgaste." : "La carga del equipo no representa un riesgo operativo inmediato.",
-    action: pct > 100 ? "Redistribuir tareas hacia colaboradores con capacidad disponible." : "Sin acción requerida — monitorear en el próximo período.",
-  };
-}
-
-// ── Sprint Analytics 2.1 — Bloque 1: Base Horaria Efectiva ─────────────────
-// El reporte comparaba a todos los colaboradores contra la base mensual
-// COMPLETA sin importar cuándo empezaron a tener disponibilidad real para
-// registrar en NEXO — esto castigaba injustamente a quienes se incorporaron
-// a mitad de período (su % de utilización salía artificialmente bajo).
-// `computeEffectiveMemberBases` recorta la base/límites de cada colaborador
-// al tramo [max(inicioPeríodo, inicioEfectivo), finPeríodo], reutilizando
-// `computeEffectiveHistoryStart` (analytics.ts, ya usado por Consistencia
-// desde el Analytics Engine v1.3.1 — mismo criterio de "señal más
-// reciente gana": kpiStartDate > primera actividad/tarea/imputación >
-// createdAt). Para rangos multi-mes se usa la tarifa (horas/día, límites)
-// vigente al INICIO del período completo — igual que monthlyBusinessBase ya
-// hace por mes — en vez de recorrer mes a mes; una simplificación deliberada
-// (ver docs/AUDIT_LOG.md § Sprint Analytics 2.1) que evita duplicar el
-// recorrido mensual de `range/route.ts` para este cálculo adicional.
-
-export type EffectiveMemberBase = {
-  baseHours: number;
-  limitBaseHours: number;
-  limitLowHours: number;
-  limitHighHours: number;
-  limitOverloadHours: number;
-  effectiveStart: Date;
-  /** true cuando el inicio efectivo del colaborador es posterior al inicio del período (su base fue recortada). */
-  wasProrated: boolean;
-};
-
-export async function computeEffectiveMemberBases(
-  userIds: string[],
-  periodStart: Date,
-  periodEnd: Date,
-  hoursPerDay: number,
-  limitLowPerDay: number,
-  limitHighPerDay: number,
-  limitOverloadPerDay: number,
-): Promise<Map<string, EffectiveMemberBase>> {
-  const result = new Map<string, EffectiveMemberBase>();
-  if (userIds.length === 0) return result;
-
-  const [effectiveStarts, specialMap, holidays] = await Promise.all([
-    Promise.all(userIds.map((id) => computeEffectiveHistoryStart(id, periodEnd))),
-    getTeamSpecialStatusDayMap(userIds, periodStart, periodEnd),
-    getHolidaySet(),
-  ]);
-
-  userIds.forEach((userId, i) => {
-    const effectiveStart = effectiveStarts[i];
-    const clampedStart = effectiveStart.getTime() > periodStart.getTime() ? effectiveStart : periodStart;
-    const wasProrated = clampedStart.getTime() > periodStart.getTime();
-    const userSpecialMap = specialMap.get(userId) ?? new Map();
-
-    if (clampedStart.getTime() > periodEnd.getTime()) {
-      result.set(userId, { baseHours: 0, limitBaseHours: 0, limitLowHours: 0, limitHighHours: 0, limitOverloadHours: 0, effectiveStart, wasProrated: true });
-      return;
-    }
-
-    const baseHours = sumWeightedBaseHours(clampedStart, periodEnd, hoursPerDay, holidays, new Map(), userSpecialMap, "dailyHours");
-    const limitBaseHours = sumWeightedBaseHours(clampedStart, periodEnd, hoursPerDay, holidays, new Map(), userSpecialMap, "limitBase");
-    const limitLowHours = sumWeightedLimit(clampedStart, periodEnd, holidays, userSpecialMap, limitLowPerDay, "limitLow");
-    const limitHighHours = sumWeightedLimit(clampedStart, periodEnd, holidays, userSpecialMap, limitHighPerDay, "limitHigh");
-    const limitOverloadHours = sumWeightedLimit(clampedStart, periodEnd, holidays, userSpecialMap, limitOverloadPerDay, "limitOverload");
-    result.set(userId, { baseHours, limitBaseHours, limitLowHours, limitHighHours, limitOverloadHours, effectiveStart, wasProrated });
-  });
-
-  return result;
-}
-
-/** Período anterior de igual duración, terminando el día previo al inicio del período dado — usado para % de tendencia de motivos de consulta en CUALQUIER largo de período (Bloque 11), no solo meses calendario. */
-export function previousEquivalentPeriod(periodStart: Date, periodEnd: Date): { start: Date; end: Date } {
-  const durationMs = periodEnd.getTime() - periodStart.getTime();
-  const end = new Date(periodStart.getTime() - 1);
-  const start = new Date(end.getTime() - durationMs);
-  return { start, end };
 }
 
 // ── Sprint Analytics 2.1 — Bloque 9: Estado del Colaborador ────────────────
@@ -523,16 +166,4 @@ export function computePrincipalHallazgo(m: MemberHallazgoInput): string {
   if (m.consistencyVariable) return PRINCIPAL_HALLAZGO_LABEL.consistenciaBaja;
   if (m.completedPct >= 80) return PRINCIPAL_HALLAZGO_LABEL.sinTareasVencidas;
   return PRINCIPAL_HALLAZGO_LABEL.cargaEquilibrada;
-}
-
-export function explainConsultasIndicator(total: number, prevTotal: number | null): IndicatorExplanation {
-  const deltaPct = prevTotal && prevTotal > 0 ? Math.round(((total - prevTotal) / prevTotal) * 100) : null;
-  return {
-    meaning: "Total de consultas (actividades tipo Seguimiento) atendidas por el equipo en el período.",
-    why: deltaPct === null
-      ? `El equipo atendió ${total} consultas en el período.`
-      : `El equipo atendió ${total} consultas, ${deltaPct >= 0 ? "un " + deltaPct + "% más" : "un " + Math.abs(deltaPct) + "% menos"} que en el período anterior.`,
-    impact: deltaPct !== null && deltaPct >= 30 ? "Un aumento sostenido de consultas puede requerir más capacidad operativa dedicada a atención." : "El volumen de consultas se mantiene dentro de lo gestionable por el equipo.",
-    action: deltaPct !== null && deltaPct >= 30 ? "Evaluar si el aumento requiere reforzar el equipo o ajustar procesos." : "Sin acción requerida — monitorear en el próximo período.",
-  };
 }

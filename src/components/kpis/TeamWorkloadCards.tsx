@@ -6,7 +6,7 @@ import type { TeamMemberKpi, WorkloadColor, WorkloadLabel, CapacityMember, Capac
 import { hoursToDisplay, displayToHours, validateDisplayHours } from "@/lib/timeFormat";
 import { canViewOperationalRisk } from "@/lib/roles";
 import { isFeatureEnabled } from "@/lib/featureFlags";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import { Button } from "@/components/ui/Button";
 
 const AVATAR_COLORS = [

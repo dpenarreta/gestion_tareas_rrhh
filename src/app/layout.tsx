@@ -4,7 +4,7 @@ import "./globals.css";
 import ThemeProvider from "@/components/ThemeProvider";
 import { ToastProvider } from "@/components/ui/Toast";
 import { getSession } from "@/lib/session";
-import { prisma } from "@/lib/prisma";
+import { djangoApiFetch } from "@/lib/djangoSession";
 
 const instrumentSans = Instrument_Sans({
   variable: "--font-instrument",
@@ -22,14 +22,18 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  // Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-21): `User.theme` ya
+  // se escribe exclusivamente en Django desde el cutover de
+  // `PATCH /api/users/[id]/theme` — leer Postgres acá mostraría siempre el
+  // tema con el que se importó el usuario, nunca el elegido después.
   const session = await getSession();
   let defaultTheme: "light" | "dark" = "light";
   if (session) {
-    const user = await prisma.user.findUnique({
-      where: { id: session.userId },
-      select: { theme: true },
-    });
-    if (user?.theme === "DARK") defaultTheme = "dark";
+    const response = await djangoApiFetch("/auth/me/");
+    if (response?.ok) {
+      const me: { theme?: string } = await response.json();
+      if (me.theme === "DARK") defaultTheme = "dark";
+    }
   }
 
   return (

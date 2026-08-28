@@ -13,7 +13,7 @@ import {
   type DeskNoteColor,
   type RecipientOption,
 } from "./types";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 
 const PRIORITIES: DeskNotePriority[] = ["INFORMACION", "RECORDATORIO", "IMPORTANTE", "URGENTE"];
 const COLORS: DeskNoteColor[] = ["AMARILLO", "ROSADO", "CELESTE", "VERDE", "NARANJA", "LILA"];

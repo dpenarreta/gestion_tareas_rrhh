@@ -8,10 +8,15 @@
  * cierre de mes, exactamente igual que hoy.
  */
 
-import type { Role, EndDateApprovalStatus, EndDateAuditAction } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import { CAN_VALIDATE_TARGET_TIME_ROLES } from "@/lib/targetTime";
 
-export type { EndDateApprovalStatus, EndDateAuditAction };
+// Cutover de stack — Fase 90 (ver docs/AUDIT_LOG.md § 2026-08-28): ya no se
+// importan del cliente Prisma generado (retirado del repo) — mismos
+// valores que `prisma/schema.prisma` tenía, réplica exacta de
+// `Task.end_date_approval_status`/`EndDateAuditLog.action` (Django).
+export type EndDateApprovalStatus = "PENDIENTE" | "APROBADA" | "MODIFICADA" | "RECHAZADA";
+export type EndDateAuditAction = "PROPUESTA" | "APROBADA" | "MODIFICADA" | "RECHAZADA";
 
 // ── Validación por líderes ───────────────────────────────────────────────────
 // Reusa la MISMA lista de roles que Tiempo Objetivo (no hay un campo

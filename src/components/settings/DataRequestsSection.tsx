@@ -2,12 +2,20 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { ROLE_LABEL } from "@/lib/roles";
-import type { Role, DataRequestType, DataRequestStatus } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import SectionCard from "@/components/settings/SectionCard";
 import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
 import { SkeletonRow } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ClipboardList } from "lucide-react";
+
+// Cutover de stack — Fase 90 (ver docs/AUDIT_LOG.md § 2026-08-28): ya no se
+// importan del cliente Prisma generado (retirado del repo) — mismos
+// valores que `prisma/schema.prisma` tenía, réplica exacta de
+// `DataSubjectRequest.type`/`.status` (Django). También reexportados desde
+// `src/lib/djangoDataRequestsAdapter.ts` para el lado servidor.
+export type DataRequestType = "ACCESO" | "RECTIFICACION" | "ELIMINACION";
+export type DataRequestStatus = "PENDIENTE" | "EN_PROCESO" | "RESUELTA";
 
 type DataRequestRow = {
   id: string;

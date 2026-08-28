@@ -1,53 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { canUseDeskNotes } from "@/lib/roles";
-import { notifyDueReminders } from "@/lib/deskReminders";
-import { logDeskAudit } from "@/lib/deskAudit";
-import { reminderSelect, serializeReminder } from "@/lib/personalReminders";
-import type { ReminderPriority, ReminderRepeat } from "@/generated/prisma/client";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import { extractDjangoDeskErrorMessage, mapDjangoReminderToNexoShape, type DjangoPersonalReminder } from "@/lib/djangoDeskAdapter";
 
-const VALID_PRIORITIES: ReminderPriority[] = ["BAJA", "MEDIA", "ALTA", "URGENTE"];
-const VALID_REPEATS: ReminderRepeat[] = ["UNA_VEZ", "DIARIO", "SEMANAL", "MENSUAL"];
-const MAX_TITLE_LENGTH = 150;
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
+// Fase 7g de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-18):
+// esta ruta pasó de Prisma a Django (`DeskReminderViewSet`) — sin gaps:
+// Recordatorios no tiene Papelera (borrado físico, ya resuelto en 7b) ni
+// adjunto propio que perder (ver docstring de `apps/desk/models.py`).
 export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   }
-  if (!canUseDeskNotes(session.role)) {
+
+  const { searchParams } = new URL(request.url);
+  const query = new URLSearchParams();
+  for (const key of ["status", "from", "to", "limit", "archived"]) {
+    const value = searchParams.get(key);
+    if (value) query.set(key, value);
+  }
+  const suffix = query.toString() ? `?${query.toString()}` : "";
+
+  const response = await djangoApiFetch(`/desk-reminders/${suffix}`);
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (!response.ok) {
     return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
   }
 
-  await notifyDueReminders(session.userId);
-
-  const { searchParams } = new URL(request.url);
-  const status = searchParams.get("status"); // "PENDIENTE" | "COMPLETADO" | null (= todos)
-  const from = searchParams.get("from");
-  const to = searchParams.get("to");
-  const limitParam = searchParams.get("limit");
-  const limit = limitParam ? Math.max(1, Math.min(200, Number(limitParam))) : undefined;
-  // Los archivados quedan fuera por defecto (Dashboard, Hoy, Calendario, listado
-  // normal de Completados) — solo aparecen con ?archived=true explícito, mismo
-  // criterio que DeskNote.
-  const archived = searchParams.get("archived") === "true";
-
-  const reminders = await prisma.personalReminder.findMany({
-    where: {
-      userId: session.userId,
-      archived,
-      ...(status === "PENDIENTE" || status === "COMPLETADO" ? { status } : {}),
-      ...(from || to
-        ? { dueAt: { ...(from ? { gte: new Date(from) } : {}), ...(to ? { lte: new Date(to) } : {}) } }
-        : {}),
-    },
-    select: reminderSelect,
-    orderBy: { dueAt: "asc" },
-    ...(limit ? { take: limit } : {}),
-  });
-
-  return NextResponse.json(reminders.map(serializeReminder));
+  const reminders: DjangoPersonalReminder[] = await response.json();
+  return NextResponse.json(reminders.map(mapDjangoReminderToNexoShape));
 }
 
 export async function POST(request: NextRequest) {
@@ -55,34 +41,37 @@ export async function POST(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   }
-  if (!canUseDeskNotes(session.role)) {
-    return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
-  }
 
-  const body = await request.json().catch(() => null);
-  const title = typeof body?.title === "string" ? body.title.trim() : "";
-  const description = typeof body?.description === "string" ? body.description.trim() : "";
-  const dueAtRaw = typeof body?.dueAt === "string" ? body.dueAt : "";
-  const priority = VALID_PRIORITIES.includes(body?.priority) ? (body.priority as ReminderPriority) : "MEDIA";
-  const repeat = VALID_REPEATS.includes(body?.repeat) ? (body.repeat as ReminderRepeat) : "UNA_VEZ";
+  const body = (await request.json().catch(() => ({}))) as {
+    title?: unknown;
+    description?: unknown;
+    dueAt?: unknown;
+    priority?: unknown;
+    repeat?: unknown;
+  };
 
-  if (!title || !dueAtRaw) {
-    return NextResponse.json({ error: "Faltan campos requeridos" }, { status: 400 });
-  }
-  if (title.length > MAX_TITLE_LENGTH) {
-    return NextResponse.json({ error: `El título no puede superar ${MAX_TITLE_LENGTH} caracteres` }, { status: 400 });
-  }
-  const dueAt = new Date(dueAtRaw);
-  if (Number.isNaN(dueAt.getTime())) {
-    return NextResponse.json({ error: "Fecha/hora inválida" }, { status: 400 });
-  }
-
-  const reminder = await prisma.personalReminder.create({
-    data: { userId: session.userId, title, description: description || null, dueAt, priority, repeat },
-    select: reminderSelect,
+  const response = await djangoApiFetch("/desk-reminders/", {
+    method: "POST",
+    body: JSON.stringify({
+      title: body.title,
+      description: typeof body.description === "string" ? body.description : undefined,
+      due_at: body.dueAt,
+      priority: typeof body.priority === "string" ? body.priority : undefined,
+      repeat: typeof body.repeat === "string" ? body.repeat : undefined,
+    }),
   });
 
-  await logDeskAudit({ entityType: "REMINDER", entityId: reminder.id, userId: session.userId, action: "CREATED" });
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 403) {
+    return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
+  }
+  if (!response.ok) {
+    const errorMessage = await extractDjangoDeskErrorMessage(response, "Faltan campos requeridos");
+    return NextResponse.json({ error: errorMessage }, { status: 400 });
+  }
 
-  return NextResponse.json(serializeReminder(reminder), { status: 201 });
+  const reminder: DjangoPersonalReminder = await response.json();
+  return NextResponse.json(mapDjangoReminderToNexoShape(reminder), { status: 201 });
 }

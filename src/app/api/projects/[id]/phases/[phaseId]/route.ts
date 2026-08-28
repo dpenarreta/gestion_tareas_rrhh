@@ -1,31 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { canManagePhases } from "@/lib/projectAccess";
-import { logProjectHistory } from "@/lib/projectHistory";
-import { getPhaseStats } from "@/lib/projectPhaseStats";
-import type { TaskStatus } from "@/generated/prisma/client";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import {
+  extractDjangoProjectErrorMessage,
+  mapDjangoProjectPhaseToNexoShape,
+  type DjangoProjectPhase,
+} from "@/lib/djangoProjectsAdapter";
+
+// Fase 5f de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-14):
+// esta ruta pasó de Prisma a Django.
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
 type Ctx = { params: Promise<{ id: string; phaseId: string }> };
-
-const phaseSelect = {
-  id: true,
-  name: true,
-  status: true,
-  responsible: { select: { id: true, name: true } },
-  startDate: true,
-  targetDate: true,
-  progress: true,
-  notes: true,
-  targetTimeHours: true,
-  order: true,
-} as const;
-
-async function loadPhase(projectId: string, phaseId: string) {
-  const phase = await prisma.projectPhase.findUnique({ where: { id: phaseId } });
-  if (!phase || phase.projectId !== projectId) return null;
-  return phase;
-}
 
 export async function PATCH(request: NextRequest, ctx: Ctx) {
   const session = await getSession();
@@ -34,32 +21,10 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   }
 
   const { id: projectId, phaseId } = await ctx.params;
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
-    select: { id: true, name: true, responsibleId: true, createdById: true },
-  });
-  if (!project) {
-    return NextResponse.json({ error: "Proyecto no encontrado" }, { status: 404 });
-  }
-  if (!canManagePhases(session, project)) {
-    return NextResponse.json({ error: "No tienes permiso para modificar fases" }, { status: 403 });
-  }
-
-  const current = await loadPhase(projectId, phaseId);
-  if (!current) {
-    return NextResponse.json({ error: "Fase no encontrada" }, { status: 404 });
-  }
-
-  let body: Record<string, unknown>;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Cuerpo de la solicitud inválido" }, { status: 400 });
-  }
-
+  const body = (await request.json()) as Record<string, unknown>;
   const { name, status, responsibleId, startDate, targetDate, targetTimeHours, notes, progress } = body as {
     name?: string;
-    status?: TaskStatus;
+    status?: string;
     responsibleId?: string | null;
     startDate?: string | null;
     targetDate?: string | null;
@@ -69,42 +34,36 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   };
 
   const data: Record<string, unknown> = {};
-  if (name !== undefined) data.name = name.trim();
-  if (responsibleId !== undefined) data.responsibleId = responsibleId || null;
-  if (startDate !== undefined) data.startDate = startDate ? new Date(startDate) : null;
-  if (targetDate !== undefined) data.targetDate = targetDate ? new Date(targetDate) : null;
-  if (targetTimeHours !== undefined) data.targetTimeHours = targetTimeHours != null ? parseFloat(String(targetTimeHours)) : null;
-  if (notes !== undefined) data.notes = notes?.trim() || null;
-  if (progress !== undefined) {
-    const p = Math.trunc(Number(progress));
-    if (Number.isNaN(p) || p < 0 || p > 100) {
-      return NextResponse.json({ error: "El progreso debe estar entre 0 y 100" }, { status: 400 });
-    }
-    data.progress = p;
-  }
+  if (name !== undefined) data.name = name;
   if (status !== undefined) data.status = status;
+  if (responsibleId !== undefined) data.responsible = responsibleId ? Number(responsibleId) : null;
+  if (startDate !== undefined) data.start_date = startDate;
+  if (targetDate !== undefined) data.target_date = targetDate;
+  if (targetTimeHours !== undefined) data.target_time_hours = targetTimeHours;
+  if (notes !== undefined) data.notes = notes ?? "";
+  if (progress !== undefined) data.progress = progress;
 
-  const updated = await prisma.projectPhase.update({ where: { id: phaseId }, data, select: phaseSelect });
+  const response = await djangoApiFetch(`/projects/${projectId}/phases/${phaseId}/`, {
+    method: "PATCH",
+    body: JSON.stringify(data),
+  });
 
-  // Sprint 2.1 §1: el historial solo registra eventos relevantes de negocio —
-  // un cambio de ESTADO de fase lo es; progreso/notas/fechas/responsable son
-  // ediciones intermedias que ya no se auditan una por una (antes se logueaba
-  // "actualizó la fase" en CADA patch, incluido cada tick del slider de progreso).
-  if (status !== undefined && status !== current.status) {
-    await logProjectHistory({
-      projectId,
-      actorId: session.userId,
-      event: "FASE_ACTUALIZADA",
-      description: `${session.name} cambió el estado de la fase "${current.name}" de ${current.status} a ${status}`,
-      previousValue: { status: current.status },
-      newValue: { status },
-    });
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 404) {
+    return NextResponse.json({ error: "Fase no encontrada" }, { status: 404 });
+  }
+  if (response.status === 403) {
+    return NextResponse.json({ error: "No tienes permiso para modificar fases" }, { status: 403 });
+  }
+  if (!response.ok) {
+    const message = await extractDjangoProjectErrorMessage(response, "El progreso debe estar entre 0 y 100");
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 
-  const stats = await getPhaseStats(projectId, [{ id: phaseId }]);
-  const stat = stats.get(phaseId);
-
-  return NextResponse.json({ ...updated, registeredMinutes: stat?.registeredMinutes ?? 0, participants: stat?.participants ?? [] });
+  const phase: DjangoProjectPhase = await response.json();
+  return NextResponse.json(mapDjangoProjectPhaseToNexoShape(phase));
 }
 
 export async function DELETE(_req: NextRequest, ctx: Ctx) {
@@ -114,31 +73,20 @@ export async function DELETE(_req: NextRequest, ctx: Ctx) {
   }
 
   const { id: projectId, phaseId } = await ctx.params;
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
-    select: { id: true, name: true, responsibleId: true, createdById: true },
-  });
-  if (!project) {
-    return NextResponse.json({ error: "Proyecto no encontrado" }, { status: 404 });
-  }
-  if (!canManagePhases(session, project)) {
-    return NextResponse.json({ error: "No tienes permiso para eliminar fases" }, { status: 403 });
-  }
+  const response = await djangoApiFetch(`/projects/${projectId}/phases/${phaseId}/`, { method: "DELETE" });
 
-  const current = await loadPhase(projectId, phaseId);
-  if (!current) {
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 404) {
     return NextResponse.json({ error: "Fase no encontrada" }, { status: 404 });
   }
-
-  await prisma.projectPhase.delete({ where: { id: phaseId } });
-
-  await logProjectHistory({
-    projectId,
-    actorId: session.userId,
-    event: "FASE_ELIMINADA",
-    description: `${session.name} eliminó la fase "${current.name}" de "${project.name}"`,
-    previousValue: { phaseId, name: current.name },
-  });
+  if (response.status === 403) {
+    return NextResponse.json({ error: "No tienes permiso para eliminar fases" }, { status: 403 });
+  }
+  if (!response.ok) {
+    return NextResponse.json({ error: "No se pudo eliminar la fase" }, { status: 400 });
+  }
 
   return NextResponse.json({ success: true });
 }

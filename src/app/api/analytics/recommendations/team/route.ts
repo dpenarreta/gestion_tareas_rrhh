@@ -1,39 +1,29 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { getSubordinateRoles, canViewOperationalRisk, isExecutorRole } from "@/lib/roles";
-import { computeTeamRecommendations, ANALYTICS_ENGINE_VERSION } from "@/lib/analytics";
-import { prioritizeRecommendations } from "@/lib/insightsEngine";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import { mapDjangoAnalyticsPayloadToNexoShape } from "@/lib/djangoAnalyticsAdapter";
 
-/**
- * Recomendaciones deterministas de redistribución de carga con impacto
- * cuantificado (§S3-A) — motor cruza exceso de horas vs. capacidad
- * disponible del equipo, sin IA. Groq (si se usa en otra vista) solo
- * redactaría este resultado ya calculado, nunca lo calcula.
- */
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
+
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-24): réplica de
+// `TeamRecommendationsView` (backend, Fase 24) — Matriz de Compatibilidad
+// Operativa configurable + algoritmo greedy de redistribución, sin IA.
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-  if (!canViewOperationalRisk(session.role)) return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
 
-  // Roles de liderazgo excluidos de las recomendaciones de redistribución —
-  // ni como origen (exceso de horas) ni como destino ("asignarle tareas al
-  // Jefe Nacional"): solo colaboradores cuya responsabilidad contempla
-  // ejecución de tareas son candidatos válidos (ver Sprint 0A).
-  const subordinateRoles = getSubordinateRoles(session.role).filter(isExecutorRole);
-  const subordinates = await prisma.user.findMany({
-    where: { role: { in: subordinateRoles } },
-    select: { id: true, name: true, role: true },
-    orderBy: { name: "asc" },
-  });
+  const response = await djangoApiFetch("/analytics/recommendations/team/");
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 403) {
+    return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
+  }
+  if (!response.ok) {
+    return NextResponse.json({ error: "Error al obtener recomendaciones" }, { status: response.status });
+  }
 
-  const recommendations = await computeTeamRecommendations(subordinates);
-  const { top, additional } = prioritizeRecommendations(recommendations);
-
-  return NextResponse.json({
-    recommendations,
-    prioritized: { top, additional },
-    engineVersion: ANALYTICS_ENGINE_VERSION,
-    lastUpdated: new Date().toISOString(),
-  });
+  const payload = mapDjangoAnalyticsPayloadToNexoShape(await response.json());
+  return NextResponse.json(payload);
 }

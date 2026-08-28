@@ -8,8 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { canAccessReports } from "@/lib/roles";
-import { Prisma } from "@/generated/prisma/client";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import { resolveReportRoster } from "@/lib/executiveReporting/resolveRoster";
 import { buildMonthlySnapshotData, buildRangeSnapshotData, buildCustomRangeSnapshotData } from "@/lib/executiveReporting/buildSnapshotData";
 import { createSnapshot, logReportAudit } from "@/lib/executiveReporting/snapshotStore";
@@ -91,7 +90,7 @@ export async function POST(request: NextRequest) {
   }
 
   const generatedBy = { userId: session.userId, name: session.name };
-  const serializedFilters = { ...filters, fechaCorte: filters.fechaCorte?.toISOString() } as unknown as Prisma.InputJsonValue;
+  const serializedFilters = { ...filters, fechaCorte: filters.fechaCorte?.toISOString() };
   const t0 = Date.now();
   // Report ID "provisional" — solo para poder auditar una falla ANTES de que
   // el builder llegue a generar el suyo propio (que sí queda en el Snapshot
@@ -108,7 +107,6 @@ export async function POST(request: NextRequest) {
       scope: snapshot.meta.scope,
       origin: snapshot.meta.origin,
       integrityFlag: snapshot.meta.integrityFlag,
-      generatedBy: snapshot.meta.generatedBy.userId,
       generatedAt: new Date(snapshot.meta.generatedAt),
       periodLabel: snapshot.meta.periodLabel,
       periodStart: new Date(snapshot.meta.periodStart),
@@ -121,17 +119,16 @@ export async function POST(request: NextRequest) {
       formulaSetVersion: snapshot.meta.versions.formulaSetVersion,
       reportingEngineVersion: snapshot.meta.versions.reportingEngineVersion,
       nexoVersion: snapshot.meta.versions.nexoVersion,
-      data: snapshot as unknown as Prisma.InputJsonValue,
-      nova: snapshot.nova as unknown as Prisma.InputJsonValue,
+      data: snapshot,
+      nova: snapshot.nova,
       novaDegraded: snapshot.novaDegraded,
-      dataQuality: snapshot.estadoGeneral.dataQuality as unknown as Prisma.InputJsonValue,
+      dataQuality: snapshot.estadoGeneral.dataQuality,
       generationMs: snapshot.meta.generationMs,
     });
 
     await logReportAudit({
       reportId: created.reportId,
       action: "generated",
-      userId: generatedBy.userId,
       period: snapshot.meta.periodLabel,
       fechaCorte: new Date(snapshot.meta.fechaCorte),
       filtersApplied: serializedFilters,
@@ -153,7 +150,6 @@ export async function POST(request: NextRequest) {
     await logReportAudit({
       reportId: provisionalReportId,
       action: "generation_failed",
-      userId: generatedBy.userId,
       step: "buildSnapshotForFilters",
       message: err instanceof Error ? err.message : String(err),
       filtersApplied: serializedFilters,

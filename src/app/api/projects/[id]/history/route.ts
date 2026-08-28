@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { canViewProject } from "@/lib/projectAccess";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import { mapDjangoProjectHistoryEntryToNexoShape, type DjangoProjectHistoryEntry } from "@/lib/djangoProjectsAdapter";
+
+// Fase 5f de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-14):
+// esta ruta pasó de Prisma a Django.
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -12,35 +17,20 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
   }
 
   const { id: projectId } = await ctx.params;
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
-    select: {
-      id: true,
-      responsibleId: true,
-      createdById: true,
-      participants: { select: { userId: true } },
-    },
-  });
-  if (!project) {
+  const response = await djangoApiFetch(`/projects/${projectId}/history/`);
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 404) {
     return NextResponse.json({ error: "Proyecto no encontrado" }, { status: 404 });
   }
-  if (!canViewProject(session, project, project.participants.map((p) => p.userId))) {
+  if (response.status === 403) {
     return NextResponse.json({ error: "No tienes acceso a este proyecto" }, { status: 403 });
   }
+  if (!response.ok) {
+    return NextResponse.json({ error: "No se pudo obtener el historial" }, { status: 400 });
+  }
 
-  const history = await prisma.projectHistory.findMany({
-    where: { projectId },
-    select: {
-      id: true,
-      event: true,
-      description: true,
-      previousValue: true,
-      newValue: true,
-      actor: { select: { id: true, name: true } },
-      createdAt: true,
-    },
-    orderBy: { createdAt: "desc" },
-  });
-
-  return NextResponse.json(history);
+  const history: DjangoProjectHistoryEntry[] = await response.json();
+  return NextResponse.json(history.map(mapDjangoProjectHistoryEntryToNexoShape));
 }

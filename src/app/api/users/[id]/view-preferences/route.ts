@@ -1,7 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { djangoApiFetch } from "@/lib/djangoSession";
 
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
+
+type DjangoViewPreferences = { view_preferences: string[] };
+
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-25): réplica de
+// `UserViewPreferencesView` (backend, Fase 55, nueva). Réplica FIEL de un
+// bug preexistente del TS legacy, documentado y deliberadamente NO
+// corregido acá: reemplaza `viewPreferences` por completo, sin fusionar
+// con otras claves de prefijo (`ACTIVITY_FORMAT:`/`DASHBOARD_CARDS:`/
+// `CONFIG_FAVORITE:`) que convivan en el mismo array.
 type Ctx = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: NextRequest, ctx: Ctx) {
@@ -20,11 +31,20 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: "viewPreferences debe ser un array con al menos una vista" }, { status: 400 });
   }
 
-  const user = await prisma.user.update({
-    where: { id },
-    data: { viewPreferences },
-    select: { viewPreferences: true },
+  const response = await djangoApiFetch(`/users/${id}/view-preferences/`, {
+    method: "PATCH",
+    body: JSON.stringify({ viewPreferences }),
   });
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 403) {
+    return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
+  }
+  if (!response.ok) {
+    return NextResponse.json({ error: "No se pudieron guardar las preferencias" }, { status: 400 });
+  }
 
-  return NextResponse.json(user);
+  const data = (await response.json()) as DjangoViewPreferences;
+  return NextResponse.json({ viewPreferences: data.view_preferences });
 }

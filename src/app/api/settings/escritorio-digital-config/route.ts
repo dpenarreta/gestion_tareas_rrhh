@@ -1,24 +1,46 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import {
-  getEffectiveDeskArchiveRetentionDays,
-  setDeskArchiveRetentionDays,
-  getEffectiveDeskNoteMaxReplies,
-  setDeskNoteMaxReplies,
-  getEffectiveSnoozePresetsMinutes,
-  setSnoozePresetsMinutes,
-} from "@/lib/systemConfig";
+import { djangoApiFetch, extractDjangoFlatErrorMessage } from "@/lib/djangoSession";
 
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
+
+type DjangoEscritorioDigitalConfig = {
+  archive_retention_days: number;
+  max_replies: number;
+  snooze_presets_minutes: number[];
+};
+
+function toNexoShape(data: DjangoEscritorioDigitalConfig) {
+  return {
+    archiveRetentionDays: data.archive_retention_days,
+    maxReplies: data.max_replies,
+    snoozePresetsMinutes: data.snooze_presets_minutes,
+  };
+}
+
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-21): `maxReplies` y
+// `snoozePresetsMinutes` ya los consume Escritorio Digital (respuestas de
+// notas / recordatorios, `apps/desk/services.py`) desde Django — la versión
+// anterior de este endpoint los escribía en Postgres, sin ningún efecto sobre
+// el feature ya cutover (bug preexistente, no introducido acá).
+// `archiveRetentionDays` es distinto: la purga automática de notas archivadas
+// (`purgeExpiredArchivedNotes`) es un gap documentado y pospuesto (ver
+// docs/ROADMAP.md punto 13) — no existe todavía ni en Django ni activa en
+// Next.js (la ruta `desk-notes` cutover dejó de dispararla). Se corta igual
+// para que el valor ya viva en el lugar correcto a la espera de esa purga,
+// sin efecto práctico hasta entonces.
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const [archiveRetentionDays, maxReplies, snoozePresetsMinutes] = await Promise.all([
-    getEffectiveDeskArchiveRetentionDays(),
-    getEffectiveDeskNoteMaxReplies(),
-    getEffectiveSnoozePresetsMinutes(),
-  ]);
-  return NextResponse.json({ archiveRetentionDays, maxReplies, snoozePresetsMinutes });
+  const response = await djangoApiFetch("/settings/escritorio-digital-config/");
+  if (!response || !response.ok) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+
+  const data = (await response.json()) as DjangoEscritorioDigitalConfig;
+  return NextResponse.json(toNexoShape(data));
 }
 
 export async function PUT(request: NextRequest) {
@@ -57,20 +79,23 @@ export async function PUT(request: NextRequest) {
     }
   }
 
-  await Promise.all([
-    archiveRetentionDays !== undefined ? setDeskArchiveRetentionDays(archiveRetentionDays, session.userId) : Promise.resolve(),
-    maxReplies !== undefined ? setDeskNoteMaxReplies(maxReplies, session.userId) : Promise.resolve(),
-    snoozePresetsMinutes !== undefined ? setSnoozePresetsMinutes(snoozePresetsMinutes, session.userId) : Promise.resolve(),
-  ]);
+  const payload: Record<string, unknown> = {};
+  if (archiveRetentionDays !== undefined) payload.archive_retention_days = archiveRetentionDays;
+  if (maxReplies !== undefined) payload.max_replies = maxReplies;
+  if (snoozePresetsMinutes !== undefined) payload.snooze_presets_minutes = snoozePresetsMinutes;
 
-  const [effectiveRetention, effectiveMaxReplies, effectiveSnooze] = await Promise.all([
-    getEffectiveDeskArchiveRetentionDays(),
-    getEffectiveDeskNoteMaxReplies(),
-    getEffectiveSnoozePresetsMinutes(),
-  ]);
-  return NextResponse.json({
-    archiveRetentionDays: effectiveRetention,
-    maxReplies: effectiveMaxReplies,
-    snoozePresetsMinutes: effectiveSnooze,
+  const response = await djangoApiFetch("/settings/escritorio-digital-config/", {
+    method: "PUT",
+    body: JSON.stringify(payload),
   });
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (!response.ok) {
+    const message = await extractDjangoFlatErrorMessage(response);
+    return NextResponse.json({ error: message ?? "Datos inválidos" }, { status: response.status === 403 ? 403 : 400 });
+  }
+
+  const data = (await response.json()) as DjangoEscritorioDigitalConfig;
+  return NextResponse.json(toNexoShape(data));
 }

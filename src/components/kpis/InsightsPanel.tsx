@@ -5,7 +5,7 @@ import { Spinner } from "@/components/ui/Skeleton";
 import { MaturityStars } from "./AdvancedAnalytics";
 import { Button } from "@/components/ui/Button";
 
-// ── Tipos — reflejan src/lib/insightsEngine.ts (Sprint 6 — Decision Intelligence Engine) ──
+// ── Tipos — reflejan el bundle de `GET /analytics/insights/<id>/` (Django, `insights_engine.py`, portado en las Fases 4j/4k — Sprint 6, Decision Intelligence Engine) ──
 
 export type Confidence = { stars: 1 | 2 | 3 | 4 | 5; label: string };
 export type EvidenceItem = { label: string; before: string; after: string };

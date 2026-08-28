@@ -1,30 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { canCreateProject } from "@/lib/roles";
-import { logProjectHistory } from "@/lib/projectHistory";
-import { ROLE_LEVEL } from "@/lib/roles";
-import type { ProjectStatus, TaskPriority } from "@/generated/prisma/client";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import {
+  extractDjangoProjectErrorMessage,
+  mapDjangoProjectListItemToNexoShape,
+  type DjangoProjectListItem,
+} from "@/lib/djangoProjectsAdapter";
 
-const projectListSelect = {
-  id: true,
-  name: true,
-  description: true,
-  status: true,
-  priority: true,
-  area: true,
-  tags: true,
-  startDate: true,
-  targetDate: true,
-  targetTimeHours: true,
-  realHours: true,
-  completedAt: true,
-  responsible: { select: { id: true, name: true, role: true } },
-  createdBy: { select: { id: true, name: true } },
-  _count: { select: { participants: true, phases: true, comments: true, documents: true } },
-  createdAt: true,
-  updatedAt: true,
-} as const;
+// Fase 5f de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-14):
+// esta ruta pasó de Prisma a Django. La lista NO trae `email` de
+// responsable/creador (mismo criterio que el legacy: `projectListSelect`
+// nunca lo seleccionaba), así que no hace falta enmascarar acá.
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
 export async function GET() {
   const session = await getSession();
@@ -32,26 +20,16 @@ export async function GET() {
     return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   }
 
-  const isLeadership = ROLE_LEVEL[session.role] >= 3;
+  const response = await djangoApiFetch("/projects/");
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (!response.ok) {
+    return NextResponse.json({ error: "No se pudo obtener la lista de proyectos" }, { status: 400 });
+  }
 
-  const projects = await prisma.project.findMany({
-    where: {
-      deletedAt: null,
-      ...(isLeadership
-        ? {}
-        : {
-            OR: [
-              { responsibleId: session.userId },
-              { createdById: session.userId },
-              { participants: { some: { userId: session.userId } } },
-            ],
-          }),
-    },
-    select: projectListSelect,
-    orderBy: { createdAt: "desc" },
-  });
-
-  return NextResponse.json(projects);
+  const projects: DjangoProjectListItem[] = await response.json();
+  return NextResponse.json(projects.map(mapDjangoProjectListItemToNexoShape));
 }
 
 export async function POST(request: NextRequest) {
@@ -60,17 +38,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   }
 
-  if (!canCreateProject(session.role)) {
-    return NextResponse.json({ error: "No tienes permiso para crear proyectos" }, { status: 403 });
-  }
-
-  let body: Record<string, unknown>;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Cuerpo de la solicitud inválido" }, { status: 400 });
-  }
-
+  const body = (await request.json()) as Record<string, unknown>;
   const {
     name,
     description,
@@ -84,73 +52,46 @@ export async function POST(request: NextRequest) {
     tags,
     area,
     observations,
-  } = body as {
-    name?: string;
-    description?: string;
-    responsibleId?: string;
-    participantIds?: string[];
-    startDate?: string;
-    targetDate?: string;
-    status?: ProjectStatus;
-    priority?: TaskPriority;
-    targetTimeHours?: number;
-    tags?: string[];
-    area?: string;
-    observations?: string;
-  };
+  } = body;
 
-  if (!name?.trim() || !responsibleId || !startDate || !targetDate || !priority || targetTimeHours == null) {
+  if (!name || !responsibleId || !startDate || !targetDate || !priority || targetTimeHours == null) {
     return NextResponse.json({ error: "Faltan campos requeridos" }, { status: 400 });
   }
 
-  const responsible = await prisma.user.findUnique({ where: { id: responsibleId } });
-  if (!responsible) {
-    return NextResponse.json({ error: "Responsable principal inválido" }, { status: 400 });
-  }
-
-  const hoursValue = parseFloat(String(targetTimeHours));
-  if (Number.isNaN(hoursValue) || hoursValue <= 0) {
-    return NextResponse.json({ error: "El tiempo objetivo global debe ser mayor a 0" }, { status: 400 });
-  }
-
-  // Sprint 2.1 §2: el responsable (y el creador) ya NO se agregan
-  // automáticamente como participantes — son conceptos distintos. Solo se
-  // crean filas de ProjectParticipant para los IDs explícitamente elegidos
-  // en el formulario (o quien registre una actividad más adelante, ver
-  // src/app/api/projects/[id]/activities/route.ts).
-  const participantSet = new Set(Array.isArray(participantIds) ? participantIds : []);
-
-  const project = await prisma.project.create({
-    data: {
-      name: name.trim(),
-      description: description?.trim() || null,
-      status: status ?? "PENDIENTE",
+  const response = await djangoApiFetch("/projects/", {
+    method: "POST",
+    body: JSON.stringify({
+      name,
+      description: description ?? "",
+      responsible: Number(responsibleId),
+      participant_ids: Array.isArray(participantIds) ? participantIds.map(Number) : [],
+      start_date: startDate,
+      target_date: targetDate,
+      status: status ?? undefined,
       priority,
-      area: area?.trim() || null,
-      tags: Array.isArray(tags) ? tags.filter((t) => typeof t === "string" && t.trim()).map((t) => t.trim()) : [],
-      observations: observations?.trim() || null,
-      startDate: new Date(startDate),
-      targetDate: new Date(targetDate),
-      targetTimeHours: hoursValue,
-      responsibleId,
-      createdById: session.userId,
-      participants: {
-        create: Array.from(participantSet).map((userId) => ({
-          userId,
-          addedById: session.userId,
-        })),
-      },
-    },
-    select: projectListSelect,
+      target_time_hours: targetTimeHours,
+      tags: Array.isArray(tags) ? tags : [],
+      area: area ?? "",
+      observations: observations ?? "",
+    }),
   });
 
-  await logProjectHistory({
-    projectId: project.id,
-    actorId: session.userId,
-    event: "CREADO",
-    description: `${session.name} creó el proyecto "${project.name}"`,
-    newValue: { name: project.name, status: project.status, responsibleId },
-  });
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 403) {
+    return NextResponse.json({ error: "No tienes permiso para crear proyectos" }, { status: 403 });
+  }
+  if (!response.ok) {
+    const message = await extractDjangoProjectErrorMessage(response, "No se pudo crear el proyecto");
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
 
-  return NextResponse.json(project, { status: 201 });
+  // El ViewSet de Django responde con `ProjectDetailSerializer` (superset de
+  // `ProjectListSerializer`), pero el frontend (`CreateProjectModal.onCreated`)
+  // espera exactamente la forma `ProjectListItem` — mismo criterio que el
+  // legacy Prisma, que ya devolvía `projectListSelect` (no el detalle) en el
+  // POST.
+  const created: DjangoProjectListItem = await response.json();
+  return NextResponse.json(mapDjangoProjectListItemToNexoShape(created), { status: 201 });
 }

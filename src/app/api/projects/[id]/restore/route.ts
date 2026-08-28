@@ -1,12 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { isProjectCreator } from "@/lib/projectAccess";
-import { logProjectHistory } from "@/lib/projectHistory";
-import * as recoveryCenter from "@/lib/recoveryCenter";
+import { djangoApiFetch, extractDjangoFlatErrorMessage } from "@/lib/djangoSession";
 
 type Ctx = { params: Promise<{ id: string }> };
 
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
+
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-21): cierra el gap
+// explícito de la Fase 5f, mismo motivo que `projects/trash/route.ts`.
+// `ProjectViewSet.restore` (Fase 14 del backend) ya replica el mismo orden
+// de chequeos (404 -> 409 -> 403) que este `route.ts` tenía manualmente.
 export async function POST(_req: NextRequest, ctx: Ctx) {
   const session = await getSession();
   if (!session) {
@@ -14,32 +18,15 @@ export async function POST(_req: NextRequest, ctx: Ctx) {
   }
 
   const { id } = await ctx.params;
-  const project = await prisma.project.findUnique({
-    where: { id },
-    select: { id: true, name: true, responsibleId: true, createdById: true, deletedAt: true },
-  });
-  if (!project) {
-    return NextResponse.json({ error: "Proyecto no encontrado" }, { status: 404 });
+  const response = await djangoApiFetch(`/projects/${id}/restore/`, { method: "POST" });
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
   }
-  if (!project.deletedAt) {
-    return NextResponse.json({ error: "Este proyecto no está en la papelera" }, { status: 409 });
+  if (!response.ok) {
+    const message = await extractDjangoFlatErrorMessage(response);
+    const status = [403, 404, 409].includes(response.status) ? response.status : 400;
+    return NextResponse.json({ error: message ?? "Error al restaurar" }, { status });
   }
-  if (!isProjectCreator(session, project)) {
-    return NextResponse.json({ error: "Solo el creador del proyecto puede restaurarlo" }, { status: 403 });
-  }
-
-  try {
-    await recoveryCenter.restore({ entityType: "PROJECT", entityId: id, userId: session.userId });
-  } catch (err) {
-    return NextResponse.json({ error: err instanceof recoveryCenter.RecoveryError ? err.message : "Error al restaurar" }, { status: 409 });
-  }
-
-  await logProjectHistory({
-    projectId: id,
-    actorId: session.userId,
-    event: "RESTAURADO",
-    description: `${session.name} restauró el proyecto "${project.name}" desde la papelera`,
-  });
 
   return NextResponse.json({ success: true });
 }

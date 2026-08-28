@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Skeleton";
 import { useToast } from "@/components/ui/Toast";
 import { ROLE_LABEL, ROLE_LEVEL, getSubordinateRoles } from "@/lib/roles";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import type { ReportMemberKpi } from "../types";
 import { openReportWindow } from "../reportWindow";
 import { buildReportPages, type ReportPage } from "@/lib/executiveReporting/documentModel";

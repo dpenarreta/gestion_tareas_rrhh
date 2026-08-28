@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import Groq from "groq-sdk";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { djangoApiFetch } from "@/lib/djangoSession";
 import { ROLE_LABEL, getSubordinateRoles, canViewTeam } from "@/lib/roles";
 import { getEmbedding, cosineSimilarity } from "@/lib/embeddings";
 import { safeLog } from "@/lib/logger";
-import type { Role } from "@/generated/prisma/client";
+import { fetchOwnDjangoTasks } from "@/lib/djangoTasksAdapter";
+import type { DjangoTeamMember, DjangoTeamMemberTask } from "@/lib/djangoTeamAdapter";
+import { fetchDjangoDocumentChunks } from "@/lib/djangoAssistantAdapter";
+import type { Role } from "@/lib/roles";
 
 type Mode = "general" | "tasks" | "hr";
 type HistoryMessage = { role: "user" | "assistant"; content: string };
@@ -64,30 +67,25 @@ const SYSTEM_GENERAL = `Eres Nova, asistente de Nexo, un sistema interno de gest
 Si alguien te pregunta quién eres, responde que eres Nova, el asistente de RRHH de Nexo.
 Responde de manera profesional, clara y concisa en español.`;
 
-async function buildTaskContext(userId: string): Promise<string> {
+async function buildTaskContext(): Promise<string> {
   const today = new Date();
-  const tasks = await prisma.task.findMany({
-    where: { assignedToId: userId },
-    select: {
-      title: true, status: true, priority: true, type: true,
-      startDate: true, endDate: true,
-      estimatedHours: true, realHours: true, progress: true,
-    },
-    orderBy: [{ status: "asc" }, { endDate: "asc" }],
-  });
+  const tasks = await fetchOwnDjangoTasks();
+  if (tasks === null) {
+    throw new Error("No se pudieron obtener las tareas del usuario (sin sesión Django disponible).");
+  }
 
   if (tasks.length === 0) return "El usuario no tiene tareas asignadas actualmente.";
 
   const overdue = tasks.filter(
-    (t) => t.status !== "COMPLETADA" && new Date(t.endDate) < today
+    (t) => t.status !== "COMPLETADA" && new Date(t.end_date) < today
   ).length;
 
   const lines = tasks.map((t) => {
-    const vencida = t.status !== "COMPLETADA" && new Date(t.endDate) < today;
+    const vencida = t.status !== "COMPLETADA" && new Date(t.end_date) < today;
     return `- [${STATUS_LABEL[t.status]}] "${t.title}"
   Prioridad: ${t.priority} | Tipo: ${t.type} | Avance: ${t.progress}%
-  Fechas: ${fmt(t.startDate)} → ${fmt(t.endDate)}${vencida ? " ⚠️ VENCIDA" : ""}
-  Horas: ${round2(t.estimatedHours)}h de tiempo objetivo / ${round2(t.realHours)}h reales`;
+  Fechas: ${fmt(t.start_date)} → ${fmt(t.end_date)}${vencida ? " ⚠️ VENCIDA" : ""}
+  Horas: ${round2(t.estimated_hours)}h de tiempo objetivo / ${round2(t.real_hours)}h reales`;
   });
 
   return `TAREAS DEL USUARIO (fecha actual: ${fmt(today)}):
@@ -97,7 +95,7 @@ Completadas: ${tasks.filter((t) => t.status === "COMPLETADA").length} | En progr
 ${lines.join("\n\n")}`;
 }
 
-async function buildTeamContext(userId: string, userRole: Role): Promise<string> {
+async function buildTeamContext(userRole: Role): Promise<string> {
   if (!canViewTeam(userRole)) return "";
 
   safeLog("log", "[buildTeamContext] userRole:", userRole);
@@ -107,17 +105,15 @@ async function buildTeamContext(userId: string, userRole: Role): Promise<string>
 
   const today = new Date();
 
-  // Fetch members without nested relation first to isolate query issues
-  let members: Array<{
-    id: string;
-    name: string;
-    role: Role;
-  }>;
+  // `/team/` (TeamListView, Fase 18 del backend) ya filtra por los roles
+  // subordinados del actor — mismo criterio que `getSubordinateRoles`.
+  let members: DjangoTeamMember[];
   try {
-    members = await prisma.user.findMany({
-      where: { role: { in: subordinateRoles } },
-      select: { id: true, name: true, role: true },
-    });
+    const response = await djangoApiFetch("/team/");
+    if (!response || !response.ok) {
+      throw new Error(`HTTP ${response?.status ?? "sin sesión Django"}`);
+    }
+    members = await response.json();
     safeLog("log", "[buildTeamContext] miembros encontrados:", members.length);
   } catch (err) {
     safeLog("error", "[buildTeamContext] ERROR en consulta de usuarios:", err);
@@ -126,40 +122,26 @@ async function buildTeamContext(userId: string, userRole: Role): Promise<string>
 
   if (members.length === 0) return "No hay miembros en el equipo con los roles subordinados.";
 
-  // Fetch tasks per member separately to avoid nested select issues
+  // Tareas por miembro, una llamada por persona (mismo patrón que el
+  // Prisma original, que tampoco anidaba la consulta).
   const memberLines: string[] = [];
   for (const m of members) {
-    let tasks: Array<{
-      status: string;
-      estimatedHours: number;
-      realHours: number;
-      endDate: Date;
-      progress: number;
-    }>;
+    let tasks: DjangoTeamMemberTask[] = [];
     try {
-      tasks = await prisma.task.findMany({
-        where: { assignedToId: m.id },
-        select: {
-          status: true,
-          estimatedHours: true,
-          realHours: true,
-          endDate: true,
-          progress: true,
-        },
-      });
+      const response = await djangoApiFetch(`/team/${m.id}/tasks/`);
+      if (response && response.ok) tasks = await response.json();
     } catch (err) {
       safeLog("error", `[buildTeamContext] ERROR obteniendo tareas de ${m.name}:`, err);
-      tasks = [];
     }
 
     const completed = tasks.filter((t) => t.status === "COMPLETADA").length;
     const inProgress = tasks.filter((t) => t.status === "EN_PROGRESO").length;
     const overdue = tasks.filter(
-      (t) => t.status !== "COMPLETADA" && new Date(t.endDate) < today
+      (t) => t.status !== "COMPLETADA" && new Date(t.end_date) < today
     ).length;
     const pct = tasks.length > 0 ? Math.round((completed / tasks.length) * 100) : 0;
-    const estH = round2(tasks.reduce((s, t) => s + (t.estimatedHours ?? 0), 0));
-    const realH = round2(tasks.reduce((s, t) => s + (t.realHours ?? 0), 0));
+    const estH = round2(tasks.reduce((s, t) => s + (t.estimated_hours ?? 0), 0));
+    const realH = round2(tasks.reduce((s, t) => s + (t.real_hours ?? 0), 0));
     const carga = estH > 0 ? Math.round((realH / estH) * 100) : 0;
     const avgProg =
       inProgress > 0
@@ -171,7 +153,7 @@ async function buildTeamContext(userId: string, userRole: Role): Promise<string>
         : 0;
 
     memberLines.push(
-      `${m.name} (${ROLE_LABEL[m.role] ?? m.role}):
+      `${m.name} (${ROLE_LABEL[m.role as Role] ?? m.role}):
   Tareas: ${tasks.length} total | ${completed} completadas (${pct}%) | ${inProgress} en curso | ${overdue} vencidas
   Horas: ${estH}h de tiempo objetivo / ${realH}h reales → Carga: ${carga}%${inProgress > 0 ? ` | Avance prom. en curso: ${avgProg}%` : ""}`
     );
@@ -190,9 +172,7 @@ type RelevantChunk = {
 };
 
 async function findRelevantChunks(question: string, topK = 4): Promise<RelevantChunk[]> {
-  const allChunks = await prisma.documentChunk.findMany({
-    include: { document: { select: { title: true, fileName: true } } },
-  });
+  const allChunks = await fetchDjangoDocumentChunks();
   if (allChunks.length === 0) return [];
 
   let questionEmbedding: number[];
@@ -204,18 +184,13 @@ async function findRelevantChunks(question: string, topK = 4): Promise<RelevantC
   }
 
   const scored = allChunks
-    .map((chunk) => {
-      const emb = Array.isArray(chunk.embedding)
-        ? (chunk.embedding as number[])
-        : [];
-      return {
-        content: chunk.content,
-        pageNumber: chunk.pageNumber,
-        score: cosineSimilarity(questionEmbedding, emb),
-        docTitle: chunk.document.title,
-        docFileName: chunk.document.fileName,
-      };
-    })
+    .map((chunk) => ({
+      content: chunk.content,
+      pageNumber: chunk.page_number,
+      score: cosineSimilarity(questionEmbedding, Array.isArray(chunk.embedding) ? chunk.embedding : []),
+      docTitle: chunk.doc_title,
+      docFileName: chunk.doc_file_name,
+    }))
     .sort((a, b) => b.score - a.score)
     .slice(0, topK)
     .filter((c) => c.score > 0.2);
@@ -258,7 +233,7 @@ export async function POST(request: NextRequest) {
     if (mode === "tasks") {
       systemContent = SYSTEM_TASKS;
       safeLog("log", "[assistant/chat] Construyendo contexto de tareas...");
-      const taskCtx = await buildTaskContext(session.userId);
+      const taskCtx = await buildTaskContext();
       contextBlock = `\n\n${taskCtx}`;
       safeLog("log", "[assistant/chat] Contexto tareas OK, chars:", taskCtx.length);
     } else if (mode === "hr") {
@@ -267,7 +242,7 @@ export async function POST(request: NextRequest) {
       safeLog("log", "[assistant/chat] Construyendo contexto de equipo...");
       let teamCtx = "";
       try {
-        teamCtx = await buildTeamContext(session.userId, session.role as Role);
+        teamCtx = await buildTeamContext(session.role as Role);
         safeLog("log", "[assistant/chat] Contexto equipo OK, chars:", teamCtx.length);
       } catch (teamErr) {
         // Sprint C §7: el detalle técnico queda solo en el log del servidor —

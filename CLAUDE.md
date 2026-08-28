@@ -10,11 +10,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Stack
 
-- **Framework**: Next.js 16 (App Router) con TypeScript
+- **Framework (frontend)**: Next.js 16 (App Router) con TypeScript
 - **Styling**: Tailwind CSS v4
-- **ORM**: Prisma 7 con driver adapter `@prisma/adapter-pg`
-- **Database**: PostgreSQL
-- **Auth**: JWT con `jose`, cookies httpOnly, bcryptjs para hashing
+- **Backend**: Django/DRF (`backend/`) + SQL Server — Next.js habla con él vía
+  `src/lib/djangoSession.ts` (`djangoApiFetch`) y los adaptadores
+  `src/lib/django*Adapter.ts`. Migración de stack COMPLETA desde Postgres/Prisma
+  (ver `docs/ROADMAP.md` § punto 14, `docs/AUDIT_LOG.md` Fases 87-90) — ningún
+  `route.ts` toca una base de datos directo.
+- **Auth**: JWT con `jose`, cookies httpOnly, bcryptjs para hashing (credenciales
+  validadas contra Django, ver `src/lib/djangoSession.ts::loginToDjango`)
 - **Runtime proxy**: `src/proxy.ts` (Next.js 16 renombró `middleware.ts` → `proxy.ts`)
 
 ## Comandos
@@ -23,34 +27,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 npm run dev        # servidor de desarrollo
 npm run build      # build de producción
 npm run lint       # ESLint
-npm run seed       # ejecutar seed (crea usuarios iniciales)
 ```
-
-## Prisma Workflow
-
-```bash
-npx prisma migrate dev --name <nombre>  # crear y aplicar migración
-npx prisma generate                     # regenerar cliente tras cambios en schema
-npx prisma db seed                      # ejecutar seed
-npx prisma studio                       # explorador visual de BD
-```
-
-**Importante — Prisma 7:** requiere driver adapter para conectar a la BD. `new PrismaClient()` sin opciones lanza error en runtime. Siempre inicializar así:
-
-```ts
-import { PrismaPg } from "@prisma/adapter-pg";
-const adapter = new PrismaPg({ connectionString: process.env.DATABASE_URL });
-const prisma = new PrismaClient({ adapter });
-```
-
-Importar tipos desde `@/generated/prisma/client` (NO `@/generated/prisma`).
 
 ## Variables de Entorno
 
-Archivo `.env` (ya presente, gestionado por `prisma.config.ts`). Variables requeridas:
+Archivo `.env` (ya presente). Variables requeridas:
 
-- `DATABASE_URL` — cadena de conexión PostgreSQL
 - `SESSION_SECRET` — secreto para firmar JWT (mínimo 32 caracteres)
+- `DJANGO_API_URL` — URL base de la API de `backend/` (ver `backend/.env`)
 
 Nunca commitear `.env.local` o `.env`.
 
@@ -87,15 +71,12 @@ src/
     NavMenu.tsx         # navegación top, filtra links por rol
     UsersManager.tsx    # tabla de usuarios con acciones
   lib/
-    prisma.ts           # singleton PrismaClient con adapter pg
     session.ts          # encrypt/decrypt JWT, create/delete session
-    roles.ts            # jerarquía, visibilidad, notificaciones, permisos
+    roles.ts            # jerarquía, visibilidad, notificaciones, permisos, tipo Role
+    djangoSession.ts    # puente de sesión hacia backend/ (djangoApiFetch)
+    django*Adapter.ts   # un adaptador por dominio: mapea JSON de Django (snake_case) a la forma que ya espera el frontend
   proxy.ts              # protección de rutas (equivalente a middleware)
-  generated/prisma/     # cliente Prisma generado (no editar)
-prisma/
-  schema.prisma         # modelo User + enum Role
-  seed.ts               # crea usuarios iniciales
-  migrations/           # historial de migraciones
+backend/                # Django/DRF + SQL Server — ver backend/CLAUDE.md o docs/ARCHITECTURE.md
 ```
 
 ## Jerarquía de Roles
@@ -127,16 +108,9 @@ Definida en `src/lib/roles.ts`. Niveles:
 - El payload del JWT contiene: `userId`, `role`, `name`, `email`
 - `src/proxy.ts` redirige a `/login` si no hay sesión válida; redirige a `/dashboard` si ya está autenticado y visita rutas públicas
 
-## Usuarios Iniciales (seed)
-
-| Email | Contraseña | Rol |
-|-------|-----------|-----|
-| jefe@nexo.com | 123456 | JEFE_NACIONAL |
-| coord.nacional@nexo.com | 123456 | COORDINADOR_NACIONAL |
-
 ## Testing
 
-Framework de pruebas: Vitest + `@testing-library/react` (jsdom). Ver `docs/ARCHITECTURE.md` § Convenciones técnicas para el detalle del setup (`vitest.config.ts`, stub de `server-only`, mock global de Prisma). Tests en `src/__tests__/`.
+Framework de pruebas: Vitest + `@testing-library/react` (jsdom). Ver `docs/ARCHITECTURE.md` § Convenciones técnicas para el detalle del setup (`vitest.config.ts`, stub de `server-only`). Tests en `src/__tests__/`. Los `route.ts` ya cortados a Django se testean mockeando `@/lib/djangoSession` (`djangoApiFetch`), no una base de datos.
 
 ## Documentación
 

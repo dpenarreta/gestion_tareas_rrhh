@@ -1,8 +1,15 @@
-import type { RiskAlert } from "@/lib/riskAlerts";
 import type { IndiceEjecutivoNivel } from "@/lib/reportInsights";
 import type { EstadoOperativoResult } from "@/lib/analytics";
 
 export type KpiColor = "green" | "yellow" | "red";
+
+export type RiskAlertSeverity = "red" | "yellow";
+
+/** Alertas automáticas de riesgo por colaborador (Django, `apps/analytics`) — ver `KpiData.riskAlerts`. */
+export type RiskAlert = {
+  severity: RiskAlertSeverity;
+  message: string;
+};
 
 /**
  * Semáforo de carga laboral por rango — 5 zonas, no solo 3 colores:
@@ -108,8 +115,6 @@ export type TeamMemberKpi = {
   horasDisponibles: number;
 };
 
-export type { CapacityForecast, CapacityEstado } from "@/lib/capacityForecast";
-
 // ── Motor de Analytics (src/lib/analytics.ts) — re-exportadas para que los
 // componentes cliente puedan tipar las respuestas de /api/analytics/* sin
 // importar el módulo "server-only" en sí (un `import type` se borra en
@@ -146,9 +151,9 @@ export type {
   MetricBenchmark,
   SmartBenchmarkExplain,
   SmartBenchmarkResult,
+  RoleTarget,
   PersonalEvolution,
 } from "@/lib/analytics";
-export type { RoleTarget } from "@/lib/systemConfig";
 
 // ── Motor de interpretación de Informes (src/lib/reportInsights.ts) —
 // mismo criterio: import type se borra en compilación, no dispara la
@@ -186,8 +191,38 @@ export type AnalyticsBundle = {
   validationWarnings?: import("@/lib/analytics").ValidationFailure[];
 };
 
+/**
+ * `CapacityForecast` — antes en `src/lib/capacityForecast.ts` ("server-only",
+ * mismo criterio de re-exportación que el resto del archivo), retirado en la
+ * Fase 85 (ver docs/AUDIT_LOG.md § 2026-08-27) al cortar `predictionEngine.ts`
+ * a Django — el TIPO sigue vivo acá porque `GET /api/kpis/team-capacity` (ya
+ * 100% Django desde la Fase 19/47) devuelve exactamente esta forma.
+ */
+export type CapacityEstado = "alta" | "limitada" | "no-asignar" | "sobrecarga" | "sin-planificacion";
+
+export type CapacityForecast = {
+  userId: string;
+  horasRestantesHoy: number;
+  diasLaborablesRestantes: number;
+  baseFuturaTotal: number;
+  comprometidoEnProgreso: number;
+  comprometidoPendiente: number;
+  comprometidoFuturo: number;
+  disponible: number;
+  disponiblePct: number;
+  estado: CapacityEstado;
+  estadoColor: "green" | "yellow" | "red" | "gray";
+  estadoLabel: string;
+  tasksSinEstimar: number;
+  confiabilidad: {
+    pct: number;
+    holidaysConfigured: boolean;
+    tasksWithoutEstimate: number;
+  };
+};
+
 /** Fila de /api/kpis/team-capacity — ver Analytics § Capacidad para asumir nuevas tareas. */
-export type CapacityMember = import("@/lib/capacityForecast").CapacityForecast & {
+export type CapacityMember = CapacityForecast & {
   id: string;
   name: string;
   role: string;

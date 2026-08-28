@@ -1,7 +1,70 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import type { Role } from "@/lib/roles";
 import { getSession, createSession } from "@/lib/session";
-import { getActivityFormat, withActivityFormat } from "@/lib/activityFormat";
+import { djangoApiFetch, extractDjangoFieldErrorMessage } from "@/lib/djangoSession";
+
+// Fase 6b de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-17):
+// identidad (name/email/role/createdAt) pasa a Django. `activityFormat`
+// cerró su excepción híbrida en la Fase 55 (ver docs/AUDIT_LOG.md §
+// 2026-08-25) — `ActivityFormatView` ya expone `view_preferences` de
+// Django con el mismo truco de prefijo (`ACTIVITY_FORMAT:`) que usaba
+// Prisma.
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
+
+type DjangoMe = {
+  id: number;
+  username: string;
+  email: string;
+  first_name: string;
+  date_joined: string;
+  roles: { id: number; name: string }[];
+  legacy_postgres_id: string | null;
+};
+
+type DjangoActivityFormat = { activity_format: "duration" | "timerange" };
+type DjangoSeguridadConfig = { session_duration_default_hours: number };
+
+// Mismo default que Django (`DEFAULT_SESSION_DURATION_DEFAULT_HOURS`,
+// `backend/apps/configuration/services.py`) — solo se usa si Django no
+// tiene sesión disponible en este request puntual.
+const DEFAULT_SESSION_DURATION_HOURS = 168;
+
+/** Duración (horas) para la sesión re-emitida tras editar el perfil —
+ * Fase 62 de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-25):
+ * antes leía `getEffectiveSessionDurationDefaultHours` (Postgres, vía
+ * `session.ts`); ahora se resuelve acá contra Django
+ * (`GET /settings/seguridad-config/`, mismo endpoint que el login ya usa
+ * indirectamente vía `session_policy`) y se pasa como
+ * `durationHoursOverride` — preserva el comportamiento preexistente de
+ * usar siempre la duración "default", nunca "recordarme", sin importar
+ * cómo se creó la sesión original (quirk heredado, no corregido acá). */
+async function fetchSessionDurationDefaultHours(): Promise<number> {
+  const response = await djangoApiFetch("/settings/seguridad-config/");
+  if (!response || !response.ok) return DEFAULT_SESSION_DURATION_HOURS;
+  const data = (await response.json()) as DjangoSeguridadConfig;
+  return Number.isFinite(data.session_duration_default_hours) ? data.session_duration_default_hours : DEFAULT_SESSION_DURATION_HOURS;
+}
+
+function mapDjangoMe(me: DjangoMe, sessionUserId: string) {
+  return {
+    userId: me.legacy_postgres_id ?? sessionUserId,
+    name: me.first_name || me.username,
+    email: me.email,
+    role: (me.roles[0]?.name ?? null) as Role | null,
+    createdAt: me.date_joined,
+  };
+}
+
+/** `"duration"` best-effort si Django no tiene el dato disponible — mismo
+ * default que usaba `getActivityFormat` cuando `viewPreferences` no traía
+ * la clave. */
+async function readActivityFormat(): Promise<"duration" | "timerange"> {
+  const response = await djangoApiFetch("/users/activity-format/");
+  if (!response || !response.ok) return "duration";
+  const data = (await response.json()) as DjangoActivityFormat;
+  return data.activity_format;
+}
 
 export async function GET() {
   const session = await getSession();
@@ -9,23 +72,17 @@ export async function GET() {
     return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   }
 
-  const user = await prisma.user.findUnique({
-    where: { id: session.userId },
-    select: { id: true, name: true, email: true, role: true, createdAt: true, viewPreferences: true },
-  });
-
-  if (!user) {
+  const response = await djangoApiFetch("/auth/me/");
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (!response.ok) {
     return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
   }
 
-  return NextResponse.json({
-    userId: user.id,
-    name: user.name,
-    email: user.email,
-    role: user.role,
-    createdAt: user.createdAt,
-    activityFormat: getActivityFormat(user.viewPreferences),
-  });
+  const me: DjangoMe = await response.json();
+  const activityFormat = await readActivityFormat();
+  return NextResponse.json({ ...mapDjangoMe(me, session.userId), activityFormat });
 }
 
 export async function PATCH(request: NextRequest) {
@@ -35,7 +92,6 @@ export async function PATCH(request: NextRequest) {
   }
 
   const { name, email, activityFormat } = await request.json();
-
   const hasProfileFields = name !== undefined || email !== undefined;
 
   if (hasProfileFields) {
@@ -46,49 +102,50 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ error: "El correo es requerido" }, { status: 400 });
     }
   }
-
   if (activityFormat !== undefined && activityFormat !== "duration" && activityFormat !== "timerange") {
     return NextResponse.json({ error: "Formato de actividad inválido" }, { status: 400 });
   }
 
-  const cleanEmail = hasProfileFields ? email.trim().toLowerCase() : null;
+  const response = hasProfileFields
+    ? await djangoApiFetch("/auth/me/", {
+        method: "PATCH",
+        body: JSON.stringify({ first_name: name.trim(), email: email.trim().toLowerCase() }),
+      })
+    : await djangoApiFetch("/auth/me/");
 
-  if (cleanEmail && cleanEmail !== session.email) {
-    const taken = await prisma.user.findUnique({ where: { email: cleanEmail } });
-    if (taken) {
-      return NextResponse.json({ error: "Ese correo ya está en uso" }, { status: 409 });
-    }
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (!response.ok) {
+    const message = await extractDjangoFieldErrorMessage(response);
+    return NextResponse.json({ error: message ?? "Ese correo ya está en uso" }, { status: 400 });
   }
 
-  const data: { name?: string; email?: string; viewPreferences?: string[] } = {};
+  const me: DjangoMe = await response.json();
+  const identity = mapDjangoMe(me, session.userId);
+
   if (hasProfileFields) {
-    data.name = name.trim();
-    data.email = cleanEmail!;
+    const durationHours = await fetchSessionDurationDefaultHours();
+    await createSession(
+      {
+        userId: identity.userId,
+        role: identity.role as Role,
+        name: identity.name,
+        email: identity.email,
+        djangoUserId: me.id,
+      },
+      false,
+      durationHours
+    );
   }
+
   if (activityFormat !== undefined) {
-    const current = await prisma.user.findUnique({
-      where: { id: session.userId },
-      select: { viewPreferences: true },
+    await djangoApiFetch("/users/activity-format/", {
+      method: "PATCH",
+      body: JSON.stringify({ activity_format: activityFormat }),
     });
-    data.viewPreferences = withActivityFormat(current?.viewPreferences, activityFormat);
   }
 
-  const user = await prisma.user.update({
-    where: { id: session.userId },
-    data,
-    select: { id: true, name: true, email: true, role: true, createdAt: true, viewPreferences: true },
-  });
-
-  if (hasProfileFields) {
-    await createSession({ userId: user.id, role: user.role, name: user.name, email: user.email });
-  }
-
-  return NextResponse.json({
-    userId: user.id,
-    name: user.name,
-    email: user.email,
-    role: user.role,
-    createdAt: user.createdAt,
-    activityFormat: getActivityFormat(user.viewPreferences),
-  });
+  const finalActivityFormat = await readActivityFormat();
+  return NextResponse.json({ ...identity, activityFormat: finalActivityFormat });
 }

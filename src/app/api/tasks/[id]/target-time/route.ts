@@ -1,83 +1,44 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { getVisibleRoles } from "@/lib/roles";
-import { getClientIp } from "@/lib/rate-limit";
-import { invalidateAnalyticsCache } from "@/lib/analytics";
-import {
-  getOfficialTargetTime,
-  isTargetTimeValidated,
-  computeDeviation,
-  canValidateTargetTime,
-  isValidTargetTimeReason,
-} from "@/lib/targetTime";
-import { getHistoricalDeviationForTask, getTargetTimeAuditHistory, applyTargetTimeValidation } from "@/lib/targetTimeServer";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import { fetchDjangoTargetTimeInfo, mapDjangoTargetTimeInfoToNexoShape } from "@/lib/djangoTasksAdapter";
+
+// Fase 3c de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-07):
+// cortado a Django. La autorización de validación se simplifica a
+// `usuarios.editar` + "no soy el propio responsable" — equivalente al
+// legacy en el estado actual del catálogo (ver plan de Fase 3c). Nunca
+// toca `real_hours` — igual que el legacy.
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-/**
- * Tiempo Objetivo de una tarea (§Sprint 6) — GET expone el estado actual
- * (inicial/validado/desviación/desviación histórica del proceso/auditoría);
- * POST aplica una validación (§S6-C), siempre auditada (§S6-G). NUNCA toca
- * `realHours` — las horas reales solo se editan desde /activities.
- */
+async function extractDjangoErrorMessage(response: Response, fallback: string): Promise<string> {
+  try {
+    const data = await response.json();
+    const nonFieldError = data?.error?.details?.non_field_errors?.[0];
+    if (typeof nonFieldError === "string") return nonFieldError;
+    const firstFieldError = Object.values(data?.error?.details ?? {})[0];
+    if (Array.isArray(firstFieldError) && typeof firstFieldError[0] === "string") return firstFieldError[0];
+    if (typeof data?.error?.message === "string") return data.error.message;
+  } catch {
+    // respuesta sin cuerpo JSON — se usa el mensaje por defecto
+  }
+  return fallback;
+}
+
 export async function GET(_req: NextRequest, ctx: Ctx) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
   const { id } = await ctx.params;
-  const task = await prisma.task.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      title: true,
-      estimatedHours: true,
-      realHours: true,
-      targetTimeValidated: true,
-      targetTimeValidatedAt: true,
-      targetTimeValidator: { select: { id: true, name: true } },
-      assignedToId: true,
-      createdById: true,
-      assignedTo: { select: { role: true } },
-    },
-  });
-  if (!task) return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
+  const info = await fetchDjangoTargetTimeInfo(id);
+  if (info === "no_session") {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (!info) return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
 
-  const canView =
-    task.assignedToId === session.userId ||
-    task.createdById === session.userId ||
-    getVisibleRoles(session.role).includes(task.assignedTo.role);
-  if (!canView) return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
-
-  const officialTarget = getOfficialTargetTime(task);
-  const deviation = computeDeviation(task.realHours, officialTarget);
-  const [auditHistory, historicalDeviation] = await Promise.all([
-    getTargetTimeAuditHistory(id),
-    getHistoricalDeviationForTask(task.title, officialTarget, id),
-  ]);
-
-  return NextResponse.json({
-    estimatedHours: task.estimatedHours,
-    targetTimeValidated: task.targetTimeValidated,
-    targetTimeValidatedAt: task.targetTimeValidatedAt,
-    validatedBy: task.targetTimeValidator,
-    isValidated: isTargetTimeValidated(task),
-    officialTarget,
-    realHours: task.realHours,
-    deviation,
-    canValidate: canValidateTargetTime(session.role, task.assignedToId, session.userId),
-    auditHistory: auditHistory.map((a) => ({
-      id: a.id,
-      previousValue: a.previousValue,
-      newValue: a.newValue,
-      reason: a.reason,
-      reasonDetail: a.reasonDetail,
-      user: a.user,
-      userRole: a.userRole,
-      createdAt: a.createdAt,
-    })),
-    historicalDeviation,
-  });
+  return NextResponse.json(mapDjangoTargetTimeInfoToNexoShape(info));
 }
 
 export async function POST(request: NextRequest, ctx: Ctx) {
@@ -85,51 +46,30 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
   const { id } = await ctx.params;
-  const task = await prisma.task.findUnique({
-    where: { id },
-    select: { id: true, assignedToId: true, assignedTo: { select: { role: true } } },
+  const body = (await request.json()) as { newValue?: unknown; reason?: unknown; reasonDetail?: unknown };
+
+  const response = await djangoApiFetch(`/tasks/${id}/target-time/`, {
+    method: "POST",
+    body: JSON.stringify({
+      new_value: body.newValue,
+      reason: body.reason,
+      reason_detail: typeof body.reasonDetail === "string" ? body.reasonDetail.trim() || null : null,
+    }),
   });
-  if (!task) return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
 
-  const canSeeTask = getVisibleRoles(session.role).includes(task.assignedTo.role);
-  if (!canSeeTask || !canValidateTargetTime(session.role, task.assignedToId, session.userId)) {
-    return NextResponse.json({ error: "Sin permisos para validar el Tiempo Objetivo de esta tarea" }, { status: 403 });
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 403) {
+    return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
+  }
+  if (!response.ok) {
+    const message = await extractDjangoErrorMessage(
+      response,
+      "Sin permisos para validar el Tiempo Objetivo de esta tarea"
+    );
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Cuerpo inválido" }, { status: 400 });
-  }
-  const { newValue, reason, reasonDetail } = (body ?? {}) as { newValue?: unknown; reason?: unknown; reasonDetail?: unknown };
-
-  const parsedValue = typeof newValue === "number" ? newValue : parseFloat(String(newValue));
-  if (!Number.isFinite(parsedValue) || parsedValue <= 0) {
-    return NextResponse.json({ error: "El nuevo tiempo objetivo debe ser un número mayor a 0" }, { status: 400 });
-  }
-  if (!isValidTargetTimeReason(reason)) {
-    return NextResponse.json({ error: "Motivo de ajuste inválido" }, { status: 400 });
-  }
-  if (reason === "OTRO" && !(typeof reasonDetail === "string" && reasonDetail.trim())) {
-    return NextResponse.json({ error: "Debes indicar el detalle del motivo cuando eliges \"Otro\"" }, { status: 400 });
-  }
-
-  const updated = await applyTargetTimeValidation({
-    taskId: id,
-    newValue: Math.round(parsedValue * 100) / 100,
-    reason,
-    reasonDetail: typeof reasonDetail === "string" && reasonDetail.trim() ? reasonDetail.trim() : null,
-    userId: session.userId,
-    userRole: session.role,
-    ipAddress: getClientIp(request.headers),
-  });
-  if (!updated) return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
-
-  invalidateAnalyticsCache(task.assignedToId);
-
-  return NextResponse.json({
-    targetTimeValidated: updated.targetTimeValidated,
-    targetTimeValidatedAt: updated.targetTimeValidatedAt,
-  });
+  return NextResponse.json(mapDjangoTargetTimeInfoToNexoShape(await response.json()));
 }

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { ROLE_LABEL, ALL_ROLES } from "@/lib/roles";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import SectionCard from "./SectionCard";
 import { Button } from "@/components/ui/Button";
 import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";

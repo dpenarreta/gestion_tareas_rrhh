@@ -2,7 +2,6 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import type { SessionPayload } from "@/lib/session";
 import type { NextRequest } from "next/server";
 
-const userFindMany = vi.fn();
 const userFindUnique = vi.fn();
 const taskFindMany = vi.fn();
 const taskFindFirst = vi.fn();
@@ -13,16 +12,10 @@ const specialStatusFindMany = vi.fn();
 const holidayFindMany = vi.fn();
 const systemConfigHistoryCount = vi.fn();
 const monthClosureFindUnique = vi.fn();
-const monthlyReportFindUnique = vi.fn();
-const executiveReportSnapshotCreate = vi.fn();
-const executiveReportSnapshotFindUnique = vi.fn();
-const executiveReportSnapshotFindMany = vi.fn();
-const executiveReportSnapshotCount = vi.fn();
-const executiveReportAuditLogCreate = vi.fn();
 
 vi.mock("@/lib/prisma", () => ({
   prisma: {
-    user: { findMany: userFindMany, findUnique: userFindUnique },
+    user: { findUnique: userFindUnique },
     task: { findMany: taskFindMany, findFirst: taskFindFirst },
     taskActivity: { findMany: taskActivityFindMany, findFirst: taskActivityFindFirst },
     activityReason: { findMany: activityReasonFindMany },
@@ -30,18 +23,22 @@ vi.mock("@/lib/prisma", () => ({
     holiday: { findMany: holidayFindMany },
     systemConfigHistory: { count: systemConfigHistoryCount },
     monthClosure: { findUnique: monthClosureFindUnique },
-    monthlyReport: { findUnique: monthlyReportFindUnique },
-    executiveReportSnapshot: {
-      create: executiveReportSnapshotCreate,
-      findUnique: executiveReportSnapshotFindUnique,
-      findMany: executiveReportSnapshotFindMany,
-      count: executiveReportSnapshotCount,
-    },
-    executiveReportAuditLog: { create: executiveReportAuditLogCreate },
   },
 }));
 
 vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
+
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-25, Fase 56): la
+// PERSISTENCIA de snapshots/auditoría pasó a Django — el CÁLCULO
+// (`buildSnapshotForFilters`, mockeado arriba vía Prisma) no cambió.
+const djangoApiFetch = vi.fn();
+vi.mock("@/lib/djangoSession", () => ({
+  djangoApiFetch: (...args: unknown[]) => djangoApiFetch(...args),
+}));
+
+function djangoResponse(ok: boolean, data: unknown, status = ok ? 200 : 400) {
+  return { ok, status, json: async () => data } as Response;
+}
 
 const monthlyBusinessBase = vi.fn();
 vi.mock("@/lib/workload", async (importOriginal) => {
@@ -49,10 +46,6 @@ vi.mock("@/lib/workload", async (importOriginal) => {
   return {
     ...actual,
     monthlyBusinessBase: (...a: unknown[]) => monthlyBusinessBase(...a),
-    monthlyBusinessBaseForUsers: async (_userIds: string[], year: number, month: number) => ({
-      shared: await monthlyBusinessBase(year, month),
-      perUser: new Map(),
-    }),
   };
 });
 
@@ -80,8 +73,55 @@ function getRequest(url: string): NextRequest {
   return { nextUrl: new URL(url) } as unknown as NextRequest;
 }
 
+// Cutover de stack (Fase 72, ver docs/AUDIT_LOG.md § 2026-08-26): el
+// bloque ReportMemberKpi + agregados de equipo del builder MENSUAL se
+// calcula vía Django — bundle vacío coherente con el roster vacío por
+// defecto de estos tests (`/reports/roster/` mockeado a `users: []`,
+// Fase 87, ver docs/AUDIT_LOG.md § 2026-08-28).
+async function defaultDjangoApiFetch(path: string, init?: RequestInit) {
+  if (path === "/reports/executive/" && init?.method === "POST") {
+    const body = JSON.parse(init.body as string);
+    return djangoResponse(true, { report_id: body.report_id }, 201);
+  }
+  if (path === "/reports/executive/audit/") {
+    return djangoResponse(true, {}, 204);
+  }
+  if (path.startsWith("/reports/user-lookup/")) {
+    return djangoResponse(true, []);
+  }
+  if (path.startsWith("/reports/roster/")) {
+    return djangoResponse(true, { users: [], user_ids: [], scope: "JEFE", roster_kind: "CONSOLIDADO" });
+  }
+  if (path.startsWith("/reports/monthly-report/")) {
+    return djangoResponse(false, { error: "No encontrado" }, 404);
+  }
+  if (path === "/reports/executive/monthly-team-kpis/") {
+    return djangoResponse(true, {
+      team_summary: { avg_cumplimiento: 0, avg_carga_pct: 0, total_carga_real_hours: 0, total_carga_base_hours: 0, total_completed_tasks: 0, total_consultas: 0, total_tasks: 0, hours_per_day: 6.5, carga_range_min: 100, carga_range_max: 120 },
+      members: [],
+      ranking: [],
+      distribuciones: { consultas_by_reason: [], risk_quadrant: [] },
+      trends: {
+        mes_anterior: { label: "Mes anterior", current_value: 0, compare_value: null, delta: null, direction: "sin-datos" },
+        trimestre: { label: "Trimestre (prom. 3 meses)", current_value: 0, compare_value: null, delta: null, direction: "sin-datos" },
+        semestre: { label: "Semestre (prom. 6 meses)", current_value: 0, compare_value: null, delta: null, direction: "sin-datos" },
+      },
+      findings: [],
+      recommendations: [],
+      indicator_explanations: {
+        cumplimiento: { meaning: "", why: "", impact: "", action: "" },
+        carga: { meaning: "", why: "", impact: "", action: "" },
+        consultas: { meaning: "", why: "", impact: "", action: "" },
+      },
+      alerts: [],
+      data_quality: { pct: 100, issues: [] },
+      period_status: "CERRADO",
+    });
+  }
+  return djangoResponse(true, {});
+}
+
 function resetAll() {
-  userFindMany.mockReset().mockResolvedValue([]);
   userFindUnique.mockReset().mockResolvedValue({ kpiStartDate: null, createdAt: new Date("2000-01-01") });
   taskFindMany.mockReset().mockResolvedValue([]);
   taskFindFirst.mockReset().mockResolvedValue(null);
@@ -92,12 +132,7 @@ function resetAll() {
   holidayFindMany.mockReset().mockResolvedValue([]);
   systemConfigHistoryCount.mockReset().mockResolvedValue(1);
   monthClosureFindUnique.mockReset().mockResolvedValue(null);
-  monthlyReportFindUnique.mockReset().mockResolvedValue(null);
-  executiveReportSnapshotCreate.mockReset();
-  executiveReportSnapshotFindUnique.mockReset();
-  executiveReportSnapshotFindMany.mockReset().mockResolvedValue([]);
-  executiveReportSnapshotCount.mockReset().mockResolvedValue(0);
-  executiveReportAuditLogCreate.mockReset().mockResolvedValue({});
+  djangoApiFetch.mockReset().mockImplementation(defaultDjangoApiFetch);
   monthlyBusinessBase.mockReset().mockImplementation(async (year: number, month: number) => ({
     start: new Date(Date.UTC(year, month - 1, 1)),
     end: new Date(Date.UTC(year, month, 1) - 1),
@@ -145,22 +180,29 @@ describe("POST /api/reports/executive", () => {
 
   it("genera y persiste un snapshot con Report ID, y audita 'generated'", async () => {
     mockSession({ role: "JEFE_NACIONAL", userId: "u1", name: "Ana" });
-    executiveReportSnapshotCreate.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => data);
 
     const res = await executivePOST(getRequest("http://localhost/api/reports/executive?tipoReporte=MENSUAL&month=2026-06"));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.reportId).toMatch(/^NXR-\d{8}-\d{6}-/);
-    expect(executiveReportSnapshotCreate).toHaveBeenCalledTimes(1);
-    expect(executiveReportAuditLogCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: "generated" }) }));
+
+    const createCall = djangoApiFetch.mock.calls.find((c) => c[0] === "/reports/executive/");
+    expect(createCall).toBeDefined();
+
+    const auditCalls = djangoApiFetch.mock.calls.filter((c) => c[0] === "/reports/executive/audit/");
+    const generatedCall = auditCalls.find((c) => JSON.parse(c[1].body).action === "generated");
+    expect(generatedCall).toBeDefined();
     // FPS Parte IV §9 — "filtros aplicados" es un campo de auditoría obligatorio, antes ausente.
-    const auditCall = executiveReportAuditLogCreate.mock.calls.find((c) => c[0].data.action === "generated");
-    expect(auditCall?.[0].data.filtersApplied).toMatchObject({ periodo: { tipoReporte: "MENSUAL", month: 6, year: 2026 } });
+    const auditBody = JSON.parse(generatedCall![1].body);
+    expect(auditBody.filters_applied).toMatchObject({ periodo: { tipoReporte: "MENSUAL", month: 6, year: 2026 } });
   });
 
   it("responde 500 y audita 'generation_failed' con mensaje técnico (nunca expuesto al cliente) ante un error inesperado", async () => {
     mockSession({ role: "JEFE_NACIONAL", userId: "u1", name: "Ana" });
-    userFindMany.mockRejectedValue(new Error("db down"));
+    djangoApiFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path.startsWith("/reports/roster/")) throw new Error("db down");
+      return defaultDjangoApiFetch(path, init);
+    });
     vi.spyOn(console, "error").mockImplementation(() => {});
 
     const res = await executivePOST(getRequest("http://localhost/api/reports/executive?tipoReporte=MENSUAL&month=2026-06"));
@@ -169,9 +211,12 @@ describe("POST /api/reports/executive", () => {
     expect(body.error).toBe("Error al generar el informe");
     expect(body.error).not.toContain("db down");
 
-    const failureCall = executiveReportAuditLogCreate.mock.calls.find((c) => c[0].data.action === "generation_failed");
-    expect(failureCall?.[0].data.message).toContain("db down");
-    expect(failureCall?.[0].data.reportId).toMatch(/^NXR-\d{8}-\d{6}-/);
+    const auditCalls = djangoApiFetch.mock.calls.filter((c) => c[0] === "/reports/executive/audit/");
+    const failureCall = auditCalls.find((c) => JSON.parse(c[1].body).action === "generation_failed");
+    expect(failureCall).toBeDefined();
+    const failureBody = JSON.parse(failureCall![1].body);
+    expect(failureBody.message).toContain("db down");
+    expect(failureBody.report_id).toMatch(/^NXR-\d{8}-\d{6}-/);
   });
 });
 
@@ -182,125 +227,129 @@ describe("GET /api/reports/executive/[reportId]", () => {
     return { params: Promise.resolve({ reportId }) };
   }
 
+  // Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-25, Fase 56): réplica
+  // de `ExecutiveReportDetailView` (backend, Fase 8) — visibilidad por
+  // `scope`, `ensureSnapshotMeta` y la auditoría `viewed` ya viven ahí, con
+  // su propia cobertura en `backend/apps/reports/tests/`. Acá solo se
+  // prueba ruteo/mapeo snake_case→camelCase.
+  it("responde 401 si no hay sesión", async () => {
+    mockSession(null);
+    const res = await executiveGetById(getRequest("http://localhost/api/reports/executive/NXR-XX"), ctx("NXR-XX"));
+    expect(res.status).toBe(401);
+    expect(djangoApiFetch).not.toHaveBeenCalled();
+  });
+
+  it("responde 401 si Django no tiene sesión disponible", async () => {
+    mockSession({ role: "JEFE_NACIONAL" });
+    djangoApiFetch.mockResolvedValue(null);
+    const res = await executiveGetById(getRequest("http://localhost/api/reports/executive/NXR-XX"), ctx("NXR-XX"));
+    expect(res.status).toBe(401);
+  });
+
   it("responde 404 si no existe", async () => {
     mockSession({ role: "JEFE_NACIONAL" });
-    executiveReportSnapshotFindUnique.mockResolvedValue(null);
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "Reporte no encontrado" }, 404));
     const res = await executiveGetById(getRequest("http://localhost/api/reports/executive/NXR-XX"), ctx("NXR-XX"));
     expect(res.status).toBe(404);
   });
 
   it("responde 403 si el scope del reporte no coincide con el del visor", async () => {
     mockSession({ role: "COORDINADOR_NACIONAL" });
-    executiveReportSnapshotFindUnique.mockResolvedValue({ scope: "JEFE", reportId: "NXR-1", generator: { name: "Ana" } });
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "Sin permisos" }, 403));
     const res = await executiveGetById(getRequest("http://localhost/api/reports/executive/NXR-1"), ctx("NXR-1"));
     expect(res.status).toBe(403);
   });
 
-  it("devuelve el snapshot y audita 'viewed' cuando el scope coincide", async () => {
+  it("devuelve el snapshot mapeado a camelCase cuando el scope coincide", async () => {
     mockSession({ role: "JEFE_NACIONAL" });
-    executiveReportSnapshotFindUnique.mockResolvedValue({
-      reportId: "NXR-1",
-      type: "MENSUAL",
-      scope: "JEFE",
-      origin: "GENERATED",
-      integrityFlag: "FULL",
-      periodLabel: "Junio 2026",
-      periodStart: new Date("2026-06-01"),
-      periodEnd: new Date("2026-06-30"),
-      fechaCorte: new Date("2026-06-30"),
-      periodStatus: "CERRADO",
-      collaboratorCount: 2,
-      generatedAt: new Date("2026-06-30"),
-      generationMs: 500,
-      analyticsEngineVersion: "1.5.0",
-      formulaSetVersion: "4.4",
-      reportingEngineVersion: "2.0",
-      nexoVersion: "1.21.0",
-      data: {},
-      nova: null,
-      novaDegraded: false,
-      dataQuality: { pct: 90, issues: [] },
-      generator: { name: "Ana" },
-    });
+    djangoApiFetch.mockResolvedValue(
+      djangoResponse(true, {
+        report: {
+          report_id: "NXR-1",
+          type: "MENSUAL",
+          scope: "JEFE",
+          origin: "GENERATED",
+          integrity_flag: "FULL",
+          period_label: "Junio 2026",
+          period_start: "2026-06-01T00:00:00Z",
+          period_end: "2026-06-30T00:00:00Z",
+          fecha_corte: "2026-06-30T00:00:00Z",
+          period_status: "CERRADO",
+          collaborator_count: 2,
+          generated_by: "Ana",
+          generated_at: "2026-06-30T00:00:00Z",
+          generation_ms: 500,
+          analytics_engine_version: "1.5.0",
+          formula_set_version: "4.4",
+          reporting_engine_version: "2.0",
+          nexo_version: "1.21.0",
+          data: { meta: { reportId: "NXR-1" } },
+          nova: null,
+          nova_degraded: false,
+          data_quality: { pct: 90, issues: [] },
+        },
+      })
+    );
     const res = await executiveGetById(getRequest("http://localhost/api/reports/executive/NXR-1"), ctx("NXR-1"));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.report.reportId).toBe("NXR-1");
-    expect(executiveReportAuditLogCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ action: "viewed" }) }));
-  });
-
-  it("reconstruye data.meta cuando la fila persistida no lo trae (bug real: LEGACY_MIGRATION del backfill de Fase D quedó sin meta) — nunca deja periodLabel undefined", async () => {
-    mockSession({ role: "JEFE_NACIONAL" });
-    executiveReportSnapshotFindUnique.mockResolvedValue({
-      reportId: "NXR-LEGACY-20260601-7F3C",
-      type: "MENSUAL",
-      scope: "JEFE",
-      origin: "LEGACY_MIGRATION",
-      integrityFlag: "PARTIAL",
-      periodLabel: "junio de 2026",
-      periodStart: new Date("2026-06-01"),
-      periodEnd: new Date("2026-06-30"),
-      fechaCorte: new Date("2026-06-30"),
-      periodStatus: "HISTORICO",
-      collaboratorIds: ["u1", "u2"],
-      collaboratorCount: 2,
-      generatedBy: "u1",
-      generatedAt: new Date("2026-06-30"),
-      generationMs: 0,
-      analyticsEngineVersion: "desconocida (pre Executive Reporting Engine 2.0)",
-      formulaSetVersion: "desconocida (pre Executive Reporting Engine 2.0)",
-      reportingEngineVersion: "legacy",
-      nexoVersion: "desconocida (pre Executive Reporting Engine 2.0)",
-      // Forma real de las 4 filas migradas antes de este fix: sin `meta`.
-      data: { teamSummary: {}, members: [] },
-      nova: null,
-      novaDegraded: true,
-      dataQuality: { pct: 100, issues: [] },
-      generator: { name: "Ana" },
-    });
-    const res = await executiveGetById(getRequest("http://localhost/api/reports/executive/NXR-LEGACY-20260601-7F3C"), ctx("NXR-LEGACY-20260601-7F3C"));
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.report.data.meta).toBeDefined();
-    expect(body.report.data.meta.periodLabel).toBe("junio de 2026");
-    expect(body.report.data.meta.reportId).toBe("NXR-LEGACY-20260601-7F3C");
-    expect(body.report.data.meta.rosterKind).toBe("CONSOLIDADO");
-    expect(body.report.data.meta.generatedBy).toEqual({ userId: "u1", name: "Ana" });
+    expect(body.report.generatedBy).toBe("Ana");
+    expect(body.report.dataQuality).toEqual({ pct: 90, issues: [] });
+    expect(djangoApiFetch).toHaveBeenCalledWith("/reports/executive/NXR-1/");
   });
 });
 
 describe("GET /api/reports/executive/list", () => {
   beforeEach(resetAll);
 
-  it("responde 401/403 según sesión y permisos", async () => {
+  // Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-25, Fase 56): réplica
+  // de `ExecutiveReportListView` (backend, Fase 8) — paginación y filtro por
+  // `scope` ya viven ahí.
+  it("responde 401 si no hay sesión", async () => {
     mockSession(null);
-    expect((await executiveList(getRequest("http://localhost/api/reports/executive/list"))).status).toBe(401);
-    mockSession({ role: "ASISTENTE_GH" });
-    expect((await executiveList(getRequest("http://localhost/api/reports/executive/list"))).status).toBe(403);
+    const res = await executiveList(getRequest("http://localhost/api/reports/executive/list"));
+    expect(res.status).toBe(401);
+    expect(djangoApiFetch).not.toHaveBeenCalled();
   });
 
-  it("pagina y filtra por scope del visor", async () => {
-    mockSession({ role: "COORDINADOR_NACIONAL" });
-    executiveReportSnapshotCount.mockResolvedValue(1);
-    executiveReportSnapshotFindMany.mockResolvedValue([
-      {
-        reportId: "NXR-1",
-        type: "MENSUAL",
-        scope: "COORDINADOR",
-        origin: "GENERATED",
-        integrityFlag: "FULL",
-        periodLabel: "Junio 2026",
-        periodStatus: "CERRADO",
-        collaboratorCount: 3,
-        generatedAt: new Date("2026-06-30"),
-        generator: { name: "Ana" },
-      },
-    ]);
+  it("responde 403 si el rol no puede acceder a reportes", async () => {
+    mockSession({ role: "ASISTENTE_GH" });
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "Sin permisos" }, 403));
     const res = await executiveList(getRequest("http://localhost/api/reports/executive/list"));
+    expect(res.status).toBe(403);
+  });
+
+  it("pagina y mapea la lista a camelCase, reenviando los query params", async () => {
+    mockSession({ role: "COORDINADOR_NACIONAL" });
+    djangoApiFetch.mockResolvedValue(
+      djangoResponse(true, {
+        page: 1,
+        page_size: 20,
+        total: 1,
+        reports: [
+          {
+            report_id: "NXR-1",
+            type: "MENSUAL",
+            scope: "COORDINADOR",
+            origin: "GENERATED",
+            integrity_flag: "FULL",
+            period_label: "Junio 2026",
+            period_status: "CERRADO",
+            collaborator_count: 3,
+            generated_by: "Ana",
+            generated_at: "2026-06-30T00:00:00Z",
+          },
+        ],
+      })
+    );
+    const res = await executiveList(getRequest("http://localhost/api/reports/executive/list?page=1&pageSize=20"));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.total).toBe(1);
+    expect(body.reports[0].reportId).toBe("NXR-1");
+    expect(body.reports[0].generatedBy).toBe("Ana");
+    expect(djangoApiFetch).toHaveBeenCalledWith("/reports/executive/list/?page=1&pageSize=20");
     expect(body.reports).toHaveLength(1);
-    expect(executiveReportSnapshotFindMany.mock.calls[0][0].where).toEqual({ scope: "COORDINADOR" });
   });
 });

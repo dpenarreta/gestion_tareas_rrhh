@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { BackLink } from "@/components/ui/BackLink";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import type { ProjectDetail, ProjectUserRef } from "./types";
 import { PROJECT_STATUS_LABEL, PROJECT_STATUS_COLOR, PROJECT_PRIORITY_LABEL } from "./types";
 import ProjectSummaryTab from "./ProjectSummaryTab";

@@ -1,60 +1,32 @@
 import { NextResponse } from "next/server";
-import * as XLSX from "xlsx";
 import { getSession } from "@/lib/session";
+import { djangoApiFetch } from "@/lib/djangoSession";
+
+// Sub-fase 3e de la migración de stack (ver docs/AUDIT_LOG.md §
+// 2026-08-07): cortado a Django. Sin gate de rol, igual que el legacy —
+// esta ruta solo verifica que haya sesión (401).
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
 export async function GET() {
   const session = await getSession();
-  if (!session) {
-    return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+  if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
+
+  const response = await djangoApiFetch("/tasks/template/");
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (!response.ok) {
+    return NextResponse.json({ error: "No se pudo generar la plantilla" }, { status: 400 });
   }
 
-  const wb = XLSX.utils.book_new();
-  const data = [
-    [
-      "Título",
-      "Descripción",
-      "Prioridad",
-      "Frecuencia",
-      "Fecha Inicio (Formato: YYYY-MM-DD)",
-      "Fecha Fin (Formato: YYYY-MM-DD)",
-      "Tiempo Objetivo",
-      "Asignado a (email)",
-      "Tipo",
-    ],
-    [
-      "Ejemplo: Informe mensual",
-      "Descripción opcional",
-      "ALTA",
-      "MENSUAL",
-      "2026-07-01",
-      "2026-07-15",
-      "8",
-      "usuario@nexo.com",
-      "FIJA",
-    ],
-  ];
-
-  const ws = XLSX.utils.aoa_to_sheet(data);
-  ws["!cols"] = [
-    { wch: 30 },
-    { wch: 30 },
-    { wch: 15 },
-    { wch: 15 },
-    { wch: 34 },
-    { wch: 32 },
-    { wch: 18 },
-    { wch: 30 },
-    { wch: 15 },
-  ];
-  XLSX.utils.book_append_sheet(wb, ws, "Tareas");
-
-  const raw = XLSX.write(wb, { type: "array", bookType: "xlsx" }) as number[];
-  const buffer = new Uint8Array(raw);
-
-  return new Response(buffer, {
+  const buffer = await response.arrayBuffer();
+  return new NextResponse(buffer, {
     headers: {
-      "Content-Type": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": 'attachment; filename="plantilla_tareas.xlsx"',
+      "Content-Type":
+        response.headers.get("Content-Type") ??
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "Content-Disposition": response.headers.get("Content-Disposition") ?? 'attachment; filename="plantilla_tareas.xlsx"',
     },
   });
 }

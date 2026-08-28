@@ -1,90 +1,63 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { getVisibleIdeaAuthorIds } from "@/lib/ideas";
-import { canReviewIdeas } from "@/lib/roles";
+import { djangoApiFetch, extractDjangoFlatErrorMessage } from "@/lib/djangoSession";
+import { mapDjangoIdeaDetailToNexoShape, type DjangoIdeaDetail } from "@/lib/djangoIdeasAdapter";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-function ideaDetailSelect(userId: string) {
-  return {
-    id: true,
-    title: true,
-    description: true,
-    impact: true,
-    status: true,
-    progress: true,
-    attachmentUrl: true,
-    attachmentData: true,
-    createdAt: true,
-    updatedAt: true,
-    author: { select: { id: true, name: true, role: true } },
-    history: {
-      select: {
-        id: true,
-        fromStatus: true,
-        toStatus: true,
-        comment: true,
-        createdAt: true,
-        changer: { select: { id: true, name: true, role: true } },
-      },
-      orderBy: { createdAt: "asc" as const },
-    },
-    _count: { select: { votes: true } },
-    votes: { where: { userId }, select: { id: true } },
-  } as const;
-}
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
-export async function GET(_req: Request, ctx: Ctx) {
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-21): esta ruta pasó de
+// Prisma a Django. `IdeaDetailView` (backend) ya enmascara el adjunto
+// (`attachment_name`/`mime`/`data` en `null`) cuando la idea no está en
+// PROPUESTA — mismo comportamiento del TS, replicado del lado Django.
+export async function GET(_req: NextRequest, ctx: Ctx) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
   const { id } = await ctx.params;
-  const idea = await prisma.improvementIdea.findUnique({ where: { id }, select: ideaDetailSelect(session.userId) });
-  if (!idea) return NextResponse.json({ error: "Idea no encontrada" }, { status: 404 });
-
-  const visibleIds = await getVisibleIdeaAuthorIds(session);
-  if (!visibleIds.includes(idea.author.id)) {
+  const response = await djangoApiFetch(`/ideas/${id}/`);
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 404) {
     return NextResponse.json({ error: "Idea no encontrada" }, { status: 404 });
   }
-
-  const { _count, votes, ...rest } = idea;
-  const result = { ...rest, voteCount: _count.votes, votedByMe: votes.length > 0 };
-
-  if (idea.status !== "PROPUESTA") {
-    return NextResponse.json({ ...result, attachmentUrl: null, attachmentData: null });
+  if (!response.ok) {
+    return NextResponse.json({ error: "No se pudo obtener la idea" }, { status: 400 });
   }
 
-  return NextResponse.json(result);
+  const idea: DjangoIdeaDetail = await response.json();
+  return NextResponse.json(mapDjangoIdeaDetailToNexoShape(idea));
 }
 
 export async function PATCH(request: NextRequest, ctx: Ctx) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-  if (!canReviewIdeas(session.role)) {
-    return NextResponse.json({ error: "Sin permisos para actualizar el progreso" }, { status: 403 });
-  }
 
   const { id } = await ctx.params;
   const body = await request.json().catch(() => null);
   const progress = body?.progress;
-  if (typeof progress !== "number" || !Number.isInteger(progress) || progress < 0 || progress > 100) {
-    return NextResponse.json({ error: "Progreso inválido (debe ser un entero entre 0 y 100)" }, { status: 400 });
+
+  const response = await djangoApiFetch(`/ideas/${id}/`, {
+    method: "PATCH",
+    body: JSON.stringify({ progress }),
+  });
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
   }
-
-  const idea = await prisma.improvementIdea.findUnique({ where: { id }, select: { id: true, authorId: true } });
-  if (!idea) return NextResponse.json({ error: "Idea no encontrada" }, { status: 404 });
-
-  const visibleIds = await getVisibleIdeaAuthorIds(session);
-  if (!visibleIds.includes(idea.authorId)) {
+  if (response.status === 403) {
+    return NextResponse.json({ error: "Sin permisos para actualizar el progreso" }, { status: 403 });
+  }
+  if (response.status === 404) {
     return NextResponse.json({ error: "Idea no encontrada" }, { status: 404 });
   }
+  if (!response.ok) {
+    const message = await extractDjangoFlatErrorMessage(response);
+    return NextResponse.json({ error: message ?? "Progreso inválido (debe ser un entero entre 0 y 100)" }, { status: 400 });
+  }
 
-  const updated = await prisma.improvementIdea.update({
-    where: { id },
-    data: { progress },
-    select: ideaDetailSelect(session.userId),
-  });
-  const { _count, votes, ...rest } = updated;
-  return NextResponse.json({ ...rest, voteCount: _count.votes, votedByMe: votes.length > 0 });
+  const idea: DjangoIdeaDetail = await response.json();
+  return NextResponse.json(mapDjangoIdeaDetailToNexoShape(idea));
 }

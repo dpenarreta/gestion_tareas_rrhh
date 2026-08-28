@@ -1,35 +1,31 @@
-import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { getVisibleIdeaAuthorIds } from "@/lib/ideas";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import { mapDjangoIdeaHistoryToNexoShape, type DjangoIdeaHistoryEntry } from "@/lib/djangoIdeasAdapter";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-export async function GET(_req: Request, ctx: Ctx) {
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-21): esta ruta pasó de
+// Prisma a Django.
+export async function GET(_req: NextRequest, ctx: Ctx) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
   const { id } = await ctx.params;
-  const idea = await prisma.improvementIdea.findUnique({ where: { id }, select: { authorId: true } });
-  if (!idea) return NextResponse.json({ error: "Idea no encontrada" }, { status: 404 });
-
-  const visibleIds = await getVisibleIdeaAuthorIds(session);
-  if (!visibleIds.includes(idea.authorId)) {
+  const response = await djangoApiFetch(`/ideas/${id}/history/`);
+  if (!response) {
+    return NextResponse.json(
+      { error: "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión." },
+      { status: 401 }
+    );
+  }
+  if (response.status === 404) {
     return NextResponse.json({ error: "Idea no encontrada" }, { status: 404 });
   }
+  if (!response.ok) {
+    return NextResponse.json({ error: "No se pudo obtener el historial" }, { status: 400 });
+  }
 
-  const history = await prisma.ideaStatusHistory.findMany({
-    where: { ideaId: id },
-    select: {
-      id: true,
-      fromStatus: true,
-      toStatus: true,
-      comment: true,
-      createdAt: true,
-      changer: { select: { id: true, name: true, role: true } },
-    },
-    orderBy: { createdAt: "asc" },
-  });
-
-  return NextResponse.json(history);
+  const history: DjangoIdeaHistoryEntry[] = await response.json();
+  return NextResponse.json(mapDjangoIdeaHistoryToNexoShape(history));
 }

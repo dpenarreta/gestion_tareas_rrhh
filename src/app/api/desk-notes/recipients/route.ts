@@ -1,26 +1,27 @@
 import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { canUseDeskNotes } from "@/lib/roles";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import { mapDjangoRecipientToNexoShape } from "@/lib/djangoDeskAdapter";
 
-// Destinatarios válidos para una nota nueva: cualquier colaborador
-// no-Administrador salvo uno mismo. A propósito NO se filtra por jerarquía
-// (VISIBLE_ROLES) — el Escritorio Digital simula un escritorio físico
-// compartido, no un canal jerárquico.
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
+
+// Fase 7g de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-18):
+// esta ruta pasó de Prisma a Django (`DeskNoteViewSet.recipients`).
 export async function GET() {
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   }
-  if (!canUseDeskNotes(session.role)) {
+
+  const response = await djangoApiFetch("/desk-notes/recipients/");
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (!response.ok) {
     return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
   }
 
-  const users = await prisma.user.findMany({
-    where: { role: { not: "ADMINISTRADOR" }, id: { not: session.userId } },
-    select: { id: true, name: true, role: true },
-    orderBy: { name: "asc" },
-  });
-
-  return NextResponse.json(users);
+  const recipients: { id: number; name: string; role: string }[] = await response.json();
+  return NextResponse.json(recipients.map(mapDjangoRecipientToNexoShape));
 }

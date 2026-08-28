@@ -1,42 +1,60 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { invalidateAnalyticsCache } from "@/lib/analytics";
-import type { SpecialStatusType } from "@/generated/prisma/client";
+import { djangoApiFetch, extractDjangoFlatErrorMessage } from "@/lib/djangoSession";
 
-function parseDateOnly(value: string): Date | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const [y, m, d] = value.split("-").map(Number);
-  const parsed = new Date(Date.UTC(y, m - 1, d));
-  if (Number.isNaN(parsed.getTime())) return null;
-  return parsed;
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
+
+type DjangoSpecialStatus = {
+  id: number;
+  userId: number;
+  user: { id: number; name: string };
+  type: string;
+  startDate: string;
+  endDate: string | null;
+  isActive: boolean;
+  dailyHours: number;
+  limitLow: number;
+  limitBase: number;
+  limitHigh: number;
+  limitOverload: number;
+};
+
+function toNexoShape(r: DjangoSpecialStatus) {
+  return { ...r, id: String(r.id), userId: String(r.userId), user: { ...r.user, id: String(r.user.id) } };
 }
 
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-24): réplica de
+// `SpecialStatusListView` (backend, Fase 29, completo) — mismas claves
+// camelCase que el contrato TS en la respuesta (`_serialize_special_status`),
+// solo se convierten los ids numéricos a `string`. Mismo bug activo
+// preexistente que `leave-records` (id de `GET /api/users` ya numérico
+// desde la Fase 2, nunca coincidía con el `cuid` que Postgres esperaba).
 export async function GET(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-  if (session.role !== "ADMINISTRADOR") {
+
+  const userId = request.nextUrl.searchParams.get("userId");
+  const query = userId ? `?user_id=${encodeURIComponent(userId)}` : "";
+
+  const response = await djangoApiFetch(`/settings/special-status/${query}`);
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 403) {
     return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
   }
+  if (!response.ok) {
+    return NextResponse.json({ error: "Error al obtener los estados especiales" }, { status: response.status });
+  }
 
-  const userId = request.nextUrl.searchParams.get("userId") || undefined;
-  const where: Record<string, unknown> = {};
-  if (userId) where.userId = userId;
-
-  const records = await prisma.specialStatus.findMany({
-    where,
-    include: { user: { select: { id: true, name: true } } },
-    orderBy: { startDate: "desc" },
-  });
-  return NextResponse.json(records);
+  const data = (await response.json()) as DjangoSpecialStatus[];
+  return NextResponse.json(data.map(toNexoShape));
 }
 
 export async function POST(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-  if (session.role !== "ADMINISTRADOR") {
-    return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
-  }
 
   let body: Record<string, unknown>;
   try {
@@ -61,58 +79,34 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Faltan campos requeridos" }, { status: 400 });
   }
 
-  const limitFields = { dailyHours, limitLow, limitBase, limitHigh, limitOverload };
-  for (const [key, value] of Object.entries(limitFields)) {
-    if (typeof value !== "number" || !Number.isFinite(value) || value <= 0 || value > 24) {
-      return NextResponse.json({ error: `El campo ${key} debe ser un número entre 0 y 24 horas` }, { status: 400 });
-    }
+  const response = await djangoApiFetch("/settings/special-status/", {
+    method: "POST",
+    body: JSON.stringify({
+      user_id: userId,
+      type,
+      start_date: startDate,
+      end_date: endDate ?? null,
+      daily_hours: dailyHours,
+      limit_low: limitLow,
+      limit_base: limitBase,
+      limit_high: limitHigh,
+      limit_overload: limitOverload,
+    }),
+  });
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
   }
-  // Mismo orden que exige la configuración global de carga laboral: cada límite
-  // debe ser estrictamente creciente respecto al anterior (limitBase puede
-  // coincidir con limitHigh solo si dailyHours no se usa como umbral — pero para
-  // evitar semáforos degenerados exigimos el mismo orden estricto de siempre).
-  if (!(limitLow! < limitBase! && limitBase! <= limitHigh! && limitHigh! < limitOverload!)) {
-    return NextResponse.json(
-      { error: "Los límites deben cumplir: Subutilización < Moderado/Óptimo ≤ Óptimo/Elevada < Elevada/Sobrecarga" },
-      { status: 400 }
-    );
-  }
-
-  const parsedStart = parseDateOnly(startDate);
-  if (!parsedStart) {
-    return NextResponse.json({ error: "Fecha de inicio inválida" }, { status: 400 });
-  }
-  let parsedEnd: Date | null = null;
-  if (endDate) {
-    parsedEnd = parseDateOnly(endDate);
-    if (!parsedEnd) {
-      return NextResponse.json({ error: "Fecha de fin inválida" }, { status: 400 });
-    }
-    if (parsedEnd < parsedStart) {
-      return NextResponse.json({ error: "La fecha fin debe ser igual o posterior a la fecha inicio" }, { status: 400 });
-    }
-  }
-
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, name: true } });
-  if (!user) {
+  if (response.status === 404) {
     return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
   }
+  if (response.status === 403) {
+    return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
+  }
+  if (!response.ok) {
+    const message = await extractDjangoFlatErrorMessage(response);
+    return NextResponse.json({ error: message ?? "Datos inválidos" }, { status: 400 });
+  }
 
-  const record = await prisma.specialStatus.create({
-    data: {
-      userId,
-      type: type as SpecialStatusType,
-      startDate: parsedStart,
-      endDate: parsedEnd,
-      dailyHours: dailyHours!,
-      limitLow: limitLow!,
-      limitBase: limitBase!,
-      limitHigh: limitHigh!,
-      limitOverload: limitOverload!,
-      createdBy: session.userId,
-    },
-    include: { user: { select: { id: true, name: true } } },
-  });
-  invalidateAnalyticsCache(userId);
-  return NextResponse.json(record, { status: 201 });
+  const data = (await response.json()) as DjangoSpecialStatus;
+  return NextResponse.json(toNexoShape(data), { status: 201 });
 }

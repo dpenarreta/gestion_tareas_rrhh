@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { Spinner } from "@/components/ui/Skeleton";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import { canViewOperationalRisk } from "@/lib/roles";
 import { isFeatureEnabled } from "@/lib/featureFlags";
 import type { OperationalRiskResult } from "./types";

@@ -1,39 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { canAccessTask } from "@/lib/taskAccess";
-import { canManageUsers } from "@/lib/roles";
-import { attachUnreadComments } from "@/lib/commentViews";
-import { invalidateAnalyticsCache } from "@/lib/analytics";
-import { getClientIp } from "@/lib/rate-limit";
-import { pendingResetTaskData, createEndDateProposalAuditLog } from "@/lib/endDateServer";
-import type { TaskStatus, TaskPriority, TaskFrequency, TaskType } from "@/generated/prisma/client";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import { fetchDjangoTask, mapDjangoTaskToNexoShape } from "@/lib/djangoTasksAdapter";
+
+// Fase 3a de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-07):
+// esta ruta pasó de Prisma a Django. Gaps explícitos y documentados en
+// esta sub-fase: el reinicio automático de la aprobación de Fecha Fin al
+// editar `endDate` (`endDateApprovalStatus`) no se replica todavía —
+// Django no tiene esos campos de gobierno hasta la sub-fase de validación.
+// La invalidación de caché de Analytics se omite (el motor sigue leyendo
+// Postgres, que esta ruta ya no toca).
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-const taskSelect = {
-  id: true,
-  title: true,
-  description: true,
-  type: true,
-  status: true,
-  priority: true,
-  frequency: true,
-  startDate: true,
-  endDate: true,
-  estimatedHours: true,
-  realHours: true,
-  targetTimeValidated: true,
-  endDateApprovalStatus: true,
-  progress: true,
-  color: true,
-  corrected: true,
-  assignedTo: { select: { id: true, name: true, email: true, role: true } },
-  createdBy: { select: { id: true, name: true } },
-  _count: { select: { comments: true } },
-  createdAt: true,
-  updatedAt: true,
-} as const;
+const FIELD_MAP: Record<string, string> = {
+  title: "title",
+  description: "description",
+  type: "type",
+  status: "status",
+  priority: "priority",
+  frequency: "frequency",
+  startDate: "start_date",
+  endDate: "end_date",
+  estimatedHours: "estimated_hours",
+  realHours: "real_hours",
+  assignedToId: "assigned_to",
+  color: "color",
+};
 
 export async function PATCH(request: NextRequest, ctx: Ctx) {
   const session = await getSession();
@@ -42,103 +37,45 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   }
 
   const { id } = await ctx.params;
-  const task = await prisma.task.findUnique({
-    where: { id },
-    include: { assignedTo: { select: { role: true } } },
-  });
-  if (!task) {
+  const existing = await fetchDjangoTask(id);
+  if (existing === "no_session") {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (!existing) {
     return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
   }
-
-  if (!canAccessTask(session, task)) {
-    return NextResponse.json({ error: "Sin permisos para editar esta tarea" }, { status: 403 });
-  }
-
-  if (task.archivedMonth) {
+  if (existing.archived_month) {
     return NextResponse.json({ error: "Tarea archivada, de solo lectura" }, { status: 403 });
   }
 
-  const body = await request.json();
-
-  if ("realHours" in body && task.assignedToId !== session.userId) {
-    return NextResponse.json(
-      { error: "Solo el responsable puede actualizar horas reales" },
-      { status: 403 }
-    );
-  }
-
-  if ("color" in body && task.assignedToId !== session.userId) {
-    return NextResponse.json(
-      { error: "Solo el responsable puede cambiar el color" },
-      { status: 403 }
-    );
-  }
-
-  if ("status" in body && task.assignedToId !== session.userId) {
-    return NextResponse.json(
-      { error: "Solo el responsable puede cambiar el estado" },
-      { status: 403 }
-    );
-  }
-
-  const data: Record<string, unknown> = {};
-  if ("title" in body) data.title = body.title;
-  if ("description" in body) data.description = body.description;
-  if ("type" in body) data.type = body.type as TaskType;
-  if ("status" in body) data.status = body.status as TaskStatus;
-  if ("priority" in body) data.priority = body.priority as TaskPriority;
-  if ("frequency" in body) data.frequency = body.frequency as TaskFrequency;
-  if ("startDate" in body) data.startDate = new Date(body.startDate);
-  if ("endDate" in body) data.endDate = new Date(body.endDate);
-  if ("estimatedHours" in body) data.estimatedHours = Math.round(parseFloat(body.estimatedHours) * 100) / 100;
-  if ("realHours" in body) data.realHours = Math.round(parseFloat(body.realHours) * 100) / 100;
-  if ("status" in body) {
-    if (body.status === "COMPLETADA") {
-      data.progress = 100;
-      data.completedAt = new Date();
-    } else {
-      if (body.status === "PENDIENTE") data.progress = 0;
-      data.completedAt = null;
+  const body = (await request.json()) as Record<string, unknown>;
+  const djangoBody: Record<string, unknown> = {};
+  for (const [nexoField, djangoField] of Object.entries(FIELD_MAP)) {
+    if (nexoField in body) {
+      djangoBody[djangoField] =
+        djangoField === "assigned_to" ? Number(body[nexoField]) : body[nexoField];
     }
   }
-  if ("assignedToId" in body) data.assignedToId = body.assignedToId;
-  if ("color" in body) data.color = body.color;
 
-  // Validación de Fecha Fin por líderes (mejora) — si endDate cambia de
-  // valor y la Fecha Fin ya había sido decidida (Aprobada/Modificada/
-  // Rechazada), esa edición ES la "nueva solicitud de aprobación" que pide
-  // el spec: se reinicia a Pendiente automáticamente y queda auditada. Si
-  // ya estaba Pendiente, se actualiza sin tocar el audit log — mismo
-  // criterio que Tiempo Objetivo de no auditar ediciones sin validación
-  // previa. Aplica sin importar quién edite (responsable, creador o líder).
-  const newEndDateValue = data.endDate instanceof Date ? data.endDate : null;
-  const shouldResetEndDateApproval =
-    newEndDateValue !== null &&
-    newEndDateValue.getTime() !== task.endDate.getTime() &&
-    task.endDateApprovalStatus !== "PENDIENTE";
-  if (shouldResetEndDateApproval) Object.assign(data, pendingResetTaskData());
+  const response = await djangoApiFetch(`/tasks/${id}/`, {
+    method: "PATCH",
+    body: JSON.stringify(djangoBody),
+  });
 
-  const updated = shouldResetEndDateApproval
-    ? await prisma.$transaction(async (tx) => {
-        const u = await tx.task.update({ where: { id }, data, select: taskSelect });
-        await createEndDateProposalAuditLog(tx, {
-          taskId: id,
-          userId: session.userId,
-          userRole: session.role,
-          previousValue: task.endDate,
-          newValue: newEndDateValue!,
-          ipAddress: getClientIp(request.headers),
-        });
-        return u;
-      })
-    : await prisma.task.update({ where: { id }, data, select: taskSelect });
-  // El responsable puede cambiar en este PATCH (reasignación) — invalidar
-  // tanto al anterior como al nuevo si difieren, nunca solo uno.
-  const affectedUserIds = new Set([task.assignedToId]);
-  if (typeof data.assignedToId === "string") affectedUserIds.add(data.assignedToId);
-  invalidateAnalyticsCache([...affectedUserIds]);
-  const [updatedWithUnread] = await attachUnreadComments([updated], session.userId);
-  return NextResponse.json(updatedWithUnread);
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 403) {
+    return NextResponse.json({ error: "Sin permisos para editar esta tarea" }, { status: 403 });
+  }
+  if (!response.ok) {
+    return NextResponse.json(
+      { error: "Solo el responsable de la tarea puede editar ese campo" },
+      { status: 400 }
+    );
+  }
+
+  return NextResponse.json(mapDjangoTaskToNexoShape(await response.json()));
 }
 
 export async function DELETE(_req: NextRequest, ctx: Ctx) {
@@ -148,20 +85,27 @@ export async function DELETE(_req: NextRequest, ctx: Ctx) {
   }
 
   const { id } = await ctx.params;
-  const task = await prisma.task.findUnique({ where: { id } });
-  if (!task) {
+  const existing = await fetchDjangoTask(id);
+  if (existing === "no_session") {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (!existing) {
     return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
   }
-
-  if (task.archivedMonth) {
+  if (existing.archived_month) {
     return NextResponse.json({ error: "Tarea archivada, de solo lectura" }, { status: 403 });
   }
 
-  if (task.createdById !== session.userId && !canManageUsers(session.role)) {
+  const response = await djangoApiFetch(`/tasks/${id}/`, { method: "DELETE" });
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 403) {
     return NextResponse.json({ error: "Sin permisos para eliminar" }, { status: 403 });
   }
+  if (!response.ok) {
+    return NextResponse.json({ error: "No se pudo eliminar la tarea" }, { status: 500 });
+  }
 
-  await prisma.task.delete({ where: { id } });
-  invalidateAnalyticsCache(task.assignedToId);
   return NextResponse.json({ ok: true });
 }

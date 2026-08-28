@@ -1,21 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import Groq from "groq-sdk";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { getVisibleRoles, ROLE_LEVEL, ROLE_LABEL, canViewOperationalRisk } from "@/lib/roles";
-import { computeCargaTiempo } from "@/lib/workload";
-import {
-  computeHealthScore,
-  computeOperationalRisk,
-  computeAlerts,
-  computeTrends,
-  computeConsistency,
-  detectAnomalies,
-  computePrediction,
-  computeDataQuality,
-} from "@/lib/analytics";
-import { getEffectiveNovaCacheTtlMinutes } from "@/lib/systemConfig";
-import type { Role } from "@/generated/prisma/client";
+import { ROLE_LEVEL, ROLE_LABEL, canViewOperationalRisk } from "@/lib/roles";
+import { djangoApiFetch, resolveDjangoUserId } from "@/lib/djangoSession";
+import { fetchDjangoNovaCacheTtlMinutes } from "@/lib/djangoNovaCacheConfig";
+import type { Role } from "@/lib/roles";
 
 type Mode = "full" | "insights-only" | "motivational";
 type Sensitivity = "full" | "restricted";
@@ -47,10 +36,10 @@ const motivationalCache = new Map<string, MotivationalCacheEntry>();
 const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
 
 // Groq NUNCA calcula nada — todo el JSON que recibe ya viene calculado
-// deterministicamente por src/lib/analytics.ts (ver Analytics § Nova — solo
-// lenguaje natural). Su única función es explicar, priorizar y recomendar en
-// español a partir de datos ya resueltos; nunca debe inventar cifras que no
-// estén en el JSON recibido.
+// deterministicamente por el motor de Analytics (Django, `apps.analytics`,
+// ver Analytics § Nova — solo lenguaje natural). Su única función es
+// explicar, priorizar y recomendar en español a partir de datos ya
+// resueltos; nunca debe inventar cifras que no estén en el JSON recibido.
 const ANALYTICAL_SYSTEM_PROMPT =
   "Eres un analista de People Analytics. Recibirás un JSON con datos YA CALCULADOS por un motor determinístico " +
   "(nunca los calcules tú, ni los cuestiones ni los recalcules). Tu única función es explicar esos datos en " +
@@ -128,33 +117,91 @@ function asString(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
+// ── Puente a Django (ver docs/AUDIT_LOG.md § 2026-08-24) ──────────────────
+
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
+
+/** Señaliza un fallo de Django hacia el `GET` exterior sin ensuciar la lógica
+ * de generación con chequeos de status en cada llamada — mismo criterio de
+ * status codes que el resto de las rutas `analytics/*`/`kpis/*` ya cortadas
+ * (401 sin sesión Django, 404/403 propagados, resto como error genérico). */
+class DjangoUnavailable extends Error {
+  constructor(readonly response: NextResponse) {
+    super("django-unavailable");
+  }
+}
+
+async function fetchDjangoJson<T>(path: string): Promise<T> {
+  const response = await djangoApiFetch(path);
+  if (!response) {
+    throw new DjangoUnavailable(NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 }));
+  }
+  if (response.status === 404) {
+    throw new DjangoUnavailable(NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 }));
+  }
+  if (response.status === 403) {
+    throw new DjangoUnavailable(NextResponse.json({ error: "Sin permisos" }, { status: 403 }));
+  }
+  if (!response.ok) {
+    throw new DjangoUnavailable(NextResponse.json({ error: "Error al obtener Insights de Nova" }, { status: response.status }));
+  }
+  return (await response.json()) as T;
+}
+
+type AnalyticsBundle = {
+  healthScore: { score: number; classification: string; factors: { name: string; detail: string; rawLabel: string }[] };
+  alerts: { severity: string; message: string }[];
+  trends: {
+    cumplimiento: { mesAnterior: { available: boolean; direction?: string; absoluteDiff?: number }; promedio6Meses: unknown };
+    carga: { mesAnterior: unknown };
+  };
+  consistency: unknown;
+  anomalies: unknown;
+  prediction: unknown;
+  dataQuality: unknown;
+};
+
+type KpiUserPayload = {
+  user: { id: string; name: string; role: string };
+  cargaTiempo: { mensual: { specialStatusType: string | null } };
+};
+
+type OperationalRiskPayload = {
+  score: number;
+  classification: string;
+  trendVsPrevMonth: unknown;
+  factors: { points: number; detail: string }[];
+  suggestedActions: string[];
+};
+
 async function generateAnalytical(userId: string, sensitivity: Sensitivity, canSeeRisk: boolean): Promise<AnalyticalCacheEntry> {
-  const [targetUser, healthScore, alerts, trends, consistency, anomalies, prediction, dataQuality, cargaTiempo, operationalRisk] = await Promise.all([
-    prisma.user.findUnique({ where: { id: userId }, select: { name: true, role: true } }),
-    computeHealthScore(userId),
-    computeAlerts(userId),
-    computeTrends(userId),
-    computeConsistency(userId),
-    detectAnomalies(userId),
-    computePrediction(userId),
-    computeDataQuality([userId]),
-    computeCargaTiempo(userId),
-    canSeeRisk ? computeOperationalRisk(userId) : Promise.resolve(null),
+  // El bundle (`GET /analytics/<id>/`, Fase 4m) trae Equilibrio Operativo/
+  // alertas/tendencias/consistencia/anomalías/predicción/calidad del dato en
+  // una sola llamada — Riesgo Operativo no forma parte del bundle (motor
+  // aparte) y `/kpis/<id>/` es la única fuente ya expuesta para nombre/rol
+  // del colaborador y el estado especial vigente del mes.
+  const bundle = await fetchDjangoJson<AnalyticsBundle>(`/analytics/${userId}/`);
+  const [kpi, operationalRisk] = await Promise.all([
+    fetchDjangoJson<KpiUserPayload>(`/kpis/${userId}/`),
+    canSeeRisk ? fetchDjangoJson<OperationalRiskPayload>(`/analytics/operational-risk/${userId}/`) : Promise.resolve(null),
   ]);
 
+  const { healthScore, alerts, trends, consistency, anomalies, prediction, dataQuality } = bundle;
+
   const especial =
-    sensitivity === "full" && cargaTiempo.mensual.specialStatusType
-      ? cargaTiempo.mensual.specialStatusType === "MATERNIDAD"
+    sensitivity === "full" && kpi.cargaTiempo.mensual.specialStatusType
+      ? kpi.cargaTiempo.mensual.specialStatusType === "MATERNIDAD"
         ? "Licencia de maternidad vigente este mes"
         : "Período de lactancia vigente este mes"
       : null;
 
-  // Todo lo que recibe Groq ya viene calculado por src/lib/analytics.ts — ver
-  // Analytics § Nova solo lenguaje natural. Ningún campo aquí es un cálculo
-  // hecho en esta ruta; son lecturas directas del motor.
+  // Todo lo que recibe Groq ya viene calculado por el motor de Analytics —
+  // ver Analytics § Nova solo lenguaje natural. Ningún campo aquí es un
+  // cálculo hecho en esta ruta; son lecturas directas del motor.
   const ctx = {
-    nombre: targetUser?.name ?? "Colaborador",
-    rol: targetUser ? (ROLE_LABEL[targetUser.role as Role] ?? targetUser.role) : "",
+    nombre: kpi.user.name,
+    rol: ROLE_LABEL[kpi.user.role as Role] ?? kpi.user.role,
     equilibrioOperativo: {
       valor: healthScore.score,
       clasificacion: healthScore.classification,
@@ -234,20 +281,21 @@ async function generateAnalytical(userId: string, sensitivity: Sensitivity, canS
     if (recomendaciones.length === 0) recomendaciones = fb.recomendaciones;
   }
 
-  const cacheTtlMs = (await getEffectiveNovaCacheTtlMinutes()) * 60 * 1000;
+  const cacheTtlMs = (await fetchDjangoNovaCacheTtlMinutes()) * 60 * 1000;
   return { hallazgoPrincipal, riesgos, aspectosPositivos, recomendaciones, generatedAt: Date.now(), expiresAt: Date.now() + cacheTtlMs };
 }
 
-async function generateMotivational(userId: string): Promise<MotivationalCacheEntry> {
-  const [targetUser, healthScore] = await Promise.all([
-    prisma.user.findUnique({ where: { id: userId }, select: { name: true } }),
-    computeHealthScore(userId),
-  ]);
+async function generateMotivational(userId: string, selfName: string): Promise<MotivationalCacheEntry> {
+  // Solo se llama cuando `isSelf` es verdadero (ver GET) — el nombre viene
+  // de la propia sesión, sin necesidad de una llamada extra a `/kpis/<id>/`
+  // solo para leerlo.
+  const bundle = await fetchDjangoJson<AnalyticsBundle>(`/analytics/${userId}/`);
+  const { healthScore } = bundle;
   const completedFactor = healthScore.factors.find((f) => f.name === "Cumplimiento");
   const completedPct = completedFactor ? parseInt(completedFactor.rawLabel, 10) || 0 : 0;
 
   const ctx = {
-    nombre: targetUser?.name ?? "Colaborador",
+    nombre: selfName,
     equilibrioOperativo: { valor: healthScore.score, clasificacion: healthScore.classification },
     cumplimientoPct: completedPct,
   };
@@ -275,7 +323,7 @@ async function generateMotivational(userId: string): Promise<MotivationalCacheEn
     messages = fallbackMotivational({ completedPct, totalTasks: 1 });
   }
 
-  const cacheTtlMs = (await getEffectiveNovaCacheTtlMinutes()) * 60 * 1000;
+  const cacheTtlMs = (await fetchDjangoNovaCacheTtlMinutes()) * 60 * 1000;
   return { messages, generatedAt: Date.now(), expiresAt: Date.now() + cacheTtlMs };
 }
 
@@ -286,64 +334,67 @@ export async function GET(request: NextRequest, ctx: Ctx) {
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
   const { userId } = await ctx.params;
-  const targetUser = await prisma.user.findUnique({ where: { id: userId }, select: { id: true, role: true } });
-  if (!targetUser) return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
 
-  const isSelf = session.userId === userId;
+  // Puente de ids de la Fase 40: `userId` (parámetro de ruta) siempre es el
+  // id NUMÉRICO de Django (mismo contrato que el resto de `analytics/*`/
+  // `kpis/*` ya cortados) — `session.userId` sigue siendo el cuid de
+  // Postgres, así que "es mi propio perfil" se decide contra
+  // `resolveDjangoUserId`, nunca comparando contra `session.userId`
+  // directo (ver el bug cerrado en `MyKpisModule.tsx`, mismo cambio).
+  const myDjangoId = await resolveDjangoUserId(session);
+  const isSelf = myDjangoId !== null && String(myDjangoId) === userId;
   const viewerLevel = ROLE_LEVEL[session.role];
-
-  if (!isSelf) {
-    // Insights de Nova sobre OTRA persona: solo roles con subordinados (nivel
-    // >= 2, niveles 1 no tienen acceso al tab Equipo), y dentro del alcance
-    // de visibilidad del viewer.
-    if (viewerLevel < 2) return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
-    if (!getVisibleRoles(session.role).includes(targetUser.role)) {
-      return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
-    }
-  }
 
   // VISIBILIDAD (ver Analytics § Componente 4 — motor de recomendaciones Nova):
   // - Administrador / Jefe Nacional / Coordinador Nacional (nivel >= 3): análisis completo (las 4 secciones).
   // - Analistas nivel 2: solo hallazgo principal y aspectos positivos (sin riesgos ni recomendaciones).
   // - Nivel 1 viendo su propia actividad: versión simplificada y motivacional.
+  // La visibilidad jerárquica real sobre el usuario objetivo (404/403 al ver
+  // a un tercero fuera de alcance) vive en `AnalyticsBundleView`/
+  // `KpiUserView` (backend) — no se re-implementa acá, mismo criterio que el
+  // resto de `analytics/*` ya cortadas.
   const mode: Mode = isSelf && viewerLevel === 1 ? "motivational" : viewerLevel >= 3 ? "full" : "insights-only";
 
   // Los permisos médicos y el estado de maternidad/lactancia son datos de
   // salud (Art. 26 LOPDP) — solo el propio titular y el Administrador pueden
-  // recibir contenido generado a partir de ese detalle (ver
-  // redactSensitiveWorkloadDetail en workload.ts para el mismo criterio
-  // aplicado a los datos crudos de carga laboral).
+  // recibir contenido generado a partir de ese detalle (mismo criterio que
+  // `redactSensitiveWorkloadDetail`/`can_see_sensitive_detail` en el backend).
   const sensitivity: Sensitivity = isSelf || session.role === "ADMINISTRADOR" ? "full" : "restricted";
   const canSeeRisk = canViewOperationalRisk(session.role);
 
-  if (mode === "motivational") {
-    const cacheKey = `${userId}:motivational`;
-    const cached = motivationalCache.get(cacheKey);
-    const entry = cached && cached.expiresAt > Date.now() ? cached : await generateMotivational(userId);
-    if (!cached || cached.expiresAt <= Date.now()) motivationalCache.set(cacheKey, entry);
-    return NextResponse.json({ mode, messages: entry.messages, generatedAt: entry.generatedAt });
-  }
+  try {
+    if (mode === "motivational") {
+      const cacheKey = `${userId}:motivational`;
+      const cached = motivationalCache.get(cacheKey);
+      const entry = cached && cached.expiresAt > Date.now() ? cached : await generateMotivational(userId, session.name);
+      if (!cached || cached.expiresAt <= Date.now()) motivationalCache.set(cacheKey, entry);
+      return NextResponse.json({ mode, messages: entry.messages, generatedAt: entry.generatedAt });
+    }
 
-  const cacheKey = `${userId}:${sensitivity}:${canSeeRisk ? "risk" : "norisk"}`;
-  const cached = analyticalCache.get(cacheKey);
-  const entry = cached && cached.expiresAt > Date.now() ? cached : await generateAnalytical(userId, sensitivity, canSeeRisk);
-  if (!cached || cached.expiresAt <= Date.now()) analyticalCache.set(cacheKey, entry);
+    const cacheKey = `${userId}:${sensitivity}:${canSeeRisk ? "risk" : "norisk"}`;
+    const cached = analyticalCache.get(cacheKey);
+    const entry = cached && cached.expiresAt > Date.now() ? cached : await generateAnalytical(userId, sensitivity, canSeeRisk);
+    if (!cached || cached.expiresAt <= Date.now()) analyticalCache.set(cacheKey, entry);
 
-  if (mode === "insights-only") {
+    if (mode === "insights-only") {
+      return NextResponse.json({
+        mode,
+        hallazgoPrincipal: entry.hallazgoPrincipal,
+        aspectosPositivos: entry.aspectosPositivos,
+        generatedAt: entry.generatedAt,
+      });
+    }
+
     return NextResponse.json({
       mode,
       hallazgoPrincipal: entry.hallazgoPrincipal,
+      riesgos: entry.riesgos,
       aspectosPositivos: entry.aspectosPositivos,
+      recomendaciones: entry.recomendaciones,
       generatedAt: entry.generatedAt,
     });
+  } catch (err) {
+    if (err instanceof DjangoUnavailable) return err.response;
+    throw err;
   }
-
-  return NextResponse.json({
-    mode,
-    hallazgoPrincipal: entry.hallazgoPrincipal,
-    riesgos: entry.riesgos,
-    aspectosPositivos: entry.aspectosPositivos,
-    recomendaciones: entry.recomendaciones,
-    generatedAt: entry.generatedAt,
-  });
 }

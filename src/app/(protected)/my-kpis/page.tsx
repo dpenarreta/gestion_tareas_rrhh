@@ -11,5 +11,5 @@ export default async function MyKpisPage() {
   // resolver a nada (ver isLeadershipRole en roles.ts).
   if (isLeadershipRole(session.role)) redirect("/kpis");
 
-  return <MyKpisModule currentUserId={session.userId} currentUserName={session.name} currentUserRole={session.role} />;
+  return <MyKpisModule currentUserName={session.name} currentUserRole={session.role} />;
 }

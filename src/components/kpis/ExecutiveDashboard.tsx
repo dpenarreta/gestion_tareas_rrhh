@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Spinner } from "@/components/ui/Skeleton";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import { ROLE_LABEL } from "@/lib/roles";
 import type { ExecutiveDashboardData, KpiColor, CapacityMember, CapacitySummary } from "./types";
 import { CumplimientoLineChart, TeamWorkloadBarChart } from "./KpiCharts";

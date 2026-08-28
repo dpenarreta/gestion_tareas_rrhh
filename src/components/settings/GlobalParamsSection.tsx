@@ -4,7 +4,7 @@ import SectionCard from "@/components/settings/SectionCard";
  * Parámetros Globales — SOLO LECTURA en este sprint. Zona horaria de negocio,
  * primer día de semana y formato de fecha se consumen de forma SÍNCRONA en
  * el núcleo del Analytics Engine (analytics.ts, workload.ts, trendEngine.ts,
- * insightsEngine.ts, capacityForecast.ts) — volverlos editables exige el
+ * capacityForecast.ts) — volverlos editables exige el
  * mismo cambio de arquitectura (sync→async) que "días laborables", diferido
  * a un sprint dedicado (ver docs/ROADMAP.md). Idioma/moneda no se incluyen:
  * Nexo es 100% español hardcodeado sin librería i18n y no existe ningún

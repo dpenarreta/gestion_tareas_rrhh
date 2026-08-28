@@ -7,7 +7,7 @@ import {
   canAccessReports,
   getVisibleRoles,
 } from "@/lib/roles";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 
 describe("ROLE_LEVEL", () => {
   it("define un nivel jerárquico correcto para cada uno de los 10 roles operativos", () => {

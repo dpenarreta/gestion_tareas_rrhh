@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import type { ProjectActivity, ProjectPhase } from "./types";
 import { DOCUMENT_CATEGORY_LABEL } from "./types";
 import { businessCalendarDay, retroactiveValidDates } from "@/lib/businessTime";

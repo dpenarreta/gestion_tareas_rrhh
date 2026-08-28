@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { canManageParticipants } from "@/lib/projectAccess";
 import { canManageUsers } from "@/lib/roles";
 import { maskEmailUnless } from "@/lib/mask-email";
-import { logProjectHistory } from "@/lib/projectHistory";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import {
+  extractDjangoProjectErrorMessage,
+  mapDjangoProjectParticipantToNexoShape,
+  type DjangoProjectParticipant,
+} from "@/lib/djangoProjectsAdapter";
+
+// Fase 5f de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-14):
+// esta ruta pasó de Prisma a Django.
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
 type Ctx = { params: Promise<{ id: string }> };
 
@@ -15,63 +23,39 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   }
 
   const { id: projectId } = await ctx.params;
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
-    select: { id: true, name: true, responsibleId: true, createdById: true },
-  });
-  if (!project) {
-    return NextResponse.json({ error: "Proyecto no encontrado" }, { status: 404 });
-  }
-  if (!canManageParticipants(session, project)) {
-    return NextResponse.json({ error: "No tienes permiso para agregar participantes" }, { status: 403 });
-  }
-
-  let body: Record<string, unknown>;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Cuerpo de la solicitud inválido" }, { status: 400 });
-  }
-
+  const body = (await request.json()) as Record<string, unknown>;
   const { userId } = body as { userId?: string };
   if (!userId) {
     return NextResponse.json({ error: "Falta el usuario a agregar" }, { status: 400 });
   }
 
-  const user = await prisma.user.findUnique({ where: { id: userId } });
-  if (!user) {
-    return NextResponse.json({ error: "Usuario inválido" }, { status: 400 });
-  }
-
-  const existing = await prisma.projectParticipant.findUnique({
-    where: { projectId_userId: { projectId, userId } },
+  const response = await djangoApiFetch(`/projects/${projectId}/participants/`, {
+    method: "POST",
+    body: JSON.stringify({ user: Number(userId) }),
   });
-  if (existing) {
+
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 404) {
+    return NextResponse.json({ error: "Proyecto no encontrado" }, { status: 404 });
+  }
+  if (response.status === 403) {
+    return NextResponse.json({ error: "No tienes permiso para agregar participantes" }, { status: 403 });
+  }
+  if (response.status === 409) {
     return NextResponse.json({ error: "Este usuario ya es participante del proyecto" }, { status: 409 });
   }
+  if (!response.ok) {
+    const message = await extractDjangoProjectErrorMessage(response, "Usuario inválido");
+    return NextResponse.json({ error: message }, { status: 400 });
+  }
 
-  const participant = await prisma.projectParticipant.create({
-    data: { projectId, userId, addedById: session.userId },
-    select: {
-      id: true,
-      userId: true,
-      user: { select: { id: true, name: true, email: true, role: true } },
-      addedAt: true,
-      addedBy: { select: { id: true, name: true } },
-    },
-  });
-
-  await logProjectHistory({
-    projectId,
-    actorId: session.userId,
-    event: "PARTICIPANTE_AGREGADO",
-    description: `${session.name} agregó a ${user.name} como participante de "${project.name}"`,
-    newValue: { userId },
-  });
-
+  const participant: DjangoProjectParticipant = await response.json();
+  const mapped = mapDjangoProjectParticipantToNexoShape(participant);
   const canSeeRealEmails = canManageUsers(session.role);
   return NextResponse.json(
-    { ...participant, user: { ...participant.user, email: maskEmailUnless(participant.user.email, canSeeRealEmails) } },
+    { ...mapped, user: { ...mapped.user, email: maskEmailUnless(mapped.user.email, canSeeRealEmails) } },
     { status: 201 }
   );
 }

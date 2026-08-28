@@ -1,47 +1,39 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { canUseDeskNotes } from "@/lib/roles";
+import { djangoApiFetch } from "@/lib/djangoSession";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-// Descarga bajo demanda — el listado de notas nunca incluye attachmentData
-// (payload liviano), solo hasAttachment/attachmentName/attachmentMime.
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
+
+// Fase 7g de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-18):
+// esta ruta pasó de Prisma a Django — descarga bajo demanda, réplica
+// exacta del orden de validación de Django (404 antes que 403, ver
+// `DeskNoteViewSet.attachment`, Fase 7d).
 export async function GET(_req: NextRequest, ctx: Ctx) {
   const session = await getSession();
   if (!session) {
     return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   }
-  if (!canUseDeskNotes(session.role)) {
-    return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
-  }
 
   const { id } = await ctx.params;
-  const note = await prisma.deskNote.findUnique({
-    where: { id },
-    select: {
-      senderId: true,
-      recipientId: true,
-      deletedAt: true,
-      attachmentName: true,
-      attachmentMime: true,
-      attachmentData: true,
-    },
-  });
-  if (!note || note.deletedAt || !note.attachmentData) {
+  const response = await djangoApiFetch(`/desk-notes/${id}/attachment/`);
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 404) {
     return NextResponse.json({ error: "Adjunto no encontrado" }, { status: 404 });
   }
-  if (note.senderId !== session.userId && note.recipientId !== session.userId) {
+  if (!response.ok) {
     return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
   }
 
-  const base64 = note.attachmentData.split(",")[1] ?? "";
-  const buffer = Buffer.from(base64, "base64");
-
+  const buffer = await response.arrayBuffer();
   return new NextResponse(buffer, {
     headers: {
-      "Content-Type": note.attachmentMime ?? "application/octet-stream",
-      "Content-Disposition": `attachment; filename="${(note.attachmentName ?? "adjunto").replace(/"/g, "")}"`,
+      "Content-Type": response.headers.get("Content-Type") ?? "application/octet-stream",
+      "Content-Disposition": response.headers.get("Content-Disposition") ?? 'attachment; filename="adjunto"',
     },
   });
 }

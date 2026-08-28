@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import { ROLE_LABEL } from "@/lib/roles";
 import TimeInput24 from "@/components/ui/TimeInput24";
 import { useToast } from "@/components/ui/Toast";

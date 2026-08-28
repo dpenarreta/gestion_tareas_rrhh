@@ -1,19 +1,16 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { SessionPayload } from "@/lib/session";
 
-const taskFindMany = vi.fn();
-const userFindMany = vi.fn();
-const documentChunkFindMany = vi.fn();
-
-vi.mock("@/lib/prisma", () => ({
-  prisma: {
-    task: { findMany: taskFindMany },
-    user: { findMany: userFindMany },
-    documentChunk: { findMany: documentChunkFindMany },
-  },
-}));
-
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-25, Fase 58): el
+// contexto de tareas/equipo/base de conocimiento pasó de Prisma a Django —
+// mockeado con `@/lib/djangoSession`, mismo patrón que `team.test.ts`. El
+// cálculo de embeddings/similitud y la llamada a Groq siguen sin cambios.
 vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
+
+const djangoApiFetch = vi.fn();
+vi.mock("@/lib/djangoSession", () => ({
+  djangoApiFetch: (...args: unknown[]) => djangoApiFetch(...args),
+}));
 
 const getEmbedding = vi.fn();
 const cosineSimilarity = vi.fn();
@@ -54,10 +51,24 @@ function badJsonRequest() {
   return { json: async () => { throw new Error("bad"); } } as never;
 }
 
+function djangoResponse(ok: boolean, data: unknown, status = ok ? 200 : 400) {
+  return { ok, status, json: async () => data } as Response;
+}
+
+/** Enruta `djangoApiFetch` por URL exacta — `/tasks/`, `/team/`,
+ * `/team/<id>/tasks/` y `/assistant/chunks/` se llaman dentro de la misma
+ * petición según el modo, a diferencia de los mocks por-tabla de Prisma
+ * que existían antes de la Fase 58. */
+function mockDjangoRoutes(routes: Record<string, unknown>) {
+  djangoApiFetch.mockImplementation(async (url: string) => {
+    if (url in routes) return djangoResponse(true, routes[url]);
+    return djangoResponse(true, []);
+  });
+}
+
 function resetAll() {
-  taskFindMany.mockReset().mockResolvedValue([]);
-  userFindMany.mockReset().mockResolvedValue([]);
-  documentChunkFindMany.mockReset().mockResolvedValue([]);
+  djangoApiFetch.mockReset();
+  mockDjangoRoutes({});
   getEmbedding.mockReset().mockResolvedValue([1, 0, 0]);
   cosineSimilarity.mockReset().mockReturnValue(0);
   groqCreate.mockReset().mockResolvedValue({ choices: [{ message: { content: "Respuesta de Nova" } }], usage: { total_tokens: 100 } });
@@ -103,13 +114,15 @@ describe("POST /api/assistant/chat", () => {
 
   it("modo tasks: construye el contexto de tareas del usuario (incluye el conteo de vencidas)", async () => {
     mockSession({ userId: "u1" });
-    taskFindMany.mockResolvedValue([
-      { title: "Tarea vencida", status: "PENDIENTE", priority: "ALTA", type: "FIJA", startDate: new Date("2026-01-01"), endDate: new Date("2020-01-01"), estimatedHours: 2, realHours: 1, progress: 0 },
-    ]);
+    mockDjangoRoutes({
+      "/tasks/": [
+        { title: "Tarea vencida", status: "PENDIENTE", priority: "ALTA", type: "FIJA", start_date: "2026-01-01", end_date: "2020-01-01", estimated_hours: 2, real_hours: 1, progress: 0 },
+      ],
+    });
     await chatPOST(jsonRequest({ mode: "tasks", message: "¿Qué debo priorizar?" }));
     const systemMessage = groqCreate.mock.calls[0][0].messages[0].content as string;
     expect(systemMessage).toContain("Vencidas: 1");
-    expect(taskFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { assignedToId: "u1" } }));
+    expect(djangoApiFetch).toHaveBeenCalledWith("/tasks/");
   });
 
   it("modo hr: para un rol de nivel 1 (sin equipo), el contexto no incluye sección de equipo", async () => {
@@ -121,9 +134,12 @@ describe("POST /api/assistant/chat", () => {
 
   it("modo hr: incluye fuentes de documentos cuando hay chunks relevantes (score > 0.2)", async () => {
     mockSession({ role: "JEFE_NACIONAL" });
-    documentChunkFindMany.mockResolvedValue([
-      { content: "Política de vacaciones...", pageNumber: 3, embedding: [1, 0, 0], document: { title: "Manual RRHH", fileName: "manual.pdf" } },
-    ]);
+    mockDjangoRoutes({
+      "/team/": [],
+      "/assistant/chunks/": [
+        { content: "Política de vacaciones...", page_number: 3, embedding: [1, 0, 0], doc_title: "Manual RRHH", doc_file_name: "manual.pdf" },
+      ],
+    });
     cosineSimilarity.mockReturnValue(0.9);
 
     const res = await chatPOST(jsonRequest({ mode: "hr", message: "¿Cuántos días de vacaciones tengo?" }));
@@ -133,9 +149,12 @@ describe("POST /api/assistant/chat", () => {
 
   it("modo hr: descarta chunks con score de similitud bajo (<=0.2)", async () => {
     mockSession({ role: "JEFE_NACIONAL" });
-    documentChunkFindMany.mockResolvedValue([
-      { content: "Contenido poco relevante", pageNumber: 1, embedding: [0, 1, 0], document: { title: "Manual", fileName: "m.pdf" } },
-    ]);
+    mockDjangoRoutes({
+      "/team/": [],
+      "/assistant/chunks/": [
+        { content: "Contenido poco relevante", page_number: 1, embedding: [0, 1, 0], doc_title: "Manual", doc_file_name: "m.pdf" },
+      ],
+    });
     cosineSimilarity.mockReturnValue(0.1);
 
     const res = await chatPOST(jsonRequest({ mode: "hr", message: "pregunta" }));
@@ -145,7 +164,10 @@ describe("POST /api/assistant/chat", () => {
 
   it("modo hr: si buildTeamContext falla, no rompe la petición (se anota el error en el contexto)", async () => {
     mockSession({ role: "JEFE_NACIONAL" });
-    userFindMany.mockRejectedValue(new Error("fallo consultando equipo"));
+    djangoApiFetch.mockImplementation(async (url: string) => {
+      if (url === "/team/") return djangoResponse(false, { error: "fallo consultando equipo" }, 500);
+      return djangoResponse(true, []);
+    });
     vi.spyOn(console, "error").mockImplementation(() => {});
 
     const res = await chatPOST(jsonRequest({ mode: "hr", message: "pregunta" }));
@@ -154,9 +176,12 @@ describe("POST /api/assistant/chat", () => {
     expect(systemMessage).toContain("No se pudo cargar el contexto del equipo");
   });
 
-  it("responde 500 si falla la construcción del contexto de tareas", async () => {
+  it("responde 500 si falla la construcción del contexto de tareas (sin sesión Django disponible)", async () => {
     mockSession({});
-    taskFindMany.mockRejectedValue(new Error("db caída"));
+    djangoApiFetch.mockImplementation(async (url: string) => {
+      if (url === "/tasks/") return djangoResponse(false, { error: "db caída" }, 500);
+      return djangoResponse(true, []);
+    });
     vi.spyOn(console, "error").mockImplementation(() => {});
     const res = await chatPOST(jsonRequest({ mode: "tasks", message: "pregunta" }));
     expect(res.status).toBe(500);

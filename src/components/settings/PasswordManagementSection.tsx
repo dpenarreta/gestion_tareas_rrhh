@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ROLE_LABEL } from "@/lib/roles";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import SectionCard from "@/components/settings/SectionCard";
 import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
 import { SkeletonRow } from "@/components/ui/Skeleton";
@@ -61,7 +61,7 @@ export default function PasswordManagementSection({ users, loading }: { users: U
                       onClick={() => handleResetPassword(u)}
                       disabled={busyId === u.id}
                       className="text-xs text-warning hover:brightness-90 font-medium px-2 py-1 rounded hover:bg-warning/[.15] transition-colors disabled:opacity-50"
-                      title="Resetear contraseña a 123456"
+                      title="Forzar cambio de contraseña en el próximo inicio de sesión"
                     >
                       🔑 Resetear contraseña
                     </button>

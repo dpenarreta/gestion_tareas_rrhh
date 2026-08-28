@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Spinner } from "@/components/ui/Skeleton";
 import { Button } from "@/components/ui/Button";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import { ROLE_LABEL } from "@/lib/roles";
 import { formatDate } from "@/lib/utils";
 import TimeInput24 from "@/components/ui/TimeInput24";

@@ -14,12 +14,14 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
-    exclude: ["node_modules/**", ".next/**"],
+    // frontend/ (Vite/React) y backend/ (Django) son proyectos aparte de la
+    // migración de stack, cada uno con su propio ecosistema — nunca deben
+    // escanearse como parte de la suite de Next.js.
+    exclude: ["**/node_modules/**", ".next/**", "frontend/**", "backend/**"],
     coverage: {
       provider: "v8",
       reporter: ["text", "html"],
       include: ["src/**/*.{ts,tsx}"],
-      exclude: ["src/generated/**"],
     },
   },
 });

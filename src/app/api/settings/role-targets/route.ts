@@ -1,20 +1,43 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { canManageUsers, ALL_ROLES, ROLE_LABEL } from "@/lib/roles";
-import { getAllEffectiveRoleTargets, setRoleTarget, type RoleTarget } from "@/lib/systemConfig";
-import { invalidateAnalyticsCache } from "@/lib/analytics";
-import type { Role } from "@/generated/prisma/client";
+import { ALL_ROLES, ROLE_LABEL, canManageUsers } from "@/lib/roles";
+import { djangoApiFetch, extractDjangoFlatErrorMessage } from "@/lib/djangoSession";
+import type { Role } from "@/lib/roles";
+
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
+
+type RoleTarget = { performance: number | null; riesgoMax: number | null; cumplimiento: number | null };
+type DjangoRoleTarget = { performance: number | null; riesgo_max: number | null; cumplimiento: number | null };
+type DjangoRoleTargetsResponse = { targets: Record<string, DjangoRoleTarget> };
+
+function toNexoTargets(targets: Record<string, DjangoRoleTarget>): Record<string, RoleTarget> {
+  return Object.fromEntries(
+    Object.entries(targets).map(([role, t]) => [
+      role,
+      { performance: t.performance, riesgoMax: t.riesgo_max, cumplimiento: t.cumplimiento },
+    ])
+  );
+}
 
 /**
  * Objetivo esperado del cargo (§Sprint 7) — configuración OPCIONAL usada
- * únicamente como referencia en el Benchmark Personal. Mismo grupo de acceso
- * que el resto de configuración de Analytics.
+ * únicamente como referencia en el Benchmark Personal (Django,
+ * `analytics/benchmarks/[userId]`, Fase 22/47 — el único caller real que le
+ * quedaba del lado Next.js, `analytics.ts::runAnalyticsPipeline`, es código
+ * muerto desde la Fase 47, ver docs/AUDIT_LOG.md § 2026-08-24).
  */
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-  const targets = await getAllEffectiveRoleTargets(ALL_ROLES);
-  return NextResponse.json({ targets, roles: ALL_ROLES, roleLabels: ROLE_LABEL });
+
+  const response = await djangoApiFetch("/settings/role-targets/");
+  if (!response || !response.ok) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+
+  const data = (await response.json()) as DjangoRoleTargetsResponse;
+  return NextResponse.json({ targets: toNexoTargets(data.targets), roles: ALL_ROLES, roleLabels: ROLE_LABEL });
 }
 
 function isValidTarget(body: unknown): body is RoleTarget {
@@ -43,9 +66,21 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Objetivo inválido: cada campo debe ser un número entre 0 y 100, o null" }, { status: 400 });
   }
 
-  await setRoleTarget(role as Role, target, session.userId);
-  invalidateAnalyticsCache();
+  const response = await djangoApiFetch("/settings/role-targets/", {
+    method: "PATCH",
+    body: JSON.stringify({
+      role,
+      target: { performance: target.performance, riesgo_max: target.riesgoMax, cumplimiento: target.cumplimiento },
+    }),
+  });
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (!response.ok) {
+    const message = await extractDjangoFlatErrorMessage(response);
+    return NextResponse.json({ error: message ?? "Datos inválidos" }, { status: response.status === 403 ? 403 : 400 });
+  }
 
-  const targets = await getAllEffectiveRoleTargets(ALL_ROLES);
-  return NextResponse.json({ targets });
+  const data = (await response.json()) as DjangoRoleTargetsResponse;
+  return NextResponse.json({ targets: toNexoTargets(data.targets) });
 }

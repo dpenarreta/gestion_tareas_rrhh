@@ -1,8 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canManageKnowledgeBase, canViewKnowledgeBase } from "@/lib/roles";
 import { uploadPdfToGithub, processGithubDocument } from "@/lib/githubDocuments";
+import {
+  createDjangoKnowledgeDocument,
+  fetchDjangoKnowledgeDocument,
+  fetchDjangoKnowledgeDocuments,
+  mapDjangoKnowledgeDocumentToNexoShape,
+  updateDjangoKnowledgeDocument,
+} from "@/lib/djangoAssistantAdapter";
 
 // Documentos grandes (cientos de páginas → cientos de chunks) pueden tardar
 // más que el límite por defecto en generar todos los embeddings, incluso en
@@ -15,6 +21,10 @@ export const maxDuration = 300;
 const MAX_SIZE_BYTES = 4.5 * 1024 * 1024;
 const MAX_SIZE_MESSAGE = "El archivo supera el límite de 4.5MB. Por favor usa un archivo más pequeño.";
 
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-25, Fase 58): esta ruta
+// pasó de Prisma a Django (`apps.assistant`). El procesamiento del PDF
+// (descarga/extracción/chunking/embeddings) sigue en `githubDocuments.ts`,
+// sin cambios de comportamiento — solo la persistencia se movió.
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
@@ -22,15 +32,14 @@ export async function GET() {
     return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
   }
 
-  const docs = await prisma.knowledgeDocument.findMany({
-    orderBy: { createdAt: "desc" },
-    select: {
-      id: true, title: true, fileName: true, githubPath: true, createdAt: true, status: true, processingError: true,
-      uploadedBy: { select: { name: true } },
-      _count: { select: { chunks: true } },
-    },
-  });
-  return NextResponse.json(docs);
+  const docs = await fetchDjangoKnowledgeDocuments();
+  if (!docs) {
+    return NextResponse.json(
+      { error: "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión." },
+      { status: 401 }
+    );
+  }
+  return NextResponse.json(docs.map(mapDjangoKnowledgeDocumentToNexoShape));
 }
 
 export async function POST(request: NextRequest) {
@@ -73,49 +82,32 @@ export async function POST(request: NextRequest) {
   try {
     const buffer = Buffer.from(await file.arrayBuffer());
 
-    const doc = await prisma.knowledgeDocument.create({
-      data: {
-        title,
-        fileName: file.name,
-        status: "PROCESANDO",
-        uploadedById: session.userId,
-      },
-      select: { id: true },
-    });
+    const doc = await createDjangoKnowledgeDocument(title, file.name);
+    if (!doc) {
+      return NextResponse.json(
+        { error: "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión." },
+        { status: 401 }
+      );
+    }
+    const documentId = String(doc.id);
 
     let githubInfo: { path: string; sha: string };
     try {
-      githubInfo = await uploadPdfToGithub(doc.id, file.name, buffer);
+      githubInfo = await uploadPdfToGithub(documentId, file.name, buffer);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      console.error(`[POST /api/assistant/documents] documento ${doc.id}: subida a GitHub falló:`, err);
-      await prisma.knowledgeDocument.update({ where: { id: doc.id }, data: { status: "ERROR", processingError: message } });
-      const failed = await prisma.knowledgeDocument.findUnique({
-        where: { id: doc.id },
-        select: {
-          id: true, title: true, fileName: true, githubPath: true, createdAt: true, status: true, processingError: true,
-          _count: { select: { chunks: true } },
-        },
-      });
-      return NextResponse.json(failed, { status: 201 });
+      console.error(`[POST /api/assistant/documents] documento ${documentId}: subida a GitHub falló:`, err);
+      const failed = await updateDjangoKnowledgeDocument(documentId, { status: "ERROR", processingError: message });
+      return NextResponse.json(failed ? mapDjangoKnowledgeDocumentToNexoShape(failed) : null, { status: 201 });
     }
 
-    await prisma.knowledgeDocument.update({
-      where: { id: doc.id },
-      data: { githubPath: githubInfo.path, githubSha: githubInfo.sha },
-    });
+    await updateDjangoKnowledgeDocument(documentId, { githubPath: githubInfo.path, githubSha: githubInfo.sha });
 
-    await processGithubDocument(doc.id, githubInfo.path, githubInfo.sha);
+    await processGithubDocument(documentId, githubInfo.path, githubInfo.sha);
 
-    const processed = await prisma.knowledgeDocument.findUnique({
-      where: { id: doc.id },
-      select: {
-        id: true, title: true, fileName: true, githubPath: true, createdAt: true, status: true, processingError: true,
-        _count: { select: { chunks: true } },
-      },
-    });
+    const processed = await fetchDjangoKnowledgeDocument(documentId);
 
-    return NextResponse.json(processed, { status: 201 });
+    return NextResponse.json(processed ? mapDjangoKnowledgeDocumentToNexoShape(processed) : null, { status: 201 });
   } catch (err) {
     console.error("[POST /api/assistant/documents] error inesperado:", err);
     const message = err instanceof Error ? err.message : String(err);

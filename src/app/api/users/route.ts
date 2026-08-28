@@ -1,10 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import bcrypt from "bcryptjs";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
 import { canManageUsers, getVisibleRoles, ROLE_LEVEL } from "@/lib/roles";
 import { maskEmail } from "@/lib/mask-email";
-import type { Role } from "@/generated/prisma/client";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import { fetchAllDjangoUsers, mapDjangoUserToNexoShape, resolveRoleGroupId } from "@/lib/djangoUsersAdapter";
+import type { Role } from "@/lib/roles";
+
+// Fase 2 de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-07):
+// esta ruta pasó de leer/escribir Prisma directamente a hablar con el
+// backend Django, traduciendo la forma de los datos — el frontend
+// (UsersManager.tsx) sigue recibiendo exactamente lo mismo que antes.
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
 export async function GET() {
   const session = await getSession();
@@ -15,23 +22,20 @@ export async function GET() {
     return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
   }
 
-  // El Administrador ve a todos; el resto solo ve a sus subordinados según jerarquía
-  // (lo que también excluye siempre al Administrador, invisible para el resto de roles).
-  const where = session.role === "ADMINISTRADOR" ? {} : { role: { in: getVisibleRoles(session.role) } };
+  const djangoUsers = await fetchAllDjangoUsers();
+  if (djangoUsers === null) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
 
-  const users = await prisma.user.findMany({
-    where,
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      role: true,
-      createdAt: true,
-      dataConsentAccepted: true,
-      dataConsentAcceptedAt: true,
-    },
-    orderBy: { createdAt: "asc" },
-  });
+  let users = djangoUsers.map(mapDjangoUserToNexoShape);
+
+  // El Administrador ve a todos; el resto solo a sus subordinados según
+  // jerarquía (post-filtro aquí porque Django todavía no conoce
+  // apps.hierarchy — ver plan de Fase 2).
+  if (session.role !== "ADMINISTRADOR") {
+    const visible = getVisibleRoles(session.role);
+    users = users.filter((u) => visible.includes(u.role));
+  }
 
   return NextResponse.json(users.map((u) => ({ ...u, email: maskEmail(u.email) })));
 }
@@ -55,17 +59,43 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "No puedes asignar un rol superior al tuyo" }, { status: 403 });
   }
 
-  const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) {
-    return NextResponse.json({ error: "El email ya está registrado" }, { status: 409 });
+  const roleId = await resolveRoleGroupId(role);
+  if (roleId === null) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
   }
 
-  const password = await bcrypt.hash("123456", 10);
-
-  const user = await prisma.user.create({
-    data: { name, email, role: role as Role, password },
-    select: { id: true, name: true, email: true, role: true, createdAt: true },
+  // "123456" no cumple los validadores de contraseña heredados de
+  // skelleton_base (mínimo 10 caracteres, no puede ser solo numérica) — ver
+  // decisión explícita en el plan de Fase 2.
+  const response = await djangoApiFetch("/admin/users/", {
+    method: "POST",
+    body: JSON.stringify({
+      username: email,
+      email,
+      first_name: name,
+      password: "NexoTemporal2026!",
+      role_ids: [roleId],
+    }),
   });
 
-  return NextResponse.json(user, { status: 201 });
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+
+  if (response.status === 409 || response.status === 400) {
+    const data = await response.json().catch(() => null);
+    const emailTaken =
+      typeof data?.error?.details?.email !== "undefined" || typeof data?.email !== "undefined";
+    return NextResponse.json(
+      { error: emailTaken ? "El email ya está registrado" : "No se pudo crear el usuario" },
+      { status: 409 }
+    );
+  }
+
+  if (!response.ok) {
+    return NextResponse.json({ error: "No se pudo crear el usuario" }, { status: 500 });
+  }
+
+  const created = mapDjangoUserToNexoShape(await response.json());
+  return NextResponse.json(created, { status: 201 });
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import { ROLE_LEVEL, isLeadershipRole } from "@/lib/roles";
 import KpisModule from "./KpisModule";
 import MyKpisModule from "./MyKpisModule";
@@ -69,7 +69,7 @@ export default function AnalyticsModule({ currentUserId, currentUserRole, curren
       {tab === "ejecutivo" && hasExecutiveDashboard && <ExecutiveDashboard />}
       {tab === "team" && hasTeamTab && <KpisModule currentUserId={currentUserId} currentUserRole={currentUserRole} />}
       {tab === "personal" && hasPersonalTab && (
-        <MyKpisModule currentUserId={currentUserId} currentUserName={currentUserName} currentUserRole={currentUserRole} />
+        <MyKpisModule currentUserName={currentUserName} currentUserRole={currentUserRole} />
       )}
     </div>
   );

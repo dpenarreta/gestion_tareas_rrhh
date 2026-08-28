@@ -1,24 +1,27 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import {
-  CONFIG_KEY_RETENTION_MONTHLY_REPORTS,
-  CONFIG_KEY_RETENTION_ARCHIVED_TASKS,
-  CONFIG_KEY_RETENTION_KNOWLEDGE_DOCS,
-  setConfigValue,
-} from "@/lib/systemConfig";
-import {
-  getEffectivePolicy,
-  MONTHLY_REPORTS_OPTIONS,
-  ARCHIVED_TASKS_OPTIONS,
-  KNOWLEDGE_DOCS_OPTIONS,
-} from "@/lib/retentionPolicy";
+import { extractDjangoFlatErrorMessage } from "@/lib/djangoSession";
+import { fetchRetentionPolicy, toRetentionPolicy, updateRetentionPolicy } from "@/lib/djangoRetentionAdapter";
 
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
+
+// Cutover de stack — Fase 83 (ver docs/AUDIT_LOG.md § 2026-08-27): réplica
+// de `RetentionPolicyView` (backend, Fase 31, completo). El bloqueo original
+// (la purga real requería `MonthlyReport`/`DataPurgeLog`, sin portar) ya no
+// aplica — se cierra junto con `retention-policy/purge/route.ts` en el mismo
+// cambio.
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const policy = await getEffectivePolicy();
-  return NextResponse.json(policy);
+  const response = await fetchRetentionPolicy();
+  if (!response || !response.ok) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+
+  const data = await response.json();
+  return NextResponse.json(toRetentionPolicy(data));
 }
 
 export async function PUT(request: NextRequest) {
@@ -35,30 +38,15 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "Cuerpo inválido" }, { status: 400 });
   }
 
-  const { monthlyReportsMonths, archivedTasksMonths, knowledgeDocsMonths } = body;
-
-  if (monthlyReportsMonths !== undefined && !MONTHLY_REPORTS_OPTIONS.includes(monthlyReportsMonths as typeof MONTHLY_REPORTS_OPTIONS[number])) {
-    return NextResponse.json({ error: "Retención de informes mensuales inválida" }, { status: 400 });
+  const response = await updateRetentionPolicy(body);
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
   }
-  if (archivedTasksMonths !== undefined && !ARCHIVED_TASKS_OPTIONS.includes(archivedTasksMonths as typeof ARCHIVED_TASKS_OPTIONS[number])) {
-    return NextResponse.json({ error: "Retención de tareas archivadas inválida" }, { status: 400 });
-  }
-  if (knowledgeDocsMonths !== undefined && !KNOWLEDGE_DOCS_OPTIONS.includes(knowledgeDocsMonths as typeof KNOWLEDGE_DOCS_OPTIONS[number])) {
-    return NextResponse.json({ error: "Retención de base de conocimiento inválida" }, { status: 400 });
+  if (!response.ok) {
+    const message = await extractDjangoFlatErrorMessage(response);
+    return NextResponse.json({ error: message ?? "Retención inválida" }, { status: response.status === 403 ? 403 : 400 });
   }
 
-  await Promise.all([
-    monthlyReportsMonths !== undefined
-      ? setConfigValue(CONFIG_KEY_RETENTION_MONTHLY_REPORTS, monthlyReportsMonths, session.userId)
-      : Promise.resolve(),
-    archivedTasksMonths !== undefined
-      ? setConfigValue(CONFIG_KEY_RETENTION_ARCHIVED_TASKS, archivedTasksMonths, session.userId)
-      : Promise.resolve(),
-    knowledgeDocsMonths !== undefined
-      ? setConfigValue(CONFIG_KEY_RETENTION_KNOWLEDGE_DOCS, knowledgeDocsMonths, session.userId)
-      : Promise.resolve(),
-  ]);
-
-  const policy = await getEffectivePolicy();
-  return NextResponse.json(policy);
+  const data = await response.json();
+  return NextResponse.json(toRetentionPolicy(data));
 }

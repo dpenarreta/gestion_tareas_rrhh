@@ -1,34 +1,43 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
+import { djangoApiFetch, extractDjangoFlatErrorMessage } from "@/lib/djangoSession";
 
-function parseDateOnly(value: string): Date | null {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return null;
-  const [y, m, d] = value.split("-").map(Number);
-  const parsed = new Date(Date.UTC(y, m - 1, d));
-  return Number.isNaN(parsed.getTime()) ? null : parsed;
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
+
+type DjangoKpiStartDateUser = { id: number; name: string; email: string; role: string; kpi_start_date: string | null };
+
+function toNexoShape(u: DjangoKpiStartDateUser) {
+  return { id: String(u.id), name: u.name, email: u.email, role: u.role, kpiStartDate: u.kpi_start_date };
 }
 
+// Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-24): réplica de
+// `KpiStartDateView` (backend, Fase 31, completo) — ya consumida por el
+// bundle de Analytics/Workload desde la Fase 4a; esta config seguía
+// editándose en Postgres, sin ningún efecto real desde entonces (gap
+// preexistente, cerrado acá).
 export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-  if (session.role !== "ADMINISTRADOR") {
+
+  const response = await djangoApiFetch("/settings/kpi-start-date/");
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 403) {
     return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
   }
+  if (!response.ok) {
+    return NextResponse.json({ error: "Error al obtener la fecha de inicio de KPIs" }, { status: response.status });
+  }
 
-  const users = await prisma.user.findMany({
-    select: { id: true, name: true, email: true, role: true, kpiStartDate: true },
-    orderBy: { name: "asc" },
-  });
-  return NextResponse.json(users);
+  const data = (await response.json()) as DjangoKpiStartDateUser[];
+  return NextResponse.json(data.map(toNexoShape));
 }
 
 export async function PATCH(request: NextRequest) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-  if (session.role !== "ADMINISTRADOR") {
-    return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
-  }
 
   let body: Record<string, unknown>;
   try {
@@ -42,23 +51,24 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: "Falta el usuario" }, { status: 400 });
   }
 
-  let parsedDate: Date | null = null;
-  if (kpiStartDate) {
-    parsedDate = parseDateOnly(kpiStartDate);
-    if (!parsedDate) {
-      return NextResponse.json({ error: "Fecha inválida" }, { status: 400 });
-    }
+  const response = await djangoApiFetch("/settings/kpi-start-date/", {
+    method: "PATCH",
+    body: JSON.stringify({ user_id: userId, kpi_start_date: kpiStartDate ?? null }),
+  });
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
   }
-
-  const user = await prisma.user.findUnique({ where: { id: userId } });
-  if (!user) {
+  if (response.status === 404) {
     return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
   }
+  if (response.status === 403) {
+    return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
+  }
+  if (!response.ok) {
+    const message = await extractDjangoFlatErrorMessage(response);
+    return NextResponse.json({ error: message ?? "Fecha inválida" }, { status: 400 });
+  }
 
-  const updated = await prisma.user.update({
-    where: { id: userId },
-    data: { kpiStartDate: parsedDate },
-    select: { id: true, name: true, email: true, role: true, kpiStartDate: true },
-  });
-  return NextResponse.json(updated);
+  const data = (await response.json()) as DjangoKpiStartDateUser;
+  return NextResponse.json(toNexoShape(data));
 }

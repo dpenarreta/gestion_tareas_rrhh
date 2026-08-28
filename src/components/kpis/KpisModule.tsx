@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import Link from "next/link";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import { ROLE_LABEL, isLeadershipRole } from "@/lib/roles";
 import type { KpiData, KpiColor, TeamMemberKpi, CapacityMember, CapacitySummary } from "./types";
 import {

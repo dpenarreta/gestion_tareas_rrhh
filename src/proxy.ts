@@ -5,7 +5,15 @@ import { SESSION_SECRET } from "@/lib/session-secret";
 
 const secret = new TextEncoder().encode(SESSION_SECRET);
 
-const PUBLIC_PATHS = ["/login", "/api/auth/login", "/api/auth/forgot-password"];
+const PUBLIC_PATHS = [
+  "/login",
+  "/api/auth/login",
+  "/api/auth/forgot-password",
+  // Fase 6c (ver docs/AUDIT_LOG.md § 2026-08-17): pantalla de confirmación
+  // del reset de contraseña — el link del email apunta acá sin sesión.
+  "/reset-password",
+  "/api/auth/reset-password",
+];
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 // Defensa adicional contra CSRF/cross-origin: para métodos que mutan estado en

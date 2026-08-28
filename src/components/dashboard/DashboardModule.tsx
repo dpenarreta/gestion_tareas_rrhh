@@ -17,7 +17,7 @@ import {
   arrayMove,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import { ROLE_LABEL, canCreateMeetings, isLeadershipRole } from "@/lib/roles";
 import { Button } from "@/components/ui/Button";
 import { SkeletonText } from "@/components/ui/Skeleton";

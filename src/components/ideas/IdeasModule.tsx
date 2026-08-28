@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import type { Idea } from "./types";
 import IdeasBoard from "./IdeasBoard";
 import MyIdeasList from "./MyIdeasList";

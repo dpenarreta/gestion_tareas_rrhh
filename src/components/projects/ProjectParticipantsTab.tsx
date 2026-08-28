@@ -3,7 +3,7 @@
 import { useState } from "react";
 import type { ProjectParticipant, ProjectUserRef } from "./types";
 import { ROLE_LABEL } from "@/lib/roles";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import { useToast } from "@/components/ui/Toast";
 
 type Props = {

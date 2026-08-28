@@ -1,24 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { canManagePhases } from "@/lib/projectAccess";
-import { logProjectHistory } from "@/lib/projectHistory";
-import type { TaskStatus } from "@/generated/prisma/client";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import {
+  extractDjangoProjectErrorMessage,
+  mapDjangoProjectPhaseToNexoShape,
+  type DjangoProjectPhase,
+} from "@/lib/djangoProjectsAdapter";
+
+// Fase 5f de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-14):
+// esta ruta pasó de Prisma a Django.
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
 type Ctx = { params: Promise<{ id: string }> };
-
-const phaseSelect = {
-  id: true,
-  name: true,
-  status: true,
-  responsible: { select: { id: true, name: true } },
-  startDate: true,
-  targetDate: true,
-  progress: true,
-  notes: true,
-  targetTimeHours: true,
-  order: true,
-} as const;
 
 export async function POST(request: NextRequest, ctx: Ctx) {
   const session = await getSession();
@@ -27,27 +21,10 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   }
 
   const { id: projectId } = await ctx.params;
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
-    select: { id: true, name: true, responsibleId: true, createdById: true },
-  });
-  if (!project) {
-    return NextResponse.json({ error: "Proyecto no encontrado" }, { status: 404 });
-  }
-  if (!canManagePhases(session, project)) {
-    return NextResponse.json({ error: "No tienes permiso para agregar fases" }, { status: 403 });
-  }
-
-  let body: Record<string, unknown>;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Cuerpo de la solicitud inválido" }, { status: 400 });
-  }
-
+  const body = (await request.json()) as Record<string, unknown>;
   const { name, status, responsibleId, startDate, targetDate, targetTimeHours, notes } = body as {
     name?: string;
-    status?: TaskStatus;
+    status?: string;
     responsibleId?: string;
     startDate?: string;
     targetDate?: string;
@@ -55,35 +32,33 @@ export async function POST(request: NextRequest, ctx: Ctx) {
     notes?: string;
   };
 
-  if (!name?.trim()) {
-    return NextResponse.json({ error: "El nombre de la fase es requerido" }, { status: 400 });
+  const response = await djangoApiFetch(`/projects/${projectId}/phases/`, {
+    method: "POST",
+    body: JSON.stringify({
+      name,
+      status: status ?? undefined,
+      responsible: responsibleId ? Number(responsibleId) : null,
+      start_date: startDate ?? null,
+      target_date: targetDate ?? null,
+      target_time_hours: targetTimeHours ?? null,
+      notes: notes ?? "",
+    }),
+  });
+
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 404) {
+    return NextResponse.json({ error: "Proyecto no encontrado" }, { status: 404 });
+  }
+  if (response.status === 403) {
+    return NextResponse.json({ error: "No tienes permiso para agregar fases" }, { status: 403 });
+  }
+  if (!response.ok) {
+    const message = await extractDjangoProjectErrorMessage(response, "El nombre de la fase es requerido");
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 
-  const lastOrder = await prisma.projectPhase.count({ where: { projectId } });
-
-  const phase = await prisma.projectPhase.create({
-    data: {
-      projectId,
-      name: name.trim(),
-      status: status ?? "PENDIENTE",
-      responsibleId: responsibleId || null,
-      startDate: startDate ? new Date(startDate) : null,
-      targetDate: targetDate ? new Date(targetDate) : null,
-      targetTimeHours: targetTimeHours != null ? parseFloat(String(targetTimeHours)) : null,
-      notes: notes?.trim() || null,
-      order: lastOrder,
-    },
-    select: phaseSelect,
-  });
-
-  await logProjectHistory({
-    projectId,
-    actorId: session.userId,
-    event: "FASE_AGREGADA",
-    description: `${session.name} agregó la fase "${phase.name}" a "${project.name}"`,
-    newValue: { phaseId: phase.id, name: phase.name },
-  });
-
-  // Fase recién creada: sin actividades todavía, sin participantes derivados.
-  return NextResponse.json({ ...phase, registeredMinutes: 0, participants: [] }, { status: 201 });
+  const phase: DjangoProjectPhase = await response.json();
+  return NextResponse.json(mapDjangoProjectPhaseToNexoShape(phase), { status: 201 });
 }

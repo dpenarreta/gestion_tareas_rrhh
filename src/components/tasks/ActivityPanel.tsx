@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import type { Task, TaskActivity } from "./types";
 import { ROLE_LABEL } from "@/lib/roles";
 import TimeInput24 from "@/components/ui/TimeInput24";

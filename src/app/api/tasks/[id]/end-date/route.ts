@@ -1,66 +1,44 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { getSession } from "@/lib/session";
-import { getVisibleRoles } from "@/lib/roles";
-import { getClientIp } from "@/lib/rate-limit";
-import { invalidateAnalyticsCache } from "@/lib/analytics";
-import { canValidateEndDate, isValidEndDateAction } from "@/lib/endDate";
-import { getEndDateAuditHistory, applyEndDateAction } from "@/lib/endDateServer";
+import { djangoApiFetch } from "@/lib/djangoSession";
+import { fetchDjangoEndDateInfo, mapDjangoEndDateInfoToNexoShape } from "@/lib/djangoTasksAdapter";
+
+// Fase 3c de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-07):
+// cortado a Django, mismo esqueleto que target-time/route.ts. Gap
+// documentado: la notificación al colaborador cuando la Fecha Fin es
+// MODIFICADA/RECHAZADA no se replica todavía (Notification no existe en
+// Django en esta sub-fase).
+const DJANGO_SESSION_REQUIRED_MESSAGE =
+  "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
 type Ctx = { params: Promise<{ id: string }> };
 
-/**
- * Fecha Fin de una tarea (validación por líderes) — GET expone el estado
- * actual (aprobación/auditoría); POST aplica una decisión (Aprobar/
- * Modificar/Rechazar), siempre auditada. Mismo esqueleto de permisos que
- * [id]/target-time/route.ts.
- */
+async function extractDjangoErrorMessage(response: Response, fallback: string): Promise<string> {
+  try {
+    const data = await response.json();
+    const nonFieldError = data?.error?.details?.non_field_errors?.[0];
+    if (typeof nonFieldError === "string") return nonFieldError;
+    const firstFieldError = Object.values(data?.error?.details ?? {})[0];
+    if (Array.isArray(firstFieldError) && typeof firstFieldError[0] === "string") return firstFieldError[0];
+    if (typeof data?.error?.message === "string") return data.error.message;
+  } catch {
+    // respuesta sin cuerpo JSON — se usa el mensaje por defecto
+  }
+  return fallback;
+}
+
 export async function GET(_req: NextRequest, ctx: Ctx) {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
   const { id } = await ctx.params;
-  const task = await prisma.task.findUnique({
-    where: { id },
-    select: {
-      id: true,
-      title: true,
-      endDate: true,
-      endDateApprovalStatus: true,
-      endDateApprovedAt: true,
-      endDateApprover: { select: { id: true, name: true } },
-      assignedToId: true,
-      createdById: true,
-      assignedTo: { select: { role: true } },
-    },
-  });
-  if (!task) return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
+  const info = await fetchDjangoEndDateInfo(id);
+  if (info === "no_session") {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (!info) return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
 
-  const canView =
-    task.assignedToId === session.userId ||
-    task.createdById === session.userId ||
-    getVisibleRoles(session.role).includes(task.assignedTo.role);
-  if (!canView) return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
-
-  const auditHistory = await getEndDateAuditHistory(id);
-
-  return NextResponse.json({
-    endDate: task.endDate,
-    endDateApprovalStatus: task.endDateApprovalStatus,
-    endDateApprovedAt: task.endDateApprovedAt,
-    approvedBy: task.endDateApprover,
-    canValidate: canValidateEndDate(session.role, task.assignedToId, session.userId),
-    auditHistory: auditHistory.map((a) => ({
-      id: a.id,
-      action: a.action,
-      previousValue: a.previousValue,
-      newValue: a.newValue,
-      observaciones: a.observaciones,
-      user: a.user,
-      userRole: a.userRole,
-      createdAt: a.createdAt,
-    })),
-  });
+  return NextResponse.json(mapDjangoEndDateInfoToNexoShape(info));
 }
 
 export async function POST(request: NextRequest, ctx: Ctx) {
@@ -68,53 +46,30 @@ export async function POST(request: NextRequest, ctx: Ctx) {
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
   const { id } = await ctx.params;
-  const task = await prisma.task.findUnique({
-    where: { id },
-    select: { id: true, assignedToId: true, assignedTo: { select: { role: true } } },
+  const body = (await request.json()) as { action?: unknown; newEndDate?: unknown; observaciones?: unknown };
+
+  const response = await djangoApiFetch(`/tasks/${id}/end-date/`, {
+    method: "POST",
+    body: JSON.stringify({
+      action: body.action,
+      new_end_date: body.newEndDate ?? null,
+      observaciones: typeof body.observaciones === "string" ? body.observaciones.trim() || null : null,
+    }),
   });
-  if (!task) return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
 
-  const canSeeTask = getVisibleRoles(session.role).includes(task.assignedTo.role);
-  if (!canSeeTask || !canValidateEndDate(session.role, task.assignedToId, session.userId)) {
-    return NextResponse.json({ error: "Sin permisos para validar la Fecha Fin de esta tarea" }, { status: 403 });
+  if (!response) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (response.status === 403) {
+    return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
+  }
+  if (!response.ok) {
+    const message = await extractDjangoErrorMessage(
+      response,
+      "Sin permisos para validar la Fecha Fin de esta tarea"
+    );
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 
-  let body: unknown;
-  try {
-    body = await request.json();
-  } catch {
-    return NextResponse.json({ error: "Cuerpo inválido" }, { status: 400 });
-  }
-  const { action, newEndDate, observaciones } = (body ?? {}) as { action?: unknown; newEndDate?: unknown; observaciones?: unknown };
-
-  if (!isValidEndDateAction(action)) {
-    return NextResponse.json({ error: "Acción inválida" }, { status: 400 });
-  }
-  let parsedNewEndDate: Date | null = null;
-  if (action === "MODIFICAR") {
-    const d = new Date(String(newEndDate));
-    if (!newEndDate || Number.isNaN(d.getTime())) {
-      return NextResponse.json({ error: "Debes indicar una nueva fecha fin válida" }, { status: 400 });
-    }
-    parsedNewEndDate = d;
-  }
-
-  const updated = await applyEndDateAction({
-    taskId: id,
-    action,
-    newEndDate: parsedNewEndDate,
-    observaciones: typeof observaciones === "string" && observaciones.trim() ? observaciones.trim() : null,
-    userId: session.userId,
-    userRole: session.role,
-    ipAddress: getClientIp(request.headers),
-  });
-  if (!updated) return NextResponse.json({ error: "Tarea no encontrada" }, { status: 404 });
-
-  invalidateAnalyticsCache(task.assignedToId);
-
-  return NextResponse.json({
-    endDate: updated.endDate,
-    endDateApprovalStatus: updated.endDateApprovalStatus,
-    endDateApprovedAt: updated.endDateApprovedAt,
-  });
+  return NextResponse.json(mapDjangoEndDateInfoToNexoShape(await response.json()));
 }

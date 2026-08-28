@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import type { Role } from "@/generated/prisma/client";
+import type { Role } from "@/lib/roles";
 import SectionCard from "./SectionCard";
 import { Button } from "@/components/ui/Button";
 import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";

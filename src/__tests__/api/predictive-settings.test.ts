@@ -1,21 +1,21 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { SessionPayload } from "@/lib/session";
 
-const getEffectivePredictionWindowWeeks = vi.fn();
-const setConfigValue = vi.fn();
 const invalidateAnalyticsCache = vi.fn();
-
-vi.mock("@/lib/predictiveConfig", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/predictiveConfig")>();
-  return { ...actual, getEffectivePredictionWindowWeeks: (...a: unknown[]) => getEffectivePredictionWindowWeeks(...a) };
-});
-
-vi.mock("@/lib/systemConfig", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/systemConfig")>();
-  return { ...actual, setConfigValue: (...a: unknown[]) => setConfigValue(...a) };
-});
-
 vi.mock("@/lib/analytics", () => ({ invalidateAnalyticsCache: (...a: unknown[]) => invalidateAnalyticsCache(...a) }));
+
+// Cutover de stack (Fase 84, ver docs/AUDIT_LOG.md § 2026-08-27): réplica de
+// `PredictionWindowSettingsView` (backend, completa desde la Fase 13) —
+// mockeado con `@/lib/djangoSession`, ya no con `@/lib/systemConfig`.
+const djangoApiFetch = vi.fn();
+vi.mock("@/lib/djangoSession", () => ({
+  djangoApiFetch: (...args: unknown[]) => djangoApiFetch(...args),
+  extractDjangoFlatErrorMessage: async (response: Response) => (await response.json().catch(() => null))?.error,
+}));
+
+function djangoResponse(ok: boolean, data: unknown, status = ok ? 200 : 400) {
+  return { ok, status, json: async () => data } as Response;
+}
 
 vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
 
@@ -34,11 +34,14 @@ function putRequest(body: unknown) {
   return { json: async () => body } as never;
 }
 
+function resetAll() {
+  djangoApiFetch.mockReset();
+  invalidateAnalyticsCache.mockReset();
+  vi.mocked(getSession).mockReset();
+}
+
 describe("GET /api/settings/prediction-window", () => {
-  beforeEach(() => {
-    getEffectivePredictionWindowWeeks.mockReset().mockResolvedValue("3");
-    vi.mocked(getSession).mockReset();
-  });
+  beforeEach(resetAll);
 
   it("responde 401 sin sesión", async () => {
     mockSession(null);
@@ -48,6 +51,7 @@ describe("GET /api/settings/prediction-window", () => {
 
   it("cualquier usuario autenticado puede leer la ventana efectiva", async () => {
     mockSession({ role: "ASISTENTE_GH" });
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, { window_weeks: "3" }));
     const res = await GET();
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -56,12 +60,7 @@ describe("GET /api/settings/prediction-window", () => {
 });
 
 describe("PUT /api/settings/prediction-window", () => {
-  beforeEach(() => {
-    getEffectivePredictionWindowWeeks.mockReset().mockResolvedValue("6");
-    setConfigValue.mockReset().mockResolvedValue(undefined);
-    invalidateAnalyticsCache.mockReset();
-    vi.mocked(getSession).mockReset();
-  });
+  beforeEach(resetAll);
 
   it("responde 401 sin sesión", async () => {
     mockSession(null);
@@ -69,25 +68,31 @@ describe("PUT /api/settings/prediction-window", () => {
     expect(res.status).toBe(401);
   });
 
-  it("responde 403 si el rol no es ADMINISTRADOR (ni siquiera Coordinador Nacional)", async () => {
+  it("responde 403 si el rol no es ADMINISTRADOR (ni siquiera Coordinador Nacional), sin llamar a Django", async () => {
     mockSession({ role: "COORDINADOR_NACIONAL" });
     const res = await PUT(putRequest({ windowWeeks: "6" }));
     expect(res.status).toBe(403);
-    expect(setConfigValue).not.toHaveBeenCalled();
+    expect(djangoApiFetch).not.toHaveBeenCalled();
   });
 
-  it("responde 400 con un valor fuera de las 5 opciones permitidas", async () => {
+  it("responde 400 con un valor fuera de las 5 opciones permitidas, sin llamar a Django", async () => {
     mockSession({ role: "ADMINISTRADOR" });
     const res = await PUT(putRequest({ windowWeeks: "5" }));
     expect(res.status).toBe(400);
-    expect(setConfigValue).not.toHaveBeenCalled();
+    expect(djangoApiFetch).not.toHaveBeenCalled();
   });
 
   it("ADMINISTRADOR guarda un valor válido, invalida el caché global (sin argumentos) y devuelve el nuevo valor efectivo", async () => {
     mockSession({ role: "ADMINISTRADOR", userId: "admin-1" });
+    djangoApiFetch
+      .mockResolvedValueOnce(djangoResponse(true, { window_weeks: "6" })) // PUT
+      .mockResolvedValueOnce(djangoResponse(true, { window_weeks: "6" })); // re-fetch tras guardar
     const res = await PUT(putRequest({ windowWeeks: "6" }));
     expect(res.status).toBe(200);
-    expect(setConfigValue).toHaveBeenCalledWith("prediction_window_weeks", "6", "admin-1");
+    expect(djangoApiFetch).toHaveBeenCalledWith("/settings/prediction-window/", {
+      method: "PUT",
+      body: JSON.stringify({ window_weeks: "6" }),
+    });
     expect(invalidateAnalyticsCache).toHaveBeenCalledWith(); // sin argumentos — cambio global, no por usuario
     const body = await res.json();
     expect(body.windowWeeks).toBe("6");
