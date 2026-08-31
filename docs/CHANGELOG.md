@@ -23,6 +23,106 @@
 
 ---
 
+## v1.144.4 — 2026-08-31
+
+**Tipo:** FIX
+**Módulo:** 6 `page.tsx` de rutas protegidas (Proyectos, Reuniones, Equipo,
+Tiempo Objetivo, Dashboard) — desajuste de espacio de ids Postgres↔Django
+
+Hallazgo de una prueba integral end-to-end en Chrome real (login →
+navegación por todos los módulos → escritura real de datos), continuación
+de la verificación de las Fases 87-90. Crear un proyecto dejando la opción
+por defecto **"Responsable principal: Yo mismo"** fallaba con `400 {"error":
+"Este campo no puede ser nulo."}` — un error real del backend, no de
+prueba.
+
+Causa raíz: `src/app/(protected)/projects/page.tsx` pasaba
+`currentUserId={session.userId}` (el cuid de Postgres del JWT) al mismo
+tiempo que `candidateUsers[].id` ya son ids NUMÉRICOS de Django (Fase 2).
+`CreateProjectModal` arma la opción "Yo mismo" con ese cuid;
+`Number(cuid)` da `NaN`, y `JSON.stringify(NaN)` serializa como `null` —
+Django recibe `"responsible": null` y lo rechaza. Mismo patrón de bug ya
+resuelto para Tareas en la Fase 55 (`tasks/page.tsx` ya resuelve el id de
+Django vía `fetchDjangoCurrentUserId()`), pero nunca replicado en el resto
+de las páginas que comparten componentes con Tareas.
+
+Auditoría completa de `session.userId` en `src/app/(protected)/**/page.tsx`
+encontró el mismo defecto en 6 archivos (2 ya con `Number()`/comparación
+de igualdad rota, no solo el caso de Proyectos):
+
+- `projects/page.tsx` — "Yo mismo" como responsable (400 al crear, arriba).
+- `projects/[id]/page.tsx` — `isParticipant`/permisos de registrar
+  actividad por fase nunca detectaban correctamente al usuario propio
+  (comparación cuid vs id numérico, silenciosamente falsa siempre).
+- `meetings/page.tsx` — `isHost` nunca coincidía (sin controles de
+  anfitrión en tus propias reuniones) y el selector de invitados no te
+  excluía a vos mismo.
+- `team/page.tsx` — autoría de comentarios/actividades rota al ver el
+  trabajo de un subordinado desde Equipo (`CommentPanel`/`ActivityPanel`,
+  mismos componentes que Tareas, alimentados con el id equivocado).
+- `tiempo-objetivo/page.tsx` — `RegularizeTargetTimeManager` no excluía
+  tareas propias de la lista validable ni marcaba `isSelf` correctamente.
+- `dashboard/page.tsx` — "Nueva tarea"/"Nueva reunión" (Acciones Rápidas)
+  heredaban el mismo bug de auto-asignación/auto-designación de anfitrión
+  que Proyectos.
+
+`kpis/page.tsx` tiene el mismo valor incorrecto pasado a `AnalyticsModule`
+→ `KpisModule`, pero ese componente destructura `currentUserId: _uid` sin
+usarlo — prop muerta, sin impacto real, no se tocó.
+
+Fix: las 6 páginas ahora resuelven el id numérico de Django server-side
+(`fetchDjangoCurrentUserId()`/`resolveDjangoUserId()`, ya existentes) y lo
+pasan con el mismo criterio de degradación del resto de la migración —
+`djangoUserId ?? session.userId` (nunca rompe la página si Django no
+responde). `projects/[id]/page.tsx` y `dashboard/page.tsx` ya resolvían el
+id para otro propósito (`isResponsibleOrCreator`/`view-preferences`) y solo
+necesitaron reusarlo.
+
+Ninguno de los 1099 tests de Vitest detectaba este defecto (estas páginas
+`page.tsx` no tienen test directo) — confirma que fue necesaria la
+verificación en navegador real para encontrarlo. Verificado visualmente:
+recrear el proyecto con "Yo mismo" ahora funciona (`Responsable: Coordinador
+Nacional`, sin error). `npx tsc --noEmit` limpio, `npx vitest run`
+1099/1099 sin regresiones.
+
+---
+
+## v1.144.3 — 2026-08-31
+
+**Tipo:** FIX
+**Módulo:** `src/app/api/dashboard/nova-message/route.ts` +
+`src/app/api/kpis/nova-insights/[userId]/route.ts`
+
+Hallazgo de la misma prueba integral en Chrome real: `POST
+/api/dashboard/nova-message` devolvía `500` en TODAS las requests. Causa
+raíz: `groq-sdk` lanza una excepción SÍNCRONA en su constructor cuando
+`GROQ_API_KEY` no está definida ("The GROQ_API_KEY environment variable is
+missing or empty..."), y ambas rutas construían el cliente `new Groq(...)` a
+nivel de MÓDULO — antes de llegar a los guards `if (!process.env.GROQ_API_KEY)`
+que esas mismas rutas ya tenían más abajo para degradar a un mensaje
+determinista. El guard nunca se alcanzaba: el módulo completo fallaba al
+cargar y Next.js devolvía 500 a cualquier request, sin importar el guard.
+`src/lib/executiveReporting/nova/generateNarrative.ts` (mismo propósito,
+Reportes Ejecutivos) sí seguía el patrón correcto — chequeo temprano antes
+de construir el cliente — y sirvió de referencia para el fix.
+
+Fix: el cliente Groq pasa a construirse de forma perezosa, después del
+guard existente — en `nova-message/route.ts` inline dentro del `try`
+(un solo call site); en `nova-insights/[userId]/route.ts` vía un accesor
+`getGroqClient()` memoizado (dos call sites, cada uno ya detrás de su
+propio guard). Ningún test de Vitest lo detectaba porque mockean
+`groq-sdk` (el constructor real nunca se ejecuta ahí) — confirma otra vez
+que hizo falta un navegador real contra un proceso real sin
+`GROQ_API_KEY` configurada (caso real de este entorno de desarrollo, no
+solo hipotético).
+
+Verificado en Chrome: `POST /api/dashboard/nova-message` pasa a responder
+`200` con el mensaje de fallback determinista correcto. `npx tsc --noEmit`
+limpio, `npx vitest run src/__tests__/api/dashboard.test.ts
+src/__tests__/api/kpis-nova-insights.test.ts` 20/20.
+
+---
+
 ## v1.144.2 — 2026-08-28
 
 **Tipo:** FIX

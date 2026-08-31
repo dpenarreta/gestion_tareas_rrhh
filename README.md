@@ -331,6 +331,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-08-31: fix: corrige 2 bugs reales hallados en pruebas integrales en Chrome (v1.144.3/v1.144.4)
 - 2026-08-28: feat: completa migracion de stack Next.js/Prisma/PostgreSQL a Next.js/Django/SQL Server
 - 2026-08-03: feat(tasks): aprobacion masiva de fecha fin con edicion por fila (v1.26.0)
 - 2026-08-03: refactor(tasks): consolida validacion de fecha fin en la pantalla de tiempo objetivo (v1.25.1)

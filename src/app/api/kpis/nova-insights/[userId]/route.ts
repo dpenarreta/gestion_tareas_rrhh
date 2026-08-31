@@ -33,7 +33,16 @@ type MotivationalCacheEntry = {
 const analyticalCache = new Map<string, AnalyticalCacheEntry>();
 const motivationalCache = new Map<string, MotivationalCacheEntry>();
 
-const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
+// Lazy: el constructor de Groq lanza síncronamente si falta GROQ_API_KEY
+// (ver `Client` en `groq-sdk`) — construirlo a nivel de módulo rompía esta
+// ruta con un 500 en TODAS las requests cuando la key no está configurada,
+// saltándose por completo los guards `if (process.env.GROQ_API_KEY)` de
+// abajo (que solo se alcanzan si el módulo llega a cargar).
+let groqClient: Groq | null = null;
+function getGroqClient(): Groq {
+  if (!groqClient) groqClient = new Groq({ apiKey: process.env.GROQ_API_KEY });
+  return groqClient;
+}
 
 // Groq NUNCA calcula nada — todo el JSON que recibe ya viene calculado
 // deterministicamente por el motor de Analytics (Django, `apps.analytics`,
@@ -244,7 +253,7 @@ async function generateAnalytical(userId: string, sensitivity: Sensitivity, canS
   let recomendaciones: string[] = [];
   if (process.env.GROQ_API_KEY) {
     try {
-      const completion = await groq.chat.completions.create({
+      const completion = await getGroqClient().chat.completions.create({
         model: "llama-3.3-70b-versatile",
         messages: [
           { role: "system", content: ANALYTICAL_SYSTEM_PROMPT },
@@ -303,7 +312,7 @@ async function generateMotivational(userId: string, selfName: string): Promise<M
   let messages: string[] = [];
   if (process.env.GROQ_API_KEY) {
     try {
-      const completion = await groq.chat.completions.create({
+      const completion = await getGroqClient().chat.completions.create({
         model: "llama-3.3-70b-versatile",
         messages: [
           { role: "system", content: MOTIVATIONAL_SYSTEM_PROMPT },
