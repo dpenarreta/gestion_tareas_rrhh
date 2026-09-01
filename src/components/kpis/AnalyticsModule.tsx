@@ -8,14 +8,13 @@ import MyKpisModule from "./MyKpisModule";
 import ExecutiveDashboard from "./ExecutiveDashboard";
 
 type Props = {
-  currentUserId: string;
   currentUserRole: Role;
   currentUserName: string;
 };
 
 type Tab = "ejecutivo" | "team" | "personal";
 
-export default function AnalyticsModule({ currentUserId, currentUserRole, currentUserName }: Props) {
+export default function AnalyticsModule({ currentUserRole, currentUserName }: Props) {
   // Dashboard ejecutivo: Administrador, Jefe Nacional y Coordinador Nacional
   // (nivel >= 3) — cada uno ve su propio alcance vía getSubordinateRoles.
   const hasExecutiveDashboard = ROLE_LEVEL[currentUserRole] >= 3;
@@ -67,7 +66,7 @@ export default function AnalyticsModule({ currentUserId, currentUserRole, curren
       </div>
 
       {tab === "ejecutivo" && hasExecutiveDashboard && <ExecutiveDashboard />}
-      {tab === "team" && hasTeamTab && <KpisModule currentUserId={currentUserId} currentUserRole={currentUserRole} />}
+      {tab === "team" && hasTeamTab && <KpisModule currentUserRole={currentUserRole} />}
       {tab === "personal" && hasPersonalTab && (
         <MyKpisModule currentUserName={currentUserName} currentUserRole={currentUserRole} />
       )}

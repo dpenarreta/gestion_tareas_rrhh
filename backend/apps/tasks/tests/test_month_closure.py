@@ -29,8 +29,13 @@ def _grant_permission(user: User, codename: str) -> None:
 
 @pytest.fixture
 def manager():
-    user = User.objects.create_user(username="manager", email="manager@example.com", password="Sup3r-Secr3t!")
-    _grant_permission(user, "usuarios.editar")
+    # `tareas.cerrar_mes` — antes reutilizaba `usuarios.editar` (ver
+    # docs/AUDIT_LOG.md § 2026-09-01, "Catálogo dinámico de permisos
+    # extendido a todo el sistema"), ahora tiene su propio codename.
+    user = User.objects.create_user(
+        username="manager", email="manager@example.com", password="Sup3r-Secr3t!"
+    )
+    _grant_permission(user, "tareas.cerrar_mes")
     return user
 
 
@@ -57,7 +62,9 @@ def administrador_client(administrador):
 
 @pytest.fixture
 def collaborator():
-    return User.objects.create_user(username="collab", email="collab@example.com", password="Sup3r-Secr3t!")
+    return User.objects.create_user(
+        username="collab", email="collab@example.com", password="Sup3r-Secr3t!"
+    )
 
 
 @pytest.fixture
@@ -73,9 +80,16 @@ def _dt(day: int) -> datetime:
 
 def _task(assigned_to: User, created_by: User, **overrides) -> Task:
     fields = {
-        "title": "Tarea de cierre", "priority": "MEDIA", "frequency": "PUNTUAL", "type": "FIJA",
-        "status": "PENDIENTE", "start_date": _dt(2), "end_date": _dt(15), "estimated_hours": 5,
-        "assigned_to": assigned_to, "created_by": created_by,
+        "title": "Tarea de cierre",
+        "priority": "MEDIA",
+        "frequency": "PUNTUAL",
+        "type": "FIJA",
+        "status": "PENDIENTE",
+        "start_date": _dt(2),
+        "end_date": _dt(15),
+        "estimated_hours": 5,
+        "assigned_to": assigned_to,
+        "created_by": created_by,
     }
     fields.update(overrides)
     return Task.objects.create(**fields)
@@ -83,9 +97,18 @@ def _task(assigned_to: User, created_by: User, **overrides) -> Task:
 
 def _make_closure(*, closed_by: User) -> MonthClosure:
     return MonthClosure.objects.create(
-        month=MONTH, year=YEAR, closed_by=closed_by, cutoff_date=_dt(31), closure_type="NORMAL",
-        calendar_days_total=31, calendar_days_considered=31, working_days_considered=20,
-        working_hours_considered=130.0, total_tasks=1, completed_tasks=1, summary={},
+        month=MONTH,
+        year=YEAR,
+        closed_by=closed_by,
+        cutoff_date=_dt(31),
+        closure_type="NORMAL",
+        calendar_days_total=31,
+        calendar_days_considered=31,
+        working_days_considered=20,
+        working_hours_considered=130.0,
+        total_tasks=1,
+        completed_tasks=1,
+        summary={},
     )
 
 
@@ -119,7 +142,9 @@ def test_invalid_month_returns_400(manager_client):
 def test_close_month_archives_fija_regardless_of_status(manager_client, manager, collaborator):
     task = _task(collaborator, manager, type="FIJA", status="PENDIENTE")
 
-    response = manager_client.post("/api/v1/tasks/close-month/", {"year": YEAR, "month": MONTH}, format="json")
+    response = manager_client.post(
+        "/api/v1/tasks/close-month/", {"year": YEAR, "month": MONTH}, format="json"
+    )
 
     assert response.status_code == 200
     task.refresh_from_db()
@@ -128,10 +153,14 @@ def test_close_month_archives_fija_regardless_of_status(manager_client, manager,
 
 
 def test_close_month_archives_seguimiento_only_if_completed(manager_client, manager, collaborator):
-    completed = _task(collaborator, manager, type="SEGUIMIENTO", status="COMPLETADA", title="Completada")
+    completed = _task(
+        collaborator, manager, type="SEGUIMIENTO", status="COMPLETADA", title="Completada"
+    )
     active = _task(collaborator, manager, type="SEGUIMIENTO", status="EN_PROGRESO", title="Activa")
 
-    response = manager_client.post("/api/v1/tasks/close-month/", {"year": YEAR, "month": MONTH}, format="json")
+    response = manager_client.post(
+        "/api/v1/tasks/close-month/", {"year": YEAR, "month": MONTH}, format="json"
+    )
 
     assert response.status_code == 200
     assert response.data["archived_count"] == 1
@@ -145,10 +174,14 @@ def test_close_month_archives_seguimiento_only_if_completed(manager_client, mana
 # --- duplicación de recurrentes ------------------------------------------
 
 
-def test_close_month_duplicates_recurring_frequency_to_next_month(manager_client, manager, collaborator):
+def test_close_month_duplicates_recurring_frequency_to_next_month(
+    manager_client, manager, collaborator
+):
     _task(collaborator, manager, frequency="MENSUAL", start_date=_dt(5), end_date=_dt(20))
 
-    response = manager_client.post("/api/v1/tasks/close-month/", {"year": YEAR, "month": MONTH}, format="json")
+    response = manager_client.post(
+        "/api/v1/tasks/close-month/", {"year": YEAR, "month": MONTH}, format="json"
+    )
 
     assert response.status_code == 200
     assert response.data["duplicated_count"] == 1
@@ -163,7 +196,9 @@ def test_close_month_duplicates_recurring_frequency_to_next_month(manager_client
 def test_close_month_does_not_duplicate_puntual(manager_client, manager, collaborator):
     _task(collaborator, manager, frequency="PUNTUAL")
 
-    response = manager_client.post("/api/v1/tasks/close-month/", {"year": YEAR, "month": MONTH}, format="json")
+    response = manager_client.post(
+        "/api/v1/tasks/close-month/", {"year": YEAR, "month": MONTH}, format="json"
+    )
 
     assert response.data["duplicated_count"] == 0
 
@@ -174,7 +209,9 @@ def test_close_month_duplicate_clamps_day_at_month_end(manager_client, manager, 
     manager_client.post("/api/v1/tasks/close-month/", {"year": YEAR, "month": MONTH}, format="json")
 
     duplicate = Task.objects.get(archived_month__isnull=True, frequency="SEMANAL")
-    assert duplicate.end_date == datetime(YEAR, 2, 28, tzinfo=dt_timezone.utc)  # 2026 no es bisiesto
+    assert duplicate.end_date == datetime(
+        YEAR, 2, 28, tzinfo=dt_timezone.utc
+    )  # 2026 no es bisiesto
 
 
 # --- doble cierre --------------------------------------------------------
@@ -183,10 +220,14 @@ def test_close_month_duplicate_clamps_day_at_month_end(manager_client, manager, 
 def test_closing_same_month_twice_returns_409(manager_client, manager, collaborator):
     _task(collaborator, manager)
 
-    first = manager_client.post("/api/v1/tasks/close-month/", {"year": YEAR, "month": MONTH}, format="json")
+    first = manager_client.post(
+        "/api/v1/tasks/close-month/", {"year": YEAR, "month": MONTH}, format="json"
+    )
     assert first.status_code == 200
 
-    second = manager_client.post("/api/v1/tasks/close-month/", {"year": YEAR, "month": MONTH}, format="json")
+    second = manager_client.post(
+        "/api/v1/tasks/close-month/", {"year": YEAR, "month": MONTH}, format="json"
+    )
     assert second.status_code == 409
 
 
@@ -210,8 +251,10 @@ def test_working_days_hours_considered_reflect_config_and_holidays(
     # semántica "vigente a la fecha" nunca es retroactiva, ver
     # test_effective_value_is_never_retroactive en apps.configuration.
     SystemConfigHistory.objects.create(
-        key=CONFIG_KEY_HORAS_EFECTIVAS, value="8.0",
-        valid_from=datetime(2020, 1, 1, tzinfo=dt_timezone.utc), updated_by=administrador,
+        key=CONFIG_KEY_HORAS_EFECTIVAS,
+        value="8.0",
+        valid_from=datetime(2020, 1, 1, tzinfo=dt_timezone.utc),
+        updated_by=administrador,
     )
     Holiday.objects.create(date=date(YEAR, 1, 1), name="Año Nuevo", year=YEAR)  # jueves
     _task(collaborator, manager)
@@ -231,13 +274,21 @@ def test_working_days_hours_considered_reflect_config_and_holidays(
 def test_correct_rejects_non_archived_task(administrador_client, manager, collaborator):
     task = _task(collaborator, manager)
 
-    response = administrador_client.patch(f"/api/v1/tasks/{task.id}/correct/", {"real_hours": 5}, format="json")
+    response = administrador_client.patch(
+        f"/api/v1/tasks/{task.id}/correct/", {"real_hours": 5}, format="json"
+    )
 
     assert response.status_code == 400
 
 
 def test_correct_dedupes_identical_values(administrador_client, manager, collaborator):
-    task = _task(collaborator, manager, real_hours=5.0, archived_month=ARCHIVED_KEY, archived_at=timezone.now())
+    task = _task(
+        collaborator,
+        manager,
+        real_hours=5.0,
+        archived_month=ARCHIVED_KEY,
+        archived_at=timezone.now(),
+    )
 
     response = administrador_client.patch(
         f"/api/v1/tasks/{task.id}/correct/", {"real_hours": 5.0}, format="json"
@@ -246,8 +297,16 @@ def test_correct_dedupes_identical_values(administrador_client, manager, collabo
     assert response.status_code == 400
 
 
-def test_correct_updates_monthclosure_corrections(administrador_client, administrador, manager, collaborator):
-    task = _task(collaborator, manager, real_hours=5.0, archived_month=ARCHIVED_KEY, archived_at=timezone.now())
+def test_correct_updates_monthclosure_corrections(
+    administrador_client, administrador, manager, collaborator
+):
+    task = _task(
+        collaborator,
+        manager,
+        real_hours=5.0,
+        archived_month=ARCHIVED_KEY,
+        archived_at=timezone.now(),
+    )
     closure = _make_closure(closed_by=administrador)
 
     response = administrador_client.patch(
@@ -263,9 +322,15 @@ def test_correct_updates_monthclosure_corrections(administrador_client, administ
     assert closure.corrections[0]["field"] == "realHours"
 
 
-def test_correct_status_change_updates_progress_and_completed_at(administrador_client, manager, collaborator):
+def test_correct_status_change_updates_progress_and_completed_at(
+    administrador_client, manager, collaborator
+):
     task = _task(
-        collaborator, manager, status="PENDIENTE", archived_month=ARCHIVED_KEY, archived_at=timezone.now()
+        collaborator,
+        manager,
+        status="PENDIENTE",
+        archived_month=ARCHIVED_KEY,
+        archived_at=timezone.now(),
     )
 
     response = administrador_client.patch(
@@ -280,7 +345,13 @@ def test_correct_status_change_updates_progress_and_completed_at(administrador_c
 
 
 def test_correct_without_monthclosure_still_succeeds(administrador_client, manager, collaborator):
-    task = _task(collaborator, manager, real_hours=5.0, archived_month=ARCHIVED_KEY, archived_at=timezone.now())
+    task = _task(
+        collaborator,
+        manager,
+        real_hours=5.0,
+        archived_month=ARCHIVED_KEY,
+        archived_at=timezone.now(),
+    )
 
     response = administrador_client.patch(
         f"/api/v1/tasks/{task.id}/correct/", {"real_hours": 9.0}, format="json"
@@ -292,21 +363,35 @@ def test_correct_without_monthclosure_still_succeeds(administrador_client, manag
 
 
 def test_manager_cannot_use_correct_only_administrador(manager_client, manager, collaborator):
-    task = _task(collaborator, manager, real_hours=5.0, archived_month=ARCHIVED_KEY, archived_at=timezone.now())
+    task = _task(
+        collaborator,
+        manager,
+        real_hours=5.0,
+        archived_month=ARCHIVED_KEY,
+        archived_at=timezone.now(),
+    )
 
-    response = manager_client.patch(f"/api/v1/tasks/{task.id}/correct/", {"real_hours": 6.0}, format="json")
+    response = manager_client.patch(
+        f"/api/v1/tasks/{task.id}/correct/", {"real_hours": 6.0}, format="json"
+    )
 
     assert response.status_code == 403
 
 
 def test_correct_nothing_changed_returns_400(administrador_client, manager, collaborator):
     task = _task(
-        collaborator, manager, status="PENDIENTE", real_hours=5.0,
-        archived_month=ARCHIVED_KEY, archived_at=timezone.now(),
+        collaborator,
+        manager,
+        status="PENDIENTE",
+        real_hours=5.0,
+        archived_month=ARCHIVED_KEY,
+        archived_at=timezone.now(),
     )
 
     response = administrador_client.patch(
-        f"/api/v1/tasks/{task.id}/correct/", {"real_hours": 5.0, "status": "PENDIENTE"}, format="json"
+        f"/api/v1/tasks/{task.id}/correct/",
+        {"real_hours": 5.0, "status": "PENDIENTE"},
+        format="json",
     )
 
     assert response.status_code == 400
@@ -317,8 +402,12 @@ def test_correct_nothing_changed_returns_400(administrador_client, manager, coll
 
 def test_repository_scoped_to_own_tasks_gap(manager_client, administrador, manager, collaborator):
     task = _task(
-        collaborator, manager, real_hours=3.0, status="COMPLETADA",
-        archived_month=ARCHIVED_KEY, archived_at=timezone.now(),
+        collaborator,
+        manager,
+        real_hours=3.0,
+        status="COMPLETADA",
+        archived_month=ARCHIVED_KEY,
+        archived_at=timezone.now(),
     )
     _make_closure(closed_by=administrador)
 

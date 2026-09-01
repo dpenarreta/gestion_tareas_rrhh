@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "tipoReporte inválido — use MENSUAL, RANGO_MESES o RANGO_PERSONALIZADO" }, { status: 400 });
   }
 
-  const generatedBy = { userId: session.userId, name: session.name };
+  const generatedBy = { userId: String(session.djangoUserId), name: session.name };
   const serializedFilters = { ...filters, fechaCorte: filters.fechaCorte?.toISOString() };
   const t0 = Date.now();
   // Report ID "provisional" — solo para poder auditar una falla ANTES de que

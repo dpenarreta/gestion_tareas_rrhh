@@ -39,7 +39,6 @@ class DataSubjectRequest(BaseModel):
     # diferencia del resto del backend (que usa PROTECT para User), acá
     # se replica CASCADE tal cual: si se borra la cuenta del titular,
     # sus propias solicitudes de datos ya no tienen sentido que persistan.
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="data_subject_requests", on_delete=models.CASCADE)
     type = models.CharField(max_length=20, choices=Type.choices)
     description = models.TextField(null=True, blank=True)

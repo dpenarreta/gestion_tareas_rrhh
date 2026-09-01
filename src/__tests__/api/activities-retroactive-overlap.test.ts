@@ -161,7 +161,7 @@ describe("GET /api/activities/day-schedule", () => {
   });
 
   it("reenvía el parámetro date y devuelve las actividades tal cual las da Django", async () => {
-    mockSession({ userId: "u1" });
+    mockSession({});
     djangoApiFetch.mockResolvedValue(
       djangoResponse(true, [{ id: 1, startTime: "08:00", endTime: "09:00", taskId: 1, taskTitle: "Tarea A" }])
     );

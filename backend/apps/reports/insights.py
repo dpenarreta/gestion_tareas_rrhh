@@ -2,7 +2,7 @@
 stack (ver docs/AUDIT_LOG.md § 2026-08-26). Motor de interpretación de
 Reportes Ejecutivos: capa de composición sobre datos YA calculados por
 `apps.reports.member_kpis`/`apps.analytics.*` — NUNCA recalcula un KPI
-ni usa IA (Groq). Mismo principio que el TS original: cada función acá
+ni usa IA (Gemini). Mismo principio que el TS original: cada función acá
 es una regla fija sobre números que otro módulo ya produjo.
 
 Deliberadamente SIN wiring a ningún endpoint HTTP todavía — mismo

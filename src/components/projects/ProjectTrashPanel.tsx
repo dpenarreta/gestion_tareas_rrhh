@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { PROJECT_STATUS_LABEL, type ProjectStatus } from "./types";
 import { useToast } from "@/components/ui/Toast";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 type TrashedProject = {
   id: string;
@@ -40,6 +41,7 @@ export default function ProjectTrashPanel({ onClose, onRestored }: Props) {
   const [items, setItems] = useState<TrashedProject[]>([]);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<{ id: string; name: string; type: "restore" | "delete" } | null>(null);
 
   useEffect(() => {
     fetch("/api/projects/trash")
@@ -50,7 +52,6 @@ export default function ProjectTrashPanel({ onClose, onRestored }: Props) {
 
   async function restoreItem(id: string, name: string) {
     if (busyId) return;
-    if (!window.confirm(`¿Restaurar "${name}"?`)) return;
     setBusyId(id);
     try {
       const res = await fetch(`/api/projects/${id}/restore`, { method: "POST" });
@@ -69,12 +70,12 @@ export default function ProjectTrashPanel({ onClose, onRestored }: Props) {
       showToast("Error de conexión.", "error", { label: "Reintentar", onClick: () => restoreItem(id, name) });
     } finally {
       setBusyId(null);
+      setPendingAction(null);
     }
   }
 
   async function deleteForever(id: string, name: string) {
     if (busyId) return;
-    if (!window.confirm(`¿Eliminar "${name}" definitivamente? Esta acción no se puede deshacer.`)) return;
     setBusyId(id);
     try {
       const res = await fetch(`/api/projects/${id}/permanent`, { method: "DELETE" });
@@ -92,6 +93,7 @@ export default function ProjectTrashPanel({ onClose, onRestored }: Props) {
       showToast("Error de conexión.", "error", { label: "Reintentar", onClick: () => deleteForever(id, name) });
     } finally {
       setBusyId(null);
+      setPendingAction(null);
     }
   }
 
@@ -131,14 +133,14 @@ export default function ProjectTrashPanel({ onClose, onRestored }: Props) {
               {p.canDelete ? (
                 <div className="flex gap-2 mt-2.5">
                   <button
-                    onClick={() => restoreItem(p.id, p.name)}
+                    onClick={() => setPendingAction({ id: p.id, name: p.name, type: "restore" })}
                     disabled={busyId === p.id}
                     className="flex-1 bg-primary text-white rounded-lg py-1.5 text-xs font-medium hover:bg-primary-hover disabled:opacity-40"
                   >
                     Restaurar
                   </button>
                   <button
-                    onClick={() => deleteForever(p.id, p.name)}
+                    onClick={() => setPendingAction({ id: p.id, name: p.name, type: "delete" })}
                     disabled={busyId === p.id}
                     className="flex-1 border border-danger text-danger rounded-lg py-1.5 text-xs font-medium hover:bg-danger/[.08] disabled:opacity-40"
                   >
@@ -154,6 +156,24 @@ export default function ProjectTrashPanel({ onClose, onRestored }: Props) {
           ))}
         </div>
       </aside>
+
+      <ConfirmDialog
+        open={pendingAction !== null}
+        title={pendingAction?.type === "delete" ? "Eliminar definitivamente" : "Restaurar proyecto"}
+        message={
+          pendingAction?.type === "delete"
+            ? `¿Eliminar "${pendingAction.name}" definitivamente? Esta acción no se puede deshacer.`
+            : `¿Restaurar "${pendingAction?.name}"?`
+        }
+        danger={pendingAction?.type === "delete"}
+        loading={busyId === pendingAction?.id}
+        onConfirm={() => {
+          if (!pendingAction) return;
+          if (pendingAction.type === "delete") deleteForever(pendingAction.id, pendingAction.name);
+          else restoreItem(pendingAction.id, pendingAction.name);
+        }}
+        onCancel={() => setPendingAction(null)}
+      />
     </>
   );
 }

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
 import { SkeletonRow } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { CalendarOff } from "lucide-react";
 
 type Holiday = {
@@ -32,6 +33,7 @@ export default function HolidaysSection() {
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<Holiday | null>(null);
 
   const load = useCallback(async (y: number) => {
     setLoading(true);
@@ -74,13 +76,13 @@ export default function HolidaysSection() {
   }
 
   async function handleDelete(h: Holiday) {
-    if (!confirm(`¿Eliminar el feriado "${h.name}" (${formatHolidayDate(h.date)})?`)) return;
     setBusyId(h.id);
     try {
       const res = await fetch(`/api/settings/holidays/${h.id}`, { method: "DELETE" });
       if (res.ok) setHolidays((prev) => prev.filter((x) => x.id !== h.id));
     } finally {
       setBusyId(null);
+      setPendingDelete(null);
     }
   }
 
@@ -163,7 +165,7 @@ export default function HolidaysSection() {
                   <Td className="text-secondary">{h.name}</Td>
                   <Td className="text-right">
                     <button
-                      onClick={() => handleDelete(h)}
+                      onClick={() => setPendingDelete(h)}
                       disabled={busyId === h.id}
                       className="text-xs text-danger hover:brightness-90 font-medium px-2 py-1 rounded hover:bg-danger/[.09] transition-colors disabled:opacity-50"
                     >
@@ -176,6 +178,16 @@ export default function HolidaysSection() {
           </Table>
         )}
       </div>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        title="Eliminar feriado"
+        message={pendingDelete ? `¿Eliminar el feriado "${pendingDelete.name}" (${formatHolidayDate(pendingDelete.date)})?` : ""}
+        danger
+        loading={busyId === pendingDelete?.id}
+        onConfirm={() => pendingDelete && handleDelete(pendingDelete)}
+        onCancel={() => setPendingDelete(null)}
+      />
     </SectionCard>
   );
 }

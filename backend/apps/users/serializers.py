@@ -17,17 +17,16 @@ def _module_permission_content_type() -> ContentType:
 
 class UserPublicSerializer(serializers.ModelSerializer):
     """Representación segura del usuario (sin password ni campos sensibles).
-    `roles`/`legacy_postgres_id` — Fase 6a de la migración de stack (ver
-    docs/AUDIT_LOG.md § 2026-08-14): los necesita el puente de login de
-    Next.js (`GET /auth/me/`) para construir `session.role`/`session.userId`
-    (el `cuid` de Postgres) sin depender de Prisma. `theme` — Fase 38 (ver
-    docs/AUDIT_LOG.md § 2026-08-21): mismo endpoint, usado por
-    `src/app/layout.tsx` para resolver el tema inicial y por `PATCH
-    /api/users/[id]/theme` para resolver el `id` numérico de Django del
-    usuario en sesión (que solo tiene su `cuid` de Postgres). `data_consent_accepted`
-    — Fase 86 (ver docs/AUDIT_LOG.md § 2026-08-28): mismo endpoint, usado
-    por `src/app/(protected)/layout.tsx` para el `ConsentGate` (antes leía
-    `prisma.user.dataConsentAccepted` directo)."""
+    `roles` — Fase 6a de la migración de stack (ver docs/AUDIT_LOG.md §
+    2026-08-14): lo necesita el puente de login de Next.js (`GET /auth/me/`)
+    para construir `session.role`. `theme` — Fase 38 (ver docs/AUDIT_LOG.md
+    § 2026-08-21): mismo endpoint, usado por `src/app/layout.tsx` para
+    resolver el tema inicial y por `PATCH /api/users/[id]/theme`.
+    `data_consent_accepted` — Fase 86 (ver docs/AUDIT_LOG.md § 2026-08-28):
+    mismo endpoint, usado por `src/app/(protected)/layout.tsx` para el
+    `ConsentGate`. `legacy_postgres_id` retirado (decisión explícita del
+    usuario, ver docs/AUDIT_LOG.md § 2026-08-31) — `id` (numérico de Django)
+    es ahora el único identificador de sesión del lado Next.js."""
 
     roles = serializers.SerializerMethodField()
 
@@ -42,7 +41,6 @@ class UserPublicSerializer(serializers.ModelSerializer):
             "date_joined",
             "must_change_password",
             "roles",
-            "legacy_postgres_id",
             "theme",
             "data_consent_accepted",
         ]

@@ -64,9 +64,18 @@ def test_requires_authentication():
     assert response.status_code == 401
 
 
-def test_admin_gets_403(admin):
+def test_admin_can_view_today(admin):
+    # Ver docs/AUDIT_LOG.md § 2026-09-01 ("SuperUsuario = ADMINISTRADOR con
+    # todo el catálogo explícito") — ADMINISTRADOR tiene
+    # `escritorio_digital.usar` sembrado explícito desde la migración 0004.
     response = _client_for(admin).get("/api/v1/desk/today/")
-    assert response.status_code == 403
+    assert response.status_code == 200
+    assert response.data == {
+        "pending_notes": [],
+        "today_reminders": [],
+        "upcoming_tasks": [],
+        "recent_projects": [],
+    }
 
 
 def test_empty_state_returns_empty_blocks(owner):

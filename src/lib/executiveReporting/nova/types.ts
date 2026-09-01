@@ -1,5 +1,5 @@
 // Executive Reporting Engine 2.0 — Fase C — formas de salida de NOVA (FPS
-// Parte III). Groq NUNCA calcula nada: recibe ExecutiveReportContext (ya
+// Parte III). Gemini NUNCA calcula nada: recibe ExecutiveReportContext (ya
 // derivado, en Fase B, de ExecutiveReportSnapshotData — datos ya calculados
 // por analytics.ts/reportInsights.ts) y solo interpreta/prioriza/redacta.
 //
@@ -66,7 +66,7 @@ export type NovaSectionName = "executiveSummary" | "executiveInsights" | "execut
 
 export type NovaGenerationResult = {
   sections: NovaSections;
-  /** true si CUALQUIER sección degradó a fallback determinista (sin GROQ_API_KEY, timeout, o respuesta malformada). */
+  /** true si CUALQUIER sección degradó a fallback determinista (sin GEMINI_API_KEY, timeout, o respuesta malformada). */
   degraded: boolean;
   /** Qué secciones específicamente degradaron — para el log de auditoría (Fase A/D), nunca para bloquear la generación. */
   degradedSections: NovaSectionName[];

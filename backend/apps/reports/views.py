@@ -28,35 +28,8 @@ from .team_report import (
 )
 
 
-class UserLegacyIdLookupView(APIView):
-    """`GET /api/v1/reports/user-lookup/?legacy_ids=<cuid1>,<cuid2>,...` —
-    Fase 57 de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-25).
-    Resuelve el id numérico de Django de una lista de usuarios a partir de
-    su `legacy_postgres_id` (cuid de Postgres) — el roster de un Executive
-    Report se resuelve contra Prisma (`resolveRoster.ts`, sin cutover:
-    las consultas de Tareas/Actividades del builder siguen necesitando el
-    cuid), pero portar el cálculo del Índice Ejecutivo a Django requiere
-    el id numérico de cada colaborador para llamar a `/analytics/<id>/`.
-
-    Gateado por `CanAccessReports`, NO por el catálogo de administración
-    de usuarios (`usuarios.ver`) — un Coordinador Nacional puede generar
-    reportes sin tener acceso a administración de usuarios; reusar
-    `GET /admin/users/` (permiso distinto) le devolvería 403 sin motivo."""
-
-    permission_classes = [CanAccessReports]
-
-    def get(self, request):
-        raw_ids = request.query_params.get("legacy_ids", "")
-        legacy_ids = [v.strip() for v in raw_ids.split(",") if v.strip()]
-        if not legacy_ids:
-            return Response({"error": "legacy_ids es requerido"}, status=400)
-
-        users = User.objects.filter(legacy_postgres_id__in=legacy_ids).values("legacy_postgres_id", "id")
-        return Response(list(users))
-
-
 class RosterView(APIView):
-    """`GET /api/v1/reports/roster/?roles=<csv>&areas=<csv>&colaboradores=<csv de cuids>` —
+    """`GET /api/v1/reports/roster/?roles=<csv>&areas=<csv>&colaboradores=<csv de ids numéricos>` —
     Fase 87 de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-28).
     Réplica exacta de `resolveReportRoster` (`src/lib/executiveReporting/
     resolveRoster.ts`) — roster de colaboradores incluidos en un Executive
@@ -67,10 +40,10 @@ class RosterView(APIView):
     ya permite ver (`get_visible_groups` + `is_executor_group`, exclusión
     de liderazgo) — nunca lo amplían, sin importar lo que el caller pida.
 
-    Expone `legacy_postgres_id` (no el id numérico de Django) en `users[].id`
-    porque el builder que llama a este endpoint (`buildSnapshotData.ts`)
-    sigue operando en cuids, resolviendo el id de Django por su cuenta vía
-    `user-lookup/` (Fase 57) — mismo criterio que ese endpoint."""
+    Expone el id numérico de Django directo en `users[].id` — el bridge de
+    id vía `legacy_postgres_id`/`user-lookup/` se retiró por completo
+    (decisión explícita del usuario, ver docs/AUDIT_LOG.md § 2026-08-31);
+    `buildSnapshotData.ts` opera en id numérico de punta a punta."""
 
     permission_classes = [CanAccessReports]
 
@@ -90,14 +63,18 @@ class RosterView(APIView):
 
         queryset = User.objects.filter(groups__in=allowed_groups).distinct()
         if colaboradores_param:
-            queryset = queryset.filter(legacy_postgres_id__in=colaboradores_param)
+            # `colaboradores` ahora es un id numérico de Django — cualquier
+            # valor no numérico (ej. un cuid viejo en caché de cliente) se
+            # descarta en vez de romper el filtro con un error de tipo.
+            colaboradores_ids = [int(v) for v in colaboradores_param if v.isdigit()]
+            queryset = queryset.filter(id__in=colaboradores_ids)
 
         # Orden por nombre en Python, no en el queryset — mismo criterio que
         # `TeamListView` (`apps.team.views`): "nombre" es `first_name or
         # username`, no ordenable directo a nivel SQL sin anotar.
         members = sorted(queryset, key=lambda u: u.first_name or u.username)
         payload_users = [
-            {"id": u.legacy_postgres_id, "name": u.first_name or u.username, "role": role_name(u)} for u in members
+            {"id": str(u.id), "name": u.first_name or u.username, "role": role_name(u)} for u in members
         ]
 
         if colaboradores_param:

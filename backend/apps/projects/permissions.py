@@ -13,14 +13,21 @@ en vez de triplicarlo. Se re-exportan aquí (`role_level`/
 
 from rest_framework.permissions import IsAuthenticated
 
-from apps.hierarchy.services import is_leadership, role_level
+from apps.hierarchy.services import (  # noqa: F401 (re-exportado, ver docstring)
+    is_leadership,
+    role_level,
+)
+from apps.permissions.authorization import user_has_permission
 
 from .models import Project
 
 
 def can_create_project(user) -> bool:
-    """`canCreateProject` = `canViewTeam` legacy: nivel >= 2."""
-    return role_level(user) >= 2
+    """Migrado al catálogo dinámico de permisos (`proyectos.crear`) — ver
+    docs/AUDIT_LOG.md § 2026-09-01 ("Catálogo dinámico de permisos
+    extendido a todo el sistema"). Sembrado 1:1 al mismo set que tenía
+    `canCreateProject` = `canViewTeam` legacy (nivel >= 2)."""
+    return user_has_permission(user, "proyectos.crear")
 
 
 def is_project_manager(user, project: Project) -> bool:

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { djangoApiFetch } from "@/lib/djangoSession";
+import { djangoApiFetch, ANALYTICS_BUNDLE_TIMEOUT_MS } from "@/lib/djangoSession";
 import { mapDjangoAnalyticsPayloadToNexoShape } from "@/lib/djangoAnalyticsAdapter";
 
 const DJANGO_SESSION_REQUIRED_MESSAGE =
@@ -20,7 +20,16 @@ export async function GET(request: Request, ctx: Ctx) {
 
   const { userId } = await ctx.params;
 
-  const response = await djangoApiFetch(`/analytics/insights/${userId}/`);
+  let response;
+  try {
+    // `InsightsView` (backend) tampoco tiene caché con TTL — se calcula en
+    // vivo en cada request, mismo motivo por el que `/api/analytics/[userId]`
+    // necesita `ANALYTICS_BUNDLE_TIMEOUT_MS` en vez del timeout genérico de
+    // 3s (ver docs/AUDIT_LOG.md § 2026-08-31).
+    response = await djangoApiFetch(`/analytics/insights/${userId}/`, {}, ANALYTICS_BUNDLE_TIMEOUT_MS);
+  } catch {
+    return NextResponse.json({ error: "El cálculo de Insights está tardando más de lo esperado. Intenta de nuevo en unos segundos." }, { status: 504 });
+  }
   if (!response) {
     return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
   }

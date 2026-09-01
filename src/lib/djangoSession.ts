@@ -16,6 +16,20 @@ const ACCESS_COOKIE = "nexo-django-access";
 const REFRESH_COOKIE = "nexo-django-refresh";
 const REQUEST_TIMEOUT_MS = 3000;
 
+// `GET /analytics/<id>/` (`AnalyticsBundleView`, backend) no tiene caché con
+// TTL — se recalcula en vivo en cada request (gap documentado en el propio
+// backend, ver docstring de `InsightsView`) y toma ~2.8s solo de cómputo
+// (medido directo en Django para un colaborador con varios meses de
+// historial) antes de sumar el overhead HTTP/DRF — por encima del
+// `REQUEST_TIMEOUT_MS` genérico casi siempre. Bug encontrado en QA en vivo
+// (2026-08-31): tanto `/api/analytics/[userId]` (pantalla de Analytics)
+// como Nova Insights fallaban con un 500 vacío (AbortError silencioso) en
+// cualquier request sin caché de Next.js tibia. Timeout dedicado, más
+// generoso, solo para los consumidores de este endpoint puntual — el resto
+// de las llamadas a Django (login, CRUD liviano) se quedan con el default
+// de 3s, que sí debe fallar rápido.
+export const ANALYTICS_BUNDLE_TIMEOUT_MS = 12000;
+
 // Deben coincidir con JWT_ACCESS_TOKEN_LIFETIME_MINUTES/JWT_REFRESH_TOKEN_LIFETIME_DAYS
 // de backend/.env — la cookie no debe sobrevivir más que el token que contiene.
 const ACCESS_COOKIE_MAX_AGE_SECONDS = 15 * 60;
@@ -173,7 +187,7 @@ async function refreshDjangoAccessToken(): Promise<string | null> {
 // Content-Type manual. Todos los llamadores existentes (que nunca pasan
 // `FormData`) siguen recibiendo exactamente `application/json`, sin
 // cambio de comportamiento.
-async function callDjango(path: string, init: RequestInit, accessToken: string): Promise<Response> {
+async function callDjango(path: string, init: RequestInit, accessToken: string, timeoutMs: number): Promise<Response> {
   const headers: Record<string, string> = { ...(init.headers as Record<string, string> | undefined) };
   headers.Authorization = `Bearer ${accessToken}`;
   if (!(init.body instanceof FormData)) {
@@ -182,7 +196,7 @@ async function callDjango(path: string, init: RequestInit, accessToken: string):
   return fetch(`${DJANGO_API_URL}${path}`, {
     ...init,
     headers,
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    signal: AbortSignal.timeout(timeoutMs),
   });
 }
 
@@ -226,31 +240,28 @@ export async function extractDjangoFlatErrorMessage(response: Response): Promise
  * el llamador debe tratar eso como "esta sesión de Next.js todavía no tiene
  * acceso a este módulo", no como un error genérico de Django.
  */
-export async function djangoApiFetch(path: string, init: RequestInit = {}): Promise<Response | null> {
+export async function djangoApiFetch(path: string, init: RequestInit = {}, timeoutMs: number = REQUEST_TIMEOUT_MS): Promise<Response | null> {
   const cookieStore = await cookies();
   const accessToken = cookieStore.get(ACCESS_COOKIE)?.value;
   if (!accessToken) return null;
 
-  let response = await callDjango(path, init, accessToken);
+  let response = await callDjango(path, init, accessToken, timeoutMs);
   if (response.status === 401) {
     const refreshed = await refreshDjangoAccessToken();
     if (!refreshed) return null;
-    response = await callDjango(path, init, refreshed);
+    response = await callDjango(path, init, refreshed, timeoutMs);
   }
   return response;
 }
 
 /**
- * Resuelve el id NUMÉRICO de Django del usuario en sesión — Fase 40 de la
- * migración de stack (ver docs/AUDIT_LOG.md § 2026-08-21): `session.userId`
- * (Next.js) sigue siendo el `cuid` de Postgres (Fase 6a); los módulos que
- * llaman a Django directamente (para construir `/users/<id>/...` o mandar
- * un `authorId`/`hostId` numérico) necesitan este otro id. Desde la Fase 40,
- * el login (`auth/login/route.ts`) y la renovación de perfil
- * (`auth/me/route.ts`) ya lo guardan en `session.djangoUserId` — este
- * helper lo usa si está presente, y si no (sesión emitida ANTES de la Fase
- * 40, todavía sin expirar) cae una única vez a `GET /auth/me/` para
- * resolverlo. Devuelve `null` si no hay sesión Django disponible.
+ * Resuelve el id NUMÉRICO de Django del usuario en sesión. `session.djangoUserId`
+ * es el único identificador de sesión desde el retiro completo del `cuid`
+ * legado de Postgres (decisión explícita del usuario, ver docs/AUDIT_LOG.md
+ * § 2026-08-31) — este helper lo usa directo, y solo cae a `GET /auth/me/`
+ * como red de seguridad genérica si por algún motivo faltara en runtime
+ * (ej. un JWT emitido antes de este cambio, todavía sin expirar). Devuelve
+ * `null` si no hay sesión Django disponible.
  */
 export async function resolveDjangoUserId(session: SessionPayload): Promise<number | null> {
   if (typeof session.djangoUserId === "number") return session.djangoUserId;

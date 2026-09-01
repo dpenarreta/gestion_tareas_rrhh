@@ -59,7 +59,8 @@ function mockSession(overrides: Partial<SessionPayload> | null) {
     overrides === null
       ? null
       : {
-          userId: "u1",
+          djangoUserId: 1,
+          permissions: [],
           role: "JEFE_NACIONAL",
           name: "Ana",
           email: "test@nexo.com",
@@ -85,9 +86,6 @@ async function defaultDjangoApiFetch(path: string, init?: RequestInit) {
   }
   if (path === "/reports/executive/audit/") {
     return djangoResponse(true, {}, 204);
-  }
-  if (path.startsWith("/reports/user-lookup/")) {
-    return djangoResponse(true, []);
   }
   if (path.startsWith("/reports/roster/")) {
     return djangoResponse(true, { users: [], user_ids: [], scope: "JEFE", roster_kind: "CONSOLIDADO" });
@@ -147,7 +145,7 @@ function resetAll() {
     limitOverloadHours: 140,
   }));
   vi.mocked(getSession).mockReset();
-  delete process.env.GROQ_API_KEY;
+  delete process.env.GEMINI_API_KEY;
 }
 
 beforeEach(() => {
@@ -179,7 +177,7 @@ describe("POST /api/reports/executive", () => {
   });
 
   it("genera y persiste un snapshot con Report ID, y audita 'generated'", async () => {
-    mockSession({ role: "JEFE_NACIONAL", userId: "u1", name: "Ana" });
+    mockSession({ role: "JEFE_NACIONAL", name: "Ana" });
 
     const res = await executivePOST(getRequest("http://localhost/api/reports/executive?tipoReporte=MENSUAL&month=2026-06"));
     expect(res.status).toBe(200);
@@ -198,7 +196,7 @@ describe("POST /api/reports/executive", () => {
   });
 
   it("responde 500 y audita 'generation_failed' con mensaje técnico (nunca expuesto al cliente) ante un error inesperado", async () => {
-    mockSession({ role: "JEFE_NACIONAL", userId: "u1", name: "Ana" });
+    mockSession({ role: "JEFE_NACIONAL", name: "Ana" });
     djangoApiFetch.mockImplementation(async (path: string, init?: RequestInit) => {
       if (path.startsWith("/reports/roster/")) throw new Error("db down");
       return defaultDjangoApiFetch(path, init);

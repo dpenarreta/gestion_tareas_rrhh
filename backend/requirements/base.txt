@@ -17,11 +17,3 @@ requests==2.32.3
 # openpyxl: lectura/escritura de .xlsx para la plantilla e importador
 # masivo de Tareas (Fase 3e, ver docs plan de esa sub-fase).
 openpyxl==3.1.5
-# --- Ventana de migracion de usuarios legacy (ver docs plan Fase 1) ---
-# bcrypt: fallback de PASSWORD_HASHERS para verificar hashes bcryptjs
-# importados de Postgres hasta que cada usuario vuelva a loguearse (re-hash
-# perezoso a Argon2). psycopg2-binary: lectura de la tabla User de Postgres
-# desde el comando de management `migrate_users_from_postgres`. Ambos se
-# retiran en la tarea de limpieza de decommission (ver hoja de ruta).
-bcrypt==4.2.1
-psycopg2-binary==2.9.10

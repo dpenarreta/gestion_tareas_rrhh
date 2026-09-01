@@ -1,7 +1,7 @@
-# SQL Server de desarrollo para el nucleo de seguridad Django (backend/),
-# adaptado de skelleton_base. No reemplaza la base PostgreSQL del Next.js
-# legacy (prisma/): ambos motores conviven durante toda la migracion de
-# stack (ver plan de Fase 1 en docs/). Uso: `docker compose up -d mssql`.
+# SQL Server de desarrollo para el backend Django (backend/) — unico motor
+# de base de datos del sistema desde el cierre de la migracion de stack
+# (Prisma/PostgreSQL retirados por completo, ver docs/AUDIT_LOG.md §
+# 2026-08-28, Fases 87-90). Uso: `docker compose up -d mssql`.
 #
 # NOTA: en la maquina de desarrollo del usuario, backend/.env apunta en
 # cambio a una instancia de SQL Server ya existente y compartida entre

@@ -251,7 +251,7 @@ export type ExecutiveReportSnapshotData = {
   predictivo: SnapshotPredictivo;
   /** § Executive Summary, § Executive Insights, § Executive Assessment by NOVA, § Recomendaciones, § Analytics Predictivo — ver `SnapshotNova`. */
   nova: SnapshotNova;
-  /** true si CUALQUIER sección de `nova` degradó a fallback determinista (sin GROQ_API_KEY, timeout, o respuesta malformada) — nunca bloquea la generación, solo se audita (Fase D/F). */
+  /** true si CUALQUIER sección de `nova` degradó a fallback determinista (sin GEMINI_API_KEY, timeout, o respuesta malformada) — nunca bloquea la generación, solo se audita (Fase D/F). */
   novaDegraded: boolean;
   /** Sprint R — Snapshot Integrity Validation (FPS Parte IV §15, Fase 79). `null` cuando no aplica (RANGO_MESES/RANGO_PERSONALIZADO, o MENSUAL con `fechaCorte` explícita/histórico) — solo corre para MENSUAL del mes calendario en curso, ver `verifySnapshotIntegrity.ts`. `performed: false` significa que la validación no pudo completarse (Django no disponible), nunca que el reporte tiene una discrepancia. */
   integrityCheck: { performed: boolean; discrepancyCount: number } | null;

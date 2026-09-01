@@ -26,7 +26,7 @@ function mockSession(overrides: Partial<SessionPayload> | null) {
   vi.mocked(getSession).mockResolvedValue(
     overrides === null
       ? null
-      : { userId: "u1", role: "ADMINISTRADOR", name: "Ana", email: "a@nexo.com", expiresAt: new Date(Date.now() + 100000).toISOString(), ...overrides }
+      : { djangoUserId: 1, permissions: [], role: "ADMINISTRADOR", name: "Ana", email: "a@nexo.com", expiresAt: new Date(Date.now() + 100000).toISOString(), ...overrides }
   );
 }
 
@@ -83,7 +83,7 @@ describe("PUT /api/settings/prediction-window", () => {
   });
 
   it("ADMINISTRADOR guarda un valor válido, invalida el caché global (sin argumentos) y devuelve el nuevo valor efectivo", async () => {
-    mockSession({ role: "ADMINISTRADOR", userId: "admin-1" });
+    mockSession({ role: "ADMINISTRADOR" });
     djangoApiFetch
       .mockResolvedValueOnce(djangoResponse(true, { window_weeks: "6" })) // PUT
       .mockResolvedValueOnce(djangoResponse(true, { window_weeks: "6" })); // re-fetch tras guardar

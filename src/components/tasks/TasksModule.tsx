@@ -7,6 +7,7 @@ import type { Task, ViewType, AssignableUser } from "./types";
 import type { ActivityFormat } from "@/lib/activityFormat";
 import { canManageUsers } from "@/lib/roles";
 import { Button } from "@/components/ui/Button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SearchX } from "lucide-react";
 import KanbanView from "./KanbanView";
@@ -121,14 +122,24 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
     refreshTasks();
   }, [refreshTasks]);
 
-  const handleTaskDelete = useCallback(
-    async (id: string) => {
-      if (!confirm("¿Eliminar esta tarea?")) return;
-      await fetch(`/api/tasks/${id}`, { method: "DELETE" });
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [deletingTask, setDeletingTask] = useState(false);
+
+  const handleTaskDelete = useCallback((id: string) => {
+    setPendingDeleteId(id);
+  }, []);
+
+  const confirmTaskDelete = useCallback(async () => {
+    if (!pendingDeleteId) return;
+    setDeletingTask(true);
+    try {
+      await fetch(`/api/tasks/${pendingDeleteId}`, { method: "DELETE" });
       refreshTasks();
-    },
-    [refreshTasks]
-  );
+    } finally {
+      setDeletingTask(false);
+      setPendingDeleteId(null);
+    }
+  }, [pendingDeleteId, refreshTasks]);
 
   const handleBulkDelete = useCallback(
     async (ids: string[]) => {
@@ -361,6 +372,16 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
           onClose={() => { setFormOpen(false); setEditingTask(null); }}
         />
       )}
+
+      <ConfirmDialog
+        open={pendingDeleteId !== null}
+        title="Eliminar tarea"
+        message={`¿Eliminar "${tasks.find((t) => t.id === pendingDeleteId)?.title ?? "esta tarea"}"?`}
+        danger
+        loading={deletingTask}
+        onConfirm={confirmTaskDelete}
+        onCancel={() => setPendingDeleteId(null)}
+      />
     </div>
   );
 }

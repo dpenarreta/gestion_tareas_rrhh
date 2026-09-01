@@ -10,7 +10,6 @@ import NotificationBell from "@/components/NotificationBell";
 
 type Props = {
   role: Role;
-  userId: string;
   djangoUserId: string;
   userName: string;
   roleLabel: string;
@@ -21,7 +20,6 @@ type Props = {
 
 export default function Topbar({
   role,
-  userId,
   djangoUserId,
   userName,
   roleLabel,
@@ -64,11 +62,7 @@ export default function Topbar({
           <Search className="w-[18px] h-[18px]" strokeWidth={1.8} />
         </button>
 
-        <ThemeToggle userId={userId} />
-        {/* Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-21):
-            `taskAssignedToId` que compara `NotificationBell` ya es el id
-            numérico de Django (Tareas cutover) — necesita `djangoUserId`,
-            no el `cuid` de Postgres que sigue usando `ThemeToggle`. */}
+        <ThemeToggle userId={djangoUserId} />
         <NotificationBell currentUserId={djangoUserId} />
 
         <Link

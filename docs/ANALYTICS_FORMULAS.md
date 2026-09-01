@@ -1058,7 +1058,7 @@ stars: 0.8983 >= 0.85 → 5 ("Muy alta")
 ### Qué NO hace (garantías explícitas del código)
 - **Nunca recalcula un KPI de negocio** — no reimplementa Performance Score, Operational Risk, Carga, Capacidad, Consistencia ni Cumplimiento; siempre recibe esos valores ya calculados como parámetro.
 - **Nunca usa IA/ML para calcular** — es 100% determinista (reglas + comparación con historial propio vía `AnalyticsAuditLog`).
-- **No depende de Groq en absoluto** — Groq (`nova-insights`), si se usa en alguna vista, solo redacta texto en lenguaje natural sobre JSON que este módulo (o el motor central) ya calculó; nunca al revés.
+- **No depende de Gemini en absoluto** — Gemini (`nova-insights`), si se usa en alguna vista, solo redacta texto en lenguaje natural sobre JSON que este módulo (o el motor central) ya calculó; nunca al revés.
 
 ### Reglas de negocio
 - `FACTOR_EXPLANATION`/`FACTOR_ACTION` son diccionarios estáticos por nombre de factor de riesgo — si `computeOperationalRisk` agrega un factor nuevo sin entrada correspondiente aquí, ese factor no generará un Insight explicado (fallback silencioso, no un error).

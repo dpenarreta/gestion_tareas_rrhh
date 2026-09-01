@@ -4,7 +4,8 @@ import type { SessionPayload } from "@/lib/session";
 // Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-25, Fase 58): el
 // contexto de tareas/equipo/base de conocimiento pasó de Prisma a Django —
 // mockeado con `@/lib/djangoSession`, mismo patrón que `team.test.ts`. El
-// cálculo de embeddings/similitud y la llamada a Groq siguen sin cambios.
+// cálculo de embeddings/similitud sigue sin cambios; la llamada al modelo
+// de IA pasó de Groq a Gemini (ver docs/AUDIT_LOG.md § 2026-08-31).
 vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
 
 const djangoApiFetch = vi.fn();
@@ -19,11 +20,11 @@ vi.mock("@/lib/embeddings", () => ({
   cosineSimilarity: (...a: unknown[]) => cosineSimilarity(...a),
 }));
 
-const groqCreate = vi.fn();
-class MockGroq {
-  chat = { completions: { create: (...a: unknown[]) => groqCreate(...a) } };
+const geminiGenerate = vi.fn();
+class MockGoogleGenAI {
+  models = { generateContent: (...a: unknown[]) => geminiGenerate(...a) };
 }
-vi.mock("groq-sdk", () => ({ default: MockGroq }));
+vi.mock("@google/genai", () => ({ GoogleGenAI: MockGoogleGenAI }));
 
 const { getSession } = await import("@/lib/session");
 const { POST: chatPOST } = await import("@/app/api/assistant/chat/route");
@@ -33,7 +34,8 @@ function mockSession(overrides: Partial<SessionPayload> | null) {
     overrides === null
       ? null
       : {
-          userId: "u1",
+          djangoUserId: 1,
+          permissions: [],
           role: "ASISTENTE_GH",
           name: "Ana",
           email: "test@nexo.com",
@@ -71,9 +73,9 @@ function resetAll() {
   mockDjangoRoutes({});
   getEmbedding.mockReset().mockResolvedValue([1, 0, 0]);
   cosineSimilarity.mockReset().mockReturnValue(0);
-  groqCreate.mockReset().mockResolvedValue({ choices: [{ message: { content: "Respuesta de Nova" } }], usage: { total_tokens: 100 } });
+  geminiGenerate.mockReset().mockResolvedValue({ text: "Respuesta de Nova", usageMetadata: { totalTokenCount: 100 } });
   vi.mocked(getSession).mockReset();
-  process.env.GROQ_API_KEY = "test-key";
+  process.env.GEMINI_API_KEY = "test-key";
 }
 
 describe("POST /api/assistant/chat", () => {
@@ -85,9 +87,9 @@ describe("POST /api/assistant/chat", () => {
     expect(res.status).toBe(401);
   });
 
-  it("responde 503 si no hay GROQ_API_KEY configurada", async () => {
+  it("responde 503 si no hay GEMINI_API_KEY configurada", async () => {
     mockSession({});
-    delete process.env.GROQ_API_KEY;
+    delete process.env.GEMINI_API_KEY;
     const res = await chatPOST(jsonRequest({ mode: "general", message: "hola" }));
     expect(res.status).toBe(503);
   });
@@ -104,7 +106,7 @@ describe("POST /api/assistant/chat", () => {
     expect(res.status).toBe(400);
   });
 
-  it("modo general: responde con el contenido de Groq, sin fuentes", async () => {
+  it("modo general: responde con el contenido de Gemini, sin fuentes", async () => {
     mockSession({});
     const res = await chatPOST(jsonRequest({ mode: "general", message: "¿Qué es Nexo?" }));
     expect(res.status).toBe(200);
@@ -113,14 +115,14 @@ describe("POST /api/assistant/chat", () => {
   });
 
   it("modo tasks: construye el contexto de tareas del usuario (incluye el conteo de vencidas)", async () => {
-    mockSession({ userId: "u1" });
+    mockSession({});
     mockDjangoRoutes({
       "/tasks/": [
         { title: "Tarea vencida", status: "PENDIENTE", priority: "ALTA", type: "FIJA", start_date: "2026-01-01", end_date: "2020-01-01", estimated_hours: 2, real_hours: 1, progress: 0 },
       ],
     });
     await chatPOST(jsonRequest({ mode: "tasks", message: "¿Qué debo priorizar?" }));
-    const systemMessage = groqCreate.mock.calls[0][0].messages[0].content as string;
+    const systemMessage = geminiGenerate.mock.calls[0][0].config.systemInstruction as string;
     expect(systemMessage).toContain("Vencidas: 1");
     expect(djangoApiFetch).toHaveBeenCalledWith("/tasks/");
   });
@@ -128,7 +130,7 @@ describe("POST /api/assistant/chat", () => {
   it("modo hr: para un rol de nivel 1 (sin equipo), el contexto no incluye sección de equipo", async () => {
     mockSession({ role: "ASISTENTE_GH" });
     await chatPOST(jsonRequest({ mode: "hr", message: "¿Cómo manejo un conflicto?" }));
-    const systemMessage = groqCreate.mock.calls[0][0].messages[0].content as string;
+    const systemMessage = geminiGenerate.mock.calls[0][0].config.systemInstruction as string;
     expect(systemMessage).not.toContain("EQUIPO A CARGO");
   });
 
@@ -172,7 +174,7 @@ describe("POST /api/assistant/chat", () => {
 
     const res = await chatPOST(jsonRequest({ mode: "hr", message: "pregunta" }));
     expect(res.status).toBe(200);
-    const systemMessage = groqCreate.mock.calls[0][0].messages[0].content as string;
+    const systemMessage = geminiGenerate.mock.calls[0][0].config.systemInstruction as string;
     expect(systemMessage).toContain("No se pudo cargar el contexto del equipo");
   });
 
@@ -187,23 +189,23 @@ describe("POST /api/assistant/chat", () => {
     expect(res.status).toBe(500);
   });
 
-  it("responde 422 si Groq falla por límite de contexto/tokens", async () => {
+  it("responde 422 si Gemini falla por límite de contexto/tokens", async () => {
     mockSession({});
-    groqCreate.mockRejectedValue(new Error("context_length_exceeded: too many tokens"));
+    geminiGenerate.mockRejectedValue(new Error("context_length_exceeded: too many tokens"));
     vi.spyOn(console, "error").mockImplementation(() => {});
     const res = await chatPOST(jsonRequest({ mode: "general", message: "pregunta muy larga" }));
     expect(res.status).toBe(422);
   });
 
-  it("responde 502 ante cualquier otro error de Groq", async () => {
+  it("responde 502 ante cualquier otro error de Gemini", async () => {
     mockSession({});
-    groqCreate.mockRejectedValue(new Error("network error"));
+    geminiGenerate.mockRejectedValue(new Error("network error"));
     vi.spyOn(console, "error").mockImplementation(() => {});
     const res = await chatPOST(jsonRequest({ mode: "general", message: "pregunta" }));
     expect(res.status).toBe(502);
   });
 
-  it("incluye el historial de la conversación en los mensajes enviados a Groq", async () => {
+  it("incluye el historial de la conversación en los contenidos enviados a Gemini, mapeando assistant→model", async () => {
     mockSession({});
     await chatPOST(
       jsonRequest({
@@ -212,9 +214,10 @@ describe("POST /api/assistant/chat", () => {
         history: [{ role: "user", content: "hola" }, { role: "assistant", content: "hola, ¿en qué ayudo?" }],
       })
     );
-    const messages = groqCreate.mock.calls[0][0].messages;
-    expect(messages).toHaveLength(4); // system + 2 historial + mensaje actual
-    expect(messages[1]).toEqual({ role: "user", content: "hola" });
-    expect(messages[3]).toEqual({ role: "user", content: "y ahora?" });
+    const contents = geminiGenerate.mock.calls[0][0].contents;
+    expect(contents).toHaveLength(3); // 2 historial + mensaje actual (el system prompt va aparte, en config.systemInstruction)
+    expect(contents[0]).toEqual({ role: "user", parts: [{ text: "hola" }] });
+    expect(contents[1]).toEqual({ role: "model", parts: [{ text: "hola, ¿en qué ayudo?" }] });
+    expect(contents[2]).toEqual({ role: "user", parts: [{ text: "y ahora?" }] });
   });
 });

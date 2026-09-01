@@ -11,7 +11,6 @@ class Announcement(BaseModel):
     `[id]/route.ts`. Único consumidor hasta ahora: el widget de
     comunicados de `GET /api/dashboard`."""
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     title = models.CharField(max_length=255)
     content = models.TextField()
     author = models.ForeignKey(

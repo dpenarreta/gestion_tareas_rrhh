@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { canManageUsers, canManageTargetUser, ROLE_LEVEL } from "@/lib/roles";
-import { djangoApiFetch } from "@/lib/djangoSession";
+import { djangoApiFetch, resolveDjangoUserId } from "@/lib/djangoSession";
 import { mapDjangoUserToNexoShape, resolveRoleGroupId, type DjangoUser } from "@/lib/djangoUsersAdapter";
 import type { Role } from "@/lib/roles";
 
@@ -145,7 +145,12 @@ export async function DELETE(_req: NextRequest, ctx: Ctx) {
 
   const { id } = await ctx.params;
 
-  if (id === session.userId) {
+  // `id` es el id numérico de Django (viene de la lista de administración de
+  // usuarios) — se compara contra `djangoUserId` resuelto de la sesión, no
+  // contra un valor pendiente de resolver. Si no se pudo resolver, el guard
+  // no bloquea acá: `fetchDjangoUser` más abajo es quien determina el 401.
+  const djangoUserId = await resolveDjangoUserId(session);
+  if (djangoUserId !== null && id === String(djangoUserId)) {
     return NextResponse.json({ error: "No puedes eliminarte a ti mismo" }, { status: 400 });
   }
 

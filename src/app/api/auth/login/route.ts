@@ -7,23 +7,20 @@ import { djangoApiFetch, loginToDjango, setDjangoTokenCookies } from "@/lib/djan
 // el login real deja de decidirse contra Prisma/bcrypt — Django es ahora
 // la única fuente de verdad para validar credenciales (login + rate
 // limiting por IP y por `identifier`, ambos ya resueltos del lado Django).
-// La sesión de Next.js (`nexo-session`) sigue guardando el `userId` con el
-// `cuid` de Postgres (`legacy_postgres_id`, que Django guarda por cada
-// usuario importado) — decisión explícita del usuario para que los
-// módulos todavía no migrados (`prisma.*(where: { id: session.userId })`)
-// no requieran ningún cambio. Un usuario Django sin `legacy_postgres_id`
-// (todavía no importado desde Postgres) no puede iniciar sesión — gap
-// aceptado, documentado en docs/AUDIT_LOG.md. Fase 40 (ver
-// docs/AUDIT_LOG.md § 2026-08-21): la sesión ADEMÁS guarda `djangoUserId`
-// (el id numérico de Django del mismo usuario) para los módulos que sí
-// llaman a Django — ver `resolveDjangoUserId` en `@/lib/djangoSession`.
+// La sesión de Next.js (`nexo-session`) guarda `djangoUserId` — el id
+// numérico de Django, único identificador de sesión desde el retiro
+// completo del `cuid` legado de Postgres (`legacy_postgres_id`, decisión
+// explícita del usuario, ver docs/AUDIT_LOG.md § 2026-08-31). Antes de ese
+// retiro, un usuario sin `legacy_postgres_id` (no importado desde Postgres)
+// no podía iniciar sesión — ese gap queda cerrado: cualquier usuario
+// creado directo en el panel de Django ya puede loguearse.
 type DjangoMe = {
   id: number;
   username: string;
   email: string;
   first_name: string;
   roles: { id: number; name: string }[];
-  legacy_postgres_id: string | null;
+  permissions: string[];
 };
 
 export async function POST(request: NextRequest) {
@@ -47,13 +44,6 @@ export async function POST(request: NextRequest) {
     }
     const me: DjangoMe = await meResponse.json();
 
-    if (!me.legacy_postgres_id) {
-      return NextResponse.json(
-        { error: "Tu usuario todavía no está sincronizado con el sistema. Contactá a un administrador." },
-        { status: 401 }
-      );
-    }
-
     const roleName = me.roles[0]?.name;
     if (!roleName) {
       return NextResponse.json({ error: "Error del servidor" }, { status: 500 });
@@ -66,12 +56,12 @@ export async function POST(request: NextRequest) {
     const durationHours = rememberMe ? result.tokens.session_policy.remember_hours : result.tokens.session_policy.default_hours;
 
     await createSession(
-      { userId: me.legacy_postgres_id, role, name, email: me.email, djangoUserId: me.id },
+      { role, name, email: me.email, djangoUserId: me.id, permissions: me.permissions },
       Boolean(rememberMe),
       durationHours
     );
 
-    return NextResponse.json({ id: me.legacy_postgres_id, name, email: me.email, role });
+    return NextResponse.json({ id: me.id, name, email: me.email, role });
   } catch {
     return NextResponse.json({ error: "Error del servidor" }, { status: 500 });
   }

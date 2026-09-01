@@ -22,10 +22,11 @@
 // error, la generación del reporte FALLA (se lanza una excepción) — a
 // diferencia del Índice Ejecutivo (que degrada excluyendo colaboradores sin
 // romper la generación), `ReportMemberKpi` es el corazón visible del
-// reporte, no un agregado secundario. Un colaborador sin id de Django
-// resuelto (`legacy_postgres_id` nunca importado) simplemente no aparece en
-// el roster que se envía a Django, y por lo tanto queda excluido de la
-// tabla — mismo criterio que el Índice Ejecutivo.
+// reporte, no un agregado secundario. Los `userIds` que llegan a este
+// puente son el id numérico de Django directo (roster ya resuelto por
+// `resolveRoster.ts` — retiro del bridge cuid↔Django, decisión explícita
+// del usuario, ver docs/AUDIT_LOG.md § 2026-08-31), sin traducción
+// intermedia.
 import "server-only";
 import { djangoApiFetch } from "@/lib/djangoSession";
 
@@ -51,85 +52,53 @@ async function postTeamReport(path: string, body: Record<string, unknown>): Prom
   return deepCamelCase(await response.json()) as Record<string, unknown>;
 }
 
-/**
- * Reescribe, en el lugar, cada `id`/`userId` numérico de Django del bundle
- * por el cuid de Postgres correspondiente — el resto de
- * `buildSnapshotData.ts` (roster, predictivo, Índice Ejecutivo, NOVA)
- * sigue operando 100% en cuids. Un colaborador cuyo id no está en
- * `djangoIdToUserId` (no debería ocurrir — `user_ids` enviado a Django ya
- * salió de ese mismo mapa — pero se filtra por defensividad) se excluye.
- */
-function remapListIdentity(list: Record<string, unknown>[], djangoIdToUserId: Map<number, string>, key: "id" | "userId"): Record<string, unknown>[] {
-  return list
-    .map((m) => ({ ...m, [key]: djangoIdToUserId.get(m[key] as number) }))
-    .filter((m) => m[key] !== undefined);
-}
-
-function remapDjangoIdentity<T extends Record<string, unknown>>(bundle: T, djangoIdToUserId: Map<number, string>): T {
-  const remapList = (list: unknown) => remapListIdentity(list as Record<string, unknown>[], djangoIdToUserId, "id");
-
-  const distribuciones = bundle.distribuciones as { consultasByReason: unknown[]; riskQuadrant: unknown[] };
-  const alerts = remapListIdentity(bundle.alerts as Record<string, unknown>[], djangoIdToUserId, "userId");
-
-  return {
-    ...bundle,
-    members: remapList(bundle.members),
-    ranking: remapList(bundle.ranking),
-    distribuciones: { ...distribuciones, riskQuadrant: remapList(distribuciones.riskQuadrant) },
-    alerts,
-  };
-}
-
 /** Bundle del builder MENSUAL — réplica del subconjunto de `ExecutiveReportSnapshotData` que `apps.reports.team_report.assemble_monthly_team_report` sí calcula (ver docstring del módulo Django para el límite exacto). */
 export async function fetchMonthlyTeamReport(
-  djangoIdToUserId: Map<number, string>,
+  userIds: string[],
   year: number,
   month: number,
   fechaCorte?: Date,
 ): Promise<Record<string, unknown>> {
-  const bundle = await postTeamReport("/reports/executive/monthly-team-kpis/", {
-    user_ids: [...djangoIdToUserId.keys()],
+  return postTeamReport("/reports/executive/monthly-team-kpis/", {
+    user_ids: userIds.map(Number),
     year,
     month,
     fecha_corte: fechaCorte?.toISOString(),
   });
-  return remapDjangoIdentity(bundle, djangoIdToUserId);
 }
 
 /** Bundle del builder RANGO PERSONALIZADO. */
 export async function fetchCustomRangeTeamReport(
-  djangoIdToUserId: Map<number, string>,
+  userIds: string[],
   periodStart: Date,
   periodEnd: Date,
   fechaCorte?: Date,
 ): Promise<Record<string, unknown>> {
-  const bundle = await postTeamReport("/reports/executive/custom-range-team-kpis/", {
-    user_ids: [...djangoIdToUserId.keys()],
+  return postTeamReport("/reports/executive/custom-range-team-kpis/", {
+    user_ids: userIds.map(Number),
     period_start: periodStart.toISOString(),
     period_end: periodEnd.toISOString(),
     fecha_corte: fechaCorte?.toISOString(),
   });
-  return remapDjangoIdentity(bundle, djangoIdToUserId);
 }
 
 /** Bundle del builder RANGO DE MESES — `monthlyEvolution[i].memberSnapshots` llega como objeto `{djangoId: {...}}` (Fase 66/71, sin identidad — ver `member_kpis.py`), se resuelve aparte en `buildRangeSnapshotData` porque necesita convertirse a array con `id`/`name`/`role`, no un simple remapeo de `id`. */
 export async function fetchRangeTeamReport(
-  djangoIdToUserId: Map<number, string>,
+  userIds: string[],
   fromYear: number,
   fromMonth: number,
   toYear: number,
   toMonth: number,
   fechaCorte?: Date,
 ): Promise<Record<string, unknown>> {
-  const bundle = await postTeamReport("/reports/executive/range-team-kpis/", {
-    user_ids: [...djangoIdToUserId.keys()],
+  return postTeamReport("/reports/executive/range-team-kpis/", {
+    user_ids: userIds.map(Number),
     from_year: fromYear,
     from_month: fromMonth,
     to_year: toYear,
     to_month: toMonth,
     fecha_corte: fechaCorte?.toISOString(),
   });
-  return remapDjangoIdentity(bundle, djangoIdToUserId);
 }
 
 /**

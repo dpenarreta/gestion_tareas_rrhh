@@ -153,15 +153,16 @@ def test_patch_me_allows_keeping_own_email_unchanged(api_client):
     assert response.status_code == 200
 
 
-def test_me_endpoint_includes_roles_and_legacy_postgres_id(api_client):
+def test_me_endpoint_includes_roles_and_no_legacy_postgres_id(api_client):
     """Fase 6a (ver docs/AUDIT_LOG.md § 2026-08-14): el puente de login de
-    Next.js necesita `roles`/`legacy_postgres_id` para construir
-    `session.role`/`session.userId` sin depender de Prisma."""
+    Next.js necesita `roles`/`id` para construir `session.role`/
+    `session.djangoUserId`. `legacy_postgres_id` retirado por completo
+    (decisión explícita del usuario, ver docs/AUDIT_LOG.md § 2026-08-31) —
+    ya no debe aparecer en el payload, ni siquiera como `None`."""
     from django.contrib.auth.models import Group
 
     user = User.objects.create_user(
         username="imported", email="imported@example.com", password="Sup3r-Secr3t!",
-        legacy_postgres_id="clx0000000000000000000000",
     )
     user.groups.add(Group.objects.get_or_create(name="ANALISTA_CC")[0])
     api_client.force_authenticate(user=user)
@@ -169,7 +170,7 @@ def test_me_endpoint_includes_roles_and_legacy_postgres_id(api_client):
     response = api_client.get("/api/v1/auth/me/")
 
     assert response.status_code == 200
-    assert response.data["legacy_postgres_id"] == "clx0000000000000000000000"
+    assert "legacy_postgres_id" not in response.data
     assert response.data["roles"] == [{"id": ANY, "name": "ANALISTA_CC"}]
 
 

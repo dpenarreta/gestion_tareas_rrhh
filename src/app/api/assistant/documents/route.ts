@@ -10,14 +10,9 @@ import {
   updateDjangoKnowledgeDocument,
 } from "@/lib/djangoAssistantAdapter";
 
-// Documentos grandes (cientos de páginas → cientos de chunks) pueden tardar
-// más que el límite por defecto en generar todos los embeddings, incluso en
-// lotes concurrentes — se sube el máximo para no truncar el procesamiento.
-export const maxDuration = 300;
-
-// Vercel (plan gratuito) rechaza el request completo por encima de 4.5MB antes
-// de que este handler se ejecute, así que validamos con el mismo margen para
-// poder devolver un mensaje claro en vez de dejar que la plataforma corte la conexión.
+// Límite propio de la aplicación (independiente de la plataforma de
+// despliegue) para no aceptar un PDF que tarde demasiado en procesar
+// (extracción + generación de embeddings) o consuma memoria excesiva.
 const MAX_SIZE_BYTES = 4.5 * 1024 * 1024;
 const MAX_SIZE_MESSAGE = "El archivo supera el límite de 4.5MB. Por favor usa un archivo más pequeño.";
 

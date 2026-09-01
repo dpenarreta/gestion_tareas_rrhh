@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { SkeletonText } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useToast } from "@/components/ui/Toast";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { ListX, ChevronRight } from "lucide-react";
 
 type Reason = {
@@ -53,6 +54,7 @@ function ReasonRow({ reason, onUpdated }: { reason: Reason; onUpdated: (r: Reaso
   const [roles, setRoles] = useState<Role[]>(reason.assignedRoles);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
 
   function openEdit() {
     setLabel(reason.label);
@@ -100,8 +102,8 @@ function ReasonRow({ reason, onUpdated }: { reason: Reason; onUpdated: (r: Reaso
   }
 
   async function handleArchive() {
-    if (!confirm(`¿Archivar el motivo "${reason.label}"? Podrás restaurarlo desde el Archivo.`)) return;
     await save({ isArchived: true });
+    setShowArchiveConfirm(false);
   }
 
   if (editing) {
@@ -135,6 +137,7 @@ function ReasonRow({ reason, onUpdated }: { reason: Reason; onUpdated: (r: Reaso
   }
 
   return (
+    <>
     <div className="flex items-start justify-between gap-3 border border-border rounded-lg p-3">
       <div className="min-w-0">
         <div className="flex items-center gap-2 flex-wrap">
@@ -164,7 +167,7 @@ function ReasonRow({ reason, onUpdated }: { reason: Reason; onUpdated: (r: Reaso
           {reason.isActive ? "Desactivar" : "Activar"}
         </button>
         <button
-          onClick={handleArchive}
+          onClick={() => setShowArchiveConfirm(true)}
           disabled={saving}
           className="text-xs font-medium px-2 py-1 rounded text-secondary hover:bg-black/5 dark:hover:bg-white/5 disabled:opacity-50"
         >
@@ -172,6 +175,17 @@ function ReasonRow({ reason, onUpdated }: { reason: Reason; onUpdated: (r: Reaso
         </button>
       </div>
     </div>
+
+    <ConfirmDialog
+      open={showArchiveConfirm}
+      title="Archivar motivo"
+      message={`¿Archivar el motivo "${reason.label}"? Podrás restaurarlo desde el Archivo.`}
+      confirmLabel="Archivar"
+      loading={saving}
+      onConfirm={handleArchive}
+      onCancel={() => setShowArchiveConfirm(false)}
+    />
+    </>
   );
 }
 

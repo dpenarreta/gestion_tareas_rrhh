@@ -62,3 +62,7 @@ backend/.pytest_cache
 # frontend (Vite/React, Fase 1 de la migracion de stack)
 frontend/node_modules
 frontend/dist
+
+# Claude Code: estado local de sesion (lock de tareas programadas), no
+# el contenido del proyecto — .claude/rules/ SI se versiona.
+.claude/scheduled_tasks.lock

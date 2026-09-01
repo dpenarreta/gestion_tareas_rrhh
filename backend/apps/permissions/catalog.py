@@ -11,10 +11,27 @@ Convención de nombres: `"<modulo>.<accion>"`, ej. `"usuarios.ver"`.
 Este catálogo arrancó como el núcleo base heredado de skelleton_base
 (usuarios, roles, permisos, auditoría, configuración) — Nexo no portó el
 módulo `branding` del template (no aporta a su dominio), así que
-`configuracion.*` queda sin una vista propia hasta que el futuro Centro de
-Configuración de Nexo (fuera del alcance de esta fase) lo consuma. Cada
-fase de negocio posterior debe sumar aquí sus propias entradas antes de
-implementar la vista que las verifica (ver docs/roles-and-permissions.md).
+`configuracion.*` queda sin una vista propia (fuera de alcance, ver
+docs/AUDIT_LOG.md § 2026-09-01: `apps.configuration`/`dashboard`/
+`notifications` confían 100% en el guard de frontend, sin gate server-side).
+
+Decisión explícita del usuario (ver docs/AUDIT_LOG.md § 2026-09-01,
+"Catálogo dinámico de permisos extendido a todo el sistema"): los módulos
+`tareas`/`reportes`/`equipo`/`reuniones`/`mejora_continua`/
+`base_conocimiento`/`inteligencia_preventiva`/`proyectos`/
+`escritorio_digital`/`announcements` reemplazan los checks de rol
+hardcodeados que hasta ahora vivían en cada `permissions.py` de esas apps
+(`CAN_CREATE_MEETINGS`/`CAN_ACCESS_REPORTS`/etc., réplicas de
+`src/lib/roles.ts`) — la migración de datos que siembra estos permisos por
+rol replica EXACTAMENTE el comportamiento que esas constantes ya tenían,
+verificado 1:1 contra el código real antes de escribirla (ver
+`apps/permissions/migrations/0002_seed_business_module_permissions.py`).
+No se modela como permiso la jerarquía de visibilidad entre roles
+(`VISIBLE_ROLES`/`NOTIFICATION_TARGETS`, ya vive como datos en
+`apps.hierarchy.RoleVisibility`/`RoleNotificationTarget`) ni la
+clasificación liderazgo/ejecutor (`ROLE_LEVEL >= 4`, no es una capacidad
+togglable) — ambas son ejes de autorización distintos a "puede/no puede
+hacer X".
 """
 
 PERMISSION_CATALOG = {
@@ -63,6 +80,80 @@ PERMISSION_CATALOG = {
             "auditoria.ver_detalle": "Ver el detalle (valores anteriores y nuevos) de un evento",
             "auditoria.ver_ubicacion": "Ver la ubicación aproximada asociada a un evento",
             "auditoria.exportar": "Exportar el registro de auditoría",
+        },
+    },
+    "tareas": {
+        "label": "Tareas",
+        "description": "Operaciones especiales sobre tareas de todo el equipo.",
+        "permissions": {
+            "tareas.regularizar": (
+                "Regularizar en bloque Tiempo Objetivo/Fecha Fin y ver pendientes de regularización"
+            ),
+            "tareas.cerrar_mes": "Cerrar el mes de tareas del equipo",
+        },
+    },
+    "reportes": {
+        "label": "Reportes Ejecutivos",
+        "description": "Generación y consulta de reportes ejecutivos consolidados.",
+        "permissions": {
+            "reportes.ver": "Ver y generar reportes ejecutivos",
+        },
+    },
+    "equipo": {
+        "label": "Equipo",
+        "description": "Consulta de subordinados y sus tareas.",
+        "permissions": {
+            "equipo.ver": "Ver el equipo (subordinados) y sus tareas",
+        },
+    },
+    "reuniones": {
+        "label": "Reuniones",
+        "description": "Programación de reuniones con integración de Zoom.",
+        "permissions": {
+            "reuniones.crear": "Crear y programar reuniones",
+        },
+    },
+    "mejora_continua": {
+        "label": "Mejora Continua",
+        "description": "Revisión y cambio de estado de ideas enviadas por el equipo.",
+        "permissions": {
+            "mejora_continua.revisar": "Revisar ideas y cambiar su estado",
+        },
+    },
+    "base_conocimiento": {
+        "label": "Base de Conocimiento",
+        "description": "Documentos indexados que NOVA usa para responder consultas de RRHH.",
+        "permissions": {
+            "base_conocimiento.ver": "Ver la base de conocimiento y consultarla vía NOVA",
+            "base_conocimiento.gestionar": "Subir y eliminar documentos de la base de conocimiento",
+        },
+    },
+    "inteligencia_preventiva": {
+        "label": "Inteligencia Preventiva",
+        "description": "Índice de Riesgo Operativo y alertas preventivas del equipo.",
+        "permissions": {
+            "inteligencia_preventiva.ver": "Ver el Índice de Riesgo Operativo del equipo",
+        },
+    },
+    "proyectos": {
+        "label": "Proyectos",
+        "description": "Creación de iniciativas transversales.",
+        "permissions": {
+            "proyectos.crear": "Crear un proyecto",
+        },
+    },
+    "escritorio_digital": {
+        "label": "Escritorio Digital",
+        "description": "Notas y recordatorios de comunicación informal entre colaboradores.",
+        "permissions": {
+            "escritorio_digital.usar": "Usar el Escritorio Digital (notas y recordatorios)",
+        },
+    },
+    "announcements": {
+        "label": "Comunicados",
+        "description": "Publicación de comunicados generales para todo el equipo.",
+        "permissions": {
+            "comunicados.gestionar": "Publicar y eliminar comunicados",
         },
     },
 }

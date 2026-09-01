@@ -29,7 +29,7 @@ function mockSession(overrides: Partial<SessionPayload> | null) {
     overrides === null
       ? null
       : {
-          userId: "u1",
+          djangoUserId: 1,
           role: "ASISTENTE_GH",
           name: "Ana",
           email: "test@nexo.com",
@@ -154,7 +154,7 @@ describe("POST /api/tasks", () => {
   });
 
   it("mapea el body a snake_case y aplica los defaults de type/status", async () => {
-    mockSession({ userId: "u1" });
+    mockSession({});
     djangoApiFetch.mockResolvedValue(djangoResponse(true, djangoTask({ id: 9 }), 201));
 
     await tasksPOST(jsonRequest(validBody));

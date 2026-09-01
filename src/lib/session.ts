@@ -20,21 +20,29 @@ const DEFAULT_SESSION_DURATION_DEFAULT_HOURS = 168; // 7 días
 const DEFAULT_SESSION_DURATION_REMEMBER_HOURS = 720; // 30 días
 
 export type SessionPayload = {
-  userId: string;
   role: Role;
   name: string;
   email: string;
   expiresAt: string;
-  // Fase 40 de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-21):
-  // `userId` sigue siendo el `cuid` de Postgres (Fase 6a) — lo siguen
-  // necesitando los módulos todavía no cutover (`where: { id: session.userId }`
-  // contra Prisma). `djangoUserId` es el id NUMÉRICO de Django del mismo
-  // usuario, para los módulos que sí llaman a Django y necesitan construir
-  // una URL como `/users/<id>/...` o mandar un `authorId` numérico. Ausente
-  // en sesiones emitidas antes de esta fase — usar
-  // `resolveDjangoUserId` (`@/lib/djangoSession`), que resuelve contra
-  // `/auth/me/` si falta.
-  djangoUserId?: number;
+  // `djangoUserId` es el id NUMÉRICO de Django del usuario en sesión — único
+  // identificador de sesión desde el retiro completo del `cuid` legado de
+  // Postgres (`legacy_postgres_id`, decisión explícita del usuario, ver
+  // docs/AUDIT_LOG.md § 2026-08-31). `resolveDjangoUserId`
+  // (`@/lib/djangoSession`) sigue existiendo como red de seguridad genérica
+  // (resuelve contra `/auth/me/` si por algún motivo faltara en runtime).
+  djangoUserId: number;
+  // Codenames del catálogo dinámico de permisos (`GET /auth/me/`, Django ya
+  // los calcula vía `get_user_permission_codenames` — ver docs/AUDIT_LOG.md
+  // § 2026-09-01, "Catálogo dinámico de permisos extendido a todo el
+  // sistema"). Cacheado en el JWT, igual criterio que `role`/`djangoUserId`
+  // en este mismo archivo: revocar un permiso no tiene efecto inmediato
+  // sobre sesiones activas de ese rol hasta su próximo login o hasta
+  // expirar el JWT — mismo trade-off que ya existe hoy para `role`, no una
+  // regresión nueva. Django SIEMPRE revalida en tiempo real contra
+  // `user.get_all_permissions()` (sin caché) en cada request — este array
+  // es exclusivamente para gating de UI, nunca la fuente de verdad real
+  // (ver `.claude/rules/security.md`).
+  permissions: string[];
 };
 
 const COOKIE_NAME = "nexo-session";

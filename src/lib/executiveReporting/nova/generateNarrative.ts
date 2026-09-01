@@ -1,10 +1,10 @@
 // Executive Reporting Engine 2.0 — Fase C — orquestador de NOVA. 4 llamadas a
-// Groq en paralelo (Executive Summary/Insights/Assessment/Enriquecimiento de
+// Gemini en paralelo (Executive Summary/Insights/Assessment/Enriquecimiento de
 // Recomendaciones), cada una con timeout independiente y fallback
 // determinista — NUNCA bloquea ni falla la generación del reporte (FPS
-// Parte IV §8). Sin GROQ_API_KEY, degrada las 4 secciones de inmediato sin
+// Parte IV §8). Sin GEMINI_API_KEY, degrada las 4 secciones de inmediato sin
 // intentar red — mismo criterio que kpis/nova-insights.
-import Groq from "groq-sdk";
+import { GoogleGenAI } from "@google/genai";
 import type { ExecutiveReportContext } from "../context";
 import type { Recommendation } from "@/lib/reportInsights";
 import { computeNovaConfidence } from "./confidence";
@@ -29,10 +29,16 @@ import type {
   NovaGenerationResult,
 } from "./types";
 
-const DEFAULT_DEADLINE_MS = 8000;
-const MODEL = "llama-3.3-70b-versatile";
+// `gemini-3.6-flash` tiene una fase de "thinking" obligatoria (no puede
+// desactivarse, `thinkingBudget: 0` es rechazado con 400) cuya duración es
+// variable — medido en vivo entre ~2s y ~12s incluso para prompts cortos.
+// 8s (heredado de Groq, mucho más rápido) degradaba de más; 15s da margen
+// real sin dejar de ser una salvaguarda (nunca bloquea el reporte, FPS
+// Parte IV §8).
+const DEFAULT_DEADLINE_MS = 15000;
+const MODEL = "gemini-3.6-flash";
 
-/** Extrae el primer objeto JSON `{...}` de un texto (Groq a veces envuelve la respuesta en markdown pese a la instrucción) — mismo criterio que nova-insights. */
+/** Extrae el primer objeto JSON `{...}` de un texto (el modelo a veces envuelve la respuesta en markdown pese a la instrucción) — mismo criterio que nova-insights. */
 function extractJson(text: string): unknown {
   const trimmed = text.trim();
   try {
@@ -75,20 +81,23 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-async function callGroq(groq: Groq, system: string, user: string, deadlineMs: number): Promise<unknown> {
+async function callGemini(ai: GoogleGenAI, system: string, user: string, deadlineMs: number): Promise<unknown> {
   const response = await withTimeout(
-    groq.chat.completions.create({
+    ai.models.generateContent({
       model: MODEL,
-      max_tokens: 2048,
-      messages: [
-        { role: "system", content: system },
-        { role: "user", content: user },
-      ],
+      contents: [{ role: "user", parts: [{ text: user }] }],
+      config: {
+        systemInstruction: system,
+        // Consume tokens de "thinking" del MISMO presupuesto que
+        // `maxOutputTokens`, sin poder desactivarse — margen amplio para
+        // secciones largas (Assessment tiene 7 campos, varios en prosa).
+        maxOutputTokens: 4096,
+        responseMimeType: "application/json",
+      },
     }),
     deadlineMs,
   );
-  const text = response.choices[0]?.message?.content ?? "";
-  return extractJson(text);
+  return extractJson(response.text ?? "");
 }
 
 function validateSummary(raw: unknown): NovaExecutiveSummary | null {
@@ -140,7 +149,7 @@ function validateAssessment(raw: unknown): NovaExecutiveAssessment | null {
 
 /**
  * Valida y REALINEA estrictamente contra los `id` reales de `recommendations`
- * — cualquier id inventado por Groq se descarta; cualquier id real que Groq
+ * — cualquier id inventado por el modelo se descarta; cualquier id real que
  * haya omitido se completa con el fallback determinista de ESA recomendación
  * puntual (nunca se deja una recomendación sin enriquecimiento).
  */
@@ -184,7 +193,7 @@ function validateAndAlignRecommendations(raw: unknown, recommendations: Recommen
 
 export async function generateExecutiveNarrative(context: ExecutiveReportContext, deadlineMs: number = DEFAULT_DEADLINE_MS): Promise<NovaGenerationResult> {
   const recommendations = context.recomendaciones;
-  const apiKey = process.env.GROQ_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
 
   if (!apiKey) {
     return {
@@ -201,14 +210,14 @@ export async function generateExecutiveNarrative(context: ExecutiveReportContext
   }
 
   const confidence = computeNovaConfidence(context);
-  const groq = new Groq({ apiKey });
+  const ai = new GoogleGenAI({ apiKey });
   const degradedSections: NovaSectionName[] = [];
 
   const [executiveSummary, executiveInsights, executiveAssessment, recommendationEnrichment] = await Promise.all([
     (async (): Promise<NovaExecutiveSummary> => {
       try {
         const { system, user } = buildExecutiveSummaryPrompt(context, confidence);
-        const validated = validateSummary(await callGroq(groq, system, user, deadlineMs));
+        const validated = validateSummary(await callGemini(ai, system, user, deadlineMs));
         if (validated) return validated;
       } catch {
         // cae a fallback
@@ -219,7 +228,7 @@ export async function generateExecutiveNarrative(context: ExecutiveReportContext
     (async (): Promise<NovaExecutiveInsights> => {
       try {
         const { system, user } = buildExecutiveInsightsPrompt(context, confidence);
-        const validated = validateInsights(await callGroq(groq, system, user, deadlineMs));
+        const validated = validateInsights(await callGemini(ai, system, user, deadlineMs));
         if (validated) return validated;
       } catch {
         // cae a fallback
@@ -230,7 +239,7 @@ export async function generateExecutiveNarrative(context: ExecutiveReportContext
     (async (): Promise<NovaExecutiveAssessment> => {
       try {
         const { system, user } = buildExecutiveAssessmentPrompt(context, confidence);
-        const validated = validateAssessment(await callGroq(groq, system, user, deadlineMs));
+        const validated = validateAssessment(await callGemini(ai, system, user, deadlineMs));
         if (validated) return validated;
       } catch {
         // cae a fallback
@@ -241,7 +250,7 @@ export async function generateExecutiveNarrative(context: ExecutiveReportContext
     (async (): Promise<NovaRecommendationEnrichment[]> => {
       try {
         const { system, user } = buildRecommendationEnrichmentPrompt(context, confidence);
-        const validated = validateAndAlignRecommendations(await callGroq(groq, system, user, deadlineMs), recommendations);
+        const validated = validateAndAlignRecommendations(await callGemini(ai, system, user, deadlineMs), recommendations);
         if (validated) return validated;
       } catch {
         // cae a fallback

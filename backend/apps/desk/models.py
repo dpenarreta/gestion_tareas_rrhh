@@ -32,7 +32,6 @@ class DeskNote(BaseModel):
         NARANJA = "NARANJA", "Naranja"
         LILA = "LILA", "Lila"
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     sender = models.ForeignKey(
         settings.AUTH_USER_MODEL, related_name="+", on_delete=models.PROTECT
     )
@@ -87,7 +86,6 @@ class DeskNote(BaseModel):
 
 
 class DeskNoteReply(BaseModel):
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     note = models.ForeignKey(DeskNote, related_name="replies", on_delete=models.CASCADE)
     author = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="+", on_delete=models.PROTECT)
     message = models.CharField(max_length=500)
@@ -118,7 +116,6 @@ class PersonalReminder(BaseModel):
         SEMANAL = "SEMANAL", "Semanal"
         MENSUAL = "MENSUAL", "Mensual"
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="personal_reminders", on_delete=models.CASCADE)
     title = models.CharField(max_length=150)
     description = models.TextField(null=True, blank=True)
@@ -189,7 +186,6 @@ class DeskAuditLog(models.Model):
     `IntegerField` SUELTO, sin FK (sobrevive al borrado de la entidad,
     mismo criterio que `TargetTimeAuditLog`/`ProjectHistory`)."""
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     entity_type = models.CharField(max_length=20)
     entity_id = models.PositiveBigIntegerField()
     user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="+", on_delete=models.PROTECT)

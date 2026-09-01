@@ -32,16 +32,9 @@ export default async function DashboardPage() {
 
   const canPost = ["ADMINISTRADOR", "JEFE_NACIONAL", "COORDINADOR_NACIONAL"].includes(session.role);
 
-  // Bug encontrado en prueba integral en Chrome real (2026-08-31): `userId`
-  // llega hasta `TaskFormModal`/`MeetingFormModalDashboard` (acciones
-  // rápidas del dashboard) como `currentUserId`, que ambos usan para
-  // auto-asignarse/auto-designarse anfitrión cuando no se elige otro
-  // usuario — con el cuid de Postgres eso fallaba igual que en
-  // Proyectos/Reuniones/Equipo/Tiempo Objetivo. `djangoUserId` ya se
-  // resolvía arriba para `view-preferences`, se reusa acá.
   return (
     <DashboardModule
-      userId={djangoUserId !== null ? String(djangoUserId) : session.userId}
+      userId={djangoUserId !== null ? String(djangoUserId) : String(session.djangoUserId)}
       userName={session.name}
       userRole={session.role}
       roleLevel={ROLE_LEVEL[session.role]}

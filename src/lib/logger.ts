@@ -1,8 +1,17 @@
 import "server-only";
 
 // Patrones de tokens de proveedores externos usados en integraciones (GitHub,
-// Groq) que nunca deben llegar a los logs del servidor, ni siquiera parciales.
-const TOKEN_PATTERNS = [/ghp_[A-Za-z0-9]+/g, /github_pat_[A-Za-z0-9_]+/g, /gsk_[A-Za-z0-9]+/g, /sk-[A-Za-z0-9-]+/g];
+// Gemini/Google) que nunca deben llegar a los logs del servidor, ni siquiera
+// parciales. `AIzaSy...` es el formato estándar de API key de Google AI
+// Studio/Cloud; se mantiene además un patrón genérico `sk-`/`gsk_` como red
+// de seguridad para otras claves con forma similar.
+const TOKEN_PATTERNS = [
+  /ghp_[A-Za-z0-9]+/g,
+  /github_pat_[A-Za-z0-9_]+/g,
+  /AIzaSy[A-Za-z0-9_-]{33}/g,
+  /gsk_[A-Za-z0-9]+/g,
+  /sk-[A-Za-z0-9-]+/g,
+];
 
 function redactTokens(value: string): string {
   let redacted = value;

@@ -71,16 +71,7 @@ export default async function ProjectDetailPage({ params }: Ctx) {
   return (
     <ProjectDetailView
       initialProject={serialized}
-      // Bug encontrado en prueba integral en Chrome real (2026-08-31): esta
-      // página ya resolvía correctamente el id numérico de Django arriba
-      // (`djangoUserIdStr`, usado para `isResponsibleOrCreator`/`canDelete`)
-      // pero seguía pasando el cuid de Postgres al cliente — rompía la
-      // auto-detección de "soy participante" (línea 42 de
-      // `ProjectDetailView.tsx`) y los permisos de registrar actividad por
-      // fase (`ProjectActivitiesTab.tsx`), que comparan contra ids de
-      // Django. Mismo criterio de degradación que el resto de la migración:
-      // si Django no resolvió el id, cae al cuid en vez de romper.
-      currentUserId={djangoUserIdStr ?? session.userId}
+      currentUserId={djangoUserIdStr ?? String(session.djangoUserId)}
       currentUserRole={session.role}
       canManage={canManage}
       canDelete={canDelete}

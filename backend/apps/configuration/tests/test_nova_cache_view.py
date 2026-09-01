@@ -1,6 +1,6 @@
 """Cobertura HTTP de `/api/v1/settings/nova-cache/` — Fase 34 (ver
 docs/AUDIT_LOG.md § 2026-08-21), réplica de `route.ts`. Solo se porta
-la configuración: Nova/Groq en sí sigue fuera de alcance."""
+la configuración: Nova/Gemini en sí sigue fuera de alcance."""
 
 import pytest
 from django.contrib.auth.models import Group

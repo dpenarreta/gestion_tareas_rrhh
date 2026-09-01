@@ -1,7 +1,7 @@
 """Integración Zoom (OAuth Server-to-Server) — Fase 10 (ver
 docs/AUDIT_LOG.md § 2026-08-19). Réplica exacta de `src/lib/zoom.ts`.
 Primera llamada HTTP saliente del backend Django — no había ningún
-patrón previo que copiar (confirmado: NOVA/Groq no se portaron), así
+patrón previo que copiar (confirmado: NOVA/Gemini no se portaron), así
 que se usa `requests` (agregado a `requirements/base.txt`), consistente
 con el resto del stack síncrono DRF."""
 

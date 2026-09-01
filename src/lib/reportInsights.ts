@@ -8,7 +8,7 @@ import { classifyEstadoOperativo, type EstadoOperativoResult } from "@/lib/analy
  * de Django que reemplazó esos cálculos — ver
  * `src/lib/executiveReporting/djangoReportKpisBridge.ts`). NUNCA recalcula
  * un KPI ni usa IA: cada función de aquí es una regla fija sobre números
- * que otro módulo ya produjo. El "Análisis IA" (Groq) del reporte es un
+ * que otro módulo ya produjo. El "Análisis IA" (Gemini) del reporte es un
  * módulo aparte, independiente de este — ver `docs/DECISIONS.md` § Sprint
  * Reportes Ejecutivos 2.0.
  *

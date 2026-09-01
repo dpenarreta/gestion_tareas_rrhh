@@ -24,7 +24,6 @@ class Project(BaseModel):
         COMPLETADO = "COMPLETADO"
         CANCELADO = "CANCELADO"
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     name = models.CharField(max_length=255)
     description = models.TextField(blank=True, default="")
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDIENTE)
@@ -68,7 +67,6 @@ class ProjectParticipant(BaseModel):
     `apps/projects/services.py`) — antes (5a) solo se creaba inline al
     crear el proyecto o cambiar el responsable, eso sigue vigente."""
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     project = models.ForeignKey(Project, related_name="participants", on_delete=models.CASCADE)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="project_participations", on_delete=models.PROTECT)
     added_by = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="+", on_delete=models.PROTECT)
@@ -111,7 +109,6 @@ class ProjectHistory(models.Model):
     `GET /projects/<id>/history/` desde la Fase 5b (ver
     docs/AUDIT_LOG.md § 2026-08-13)."""
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     project = models.ForeignKey(Project, related_name="history", on_delete=models.CASCADE)
     actor = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="+", on_delete=models.PROTECT)
     event = models.CharField(max_length=30, choices=ProjectHistoryEvent.choices)
@@ -135,7 +132,6 @@ class ProjectComment(BaseModel):
     en Historial sería ruido) — mismo patrón que `Comment` en
     `apps/tasks/models.py`."""
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     project = models.ForeignKey(Project, related_name="comments", on_delete=models.CASCADE)
     author = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="+", on_delete=models.PROTECT)
     text = models.TextField()
@@ -151,7 +147,6 @@ class ProjectPhase(BaseModel):
     la Fase 5e (`ProjectActivitySerializer`/`ProjectPhaseSerializer`,
     ver docs/AUDIT_LOG.md § 2026-08-14) — antes fijos en `0`/`[]`."""
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     project = models.ForeignKey(Project, related_name="phases", on_delete=models.CASCADE)
     name = models.CharField(max_length=255)
     # Reutiliza Task.Status — mismo enum que el TS (`ProjectPhase.status: TaskStatus`).
@@ -182,7 +177,6 @@ class ProjectActivity(BaseModel):
     duplicar). A diferencia de `TaskActivity`, el TS de Proyectos NO
     valida solapamiento de horarios entre actividades."""
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     project = models.ForeignKey(Project, related_name="activities", on_delete=models.CASCADE)
     phase = models.ForeignKey(ProjectPhase, related_name="activities", null=True, blank=True, on_delete=models.SET_NULL)
     author = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="+", on_delete=models.PROTECT)
@@ -220,7 +214,6 @@ class ProjectDocument(BaseModel):
         ACTA = "ACTA"
         OTRO = "OTRO"
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     project = models.ForeignKey(Project, related_name="documents", on_delete=models.CASCADE)
     activity = models.ForeignKey(
         ProjectActivity, related_name="documents", null=True, blank=True, on_delete=models.SET_NULL

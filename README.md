@@ -16,7 +16,7 @@ Este documento describe la arquitectura, el stack tecnológico y las convencione
 | Base de datos | PostgreSQL |
 | Autenticación | JWT (`jose`, HS256) en cookie httpOnly, `bcryptjs` para hashing de contraseñas |
 | Enrutamiento/protección | `src/proxy.ts` (Next.js 16 renombró `middleware.ts` → `proxy.ts`) |
-| IA conversacional | Groq SDK, usado por el asistente Nova y por el análisis automático de informes |
+| IA conversacional | `@google/genai` (API de Gemini), usado por el asistente Nova y por el análisis automático de informes |
 | Base de conocimiento (RAG) | Embeddings locales vía `@xenova/transformers`, extracción de texto de PDF vía `pdf-parse` |
 | Almacenamiento documental | Repositorio privado de GitHub, accedido vía API de GitHub |
 | Reuniones | API de Zoom (Server-to-Server OAuth) para creación de reuniones; enlace a notas de Otter.ai sin integración de API |
@@ -263,7 +263,7 @@ En el producto, la visibilidad de estos datos está restringida técnicamente al
 
 - Los datos de identificación, contacto y actividad laboral se almacenan de forma estructurada en la base de datos PostgreSQL de la aplicación.
 - Las contraseñas se almacenan únicamente en forma hasheada (bcrypt), nunca en texto plano.
-- El contenido de las conversaciones con el asistente Nova, así como el texto de los documentos de la base de conocimiento, se envía a un proveedor externo de IA (Groq) para su procesamiento en el momento de la consulta.
+- El contenido de las conversaciones con el asistente Nova, así como el texto de los documentos de la base de conocimiento, se envía a un proveedor externo de IA (Google, API de Gemini) para su procesamiento en el momento de la consulta.
 - Los documentos cargados a la base de conocimiento se almacenan en un repositorio privado de un proveedor externo (GitHub), y su contenido se fragmenta e indexa localmente mediante embeddings generados en el propio servidor.
 - Las reuniones se coordinan a través de la API de Zoom, que recibe el título, la fecha/hora y la lista de invitados (correo/nombre) de la reunión creada.
 - El acceso a los datos de otros usuarios está siempre acotado por la jerarquía de roles descrita en la sección 11.
@@ -275,10 +275,10 @@ Gestionar internamente los recursos humanos de la organización: asignación y s
 
 ### Riesgos identificados
 
-- Envío de contenido potencialmente sensible (consultas de RRHH, contenido de documentos internos) a un proveedor externo de procesamiento de lenguaje (Groq) como parte del funcionamiento del asistente Nova.
+- Envío de contenido potencialmente sensible (consultas de RRHH, contenido de documentos internos) a un proveedor externo de procesamiento de lenguaje (Google, API de Gemini) como parte del funcionamiento del asistente Nova.
 - Almacenamiento de documentos internos de RRHH, que pueden contener datos de personal, en un repositorio de un proveedor externo (GitHub), fuera del perímetro directo de la base de datos de la aplicación.
 - Transferencia de datos de invitados (nombre/correo) a la API de Zoom al programar reuniones.
-- Sin acuerdos de encargado de tratamiento formalizados aún con ninguno de los tres proveedores externos vigentes (Groq, GitHub, Zoom). Neon (base de datos) y Vercel (hosting) se retiraron de la arquitectura el 2026-08-28 tras la migración de stack a Django/SQL Server (ver `docs/RAT.md`, sección 6).
+- Sin acuerdos de encargado de tratamiento formalizados aún con ninguno de los tres proveedores externos vigentes (Google/Gemini, GitHub, Zoom). Groq (proveedor de IA anterior) se retiró el 2026-08-31; Neon (base de datos) y Vercel (hosting) se retiraron de la arquitectura el 2026-08-28 tras la migración de stack a Django/SQL Server (ver `docs/RAT.md`, sección 6).
 - Almacenamiento de datos de salud (permisos médicos, `LeaveRecord`) sin plazo de conservación definido ni base de legitimación diferenciada — categoría especial de datos que requiere evaluación legal específica (ver `docs/RAT.md`, secciones 3, 9 y 11).
 
 ### Estado de cumplimiento — mecanismos técnicos implementados
@@ -294,7 +294,7 @@ Gestionar internamente los recursos humanos de la organización: asignación y s
 
 ### Pendiente — responsabilidad del área legal (no es un pendiente técnico)
 
-- Formalizar acuerdos de encargado de tratamiento (o equivalentes) con los tres proveedores externos vigentes que procesan datos personales de Nexo: **Groq** (IA), **GitHub** (almacenamiento documental) y **Zoom** (videoconferencia). **Neon** (base de datos) y **Vercel** (hosting) se retiraron de la arquitectura el 2026-08-28 — su baja efectiva como cuentas/proyectos activos queda como gestión operativa del responsable del tratamiento.
+- Formalizar acuerdos de encargado de tratamiento (o equivalentes) con los tres proveedores externos vigentes que procesan datos personales de Nexo: **Google** (IA, API de Gemini), **GitHub** (almacenamiento documental) y **Zoom** (videoconferencia). **Groq** (proveedor de IA anterior) se retiró el 2026-08-31; **Neon** (base de datos) y **Vercel** (hosting) se retiraron de la arquitectura el 2026-08-28 — su baja efectiva como cuentas/proyectos activos queda como gestión operativa del responsable del tratamiento.
 - Validación legal formal del cumplimiento LOPDP por asesoría jurídica especializada en protección de datos en Ecuador, incluyendo la evaluación de transferencias internacionales de datos (los tres proveedores vigentes operan infraestructura fuera de Ecuador) y de que el flujo de eliminación de cuenta (gestión manual del Administrador tras la solicitud) cumple los plazos y garantías exigidos por la ley.
 - Completar los campos pendientes de `docs/RAT.md` (razón social, RUC, delegado de protección de datos, etc.) con información que solo el área legal/administrativa de la organización posee.
 - Definir la base de legitimación y el plazo de conservación de los permisos médicos y personales (`LeaveRecord`), dado que incluyen datos de salud — categoría especial sin cobertura aún en la política de retención (ver `docs/RAT.md`, secciones 3 y 9).
@@ -323,7 +323,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 **Los elementos técnicos han sido implementados. Los puntos restantes son de gestión legal y administrativa externa.**
 
-- Formalizar acuerdos de encargado de tratamiento con proveedores externos vigentes (Groq, GitHub, Zoom) — responsabilidad del área legal. Neon y Vercel se retiraron de la arquitectura el 2026-08-28.
+- Formalizar acuerdos de encargado de tratamiento con proveedores externos vigentes (Google/Gemini, GitHub, Zoom) — responsabilidad del área legal. Groq se retiró de la arquitectura el 2026-08-31; Neon y Vercel el 2026-08-28.
 - Validar formalmente el cumplimiento LOPDP con asesoría jurídica especializada.
 - Definir base de legitimación y plazo de conservación para los permisos médicos y personales (`LeaveRecord`) — dato de salud sin política de retención técnica aún (área legal + posterior implementación técnica).
 
@@ -331,6 +331,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-09-01: feat: catalogo dinamico de permisos, retiro de legacy_postgres_id y fixes de UX (v1.145.0-v1.146.2)
 - 2026-08-31: fix: corrige 2 bugs reales hallados en pruebas integrales en Chrome (v1.144.3/v1.144.4)
 - 2026-08-28: feat: completa migracion de stack Next.js/Prisma/PostgreSQL a Next.js/Django/SQL Server
 - 2026-08-03: feat(tasks): aprobacion masiva de fecha fin con edicion por fila (v1.26.0)

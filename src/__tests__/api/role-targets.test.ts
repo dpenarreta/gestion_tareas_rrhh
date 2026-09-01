@@ -22,7 +22,7 @@ function mockSession(overrides: Partial<SessionPayload> | null) {
   getSession.mockResolvedValue(
     overrides === null
       ? null
-      : { userId: "u1", role: "ADMINISTRADOR", name: "Ana", email: "a@nexo.com", expiresAt: new Date(Date.now() + 100000).toISOString(), ...overrides }
+      : { djangoUserId: 1, role: "ADMINISTRADOR", name: "Ana", email: "a@nexo.com", expiresAt: new Date(Date.now() + 100000).toISOString(), ...overrides }
   );
 }
 
@@ -94,7 +94,7 @@ describe("PATCH /api/settings/role-targets", () => {
   });
 
   it("guarda un objetivo válido, traduce riesgoMax a riesgo_max y mapea la respuesta", async () => {
-    mockSession({ role: "ADMINISTRADOR", userId: "admin-1" });
+    mockSession({ role: "ADMINISTRADOR" });
     djangoApiFetch.mockResolvedValue(
       djangoResponse(true, { targets: { ASISTENTE_GH: { performance: 80, riesgo_max: 20, cumplimiento: 90 } } })
     );

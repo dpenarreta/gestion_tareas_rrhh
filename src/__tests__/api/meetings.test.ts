@@ -43,7 +43,8 @@ function mockSession(overrides: Partial<SessionPayload> | null) {
     overrides === null
       ? null
       : {
-          userId: "u1",
+          djangoUserId: 1,
+          permissions: [],
           role: "JEFE_NACIONAL",
           name: "Ana",
           email: "test@nexo.com",
@@ -197,14 +198,14 @@ describe("GET /api/meetings/[id]", () => {
   });
 
   it("responde 403 si el usuario no es anfitrión ni invitado", async () => {
-    mockSession({ userId: "ajeno" });
+    mockSession({});
     djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "Sin acceso" }, 403));
     const res = await meetingGET(req(), ctx());
     expect(res.status).toBe(403);
   });
 
   it("un invitado (no anfitrión) puede ver la reunión", async () => {
-    mockSession({ userId: "invitado-1" });
+    mockSession({});
     djangoApiFetch.mockResolvedValue(djangoResponse(true, DJANGO_MEETING_FIXTURE));
     const res = await meetingGET(req(), ctx());
     expect(res.status).toBe(200);
@@ -228,14 +229,14 @@ describe("PATCH /api/meetings/[id]", () => {
   });
 
   it("responde 403 si quien edita no es el anfitrión", async () => {
-    mockSession({ userId: "invitado-1" });
+    mockSession({});
     djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "Solo el anfitrión puede editar la reunión" }, 403));
     const res = await meetingPATCH(jsonRequest({ title: "x" }), ctx());
     expect(res.status).toBe(403);
   });
 
   it("solo envía a Django los campos permitidos, mapeados a snake_case", async () => {
-    mockSession({ userId: "u1" });
+    mockSession({});
     djangoApiFetch.mockResolvedValue(djangoResponse(true, DJANGO_MEETING_FIXTURE));
 
     await meetingPATCH(
@@ -269,14 +270,14 @@ describe("DELETE /api/meetings/[id]", () => {
   });
 
   it("responde 403 si quien elimina no es el anfitrión", async () => {
-    mockSession({ userId: "invitado-1" });
+    mockSession({});
     djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "Solo el anfitrión puede eliminar la reunión" }, 403));
     const res = await meetingDELETE(req(), ctx());
     expect(res.status).toBe(403);
   });
 
   it("el anfitrión puede eliminar la reunión", async () => {
-    mockSession({ userId: "u1" });
+    mockSession({});
     djangoApiFetch.mockResolvedValue(djangoResponse(true, { ok: true }));
     const res = await meetingDELETE(req(), ctx());
     expect(res.status).toBe(200);

@@ -12,6 +12,7 @@ import { formatDate, isTaskOverdue } from "@/lib/utils";
 import { hoursToDisplay } from "@/lib/timeFormat";
 import { getOfficialTargetTime, isTargetTimeValidated } from "@/lib/targetTime";
 import { Button } from "@/components/ui/Button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { StatusChip, PriorityChip } from "@/components/ui/Chip";
 import { TASK_STATUS_CONFIG, TASK_PRIORITY_CONFIG } from "@/lib/chipConfig";
 import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
@@ -406,13 +407,16 @@ export default function TableView({
 
   const selectedTasks = useMemo(() => tasks.filter((t) => selected.has(t.id)), [tasks, selected]);
 
+  const [pendingBulkDelete, setPendingBulkDelete] = useState<{ ownTasks: Task[]; othersCount: number } | null>(null);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+
   function handleExportSelected() {
     if (selectedTasks.length === 0) return;
     exportTasksToExcel(selectedTasks);
     setSelected(new Set());
   }
 
-  async function handleBulkDeleteClick() {
+  function handleBulkDeleteClick() {
     if (selectedTasks.length === 0) return;
     const ownTasks = selectedTasks.filter((t) => t.createdBy.id === currentUserId);
     const othersCount = selectedTasks.length - ownTasks.length;
@@ -422,20 +426,25 @@ export default function TableView({
       return;
     }
 
-    const confirmMsg =
-      `¿Eliminar ${ownTasks.length} tarea${ownTasks.length !== 1 ? "s" : ""} seleccionada${ownTasks.length !== 1 ? "s" : ""}?` +
-      (othersCount > 0
-        ? ` (${othersCount} tarea${othersCount !== 1 ? "s" : ""} de otro${othersCount !== 1 ? "s" : ""} usuario${othersCount !== 1 ? "s" : ""} se omitirá${othersCount !== 1 ? "n" : ""})`
-        : "");
-    if (!confirm(confirmMsg)) return;
+    setPendingBulkDelete({ ownTasks, othersCount });
+  }
 
-    await onBulkDelete(ownTasks.map((t) => t.id));
-    setSelected(new Set());
+  async function confirmBulkDelete() {
+    if (!pendingBulkDelete) return;
+    const { ownTasks, othersCount } = pendingBulkDelete;
+    setBulkDeleting(true);
+    try {
+      await onBulkDelete(ownTasks.map((t) => t.id));
+      setSelected(new Set());
 
-    if (othersCount > 0) {
-      alert(
-        `Se eliminaron ${ownTasks.length} tarea${ownTasks.length !== 1 ? "s" : ""}. ${othersCount} tarea${othersCount !== 1 ? "s" : ""} de otros usuarios no se eliminó${othersCount !== 1 ? "aron" : ""} porque solo el dueño puede eliminarlas.`
-      );
+      if (othersCount > 0) {
+        alert(
+          `Se eliminaron ${ownTasks.length} tarea${ownTasks.length !== 1 ? "s" : ""}. ${othersCount} tarea${othersCount !== 1 ? "s" : ""} de otros usuarios no se eliminó${othersCount !== 1 ? "aron" : ""} porque solo el dueño puede eliminarlas.`
+        );
+      }
+    } finally {
+      setBulkDeleting(false);
+      setPendingBulkDelete(null);
     }
   }
 
@@ -729,6 +738,23 @@ export default function TableView({
           </motion.div>
         )}
       </AnimatePresence>
+
+      <ConfirmDialog
+        open={pendingBulkDelete !== null}
+        title="Eliminar tareas seleccionadas"
+        message={
+          pendingBulkDelete
+            ? `¿Eliminar ${pendingBulkDelete.ownTasks.length} tarea${pendingBulkDelete.ownTasks.length !== 1 ? "s" : ""} seleccionada${pendingBulkDelete.ownTasks.length !== 1 ? "s" : ""}?` +
+              (pendingBulkDelete.othersCount > 0
+                ? ` (${pendingBulkDelete.othersCount} tarea${pendingBulkDelete.othersCount !== 1 ? "s" : ""} de otro${pendingBulkDelete.othersCount !== 1 ? "s" : ""} usuario${pendingBulkDelete.othersCount !== 1 ? "s" : ""} se omitirá${pendingBulkDelete.othersCount !== 1 ? "n" : ""})`
+                : "")
+            : ""
+        }
+        danger
+        loading={bulkDeleting}
+        onConfirm={confirmBulkDelete}
+        onCancel={() => setPendingBulkDelete(null)}
+      />
     </div>
   );
 }

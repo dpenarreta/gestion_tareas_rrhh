@@ -37,7 +37,7 @@ CONFIDENCE_LABEL = {5: "Muy alta", 4: "Alta", 3: "Media", 2: "Baja", 1: "Muy baj
 
 def compute_confidence(*, observations: int, data_quality_pct: float, consistent: bool | None, max_observations: int = 6) -> dict:
     """Compuesto de: cantidad de observaciones históricas, calidad del
-    dato y consistencia — nunca depende de Groq. Réplica exacta de
+    dato y consistencia — nunca depende de Gemini. Réplica exacta de
     `computeConfidence`."""
     data_score = max(0.0, min(1.0, observations / max_observations))
     quality_score = max(0.0, min(1.0, data_quality_pct / 100))

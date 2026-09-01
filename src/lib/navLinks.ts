@@ -12,6 +12,7 @@ import {
   FolderKanban,
   StickyNote,
   Radar,
+  ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
 import type { Role } from "@/lib/roles";
@@ -55,6 +56,13 @@ export function getNavLinks(role: Role): NavLink[] {
     links.push({ href: "/kpis", label: "Analytics", icon: BarChart3, section: "gestion" });
     if (canManageUsers(role)) {
       links.push({ href: "/admin/users", label: "Usuarios", icon: UserCog, section: "gestion" });
+      // Visibilidad por rol (cosmética) — el guard real de la pantalla es
+      // `session.permissions.includes("roles.ver")` (catálogo dinámico, ver
+      // docs/AUDIT_LOG.md § 2026-09-01), que Django siempre revalida. Mismo
+      // público que "Usuarios" en vez de extender `getNavLinks` a recibir
+      // `permissions` (encadenaría prop-drilling por Sidebar/CommandPalette
+      // sin necesidad real).
+      links.push({ href: "/admin/roles", label: "Roles y Permisos", icon: ShieldCheck, section: "gestion" });
     }
   }
 

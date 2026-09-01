@@ -64,7 +64,6 @@ export async function verifySnapshotIntegrity(
   month: number,
   year: number,
   members: ReportMemberKpi[],
-  djangoIds: Map<string, number>,
 ): Promise<IntegrityCheckResult> {
   try {
     const monthParam = `${year}-${String(month).padStart(2, "0")}`;
@@ -72,11 +71,9 @@ export async function verifySnapshotIntegrity(
     if (!response || !response.ok) return { performed: false, discrepancyCount: 0 };
 
     const data = (await response.json()) as { users: DjangoTeamKpiRow[] };
-    const djangoIdToUserId = new Map([...djangoIds.entries()].map(([userId, djangoId]) => [djangoId, userId]));
     const comparisonByUserId = new Map<string, DjangoTeamKpiRow>();
     for (const row of data.users) {
-      const userId = djangoIdToUserId.get(row.id);
-      if (userId) comparisonByUserId.set(userId, row);
+      comparisonByUserId.set(String(row.id), row);
     }
 
     let discrepancyCount = 0;
@@ -98,7 +95,7 @@ export async function verifySnapshotIntegrity(
               fieldPath: `members[${member.id}].${field}`,
               expected,
               actual,
-              userId: djangoIds.get(member.id),
+              userId: Number(member.id),
             }).catch(() => undefined),
           );
         }

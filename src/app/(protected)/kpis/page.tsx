@@ -10,7 +10,6 @@ export default async function KpisPage() {
 
   return (
     <AnalyticsModule
-      currentUserId={session.userId}
       currentUserRole={session.role}
       currentUserName={session.name}
     />

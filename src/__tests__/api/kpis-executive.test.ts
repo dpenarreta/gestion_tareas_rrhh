@@ -11,6 +11,7 @@ vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
 const djangoApiFetch = vi.fn();
 vi.mock("@/lib/djangoSession", () => ({
   djangoApiFetch: (...args: unknown[]) => djangoApiFetch(...args),
+  ANALYTICS_BUNDLE_TIMEOUT_MS: 12000,
 }));
 
 const { getSession } = await import("@/lib/session");
@@ -21,7 +22,8 @@ function mockSession(overrides: Partial<SessionPayload> | null) {
     overrides === null
       ? null
       : {
-          userId: "jefe-1",
+          djangoUserId: 1,
+          permissions: [],
           role: "JEFE_NACIONAL",
           name: "Jefe",
           email: "jefe@nexo.com",
@@ -79,6 +81,6 @@ describe("GET /api/kpis/executive", () => {
     expect(body.alerts.lowCumplimiento[0]).toMatchObject({ userId: "sub2", value: 25 });
     expect(body.alerts.pendingIdeas[0]).toMatchObject({ title: "Idea pendiente", authorName: "Carla" });
     expect(body.workload[0]).toMatchObject({ userId: "sub1", cargaPct: 80 });
-    expect(djangoApiFetch).toHaveBeenCalledWith("/kpis/executive/");
+    expect(djangoApiFetch.mock.calls[0][0]).toBe("/kpis/executive/");
   });
 });

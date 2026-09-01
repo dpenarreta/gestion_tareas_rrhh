@@ -307,7 +307,7 @@ flowchart TB
     AUDITLOG["kind: health_score / performance_score /<br/>operational_risk / alerts / smart_benchmark / validation_failure"]
   end
 
-  subgraph Nova["Narrativa IA — Groq (nova-insights)"]
+  subgraph Nova["Narrativa IA — Gemini (nova-insights)"]
     NOVA["Solo redacta texto sobre JSON ya calculado.<br/>Nunca calcula un KPI."]
   end
 
@@ -383,7 +383,7 @@ flowchart TB
 - **Capa de decisión (insightsEngine.ts)** — calcula: interpretación y priorización ENCIMA de KPIs ya calculados. No accede a fórmulas de negocio nuevas, solo relaciona/prioriza/compara con historial (`AnalyticsAuditLog`).
 - **Explicabilidad (analyticsExplain.ts)** — pura presentación: traduce valores ya calculados a niveles/etiquetas ejecutivas. Nunca recalcula.
 - **Auditoría** — persiste snapshots de `health_score`/`performance_score`/`operational_risk`/`alerts`/`smart_benchmark`/`validation_failure`; es la fuente de todo "historial personal" (Benchmark Personal, Evolución Personal, tendencias de score).
-- **Nova (Groq)** — solo redacta lenguaje natural sobre JSON ya calculado; nunca calcula un KPI (garantía verificada: `nova-insights/route.ts` solo llama a `computeAlerts`/pipeline y pasa los resultados a Groq como contexto).
+- **Nova (Gemini)** — solo redacta lenguaje natural sobre JSON ya calculado; nunca calcula un KPI (garantía verificada: `nova-insights/route.ts` solo llama a `computeAlerts`/pipeline y pasa los resultados a Gemini como contexto).
 - **UI** — solo presentación, verificado sin fórmulas inline.
 
 ---

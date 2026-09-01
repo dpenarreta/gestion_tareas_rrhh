@@ -24,7 +24,7 @@ function mockSession(overrides: Partial<SessionPayload> | null) {
     overrides === null
       ? null
       : {
-          userId: "u1",
+          djangoUserId: 1,
           role: "JEFE_NACIONAL",
           name: "Ana",
           email: "test@nexo.com",
@@ -113,7 +113,7 @@ describe("GET /api/kpis/me/range", () => {
   });
 
   it("reenvía from/to como query string y devuelve el reporte mapeado a camelCase", async () => {
-    mockSession({ userId: "u1" });
+    mockSession({});
     djangoApiFetch.mockResolvedValue(
       djangoResponse(true, { report: { months: [{ month: "2026-01" }, { month: "2026-02" }], total_tasks: 2 } })
     );

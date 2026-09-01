@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/Table";
 import { SkeletonRow } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { HeartPulse } from "lucide-react";
 
 type SimpleUser = { id: string; name: string; email: string; role: Role };
@@ -75,6 +76,7 @@ export default function SpecialStatusSection({ users }: { users: SimpleUser[] })
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [pendingAction, setPendingAction] = useState<{ record: SpecialStatusRecord; type: "finalize" | "delete" } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -169,7 +171,6 @@ export default function SpecialStatusSection({ users }: { users: SimpleUser[] })
   }
 
   async function handleFinalize(r: SpecialStatusRecord) {
-    if (!confirm(`¿Finalizar el estado de ${TYPE_LABEL[r.type]} de ${r.user.name} hoy?`)) return;
     setBusyId(r.id);
     try {
       const res = await fetch(`/api/settings/special-status/${r.id}`, { method: "PATCH" });
@@ -179,17 +180,18 @@ export default function SpecialStatusSection({ users }: { users: SimpleUser[] })
       }
     } finally {
       setBusyId(null);
+      setPendingAction(null);
     }
   }
 
   async function handleDelete(r: SpecialStatusRecord) {
-    if (!confirm(`¿Eliminar el registro de ${TYPE_LABEL[r.type]} de ${r.user.name}? Esta acción no se puede deshacer.`)) return;
     setBusyId(r.id);
     try {
       const res = await fetch(`/api/settings/special-status/${r.id}`, { method: "DELETE" });
       if (res.ok) setRecords((prev) => prev.filter((x) => x.id !== r.id));
     } finally {
       setBusyId(null);
+      setPendingAction(null);
     }
   }
 
@@ -388,7 +390,7 @@ export default function SpecialStatusSection({ users }: { users: SimpleUser[] })
                     <Td className="text-right space-x-2 whitespace-nowrap">
                       {!finalizado && (
                         <button
-                          onClick={() => handleFinalize(r)}
+                          onClick={() => setPendingAction({ record: r, type: "finalize" })}
                           disabled={busyId === r.id}
                           className="text-xs text-warning hover:brightness-90 font-medium px-2 py-1 rounded hover:bg-warning/[.15] transition-colors disabled:opacity-50"
                         >
@@ -396,7 +398,7 @@ export default function SpecialStatusSection({ users }: { users: SimpleUser[] })
                         </button>
                       )}
                       <button
-                        onClick={() => handleDelete(r)}
+                        onClick={() => setPendingAction({ record: r, type: "delete" })}
                         disabled={busyId === r.id}
                         className="text-xs text-danger hover:brightness-90 font-medium px-2 py-1 rounded hover:bg-danger/[.09] transition-colors disabled:opacity-50"
                       >
@@ -410,6 +412,26 @@ export default function SpecialStatusSection({ users }: { users: SimpleUser[] })
           </Table>
         )}
       </div>
+
+      <ConfirmDialog
+        open={pendingAction !== null}
+        title={pendingAction?.type === "delete" ? "Eliminar registro" : "Finalizar estado"}
+        message={
+          pendingAction?.type === "delete"
+            ? `¿Eliminar el registro de ${TYPE_LABEL[pendingAction.record.type]} de ${pendingAction.record.user.name}? Esta acción no se puede deshacer.`
+            : pendingAction
+              ? `¿Finalizar el estado de ${TYPE_LABEL[pendingAction.record.type]} de ${pendingAction.record.user.name} hoy?`
+              : ""
+        }
+        danger={pendingAction?.type === "delete"}
+        loading={busyId === pendingAction?.record.id}
+        onConfirm={() => {
+          if (!pendingAction) return;
+          if (pendingAction.type === "delete") handleDelete(pendingAction.record);
+          else handleFinalize(pendingAction.record);
+        }}
+        onCancel={() => setPendingAction(null)}
+      />
     </SectionCard>
   );
 }

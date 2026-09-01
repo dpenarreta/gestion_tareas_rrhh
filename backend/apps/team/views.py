@@ -8,13 +8,14 @@ Analytics, solo `apps.hierarchy`/`apps.tasks`. Sin cutover de
 from django.db.models import Count
 from django.shortcuts import get_object_or_404
 from rest_framework import generics
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
 from apps.core.mask_email import mask_email
-from apps.hierarchy.services import can_view_team, get_role_group, get_subordinate_groups
+from apps.hierarchy.services import get_role_group, get_subordinate_groups
 from apps.tasks.models import Task
 from apps.users.models import User
+
+from .permissions import TeamPermission
 
 
 def _role_name(user) -> str:
@@ -31,12 +32,9 @@ class TeamListView(generics.GenericAPIView):
     19 futura), que SÍ excluyen roles de liderazgo (Sprint 0A,
     `isExecutorRole`)."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [TeamPermission]
 
     def get(self, request):
-        if not can_view_team(request.user):
-            return Response({"error": "Sin permisos"}, status=403)
-
         groups = get_subordinate_groups(request.user)
         members = list(User.objects.filter(groups__in=groups).distinct().prefetch_related("groups"))
         members.sort(key=lambda m: m.first_name or m.username)
@@ -110,12 +108,9 @@ class TeamMemberTasksView(generics.GenericAPIView):
     subordinado. 401→403(`can_view_team`)→404(usuario)→403(rol no
     subordinado)→200, mismo orden que el original."""
 
-    permission_classes = [IsAuthenticated]
+    permission_classes = [TeamPermission]
 
     def get(self, request, user_id: int):
-        if not can_view_team(request.user):
-            return Response({"error": "Sin permisos"}, status=403)
-
         target = get_object_or_404(User, pk=user_id)
         target_group = get_role_group(target)
         subordinate_groups = get_subordinate_groups(request.user)

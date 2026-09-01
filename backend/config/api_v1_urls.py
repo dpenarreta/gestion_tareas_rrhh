@@ -190,7 +190,7 @@ urlpatterns = [
     # --- Dashboard: agregación personal (tareas, KPIs, comunicados,
     # reuniones, proyectos, actividad del área) + orden de tarjetas
     # (Fase 25 de la migración de stack) — ensamblado sobre motor YA
-    # portado, sin motor nuevo. `nova-message` (Nova/Groq) queda fuera de
+    # portado, sin motor nuevo. `nova-message` (Nova/Gemini) queda fuera de
     # alcance, ver docs/AUDIT_LOG.md § 2026-08-20 ---
     path("dashboard/", include("apps.dashboard.urls")),
     # --- Base de conocimiento del Asistente LLM/RAG: documentos + chunks

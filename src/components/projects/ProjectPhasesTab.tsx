@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { ProjectPhase, ProjectPhaseStatus, ProjectUserRef } from "./types";
 import { PHASE_STATUS_LABEL } from "./types";
 import PhaseDetailModal from "./PhaseDetailModal";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { StatusChip } from "@/components/ui/Chip";
 import { TASK_STATUS_CONFIG } from "@/lib/chipConfig";
 import { formatDuration } from "@/lib/utils";
@@ -31,6 +32,8 @@ export default function ProjectPhasesTab({ projectId, phases, canManage, candida
   const [targetTimeHours, setTargetTimeHours] = useState("");
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [pendingDeletePhaseId, setPendingDeletePhaseId] = useState<string | null>(null);
+  const [deletingPhase, setDeletingPhase] = useState(false);
   const [error, setError] = useState("");
   const [detailPhase, setDetailPhase] = useState<ProjectPhase | null>(null);
   // Progreso local mientras se arrastra el slider — solo se envía al soltar,
@@ -86,10 +89,15 @@ export default function ProjectPhasesTab({ projectId, phases, canManage, candida
   }
 
   async function deletePhase(phaseId: string) {
-    if (!window.confirm("¿Eliminar esta fase? Esta acción no se puede deshacer.")) return;
-    const res = await fetch(`/api/projects/${projectId}/phases/${phaseId}`, { method: "DELETE" });
-    if (res.ok) {
-      onPhasesChanged(phases.filter((p) => p.id !== phaseId));
+    setDeletingPhase(true);
+    try {
+      const res = await fetch(`/api/projects/${projectId}/phases/${phaseId}`, { method: "DELETE" });
+      if (res.ok) {
+        onPhasesChanged(phases.filter((p) => p.id !== phaseId));
+      }
+    } finally {
+      setDeletingPhase(false);
+      setPendingDeletePhaseId(null);
     }
   }
 
@@ -242,7 +250,7 @@ export default function ProjectPhasesTab({ projectId, phases, canManage, candida
                     Ver detalle
                   </button>
                   {canManage && (
-                    <button onClick={() => deletePhase(phase.id)} className="text-[11px] text-danger hover:underline">
+                    <button onClick={() => setPendingDeletePhaseId(phase.id)} className="text-[11px] text-danger hover:underline">
                       Eliminar
                     </button>
                   )}
@@ -256,6 +264,16 @@ export default function ProjectPhasesTab({ projectId, phases, canManage, candida
       {detailPhase && (
         <PhaseDetailModal projectId={projectId} phase={detailPhase} onClose={() => setDetailPhase(null)} />
       )}
+
+      <ConfirmDialog
+        open={pendingDeletePhaseId !== null}
+        title="Eliminar fase"
+        message="¿Eliminar esta fase? Esta acción no se puede deshacer."
+        danger
+        loading={deletingPhase}
+        onConfirm={() => pendingDeletePhaseId && deletePhase(pendingDeletePhaseId)}
+        onCancel={() => setPendingDeletePhaseId(null)}
+      />
     </div>
   );
 }

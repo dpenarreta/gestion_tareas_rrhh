@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { Spinner } from "@/components/ui/Skeleton";
 import { Button } from "@/components/ui/Button";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import type { Role } from "@/lib/roles";
 import { ROLE_LABEL } from "@/lib/roles";
 import { formatDate } from "@/lib/utils";
@@ -268,6 +269,8 @@ function MeetingDetailModal({
   const [transcriptUrl, setTranscriptUrl] = useState(initial.otterTranscriptUrl ?? "");
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const { showToast } = useToast();
 
   const isHost = meeting.hostId === currentUserId;
@@ -304,16 +307,21 @@ function MeetingDetailModal({
   }
 
   async function handleDelete() {
-    if (!confirm(`¿Eliminar la reunión "${meeting.title}"?`)) return;
-    const res = await fetch(`/api/meetings/${meeting.id}`, { method: "DELETE" });
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}));
-      showToast(data.error ?? "Error al eliminar la reunión.", "error");
-      return;
+    setDeleting(true);
+    try {
+      const res = await fetch(`/api/meetings/${meeting.id}`, { method: "DELETE" });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        showToast(data.error ?? "Error al eliminar la reunión.", "error");
+        return;
+      }
+      showToast("Reunión eliminada.", "success");
+      onDeleted(meeting.id);
+      onClose();
+    } finally {
+      setDeleting(false);
+      setShowDeleteConfirm(false);
     }
-    showToast("Reunión eliminada.", "success");
-    onDeleted(meeting.id);
-    onClose();
   }
 
   function copyOtterEmail() {
@@ -342,7 +350,7 @@ function MeetingDetailModal({
           </div>
           <div className="flex items-center gap-2 shrink-0">
             {isHost && (
-              <button onClick={handleDelete} aria-label="Eliminar reunión" className="p-1.5 text-disabled hover:text-danger hover:bg-danger/[.09] rounded-lg transition-colors">
+              <button onClick={() => setShowDeleteConfirm(true)} aria-label="Eliminar reunión" className="p-1.5 text-disabled hover:text-danger hover:bg-danger/[.09] rounded-lg transition-colors">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                 </svg>
@@ -512,6 +520,16 @@ function MeetingDetailModal({
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        title="Eliminar reunión"
+        message={`¿Eliminar la reunión "${meeting.title}"?`}
+        danger
+        loading={deleting}
+        onConfirm={handleDelete}
+        onCancel={() => setShowDeleteConfirm(false)}
+      />
     </div>
   );
 }

@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import Groq from "groq-sdk";
+import { GoogleGenAI } from "@google/genai";
 import { getSession } from "@/lib/session";
 import { ROLE_LEVEL, ROLE_LABEL, canViewOperationalRisk } from "@/lib/roles";
-import { djangoApiFetch, resolveDjangoUserId } from "@/lib/djangoSession";
+import { djangoApiFetch, resolveDjangoUserId, ANALYTICS_BUNDLE_TIMEOUT_MS } from "@/lib/djangoSession";
 import { fetchDjangoNovaCacheTtlMinutes } from "@/lib/djangoNovaCacheConfig";
+import { mapDjangoAnalyticsPayloadToNexoShape } from "@/lib/djangoAnalyticsAdapter";
+import { mapDjangoKpiPayloadToNexoShape } from "@/lib/djangoKpisAdapter";
 import type { Role } from "@/lib/roles";
 
 type Mode = "full" | "insights-only" | "motivational";
@@ -26,25 +28,24 @@ type MotivationalCacheEntry = {
 
 // Cache en memoria por colaborador + variante generada — "full"/"restricted"
 // (¿incluye detalle de salud del estado especial?) y "motivational" son
-// generaciones de Groq DISTINTAS, nunca deben compartir entrada (ver
+// generaciones de Gemini DISTINTAS, nunca deben compartir entrada (ver
 // `sensitivity` más abajo: evita que un dato de salud generado para el propio
 // titular/Administrador se filtre a un viewer sin privilegio, dado que esta
 // caché no está aislada por viewer).
 const analyticalCache = new Map<string, AnalyticalCacheEntry>();
 const motivationalCache = new Map<string, MotivationalCacheEntry>();
 
-// Lazy: el constructor de Groq lanza síncronamente si falta GROQ_API_KEY
-// (ver `Client` en `groq-sdk`) — construirlo a nivel de módulo rompía esta
-// ruta con un 500 en TODAS las requests cuando la key no está configurada,
-// saltándose por completo los guards `if (process.env.GROQ_API_KEY)` de
-// abajo (que solo se alcanzan si el módulo llega a cargar).
-let groqClient: Groq | null = null;
-function getGroqClient(): Groq {
-  if (!groqClient) groqClient = new Groq({ apiKey: process.env.GROQ_API_KEY });
-  return groqClient;
+// Lazy, mismo patrón defensivo que el resto de las rutas de Nova — el SDK de
+// Gemini (a diferencia de `groq-sdk`) no lanza síncronamente si falta la key,
+// pero construirlo perezosamente sigue evitando trabajo innecesario cuando
+// el guard `if (process.env.GEMINI_API_KEY)` de abajo ya cortó el flujo.
+let geminiClient: GoogleGenAI | null = null;
+function getGeminiClient(): GoogleGenAI {
+  if (!geminiClient) geminiClient = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+  return geminiClient;
 }
 
-// Groq NUNCA calcula nada — todo el JSON que recibe ya viene calculado
+// Gemini NUNCA calcula nada — todo el JSON que recibe ya viene calculado
 // deterministicamente por el motor de Analytics (Django, `apps.analytics`,
 // ver Analytics § Nova — solo lenguaje natural). Su única función es
 // explicar, priorizar y recomendar en español a partir de datos ya
@@ -72,7 +73,7 @@ const MOTIVATIONAL_SYSTEM_PROMPT =
   'EXCLUSIVAMENTE con un objeto JSON válido, sin texto adicional ni markdown, con esta forma exacta: ' +
   '{"messages": string[]}, con entre 2 y 3 mensajes cortos (una frase natural cada uno, sin viñetas).';
 
-// ── Fallbacks deterministas (sin Groq / si la llamada falla) — SIEMPRE a partir de datos ya calculados, nunca inventados ──
+// ── Fallbacks deterministas (sin Gemini / si la llamada falla) — SIEMPRE a partir de datos ya calculados, nunca inventados ──
 
 function fallbackAnalytical(ctx: {
   hallazgoPrincipal: string;
@@ -101,7 +102,7 @@ function fallbackMotivational(ctx: { completedPct: number; totalTasks: number })
   return [`Este período tu cumplimiento fue ${ctx.completedPct}%.`, "No te desanimes — revisa tus tareas pendientes y prioriza con tu supervisor si necesitas apoyo."];
 }
 
-/** Extrae el primer objeto JSON `{...}` de un texto (Groq a veces envuelve la respuesta en markdown pese a la instrucción). */
+/** Extrae el primer objeto JSON `{...}` de un texto (aunque se pide `responseMimeType: "application/json"`, se mantiene como red de seguridad por si el modelo envuelve la respuesta en markdown). */
 function extractJson(text: string): unknown {
   const trimmed = text.trim();
   try {
@@ -141,8 +142,29 @@ class DjangoUnavailable extends Error {
   }
 }
 
-async function fetchDjangoJson<T>(path: string): Promise<T> {
-  const response = await djangoApiFetch(path);
+// Django devuelve todo en snake_case — `mapper` es OBLIGATORIO (no un
+// default silencioso) para forzar a cada call site a declarar
+// explícitamente con qué adaptador corresponde traducirlo, mismo criterio
+// que ya usan `/api/analytics/[userId]`/`/api/kpis/[userId]`/
+// `/api/analytics/operational-risk/[userId]` (ya cortados). Bug encontrado
+// en QA en vivo (2026-08-31): esta ruta nunca aplicaba ningún adaptador —
+// `bundle.healthScore`/`kpi.cargaTiempo`/etc. eran siempre `undefined`
+// (el campo real es `health_score`/`carga_tiempo`), rompiendo con un
+// `TypeError` en CUALQUIER request real desde el cutover a Django, nunca
+// detectado porque los tests mockean `djangoApiFetch` con fixtures ya en
+// camelCase.
+async function fetchDjangoJson<T>(path: string, mapper: (raw: Record<string, unknown>) => unknown, timeoutMs?: number): Promise<T> {
+  let response;
+  try {
+    response = await djangoApiFetch(path, {}, timeoutMs);
+  } catch {
+    // Timeout (`AbortSignal`) u otro fallo de red — ver `ANALYTICS_BUNDLE_TIMEOUT_MS`
+    // en djangoSession.ts. Antes de este fix, un `AbortError` acá escapaba
+    // sin traducir hasta el `GET` exterior, terminando en un 500 vacío.
+    throw new DjangoUnavailable(
+      NextResponse.json({ error: "El cálculo de Insights está tardando más de lo esperado. Intenta de nuevo en unos segundos." }, { status: 504 })
+    );
+  }
   if (!response) {
     throw new DjangoUnavailable(NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 }));
   }
@@ -155,7 +177,7 @@ async function fetchDjangoJson<T>(path: string): Promise<T> {
   if (!response.ok) {
     throw new DjangoUnavailable(NextResponse.json({ error: "Error al obtener Insights de Nova" }, { status: response.status }));
   }
-  return (await response.json()) as T;
+  return mapper((await response.json()) as Record<string, unknown>) as T;
 }
 
 type AnalyticsBundle = {
@@ -190,10 +212,10 @@ async function generateAnalytical(userId: string, sensitivity: Sensitivity, canS
   // una sola llamada — Riesgo Operativo no forma parte del bundle (motor
   // aparte) y `/kpis/<id>/` es la única fuente ya expuesta para nombre/rol
   // del colaborador y el estado especial vigente del mes.
-  const bundle = await fetchDjangoJson<AnalyticsBundle>(`/analytics/${userId}/`);
+  const bundle = await fetchDjangoJson<AnalyticsBundle>(`/analytics/${userId}/`, mapDjangoAnalyticsPayloadToNexoShape, ANALYTICS_BUNDLE_TIMEOUT_MS);
   const [kpi, operationalRisk] = await Promise.all([
-    fetchDjangoJson<KpiUserPayload>(`/kpis/${userId}/`),
-    canSeeRisk ? fetchDjangoJson<OperationalRiskPayload>(`/analytics/operational-risk/${userId}/`) : Promise.resolve(null),
+    fetchDjangoJson<KpiUserPayload>(`/kpis/${userId}/`, mapDjangoKpiPayloadToNexoShape),
+    canSeeRisk ? fetchDjangoJson<OperationalRiskPayload>(`/analytics/operational-risk/${userId}/`, mapDjangoAnalyticsPayloadToNexoShape) : Promise.resolve(null),
   ]);
 
   const { healthScore, alerts, trends, consistency, anomalies, prediction, dataQuality } = bundle;
@@ -205,7 +227,7 @@ async function generateAnalytical(userId: string, sensitivity: Sensitivity, canS
         : "Período de lactancia vigente este mes"
       : null;
 
-  // Todo lo que recibe Groq ya viene calculado por el motor de Analytics —
+  // Todo lo que recibe Gemini ya viene calculado por el motor de Analytics —
   // ver Analytics § Nova solo lenguaje natural. Ningún campo aquí es un
   // cálculo hecho en esta ruta; son lecturas directas del motor.
   const ctx = {
@@ -251,19 +273,22 @@ async function generateAnalytical(userId: string, sensitivity: Sensitivity, canS
   let riesgos: string[] = [];
   let aspectosPositivos: string[] = [];
   let recomendaciones: string[] = [];
-  if (process.env.GROQ_API_KEY) {
+  if (process.env.GEMINI_API_KEY) {
     try {
-      const completion = await getGroqClient().chat.completions.create({
-        model: "llama-3.3-70b-versatile",
-        messages: [
-          { role: "system", content: ANALYTICAL_SYSTEM_PROMPT },
-          { role: "user", content: JSON.stringify(ctx) },
-        ],
-        max_tokens: 600,
-        temperature: 0.4,
-        response_format: { type: "json_object" },
+      const completion = await getGeminiClient().models.generateContent({
+        model: "gemini-3.6-flash",
+        contents: [{ role: "user", parts: [{ text: JSON.stringify(ctx) }] }],
+        config: {
+          systemInstruction: ANALYTICAL_SYSTEM_PROMPT,
+          // `gemini-3.6-flash` consume tokens de "thinking" del MISMO
+          // presupuesto que `maxOutputTokens`, sin poder desactivarse (ver
+          // `ANALYTICAL_SYSTEM_PROMPT` arriba, respuesta JSON con 4 campos).
+          maxOutputTokens: 2048,
+          temperature: 0.4,
+          responseMimeType: "application/json",
+        },
       });
-      const parsed = extractJson(completion.choices[0]?.message?.content ?? "") as
+      const parsed = extractJson(completion.text ?? "") as
         | { hallazgoPrincipal?: unknown; riesgos?: unknown; aspectosPositivos?: unknown; recomendaciones?: unknown }
         | null;
       hallazgoPrincipal = asString(parsed?.hallazgoPrincipal);
@@ -298,7 +323,7 @@ async function generateMotivational(userId: string, selfName: string): Promise<M
   // Solo se llama cuando `isSelf` es verdadero (ver GET) — el nombre viene
   // de la propia sesión, sin necesidad de una llamada extra a `/kpis/<id>/`
   // solo para leerlo.
-  const bundle = await fetchDjangoJson<AnalyticsBundle>(`/analytics/${userId}/`);
+  const bundle = await fetchDjangoJson<AnalyticsBundle>(`/analytics/${userId}/`, mapDjangoAnalyticsPayloadToNexoShape, ANALYTICS_BUNDLE_TIMEOUT_MS);
   const { healthScore } = bundle;
   const completedFactor = healthScore.factors.find((f) => f.name === "Cumplimiento");
   const completedPct = completedFactor ? parseInt(completedFactor.rawLabel, 10) || 0 : 0;
@@ -310,19 +335,21 @@ async function generateMotivational(userId: string, selfName: string): Promise<M
   };
 
   let messages: string[] = [];
-  if (process.env.GROQ_API_KEY) {
+  if (process.env.GEMINI_API_KEY) {
     try {
-      const completion = await getGroqClient().chat.completions.create({
-        model: "llama-3.3-70b-versatile",
-        messages: [
-          { role: "system", content: MOTIVATIONAL_SYSTEM_PROMPT },
-          { role: "user", content: JSON.stringify(ctx) },
-        ],
-        max_tokens: 220,
-        temperature: 0.6,
-        response_format: { type: "json_object" },
+      const completion = await getGeminiClient().models.generateContent({
+        model: "gemini-3.6-flash",
+        contents: [{ role: "user", parts: [{ text: JSON.stringify(ctx) }] }],
+        config: {
+          systemInstruction: MOTIVATIONAL_SYSTEM_PROMPT,
+          // `gemini-3.6-flash` consume tokens de "thinking" del MISMO
+          // presupuesto que `maxOutputTokens`, sin poder desactivarse.
+          maxOutputTokens: 1536,
+          temperature: 0.6,
+          responseMimeType: "application/json",
+        },
       });
-      const parsed = extractJson(completion.choices[0]?.message?.content ?? "") as { messages?: unknown } | null;
+      const parsed = extractJson(completion.text ?? "") as { messages?: unknown } | null;
       messages = asStringArray(parsed?.messages);
     } catch {
       messages = [];
@@ -344,12 +371,9 @@ export async function GET(request: NextRequest, ctx: Ctx) {
 
   const { userId } = await ctx.params;
 
-  // Puente de ids de la Fase 40: `userId` (parámetro de ruta) siempre es el
-  // id NUMÉRICO de Django (mismo contrato que el resto de `analytics/*`/
-  // `kpis/*` ya cortados) — `session.userId` sigue siendo el cuid de
-  // Postgres, así que "es mi propio perfil" se decide contra
-  // `resolveDjangoUserId`, nunca comparando contra `session.userId`
-  // directo (ver el bug cerrado en `MyKpisModule.tsx`, mismo cambio).
+  // `userId` (parámetro de ruta) siempre es el id NUMÉRICO de Django (mismo
+  // contrato que el resto de `analytics/*`/`kpis/*` ya cortados) — "es mi
+  // propio perfil" se decide contra `resolveDjangoUserId`.
   const myDjangoId = await resolveDjangoUserId(session);
   const isSelf = myDjangoId !== null && String(myDjangoId) === userId;
   const viewerLevel = ROLE_LEVEL[session.role];
@@ -404,6 +428,12 @@ export async function GET(request: NextRequest, ctx: Ctx) {
     });
   } catch (err) {
     if (err instanceof DjangoUnavailable) return err.response;
-    throw err;
+    // Cualquier otro error (parseo/forma inesperada de los datos, etc.) —
+    // antes de este fix escapaba sin traducir y Next.js devolvía un 500 con
+    // el body vacío (ver bug de timeout arriba, mismo síntoma con otra
+    // causa): se loguea server-side y se responde JSON legible en vez de
+    // dejarlo propagar.
+    console.error("[nova-insights] Error inesperado:", err);
+    return NextResponse.json({ error: "Error al generar Insights de Nova" }, { status: 500 });
   }
 }

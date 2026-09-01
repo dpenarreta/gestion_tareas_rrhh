@@ -214,7 +214,7 @@ export const SETTINGS_REGISTRY: SettingDescriptor[] = [
     id: "nova-cache",
     label: "Caché de mensajes",
     description: "Minutos que NOVA reutiliza un mensaje generado (Dashboard + Insights de Analytics) antes de volver a llamar al modelo de IA.",
-    keywords: ["nova", "caché", "ttl", "groq"],
+    keywords: ["nova", "caché", "ttl", "gemini"],
     category: "nova",
     configKeys: ["nova_cache_ttl_minutes"],
     defaults: { nova_cache_ttl_minutes: String(DEFAULT_NOVA_CACHE_TTL_MINUTES) },

@@ -117,7 +117,7 @@ describe("POST /api/desk-reminders", () => {
   });
 
   it("mapea dueAt->due_at y crea el recordatorio", async () => {
-    mockSession({ userId: "1" });
+    mockSession({});
     djangoApiFetch.mockResolvedValue(djangoResponse(true, djangoReminder(), 201));
     const res = await POST(jsonRequest({ title: "Llamar a Finanzas", dueAt: "2026-08-01T10:00:00Z" }));
     expect(res.status).toBe(201);

@@ -2,10 +2,10 @@ import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import type { ExecutiveReportContext } from "@/lib/executiveReporting/context";
 
 const create = vi.fn();
-class MockGroq {
-  chat = { completions: { create } };
+class MockGoogleGenAI {
+  models = { generateContent: create };
 }
-vi.mock("groq-sdk", () => ({ default: MockGroq }));
+vi.mock("@google/genai", () => ({ GoogleGenAI: MockGoogleGenAI }));
 
 const { generateExecutiveNarrative } = await import("@/lib/executiveReporting/nova/generateNarrative");
 
@@ -36,7 +36,7 @@ function baseContext(): ExecutiveReportContext {
   };
 }
 
-function validGroqPayload(kind: string): string {
+function validAiPayload(kind: string): string {
   if (kind === "summary")
     return JSON.stringify({ situacionGeneral: "a", fortalezas: "b", aspectosAtencion: "c", conclusion: "d" });
   if (kind === "insights")
@@ -62,15 +62,15 @@ function validGroqPayload(kind: string): string {
 
 beforeEach(() => {
   create.mockReset();
-  process.env.GROQ_API_KEY = "test-key";
+  process.env.GEMINI_API_KEY = "test-key";
 });
 afterEach(() => {
-  delete process.env.GROQ_API_KEY;
+  delete process.env.GEMINI_API_KEY;
 });
 
-describe("generateExecutiveNarrative — sin GROQ_API_KEY", () => {
-  it("degrada las 4 secciones de inmediato, sin llamar a Groq, y nunca queda en blanco", async () => {
-    delete process.env.GROQ_API_KEY;
+describe("generateExecutiveNarrative — sin GEMINI_API_KEY", () => {
+  it("degrada las 4 secciones de inmediato, sin llamar a Gemini, y nunca queda en blanco", async () => {
+    delete process.env.GEMINI_API_KEY;
     const result = await generateExecutiveNarrative(baseContext());
     expect(create).not.toHaveBeenCalled();
     expect(result.degraded).toBe(true);
@@ -80,10 +80,10 @@ describe("generateExecutiveNarrative — sin GROQ_API_KEY", () => {
   });
 });
 
-describe("generateExecutiveNarrative — con Groq disponible", () => {
-  it("usa la respuesta válida de Groq cuando todo sale bien, en las 4 secciones", async () => {
-    create.mockImplementation(async (req: { messages: Array<{ role: string; content: string }> }) => {
-      const system = req.messages[0].content as string;
+describe("generateExecutiveNarrative — con Gemini disponible", () => {
+  it("usa la respuesta válida de Gemini cuando todo sale bien, en las 4 secciones", async () => {
+    create.mockImplementation(async (req: { config: { systemInstruction: string } }) => {
+      const system = req.config.systemInstruction;
       const kind = system.includes("EXECUTIVE SUMMARY")
         ? "summary"
         : system.includes("EXECUTIVE INSIGHTS")
@@ -91,7 +91,7 @@ describe("generateExecutiveNarrative — con Groq disponible", () => {
           : system.includes("EXECUTIVE ASSESSMENT")
             ? "assessment"
             : "enrichment";
-      return { choices: [{ message: { content: validGroqPayload(kind) } }] };
+      return { text: validAiPayload(kind) };
     });
     const result = await generateExecutiveNarrative(baseContext());
     expect(result.degraded).toBe(false);
@@ -101,14 +101,14 @@ describe("generateExecutiveNarrative — con Groq disponible", () => {
     expect(result.sections.recommendationEnrichment.map((e) => e.id).sort()).toEqual(["mantener-planificacion", "redistribuir-carga-sobrecarga"]);
   });
 
-  it("cae a fallback si Groq lanza un error (nunca bloquea la generación)", async () => {
-    create.mockRejectedValue(new Error("groq down"));
+  it("cae a fallback si Gemini lanza un error (nunca bloquea la generación)", async () => {
+    create.mockRejectedValue(new Error("gemini down"));
     const result = await generateExecutiveNarrative(baseContext());
     expect(result.degraded).toBe(true);
     expect(result.sections.executiveSummary.situacionGeneral.length).toBeGreaterThan(0);
   });
 
-  it("cae a fallback si Groq excede el timeout (nunca bloquea más allá del plazo)", async () => {
+  it("cae a fallback si Gemini excede el timeout (nunca bloquea más allá del plazo)", async () => {
     create.mockImplementation(() => new Promise(() => {})); // nunca resuelve
     const start = Date.now();
     const result = await generateExecutiveNarrative(baseContext(), 50);
@@ -116,31 +116,25 @@ describe("generateExecutiveNarrative — con Groq disponible", () => {
     expect(result.degraded).toBe(true);
   });
 
-  it("cae a fallback si Groq responde JSON malformado o incompleto", async () => {
-    create.mockResolvedValue({ choices: [{ message: { content: "no es json" } }] });
+  it("cae a fallback si Gemini responde JSON malformado o incompleto", async () => {
+    create.mockResolvedValue({ text: "no es json" });
     const result = await generateExecutiveNarrative(baseContext());
     expect(result.degraded).toBe(true);
     expect(result.sections.executiveAssessment.diagnosticoGeneral.length).toBeGreaterThan(0);
   });
 
-  it("el enriquecimiento de recomendaciones nunca inventa ni pierde ids, aunque Groq alucine uno inexistente", async () => {
-    create.mockImplementation(async (req: { messages: Array<{ role: string; content: string }> }) => {
-      const isEnrichment = req.messages[0].content.includes("Enriqueces una lista FIJA");
-      if (!isEnrichment) return { choices: [{ message: { content: "no es json" } }] }; // resto degrada, no es el foco de este test
+  it("el enriquecimiento de recomendaciones nunca inventa ni pierde ids, aunque Gemini alucine uno inexistente", async () => {
+    create.mockImplementation(async (req: { config: { systemInstruction: string } }) => {
+      const isEnrichment = req.config.systemInstruction.includes("Enriqueces una lista FIJA");
+      if (!isEnrichment) return { text: "no es json" }; // resto degrada, no es el foco de este test
       return {
-        choices: [
-          {
-            message: {
-              content: JSON.stringify({
-                enriquecimiento: [
-                  { id: "redistribuir-carga-sobrecarga", justificacion: "j", impactoEsperado: "i", areaAfectada: "a", beneficio: "b", complejidadEstimada: "c", tiempoEstimado: "t", responsableSugerido: "r" },
-                  { id: "id-inventado-que-no-existe", justificacion: "j", impactoEsperado: "i", areaAfectada: "a", beneficio: "b", complejidadEstimada: "c", tiempoEstimado: "t", responsableSugerido: "r" },
-                  // "mantener-planificacion" queda deliberadamente omitido
-                ],
-              }),
-            },
-          },
-        ],
+        text: JSON.stringify({
+          enriquecimiento: [
+            { id: "redistribuir-carga-sobrecarga", justificacion: "j", impactoEsperado: "i", areaAfectada: "a", beneficio: "b", complejidadEstimada: "c", tiempoEstimado: "t", responsableSugerido: "r" },
+            { id: "id-inventado-que-no-existe", justificacion: "j", impactoEsperado: "i", areaAfectada: "a", beneficio: "b", complejidadEstimada: "c", tiempoEstimado: "t", responsableSugerido: "r" },
+            // "mantener-planificacion" queda deliberadamente omitido
+          ],
+        }),
       };
     });
 

@@ -19,7 +19,7 @@ type DjangoMe = {
   first_name: string;
   date_joined: string;
   roles: { id: number; name: string }[];
-  legacy_postgres_id: string | null;
+  permissions: string[];
 };
 
 type DjangoActivityFormat = { activity_format: "duration" | "timerange" };
@@ -46,9 +46,9 @@ async function fetchSessionDurationDefaultHours(): Promise<number> {
   return Number.isFinite(data.session_duration_default_hours) ? data.session_duration_default_hours : DEFAULT_SESSION_DURATION_HOURS;
 }
 
-function mapDjangoMe(me: DjangoMe, sessionUserId: string) {
+function mapDjangoMe(me: DjangoMe) {
   return {
-    userId: me.legacy_postgres_id ?? sessionUserId,
+    id: String(me.id),
     name: me.first_name || me.username,
     email: me.email,
     role: (me.roles[0]?.name ?? null) as Role | null,
@@ -82,7 +82,7 @@ export async function GET() {
 
   const me: DjangoMe = await response.json();
   const activityFormat = await readActivityFormat();
-  return NextResponse.json({ ...mapDjangoMe(me, session.userId), activityFormat });
+  return NextResponse.json({ ...mapDjangoMe(me), activityFormat });
 }
 
 export async function PATCH(request: NextRequest) {
@@ -122,17 +122,17 @@ export async function PATCH(request: NextRequest) {
   }
 
   const me: DjangoMe = await response.json();
-  const identity = mapDjangoMe(me, session.userId);
+  const identity = mapDjangoMe(me);
 
   if (hasProfileFields) {
     const durationHours = await fetchSessionDurationDefaultHours();
     await createSession(
       {
-        userId: identity.userId,
         role: identity.role as Role,
         name: identity.name,
         email: identity.email,
         djangoUserId: me.id,
+        permissions: me.permissions,
       },
       false,
       durationHours

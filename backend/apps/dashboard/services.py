@@ -3,7 +3,7 @@ docs/AUDIT_LOG.md § 2026-08-20). Réplica exacta de `GET
 /api/dashboard` (`src/app/api/dashboard/route.ts`), ensamblada sobre
 motor YA portado (Analytics/Ideas/Anuncios/Configuración) — sin motor
 nuevo, sin cutover de Next.js todavía. `nova-message` (asistente
-Nova/Groq, LLM-RAG nunca portado) queda explícitamente FUERA de
+Nova/Gemini, LLM-RAG nunca portado) queda explícitamente FUERA de
 alcance de esta fase."""
 
 from datetime import datetime, timedelta

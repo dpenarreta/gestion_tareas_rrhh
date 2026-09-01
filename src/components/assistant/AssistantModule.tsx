@@ -185,7 +185,7 @@ export default function AssistantModule() {
           {MODE_CONFIG[mode].description}
         </span>
         <span className="ml-auto text-[10px] text-disabled bg-background border border-border px-2 py-1 rounded-lg">
-          Nova · llama-3.3-70b · Groq
+          Nova · Gemini 2.5 Flash
         </span>
       </div>
 

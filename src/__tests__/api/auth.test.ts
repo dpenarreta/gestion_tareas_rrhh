@@ -55,7 +55,7 @@ function mockSession(overrides: Partial<SessionPayload> | null) {
     overrides === null
       ? null
       : {
-          userId: "u1",
+          djangoUserId: 7,
           role: "ASISTENTE_GH",
           name: "Test",
           email: "test@nexo.com",
@@ -87,7 +87,6 @@ function djangoMeResponse(overrides: Partial<Record<string, unknown>> = {}) {
       email: "a@nexo.com",
       first_name: "Ana",
       roles: [{ id: 1, name: "ASISTENTE_GH" }],
-      legacy_postgres_id: "u1",
       ...overrides,
     }),
   };
@@ -117,7 +116,7 @@ describe("POST /api/auth/login", () => {
     expect(res.status).toBe(503);
   });
 
-  it("con credenciales válidas: setea las cookies de Django, arma la sesión con el legacy_postgres_id y responde sin tokens", async () => {
+  it("con credenciales válidas: setea las cookies de Django, arma la sesión con el id numérico de Django y responde sin tokens", async () => {
     const tokens = { access: "acc", refresh: "ref", session_policy: { default_hours: 168, remember_hours: 720 } };
     loginToDjango.mockResolvedValue({ ok: true, tokens });
     djangoApiFetch.mockResolvedValue(djangoMeResponse());
@@ -127,12 +126,12 @@ describe("POST /api/auth/login", () => {
     expect(res.status).toBe(200);
     expect(setDjangoTokenCookies).toHaveBeenCalledWith(tokens);
     expect(createSession).toHaveBeenCalledWith(
-      { userId: "u1", role: "ASISTENTE_GH", name: "Ana", email: "a@nexo.com", djangoUserId: 7 },
+      { role: "ASISTENTE_GH", name: "Ana", email: "a@nexo.com", djangoUserId: 7 },
       true,
       720
     );
     const body = await res.json();
-    expect(body).toEqual({ id: "u1", name: "Ana", email: "a@nexo.com", role: "ASISTENTE_GH" });
+    expect(body).toEqual({ id: 7, name: "Ana", email: "a@nexo.com", role: "ASISTENTE_GH" });
     expect(body).not.toHaveProperty("access");
     expect(body).not.toHaveProperty("password");
   });
@@ -145,21 +144,6 @@ describe("POST /api/auth/login", () => {
     await loginPOST(jsonRequest({ email: "a@nexo.com", password: "correcta" }));
 
     expect(createSession).toHaveBeenCalledWith(expect.anything(), false, 168);
-  });
-
-  it("responde 401 si el usuario de Django todavía no tiene legacy_postgres_id (no importado desde Postgres)", async () => {
-    loginToDjango.mockResolvedValue({
-      ok: true,
-      tokens: { access: "acc", refresh: "ref", session_policy: { default_hours: 168, remember_hours: 720 } },
-    });
-    djangoApiFetch.mockResolvedValue(djangoMeResponse({ legacy_postgres_id: null }));
-
-    const res = await loginPOST(jsonRequest({ email: "a@nexo.com", password: "correcta" }));
-
-    expect(res.status).toBe(401);
-    const body = await res.json();
-    expect(body.error).toMatch(/no está sincronizado/);
-    expect(createSession).not.toHaveBeenCalled();
   });
 
   it("responde 500 si /auth/me falla justo después de un login exitoso", async () => {
@@ -220,7 +204,6 @@ function djangoMeGetResponse(overrides: Partial<Record<string, unknown>> = {}) {
       first_name: "Ana",
       date_joined: "2026-01-01T00:00:00Z",
       roles: [{ id: 1, name: "ASISTENTE_GH" }],
-      legacy_postgres_id: "u1",
       ...overrides,
     }),
   };
@@ -261,7 +244,7 @@ describe("GET /api/auth/me", () => {
     const body = await res.json();
 
     expect(body).toEqual({
-      userId: "u1",
+      id: "7",
       name: "Ana",
       email: "a@nexo.com",
       role: "ASISTENTE_GH",
@@ -314,7 +297,7 @@ describe("PATCH /api/auth/me", () => {
   });
 
   it("actualiza nombre/email vía Django, renueva la sesión (con la duración resuelta desde Django) y normaliza el email a minúsculas", async () => {
-    mockSession({ userId: "u1" });
+    mockSession({});
     djangoApiFetch.mockImplementation(async (path: string) => {
       if (path === "/auth/me/") return djangoMeGetResponse({ first_name: "Ana", email: "nuevo@nexo.com" });
       if (path === "/users/activity-format/") return { ok: true, json: async () => ({ activity_format: "duration" }) };
@@ -332,7 +315,6 @@ describe("PATCH /api/auth/me", () => {
     expect(djangoApiFetch).toHaveBeenCalledWith("/settings/seguridad-config/");
     expect(createSession).toHaveBeenCalledWith(
       {
-        userId: "u1",
         role: "ASISTENTE_GH",
         name: "Ana",
         email: "nuevo@nexo.com",
@@ -342,11 +324,11 @@ describe("PATCH /api/auth/me", () => {
       168
     );
     const body = await res.json();
-    expect(body).toMatchObject({ userId: "u1", name: "Ana", email: "nuevo@nexo.com" });
+    expect(body).toMatchObject({ id: "7", name: "Ana", email: "nuevo@nexo.com" });
   });
 
   it("actualiza solo activityFormat vía Django sin llamar PATCH de identidad ni renovar la sesión", async () => {
-    mockSession({ userId: "u1" });
+    mockSession({});
     const activityFormatPatch = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ activity_format: "timerange" }) });
     djangoApiFetch.mockImplementation(async (path: string, init?: RequestInit) => {
       if (path === "/auth/me/") return djangoMeGetResponse();
@@ -500,14 +482,14 @@ describe("PATCH /api/auth/consent", () => {
   });
 
   it("responde 401 si la sesión de Next.js todavía no tiene acceso a Django", async () => {
-    mockSession({ userId: "u1" });
+    mockSession({});
     djangoApiFetch.mockResolvedValue(null);
     const res = await consentPATCH();
     expect(res.status).toBe(401);
   });
 
   it("marca el consentimiento como aceptado con fecha", async () => {
-    mockSession({ userId: "u1" });
+    mockSession({});
     djangoApiFetch.mockResolvedValue({
       ok: true,
       status: 200,

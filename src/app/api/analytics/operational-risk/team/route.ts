@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { djangoApiFetch } from "@/lib/djangoSession";
+import { djangoApiFetch, ANALYTICS_BUNDLE_TIMEOUT_MS } from "@/lib/djangoSession";
 import { mapDjangoAnalyticsPayloadToNexoShape } from "@/lib/djangoAnalyticsAdapter";
 
 const DJANGO_SESSION_REQUIRED_MESSAGE =
@@ -15,7 +15,15 @@ export async function GET() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const response = await djangoApiFetch("/analytics/operational-risk/team/");
+  let response;
+  try {
+    // Computa Riesgo Operativo para TODO el equipo del actor — más
+    // exigente aún que la versión individual, mismo timeout extendido
+    // (ver docs/AUDIT_LOG.md § 2026-08-31).
+    response = await djangoApiFetch("/analytics/operational-risk/team/", {}, ANALYTICS_BUNDLE_TIMEOUT_MS);
+  } catch {
+    return NextResponse.json({ error: "El cálculo de Riesgo Operativo del equipo está tardando más de lo esperado. Intenta de nuevo en unos segundos." }, { status: 504 });
+  }
   if (!response) {
     return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
   }

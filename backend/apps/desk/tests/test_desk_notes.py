@@ -66,11 +66,16 @@ def test_sender_creates_note_for_recipient(sender, recipient):
     assert response.data["color"] == "AMARILLO"
 
 
-def test_admin_cannot_create_notes(admin, recipient):
+def test_admin_can_create_notes(admin, recipient):
+    # Desde la migración 0004 (ver docs/AUDIT_LOG.md § 2026-09-01,
+    # "SuperUsuario = ADMINISTRADOR con todo el catálogo explícito"),
+    # ADMINISTRADOR tiene `escritorio_digital.usar` sembrado explícito —
+    # pedido literal del usuario ("todo por defecto", sin excepciones),
+    # revierte la exclusión que tenía antes.
     response = _client_for(admin).post(
         "/api/v1/desk-notes/", {"recipient": recipient.id, "message": "Hola"}, format="json"
     )
-    assert response.status_code == 403
+    assert response.status_code == 201
 
 
 def test_cannot_send_note_to_self(sender):
@@ -132,9 +137,12 @@ def test_archived_note_appears_in_archive_view(sender, recipient):
     assert len(response.data) == 1
 
 
-def test_admin_gets_403_listing_notes(admin):
+def test_admin_can_list_notes(admin):
+    # Ver comentario de `test_admin_can_create_notes` — mismo cambio de
+    # comportamiento (migración 0004).
     response = _client_for(admin).get("/api/v1/desk-notes/")
-    assert response.status_code == 403
+    assert response.status_code == 200
+    assert response.data == []
 
 
 # --- Detalle -------------------------------------------------------------------------

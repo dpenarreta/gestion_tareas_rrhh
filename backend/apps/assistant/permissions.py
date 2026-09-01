@@ -1,28 +1,20 @@
 """Permisos de la base de conocimiento — Fase 58 (ver docs/AUDIT_LOG.md §
-2026-08-25). Réplica exacta de `canViewKnowledgeBase`/
-`canManageKnowledgeBase` (`src/lib/roles.ts`)."""
+2026-08-25). `can_view_knowledge_base`/`can_manage_knowledge_base`
+migrados al catálogo dinámico de permisos (`base_conocimiento.ver`/
+`base_conocimiento.gestionar`) — ver docs/AUDIT_LOG.md § 2026-09-01
+("Catálogo dinámico de permisos extendido a todo el sistema")."""
 
 from rest_framework.permissions import IsAuthenticated
 
-CAN_VIEW_KNOWLEDGE_BASE = {"ADMINISTRADOR", "JEFE_NACIONAL", "COORDINADOR_NACIONAL"}
-CAN_MANAGE_KNOWLEDGE_BASE = {"ADMINISTRADOR"}
-
-
-def role_name(user) -> str:
-    """`is_superuser` siempre resuelve a ADMINISTRADOR — mismo criterio
-    que el resto del backend (ver `apps.reports.permissions.role_name`)."""
-    if user.is_superuser:
-        return "ADMINISTRADOR"
-    group = user.groups.first()
-    return group.name if group else ""
+from apps.permissions.authorization import user_has_permission
 
 
 def can_view_knowledge_base(user) -> bool:
-    return role_name(user) in CAN_VIEW_KNOWLEDGE_BASE
+    return user_has_permission(user, "base_conocimiento.ver")
 
 
 def can_manage_knowledge_base(user) -> bool:
-    return role_name(user) in CAN_MANAGE_KNOWLEDGE_BASE
+    return user_has_permission(user, "base_conocimiento.gestionar")
 
 
 class CanViewKnowledgeBase(IsAuthenticated):

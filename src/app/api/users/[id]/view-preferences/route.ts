@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { djangoApiFetch } from "@/lib/djangoSession";
+import { djangoApiFetch, resolveDjangoUserId } from "@/lib/djangoSession";
 
 const DJANGO_SESSION_REQUIRED_MESSAGE =
   "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
@@ -21,8 +21,13 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   }
 
+  const djangoUserId = await resolveDjangoUserId(session);
+  if (djangoUserId === null) {
+    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+
   const { id } = await ctx.params;
-  if (id !== session.userId) {
+  if (id !== String(djangoUserId)) {
     return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
   }
 
@@ -31,7 +36,7 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: "viewPreferences debe ser un array con al menos una vista" }, { status: 400 });
   }
 
-  const response = await djangoApiFetch(`/users/${id}/view-preferences/`, {
+  const response = await djangoApiFetch(`/users/${djangoUserId}/view-preferences/`, {
     method: "PATCH",
     body: JSON.stringify({ viewPreferences }),
   });

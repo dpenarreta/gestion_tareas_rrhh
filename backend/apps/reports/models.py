@@ -3,7 +3,7 @@ docs/AUDIT_LOG.md § 2026-08-18). Réplica de `prisma/schema.prisma`
 (`ExecutiveReportSnapshot`/`ExecutiveReportAuditLog`) — el Executive
 Reporting Engine 2.0 completo (`src/lib/executiveReporting/`, ~3200
 líneas: `documentModel`/`estadoGeneral`/`indiceEjecutivo`/`resolveRoster`
-+ narrativa NOVA vía Groq + exportación Excel/HTML) NO se porta en esta
++ narrativa NOVA vía Gemini + exportación Excel/HTML) NO se porta en esta
 sub-fase — mismo criterio que el ROADMAP ya documentaba ("snapshots ya
 generados se migran como datos congelados, nunca recalculados"). Acá
 solo vive el modelo + lectura de snapshots ya generados
@@ -60,7 +60,6 @@ class ExecutiveReportSnapshot(models.Model):
     # (el Report ID de negocio, formato NXR-...) — este es el `id` numérico
     # de Postgres/Prisma de la fila `ExecutiveReportSnapshot` original,
     # para el ETL de migración de datos reales.
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     # Formato NXR-YYYYMMDD-HHMMSS-XXXX (o NXR-LEGACY-YYYYMMDD-XXXX para
     # filas migradas) — ver `src/lib/executiveReporting/reportId.ts`. Sin
     # generador propio en Django todavía: esta sub-fase no crea snapshots
@@ -129,7 +128,6 @@ class ExecutiveReportAuditLog(models.Model):
         EXPORTED_EXCEL = "exported_excel"
         LEGACY_MIGRATED = "legacy_migrated"
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     report_id = models.CharField(max_length=40)
     action = models.CharField(max_length=20, choices=Action.choices)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="+", on_delete=models.CASCADE)

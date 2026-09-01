@@ -47,7 +47,7 @@ Personas colaboradoras de la organización con cuenta de usuario en Nexo (todos 
 | Registro de consentimiento de tratamiento de datos (aceptación y fecha) | Aceptación explícita en el primer inicio de sesión | `User.dataConsentAccepted`, `User.dataConsentAcceptedAt` |
 | Actividad laboral (tareas, horas registradas, comentarios) | Uso diario del sistema | `Task`, `TaskActivity`, `Comment` |
 | Participación en reuniones (invitados, asistencia) | Programación de reuniones | `Meeting`, `MeetingInvitee` |
-| Contenido conversacional con el asistente de IA | Interacción con Nova | Procesado por el proveedor de IA (Groq) en tiempo de respuesta; el contexto de tareas del usuario se construye desde la base de datos para la consulta |
+| Contenido conversacional con el asistente de IA | Interacción con Nova | Procesado por el proveedor de IA (Google, API de Gemini) en tiempo de respuesta; el contexto de tareas del usuario se construye desde la base de datos para la consulta |
 | Ideas propuestas y votos (asociados a un autor) | Módulo de mejora continua | `ImprovementIdea`, `IdeaVote`, `IdeaStatusHistory` |
 | Documentos internos de RRHH (pueden contener datos de personal) | Carga manual por roles autorizados | Repositorio privado externo (GitHub) + fragmentos indexados (`KnowledgeDocument`, `DocumentChunk`) |
 | Solicitudes de ejercicio de derechos (acceso, rectificación, eliminación) | Ejercicio de derechos por el titular desde `/profile` | `DataSubjectRequest` |
@@ -74,9 +74,17 @@ Los tres tipos de dato que introduce el módulo de ausencias/estado especial (`L
 
 | Proveedor | Rol | Datos que recibe |
 |---|---|---|
-| Groq | Procesamiento de lenguaje natural para el asistente Nova y el análisis automático de informes | Contenido de las consultas al asistente y, cuando corresponde, texto de documentos de la base de conocimiento |
+| Google (API de Gemini) | Procesamiento de lenguaje natural para el asistente Nova y el análisis automático de informes | Contenido de las consultas al asistente y, cuando corresponde, texto de documentos de la base de conocimiento |
 | GitHub | Almacenamiento del repositorio privado de documentos de la base de conocimiento de RRHH | Documentos cargados a la base de conocimiento (pueden contener datos de personal) |
 | Zoom | Coordinación de reuniones (API Server-to-Server OAuth) | Título, fecha/hora y lista de invitados (nombre/correo) de las reuniones creadas |
+
+**RETIRADO (2026-08-31) — Groq dejó de ser el proveedor de IA del asistente
+Nova y del análisis automático de informes; reemplazado por Google (API de
+Gemini).** Mismo criterio que el retiro de Neon/Vercel: el código ya no tiene
+ninguna dependencia técnica de Groq (sin `groq-sdk`, sin `GROQ_API_KEY` en el
+repositorio) — la baja EFECTIVA de la cuenta/proyecto de Groq (o su
+continuidad) es una gestión que el responsable del tratamiento debe completar
+directamente en el panel de ese proveedor.
 
 **RETIRADOS (2026-08-28) — Neon (base de datos PostgreSQL gestionada) y Vercel
 (hosting/despliegue) dejaron de formar parte de la arquitectura del sistema.**
@@ -94,7 +102,7 @@ formalizar (o, si corresponde, dar de baja) cualquier acuerdo de encargado de
 tratamiento pendiente con ellos por el período en que sí procesaron datos.
 
 **Los acuerdos de encargado de tratamiento (o equivalentes) con los tres
-proveedores vigentes (Groq, GitHub, Zoom), así como la evaluación de
+proveedores vigentes (Google/Gemini, GitHub, Zoom), así como la evaluación de
 transferencias internacionales de datos que su uso implica, son
 responsabilidad del área legal de la organización — no son un pendiente
 técnico del sistema.** El sistema no puede formalizar por sí mismo estos
@@ -102,7 +110,7 @@ acuerdos contractuales.
 
 ## 7. Transferencias internacionales de datos
 
-Los tres proveedores vigentes listados en la sección 6 (Groq, GitHub, Zoom)
+Los tres proveedores vigentes listados en la sección 6 (Google/Gemini, GitHub, Zoom)
 operan infraestructura fuera de Ecuador. `[Completar: el área legal debe evaluar si esto constituye una transferencia internacional de datos personales bajo la LOPDP y, de ser así, qué garantías adicionales aplican]`.
 
 ## 8. Ejercicio de derechos de los titulares
@@ -144,10 +152,10 @@ La depuración de informes/tareas/documentos no es automática: el Administrador
 
 ## 11. Riesgos identificados
 
-- Envío de contenido potencialmente sensible (consultas de RRHH, contenido de documentos internos) a un proveedor externo de procesamiento de lenguaje (Groq) como parte del funcionamiento del asistente Nova.
+- Envío de contenido potencialmente sensible (consultas de RRHH, contenido de documentos internos) a un proveedor externo de procesamiento de lenguaje (Google, API de Gemini) como parte del funcionamiento del asistente Nova.
 - Almacenamiento de documentos internos de RRHH, que pueden contener datos de personal, en un repositorio de un proveedor externo (GitHub), fuera del perímetro directo de la base de datos de la aplicación.
 - Transferencia de datos de invitados (nombre/correo) a la API de Zoom al programar reuniones.
-- Sin acuerdos de encargado de tratamiento formalizados con ninguno de los tres proveedores externos vigentes (Groq, GitHub, Zoom). Neon y Vercel dejaron de ser parte de la arquitectura (ver sección 6) — cualquier obligación pendiente con ellos queda acotada al período en que sí procesaron datos.
+- Sin acuerdos de encargado de tratamiento formalizados con ninguno de los tres proveedores externos vigentes (Google/Gemini, GitHub, Zoom). Groq, Neon y Vercel dejaron de ser parte de la arquitectura (ver sección 6) — cualquier obligación pendiente con ellos queda acotada al período en que sí procesaron datos.
 - Almacenamiento de datos de salud (permisos médicos, `LeaveRecord`) sin plazo de conservación definido ni base de legitimación diferenciada — categoría especial de datos que requiere una evaluación legal específica, distinta del resto del tratamiento de RRHH (ver sección 3 y sección 9).
 
 ## 12. Validación pendiente
@@ -156,7 +164,7 @@ Este documento es de carácter técnico y funcional, basado en la revisión del 
 
 1. Completar los campos `[Completar: ...]` de este documento con información que solo el área legal/administrativa de la organización posee.
 2. Validación formal por parte de asesoría legal especializada en protección de datos en Ecuador.
-3. Formalización de acuerdos de encargado de tratamiento con los proveedores vigentes (Groq, GitHub, Zoom) — Neon y Vercel se retiraron de la arquitectura el 2026-08-28 (ver sección 6).
+3. Formalización de acuerdos de encargado de tratamiento con los proveedores vigentes (Google/Gemini, GitHub, Zoom) — Groq se retiró de la arquitectura el 2026-08-31 y Neon/Vercel el 2026-08-28 (ver sección 6).
 
 ---
 

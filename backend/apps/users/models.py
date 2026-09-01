@@ -30,12 +30,6 @@ class User(AbstractUser, BaseModel):
     # exigido en cada request autenticado por SessionAuthentication.authenticate()
     # hasta que el usuario complete POST /api/auth/password/change/.
     must_change_password = models.BooleanField(default=False)
-    # `cuid` original del User de Postgres/Prisma (app legacy Next.js), solo
-    # presente en cuentas importadas por `migrate_users_from_postgres`. Las
-    # fases de negocio futuras que migren datos referenciando un usuario
-    # resuelven su FK contra este campo en su propio ETL — nunca hay join en
-    # vivo entre Postgres y SQL Server. Null para cuentas creadas ya en Django.
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     created_by = models.ForeignKey(
         "self", on_delete=models.SET_NULL, null=True, blank=True, related_name="created_users"
     )

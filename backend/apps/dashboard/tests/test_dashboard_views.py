@@ -1,7 +1,7 @@
 """Cobertura HTTP de `apps.dashboard` — Fase 25 (ver docs/AUDIT_LOG.md §
 2026-08-20), réplica de `src/app/api/dashboard/route.ts` y
 `src/app/api/dashboard/card-order/route.ts`. `nova-message` queda
-explícitamente fuera de alcance de esta fase (Nova/Groq, LLM-RAG nunca
+explícitamente fuera de alcance de esta fase (Nova/Gemini, LLM-RAG nunca
 portado)."""
 
 from datetime import timedelta

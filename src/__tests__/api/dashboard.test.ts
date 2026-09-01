@@ -25,7 +25,8 @@ function mockSession(overrides: Partial<SessionPayload> | null) {
     overrides === null
       ? null
       : {
-          userId: "u1",
+          djangoUserId: 1,
+          permissions: [],
           role: "JEFE_NACIONAL",
           name: "Ana",
           email: "test@nexo.com",
@@ -135,14 +136,14 @@ describe("PATCH /api/dashboard/card-order", () => {
   });
 
   it("responde 401 si la sesión de Next.js todavía no tiene acceso a Django", async () => {
-    mockSession({ userId: "u1" });
+    mockSession({});
     djangoApiFetch.mockResolvedValue(null);
     const res = await cardOrderPATCH(jsonRequest({ order: ["carga"] }));
     expect(res.status).toBe(401);
   });
 
   it("reenvía el nuevo orden a Django", async () => {
-    mockSession({ userId: "u1" });
+    mockSession({});
     djangoApiFetch.mockResolvedValue(djangoResponse(true, { ok: true }));
     const res = await cardOrderPATCH(jsonRequest({ order: ["carga", "tareas", "reuniones"] }));
     expect(res.status).toBe(200);
@@ -153,7 +154,7 @@ describe("PATCH /api/dashboard/card-order", () => {
   });
 
   it("propaga un error de validación de Django", async () => {
-    mockSession({ userId: "u1" });
+    mockSession({});
     djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "order debe ser un array no vacío" }, 400));
     const res = await cardOrderPATCH(jsonRequest({ order: ["carga"] }));
     expect(res.status).toBe(400);

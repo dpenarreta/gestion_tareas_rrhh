@@ -4,7 +4,7 @@ stack (ver docs/AUDIT_LOG.md § 2026-08-25). Réplica de `KnowledgeDocument`/
 
 Decisión explícita de esta fase: el CÁLCULO de embeddings NO se porta a
 Python — `@xenova/transformers` (`src/lib/embeddings.ts`) sigue corriendo
-en Next.js sin cambios, igual que Groq nunca se porta en el resto de esta
+en Next.js sin cambios, igual que Gemini nunca se porta en el resto de esta
 migración (Nova Insights/Message, narrativa de Reportes Ejecutivos). Acá
 solo se persiste el resultado ya calculado: el archivo PDF en sí sigue
 viviendo en GitHub (`src/lib/githubDocuments.ts`, sin cambios), Django
@@ -22,7 +22,6 @@ class KnowledgeDocument(BaseModel):
         LISTO = "LISTO"
         ERROR = "ERROR"
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     title = models.CharField(max_length=255)
     file_name = models.CharField(max_length=255)
     content = models.TextField(null=True, blank=True)
@@ -45,7 +44,6 @@ class DocumentChunk(models.Model):
     cual para que `findRelevantChunks` (Next.js) siga haciendo la búsqueda
     por similitud coseno sin cambios."""
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     document = models.ForeignKey(KnowledgeDocument, related_name="chunks", on_delete=models.CASCADE)
     content = models.TextField()
     embedding = models.JSONField()

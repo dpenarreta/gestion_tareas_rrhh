@@ -15,6 +15,511 @@
 
 ---
 
+## 2026-09-01 — Catálogo dinámico de permisos extendido a todo el sistema
+
+**Problema:** el usuario preguntó por qué un proyecto iniciado desde
+`skelleton_base` (el template base) no tenía pantalla de gestión de
+permisos, pese a que Nexo parte de ese mismo template. Investigación:
+Nexo heredó el backend completo de permisos por rol (`Group`↔`Permission`
+de Django, `apps/permissions`/`apps/roles`, `RoleViewSet` con CRUD
+completo ya testeado) pero **nunca construyó una pantalla que lo consuma**
+— la copia Vite/React de `skelleton_base` que sí tenía esa pantalla era el
+prototipo `frontend/` abandonado, ya eliminado en una limpieza de código
+muerto previa. Además, el catálogo real (`PERMISSION_CATALOG`) solo cubría
+4-5 módulos administrativos (usuarios/roles/permisos/configuración/
+auditoría) — el resto de la autorización real de Nexo (~15 apps de
+dominio) vivía en checks de rol hardcodeados, tanto en `src/lib/roles.ts`
+(frontend) como en `permission_classes` de Django (backend, la función
+`role_name()` duplicada literal en 6+ archivos).
+
+Al pedir que se construyera la pantalla, se le presentó al usuario el
+trade-off explícito antes de implementar cualquier código.
+
+**Alternativas consideradas:**
+1. **Pantalla de solo lectura sobre las reglas reales** (mostrar
+   `roles.ts` como referencia, sin persistencia). Descartada de entrada —
+   no resuelve el pedido ("control de permisos"), solo lo documenta.
+2. **Solo el catálogo administrativo existente** (pantalla CRUD sobre los
+   4-5 módulos que ya estaban en `PERMISSION_CATALOG`, sin tocar la
+   autorización real del resto del sistema). Era la opción recomendada por
+   ser la de menor riesgo/alcance — la autorización real seguiría
+   hardcodeada, la pantalla nueva sería cosmética sobre una fracción
+   pequeña del sistema.
+3. **Extender el catálogo a todo el sistema (elegida por el usuario).**
+   El catálogo dinámico pasa a gatear la autorización REAL de las ~15 apps
+   de dominio (no solo las administrativas), y la pantalla nueva controla
+   de verdad esa autorización, no una fracción cosmética.
+
+**Decisión:** alternativa 3, implementada en 5 fases verificables por
+separado (plan completo en la sesión, cada fase con su propia corrida de
+suite en verde antes de avanzar a la siguiente):
+
+- **Fase 1** (aditiva, cero riesgo): 10 módulos/13 codenames nuevos en
+  `PERMISSION_CATALOG` + migración de datos que siembra cada codename al
+  set EXACTO de roles que reproduce el comportamiento actual — verificado
+  codename por codename contra `src/lib/roles.ts` y el `permission_classes`
+  real de cada app (no una suposición, lectura directa del código).
+- **Fase 2:** 9 apps (`tasks`/`reports`/`meetings`/`ideas`/`desk`/
+  `announcements`/`assistant`×2/`projects`) migradas de `role_name()`/
+  `role_level()` hardcodeados a `user_has_permission()` (catálogo
+  dinámico); `apps/team` gana un `permission_classes` propio que antes no
+  tenía a nivel de vista (`equipo.ver`) — el frontend ya ocultaba el link,
+  pero el endpoint no lo exigía server-side; se documenta como
+  restricción nueva que reproduce el comportamiento *visible* ya existente.
+- **Fase 3:** `session.permissions: string[]` (JWT de Next.js) poblado
+  desde `get_user_permission_codenames` (Django, sin cambios de backend
+  necesarios). `src/lib/roles.ts` deliberadamente SIN tocar — Django
+  (Fase 2) ya es la fuente de verdad real, un desfase temporal del
+  frontend es una regresión de UX menor, no un hueco de seguridad; migrar
+  `roles.ts` módulo por módulo queda en `docs/ROADMAP.md`.
+- **Fase 4:** pantalla `/admin/roles` (`RolesPermissionsManager.tsx`),
+  matriz de 19 módulos × 11 roles. Fila de Administrador con todo tildado
+  y sin edición (bypass real es `is_superuser`, destildar no cambiaría
+  nada — evita la falsa impresión de que sí). Guardado con confirmación
+  (reemplazo completo del set de codenames) + advertencia de autobloqueo
+  si el usuario edita permisos de su propio rol en sesión. Deliberadamente
+  sin crear/eliminar roles pese a que `RoleViewSet` ya lo soporta (`Role`
+  es un union type TS fijo de 11 valores — un `Group` fuera de esa lista
+  rompería en runtime en el resto del frontend).
+- **Fase 5:** tests + esta documentación.
+
+**Hallazgo crítico encontrado y corregido durante la Fase 1:** los
+helpers legacy `role_name()`/`role_level()` (`apps/hierarchy/services.py`
+y sus copias en `permissions.py` de 6+ apps) tratan la sola pertenencia al
+grupo `ADMINISTRADOR` como equivalente a `is_superuser=True` — ambos
+devuelven `"ADMINISTRADOR"`/nivel 5, indistintamente. Esta equivalencia
+**no está garantizada en los datos**: `UserAdminService.create_user`
+(`apps/users/services.py`) nunca asigna `is_superuser`, solo
+`user.groups.set(...)` — un ADMINISTRADOR-solo-por-grupo, sin ser
+superusuario real, es un estado de producción válido y alcanzable. El
+catálogo dinámico (`user_has_permission`) NO replica ese bypass por
+defecto — solo bypasea con `is_superuser=True` literal (comportamiento
+nativo de `ModelBackend`, correcto y ya documentado en
+`get_user_permission_codenames`). La primera versión de la migración de
+datos asumía que ADMINISTRADOR no necesitaba codenames explícitos (el
+patrón ya usado para el catálogo administrativo original) — esto dejaba a
+un ADMINISTRADOR-por-grupo sin los 10 módulos nuevos, causando 23 fallas
+de test (mayormente 403 en `apps/assistant`/`apps/reports`). Corregido
+sembrando explícitamente los codenames nuevos también a `ADMINISTRADOR`
+en 9 de los 10 módulos (excepción: `escritorio_digital.usar`, que excluye
+a ADMINISTRADOR por diseño — no es un participante operativo del día a
+día, ver `docs/DECISIONS.md`; y `tareas.regularizar`, que en el
+comportamiento original tampoco dependía de `role_name()`, solo de
+`is_superuser` directo).
+
+**Justificación:** la alternativa 3 fue una decisión del usuario, no una
+recomendación — se le presentó el trade-off explícitamente (mayor alcance,
+mayor riesgo de regresión en autorización real, "cero margen de error")
+antes de implementar. El hallazgo de ADMINISTRADOR confirma que ese riesgo
+era real y no solo teórico: sin la verificación exhaustiva contra el
+código (no solo contra `roles.ts`, sino contra el comportamiento real de
+`role_name()`), el rollout hubiera despojado silenciosamente a cualquier
+ADMINISTRADOR-por-grupo (sin superuser real) de acceso a 9 módulos
+nuevos.
+
+**Impacto:** autorización real de 9 apps de dominio + `apps/team` pasa de
+checks hardcodeados y duplicados a un catálogo administrable en runtime,
+sin cambio de comportamiento el día del rollout — verificado por: (a) 13
+tests nuevos que comparan la migración de datos contra `src/lib/roles.ts`
+en tiempo de test (`test_business_module_permissions_seed.py`); (b) la
+suite completa de backend en verde (tests preexistentes de cada app
+migrada ya ejercitan sus `permission_classes` con fixtures reales, y
+siguen pasando); (c) verificación manual en browser (Chrome) con 3 roles
+representativos (Jefe Nacional, Administrador, Trabajo Social) cubriendo
+render del catálogo completo, fila de Administrador no editable, flujo de
+edición/guardado/persistencia, y la advertencia de autobloqueo. Riesgo
+documentado (no nuevo, mismo ya aceptado para `role`/`djangoUserId`):
+`session.permissions` cacheado en el JWT — revocar un permiso no tiene
+efecto inmediato sobre sesiones Next.js activas de ese rol hasta su
+próximo login; Django (autorización real) sí revalida en cada request sin
+caché propio. Fuera de alcance, documentado no corregido: `apps/configuration`
+(Ajustes) y partes de `apps/dashboard`/`apps/notifications` confían 100%
+en el guard de frontend sin gate server-side — extenderles el catálogo es
+un cambio de tamaño comparable a esta fase entera.
+
+**Aprobado por:** el usuario, vía `AskUserQuestion` (eligió "Extender el
+catálogo a todo el sistema" sobre las otras 2 opciones presentadas) y
+`ExitPlanMode` (aprobó el plan de 5 fases completo antes de implementar).
+
+---
+
+## 2026-09-01 — "SuperUsuario" = ADMINISTRADOR con todo el catálogo explícito (seguimiento)
+
+**Problema:** el usuario pidió *"crea un rol de SuperUsuario que tenga
+control de todos los permisos, tenga asignado todo por defecto"*, a
+continuación de la entrega del catálogo dinámico de permisos (entrada
+anterior de este mismo día). Ambigüedad real a resolver antes de tocar
+código: `ADMINISTRADOR` ya es el rol superusuario de facto de Nexo (nivel
+5, bypass total vía `is_superuser=True`), y `Role` es un union type TS fijo
+de 11 valores — un 12° rol es un cambio grande (~15 funciones de
+`roles.ts`, jerarquía de visibilidad/notificaciones), no cosmético.
+Además ya existe un grupo llamado literalmente `Superusuario`, heredado de
+`skelleton_base`, sin ningún usuario real asignado, que causó un bug de
+contaminación de tests en la entrada anterior.
+
+**Alternativas presentadas al usuario (vía `AskUserQuestion`):**
+1. **ADMINISTRADOR explícito en la base (elegida).** No se crea un rol
+   nuevo — al `ADMINISTRADOR` existente se le siembran en la base TODOS
+   los codenames del catálogo, en vez de depender solo del bypass
+   `is_superuser`. Cero riesgo arquitectónico.
+2. Un rol nuevo, distinto de `ADMINISTRADOR` (12° valor en `Role`).
+   Descartada por el usuario — cambio grande, redundante con
+   `ADMINISTRADOR`.
+3. Formalizar el grupo `Superusuario` heredado del template (asignarle un
+   usuario real). Descartada por el usuario — mismo problema que la
+   alternativa 2 (`Role` fijo no lo reconoce hoy).
+
+**Decisión:** alternativa 1. Nueva migración de datos
+(`apps/permissions/migrations/0004_seed_all_permissions_to_administrador.py`,
+dependiente de `0003`) que asigna a `ADMINISTRADOR` los 26 codenames
+completos del catálogo (`PERMISSION_CATALOG.all_codenames()`) — incluidos
+los 5 módulos administrativos originales heredados de `skelleton_base`
+(`usuarios`/`roles`/`permisos`/`configuracion`/`auditoria`, nunca antes
+sembrados explícitamente a ningún rol) y los 3 codenames que `0003` había
+excluido a propósito para `ADMINISTRADOR` por replicar fielmente el
+comportamiento legacy (`tareas.regularizar`, `tareas.cerrar_mes`,
+`escritorio_digital.usar`).
+
+**Efecto real no cosmético:** para un `ADMINISTRADOR` real
+(`is_superuser=True`), esto no cambia nada — ya tenía acceso total vía el
+bypass nativo de `ModelBackend`. El cambio real es para el caso
+`ADMINISTRADOR`-solo-por-grupo (`is_superuser=False`, estado alcanzable:
+`UserAdminService.create_user` nunca setea `is_superuser`) — ese usuario
+pasa de tener 9 codenames explícitos (los sembrados por `0003`) a tener
+los 26 completos, incluida `escritorio_digital.usar`, que `0003` excluía a
+propósito citando una decisión de producto documentada
+(`docs/DECISIONS.md`: "no es un participante operativo del día a día").
+Esa exclusión queda revertida por pedido explícito y literal del usuario
+("todo por defecto", sin excepciones) — se documenta acá como reversión
+consciente, no como corrección de un bug.
+
+**Justificación:** el usuario, al elegir la alternativa 1, pidió
+explícitamente "control de todos los permisos" sin matices — la lectura
+literal (26 de 26, sin excepciones) es la más fiel a ese pedido. La
+pantalla `/admin/roles` ya mostraba la fila de Administrador con todo
+tildado de forma puramente cosmética (`RolesPermissionsManager.tsx` fuerza
+`effectiveSelected = allCodenames` para esa fila, sin leer el estado real)
+— este cambio hace que esa apariencia sea ahora también la verdad en la
+base, cerrando la única divergencia entre lo que la UI mostraba y lo que
+`user_has_permission` realmente evaluaba para el caso no-superusuario.
+
+**Impacto:** sin cambio de comportamiento para ningún superusuario real
+(is_superuser ya bypaseaba todo). Cambio de comportamiento real y
+deliberado solo para `ADMINISTRADOR`-por-grupo-sin-superusuario: gana
+acceso a Escritorio Digital y a regularizar/cerrar mes en bloque, que
+antes no tenía. Test de regresión actualizado
+(`test_business_module_permissions_seed.py`, ahora `test_administrador_receives_every_catalog_codename`)
+verifica que `ADMINISTRADOR` tiene exactamente `all_codenames()`, sin
+excepciones. La corrida de la suite completa post-migración detectó 5
+tests en `apps/desk` que esperaban 403 para ADMINISTRADOR
+(`test_desk_notes.py`/`test_desk_search.py`/`test_desk_today.py`/
+`test_personal_reminders.py`) — confirmación directa e independiente de
+que el efecto real descrito arriba ocurre exactamente donde se esperaba
+(Escritorio Digital) y en ningún otro módulo; actualizados a 200/201
+reflejando el nuevo comportamiento intencional, no debilitados. Suite
+completa de backend en verde tras el cambio.
+
+**Aprobado por:** el usuario, vía `AskUserQuestion`.
+
+---
+
+## 2026-08-31 — Retiro completo de `legacy_postgres_id` y del puente de id cuid↔Django
+
+**Problema:** la entrada anterior de este mismo día ("Decommission de la
+conexión al Postgres legacy") dejó explícitamente pendiente, como
+alternativa 2 descartada "por ahora", el retiro de `legacy_postgres_id`
+(~40 modelos) y de todo el bridging cuid↔id-Django que depende de él —
+razonando que era "un cambio de arquitectura de sesión aparte, que el
+usuario no pidió en este alcance". Tras ver el resumen de ese cambio, el
+usuario confirmó explícitamente que también quiere retirar esto: *"Si,
+quiero que también retires eso, repito, no voy a utilizar nada de lo
+antiguo, nunca más volveré a topar la información antigua"*.
+
+Investigación previa a la decisión (2 agentes, código citado línea por
+línea) encontró 3 hechos que cambian el marco de la decisión respecto a la
+entrada anterior:
+1. El campo **ya no conecta con nada externo** — Prisma no existe en el
+   código desde la Fase 90 (`docs/AUDIT_LOG.md` § 2026-08-28). Es puro
+   overhead de indirección interno, no un "puente" hacia una base viva.
+2. El "puente" **causa 2 bugs activos hoy**: el guard de autoeliminación de
+   usuarios (`users/[id]/route.ts`) compara un id numérico contra el cuid
+   de sesión — nunca coincide, el guard está inerte (un Administrador
+   puede autodeshabilitarse sin que nada lo impida). `view-preferences`
+   (`PATCH /api/users/[id]/view-preferences`) llama a Django con el cuid
+   crudo contra una ruta `<int:pk>/` que nunca matchea — la escritura
+   siempre falla internamente (404).
+3. El gate de login (`!me.legacy_postgres_id` → 401) **bloquea hoy el login
+   de cualquier usuario creado directo en el panel de administración de
+   Django** — nada en el flujo de alta de usuarios puebla ese campo.
+   Retirarlo arregla este bloqueo, no lo empeora.
+
+**Alternativas consideradas:**
+1. **Mantener el statu quo** (lo decidido en la entrada anterior). Descartada
+   — el usuario reconfirmó explícitamente que quiere el retiro completo.
+2. **Retirar solo el campo del modelo, dejar `session.userId` intacto** (para
+   minimizar el diff). Descartada — dejaría `SessionPayload.userId` sin
+   ninguna fuente real que lo pueble (el serializer ya no expondría el
+   campo), degradando en silencio en vez de cerrar el gap; el pedido del
+   usuario es un corte limpio, no una capa de compatibilidad a medias.
+3. **Retiro completo del campo + `SessionPayload.userId` + colapso del
+   espacio cuid de Reportes Ejecutivos + fix de los 2 bugs en el mismo
+   cambio (elegida).** Los 2 bugs son consecuencia directa de la misma
+   dualidad de ids — corregirlos por separado dejaría código huérfano
+   apuntando a un campo que ya no existe.
+
+**Decisión:** alternativa 3. Backend: 14 migraciones `RemoveField` (una por
+app), `UserLegacyIdLookupView`/`GET /reports/user-lookup/` eliminados,
+`RosterView` expone el id numérico de Django directo, `UserPublicSerializer`
+deja de exponer `legacy_postgres_id`. Frontend: `SessionPayload.userId`
+eliminado, `djangoUserId: number` pasa a obligatorio; gate de login
+retirado; los 2 bugs corregidos contra `djangoUserId` resuelto de la
+sesión; `buildSnapshotData.ts`/`djangoAnalyticsBridge.ts`/
+`djangoReportKpisBridge.ts` colapsan el espacio cuid interno de Reportes
+Ejecutivos a id numérico de punta a punta. Sin invalidar sesiones activas
+al desplegar — confirmado con el usuario que el riesgo es mínimo (las
+sesiones ya traen `djangoUserId` desde hace varias fases, y el sistema
+degrada con gracia si faltara).
+
+**Justificación:** verificado con el código real, no supuesto — 2 agentes
+de investigación confirmaron línea por línea que el campo no tenía ningún
+consumidor externo, y encontraron los 2 bugs activos (no eran conocidos
+antes de esta investigación) como evidencia adicional de que la dualidad
+de ids era un pasivo, no una feature en uso legítimo.
+
+**Impacto:** cierra por completo el punto pendiente de la entrada anterior.
+`session.djangoUserId` es ahora el único identificador de sesión en todo
+el sistema. 2 bugs de producción cerrados (autoeliminación de usuarios,
+persistencia de `viewPreferences`). Ningún dato de negocio se pierde — el
+campo nunca tuvo consumidor de escritura real más allá del bridging de id.
+
+**Aprobado por:** Anthony Jácome ("Si, quiero que también retires eso,
+repito, no voy a utilizar nada de lo antiguo, nunca más volveré a topar la
+información antigua").
+
+---
+
+## 2026-08-31 — Decommission de la conexión al Postgres legacy (migración de datos descartada definitivamente)
+
+**Problema:** desde la Fase 82 (2026-08-27), el proyecto ya había decidido
+explícitamente NO migrar datos históricos reales desde el Postgres legacy
+al SQL Server de Django, pero conservó intacta toda la infraestructura de
+importación (41 comandos `migrate_*_from_postgres`, helper compartido
+`apps/core/legacy_migration.py`, `LEGACY_POSTGRES_URL`, dependencias
+`psycopg2-binary`/`bcrypt`) por si esa decisión se revertía. El usuario
+confirmó ahora (2026-08-31) que el proyecto pasa a una base SQL Server
+completamente nueva en un servidor de aplicaciones distinto al anterior —
+la migración de datos legacy no solo no se hizo, sino que deja de ser
+siquiera una posibilidad futura con la infraestructura actual.
+
+**Alternativas consideradas:**
+1. **Mantener todo como estaba** (statu quo de la Fase 82). Descartada —
+   el usuario pidió explícitamente la limpieza ("no debe de haber ese
+   código muerto de las conexiones... antiguas").
+2. **Borrar también `legacy_postgres_id`** (el campo, en ~40 modelos) y
+   todo el bridging cuid↔id-Django que depende de él. Descartada por
+   ahora — a diferencia de los comandos de importación (verificado: cero
+   actividad, nunca ejecutados), este campo está **activo hoy**:
+   `RosterView`/`user-lookup` (Reportes Ejecutivos) lo usa en cada
+   request, y los usuarios de prueba actuales de este entorno lo tienen
+   poblado. Eliminarlo exige re-arquitecturar cómo viaja el id de usuario
+   por `session.userId` (JWT de Next.js) en TODA la app, no es una
+   limpieza de código sin uso — es un cambio de arquitectura de sesión
+   aparte, que el usuario no pidió en este alcance.
+3. **Eliminar la infraestructura de importación, dejar `legacy_postgres_id`
+   para una decisión aparte (elegida).** Separa con precisión "conexión a
+   una base externa que ya no se va a usar nunca" (código genuinamente
+   muerto) de "un campo de id que resulta que sigue en uso por una
+   feature activa" (cambio arquitectónico, no limpieza).
+
+**Decisión:** alternativa 3. Eliminados los 41 comandos + helper + test +
+`LEGACY_POSTGRES_URL` + dependencias `psycopg2-binary`/`bcrypt` +
+`BCryptPasswordHasher` de `PASSWORD_HASHERS` (sin más filas `bcrypt$` que
+verificar — la base nueva empieza vacía). Código Vercel-específico
+(hosting también retirado) simplificado sin cambiar comportamiento
+(`maxDuration`, comentarios de `pdfPolyfill.ts`/límite de tamaño de
+archivo). `legacy_postgres_id` documentado explícitamente como pendiente
+separado en `backend/CLAUDE.md`/`.claude/rules/backend/database.md`, no
+tocado.
+
+**Justificación:** verificado con datos reales antes de decidir (no
+supuesto) — consulté la base de desarrollo actual y confirmé que los 2
+usuarios de prueba existentes SÍ tienen `legacy_postgres_id` poblado y
+que `RosterView` lo usa activamente, lo que descartó tratarlo como "lo
+mismo" que los comandos de importación.
+
+**Impacto:** cierra la dependencia de código hacia el Postgres legacy y
+hacia Vercel. Deja explícitamente pendiente (documentado, no ejecutado)
+una decisión de arquitectura de sesión más grande, para que una futura
+sesión no la confunda con limpieza de código muerto.
+
+**Aprobado por:** Anthony Jácome ("debes de limpiar el código de las
+conexiones previas... ya no vamos a volver a usar nada de lo anterior y
+vamos a conectar una nueva base de datos en sqlserver y en otro servidor
+de aplicaciones, no en el anterior").
+
+---
+
+## 2026-08-31 — Reemplazo del proveedor de IA de Nova: Groq → Google Gemini
+
+**Problema:** el usuario pidió explícitamente cambiar el proveedor de IA que
+usa Nova (asistente conversacional, Insights de Analytics, análisis
+automático de Reportes Ejecutivos) de Groq a Google Gemini, aportando una API
+key propia de Gemini. Groq era el único proveedor de IA generativa de todo
+el sistema desde el nacimiento del proyecto — 4 puntos de integración reales
+(`groq-sdk`, sin abstracción de proveedor intermedia):
+`assistant/chat/route.ts` (chat multi-turno con RAG), `dashboard/nova-message/route.ts`
+(saludo del dashboard), `kpis/nova-insights/[userId]/route.ts` (2 llamadas:
+análisis técnico + motivacional) y `executiveReporting/nova/generateNarrative.ts`
+(4 llamadas paralelas para el reporte ejecutivo).
+
+**Alternativas consideradas:**
+1. **Mantener Groq y agregar Gemini como opción secundaria (dual-provider).**
+   Descartado — el pedido explícito del usuario ("quiero que cambies la IA
+   que voy a utilizar y que sea Gemini") es un reemplazo, no una alternativa
+   configurable; una capa de abstracción multi-proveedor es complejidad no
+   pedida para un sistema con un solo consumidor real de IA generativa.
+2. **`@google/generative-ai` (SDK legado de Google) en vez de `@google/genai`.**
+   Descartado — Google lo mantiene congelado (`0.24.1` en npm, sin
+   actividad) en favor de `@google/genai` (`2.19.0`, SDK unificado activo,
+   repo `googleapis/js-genai`). Verificado contra el registry de npm antes
+   de decidir.
+3. **`gemini-2.5-flash` (elección inicial, por ser el modelo "rápido y
+   barato" recomendado en la documentación general de Gemini al momento de
+   escribir el código).** Descartado tras verificación en vivo contra la
+   API real: la cuenta asociada a la API key provista devuelve
+   `404 NOT_FOUND — "This model models/gemini-2.5-flash is no longer
+   available to new users... use models/gemini-3.6-flash"`. Se usa
+   `gemini-3.6-flash` (confirmado funcional con la misma key).
+4. **`thinkingConfig: { thinkingBudget: 0 }` para desactivar el "thinking"
+   de Gemini y mantener latencia baja (patrón documentado como válido para
+   la familia 2.5).** Descartado tras verificación en vivo: `gemini-3.6-flash`
+   rechaza `thinkingBudget: 0` con `400 INVALID_ARGUMENT` — este modelo no
+   permite desactivar el thinking. Un `thinkingBudget` explícito bajo
+   (100–128) tampoco lo acota de forma confiable (se midió `thoughtsTokenCount`
+   muy por encima del budget pedido, con la respuesta final truncada). Se
+   omite `thinkingConfig` por completo (comportamiento por defecto del
+   modelo) y se compensa subiendo `maxOutputTokens` con margen amplio en
+   los 6 call sites — el thinking consume del MISMO presupuesto que la
+   respuesta final, medido entre ~50 y ~600 tokens de "pensamiento" incluso
+   para prompts triviales; sin margen, la respuesta se trunca a mitad de
+   frase (`finishReason: "MAX_TOKENS"`).
+
+**Decisión:** alternativas 2-4 seleccionadas tras verificación empírica en
+vivo (scripts Node aislados contra la API real de Gemini, no solo lectura
+de documentación — la documentación del SDK describe el comportamiento
+general de la familia de modelos, no las particularidades de
+`gemini-3.6-flash`, posterior al corte de conocimiento de este agente).
+Alternativa 1 descartada por alcance. `GEMINI_API_KEY` reemplaza a
+`GROQ_API_KEY` (mismo patrón: variable de entorno, nunca comiteada,
+`.env.example` como plantilla). El patrón de redacción de tokens en logs
+(`src/lib/logger.ts`) gana el formato estándar de key de Google AI
+Studio/Cloud (`AIzaSy...`) — la key provista por el usuario no sigue ese
+formato exacto (`AQ....`), pero el patrón cubre el caso general para
+cualquier key futura generada por el flujo estándar de Google AI Studio.
+
+**Verificación:** cada uno de los 4 puntos de integración se probó en vivo
+contra la API real de Gemini (no solo con mocks) — `nova-insights`
+(análisis técnico), `assistant/chat` (modo general, sin RAG) y un script
+aislado replicando exactamente la config de `generateNarrative.ts`/
+`nova-message` devolvieron contenido bien formado con `finishReason: "STOP"`.
+Se observaron 2 errores `503 UNAVAILABLE` transitorios ("high demand") en
+pruebas repetidas — no son un bug de la integración: la arquitectura ya
+degrada con gracia a contenido determinista ante CUALQUIER fallo de la IA
+(diseño preexistente, ver Fase 54/FPS Parte IV §8), así que un 503
+transitorio de Gemini tiene el mismo efecto visible que un fallo de Groq lo
+tenía antes. `tsc`/Vitest 1100/1100 en verde (7 mocks de test migrados de
+`groq-sdk` a `@google/genai`, más 1 test nuevo para el patrón de redacción
+`AIzaSy...`); `pytest` de los 2 archivos backend tocados (solo comentarios)
+en verde.
+
+**Impacto:** Nova (chat, saludo del dashboard, Insights de Analytics,
+narrativa de Reportes Ejecutivos) pasa de Groq a Gemini sin cambio de
+contrato hacia el resto de la app (mismo shape de respuesta JSON en todos
+los endpoints). Textos de cumplimiento LOPDP actualizados en el mismo
+cambio: `ConsentGate.tsx` (texto mostrado al usuario), `docs/RAT.md` §6/7/11/12,
+`docs/PENDIENTES_LEGALES.md` §2, `README.md` §16/17/19 — Groq se documenta
+como proveedor RETIRADO (mismo patrón ya usado para Neon/Vercel, 2026-08-28),
+Google (API de Gemini) como proveedor vigente. Persiste el mismo pendiente
+legal ya documentado (acuerdo de encargado de tratamiento sin formalizar) —
+ahora con Google en vez de Groq como contraparte.
+
+**Aprobado por:** Anthony Jácome ("Ahora, quiero que cambies la IA que voy a
+utilizar y que sea Gemini... revises todo para saber donde vas a hacer los
+ajustes"), incluyendo la API key de Gemini a usar.
+
+---
+
+## 2026-08-31 — Timeout dedicado para el bundle de Analytics (`ANALYTICS_BUNDLE_TIMEOUT_MS`)
+
+**Problema:** `djangoApiFetch` (`src/lib/djangoSession.ts`) aplica un único
+`REQUEST_TIMEOUT_MS` (3s) a TODAS las llamadas al backend Django, sin
+distinguir por endpoint. `GET /analytics/<id>/` (`AnalyticsBundleView`) es
+un caso conocido y ya documentado como tal en el propio backend (docstring
+de `InsightsView`, Fase 4m/16): no tiene caché con TTL, se recalcula en
+vivo en cada request. Medido directo en Django (fuera de HTTP, solo la
+función de cómputo) para un colaborador con varios meses de historial:
+~2.8s. Sumado el overhead de HTTP/DRF/autenticación, la request real
+prácticamente siempre supera los 3s del timeout genérico — confirmado en
+QA en vivo: Nova Insights, la pantalla de Analytics (`analytics/[userId]`),
+el Motor de Insights (`analytics/insights/[userId]`), el Riesgo Operativo
+(individual y de equipo) y el resumen ejecutivo (`kpis/executive`, mismo
+patrón — agrega todo el roster visible) fallaban con un `500` de body
+vacío de forma intermitente, más frecuente bajo la concurrencia normal de
+una sola carga de página (6+ de estas llamadas en paralelo).
+
+**Alternativas consideradas:**
+1. **Subir `REQUEST_TIMEOUT_MS` global a 12s.** Simple, pero degrada el
+   comportamiento de fail-fast deseado para endpoints livianos/latency
+   sensitive (login, CRUD, refresh de token) — un Django caído tardaría
+   4x más en reportarse como no disponible en TODA la app, no solo en
+   Analytics.
+2. **Agregar caché con TTL en el propio `AnalyticsBundleView` (Django).**
+   Resolvería la causa de fondo, pero es un cambio de mayor alcance
+   (invalidación, coherencia con el resto del motor de Analytics que sí
+   tiene caché en varias capas) fuera del alcance de una sesión de QA —
+   además el timeout seguiría siendo necesario como salvaguarda para la
+   primera request (cache miss) en cualquier escenario.
+3. **Timeout dedicado, más generoso, solo para los consumidores de este
+   endpoint puntual (elegida).** `djangoApiFetch`/`callDjango` ganan un
+   3er parámetro opcional `timeoutMs` (default: sin cambios, 3s); nuevo
+   `ANALYTICS_BUNDLE_TIMEOUT_MS = 12000` exportado desde
+   `djangoSession.ts`, usado explícitamente en los 7 call sites que
+   consumen el bundle de Analytics o su mismo patrón de cómputo pesado
+   (`analytics/[userId]`, `analytics/insights/[userId]`,
+   `analytics/operational-risk/[userId]` + `.../team`,
+   `kpis/nova-insights/[userId]` ×2, `kpis/executive`,
+   `djangoAnalyticsBridge.ts::fetchPerformanceAndHealth`). El resto de la
+   app conserva el fail-fast de 3s sin ningún cambio de comportamiento.
+
+**Decisión:** alternativa 3. Cada ruta afectada además atrapa
+explícitamente el `AbortError` del timeout y responde `504` con un mensaje
+legible — antes de este fix, un timeout no traducido escapaba del
+`try/catch` de la ruta (o no existía ningún `try/catch`) y Next.js
+devolvía un `500` con el body vacío, indistinguible en el cliente de
+cualquier otro fallo genérico.
+
+**Justificación:** 12s se eligió con margen sobre el ~2.8s de cómputo
+puro medido + overhead HTTP observado (~4-6s en las pruebas reales en
+Chrome, incluida contención de un `next dev`/Django `runserver` locales
+bajo carga concurrente) — suficiente para el caso normal sin dejar de
+ser una salvaguarda real ante un Django genuinamente caído/colgado. No se
+optimizó el valor exacto más allá de esto; si en producción (workers
+concurrentes reales, no un `runserver` de desarrollo) se demuestra
+insuficiente o excesivo, es un ajuste de una sola constante.
+
+**Impacto:** corrige fallas intermitentes reales en producción del núcleo
+de Analytics/Nova, no solo del módulo Nova pedido explícitamente en esta
+QA. Ningún cambio de comportamiento para el resto de los ~30 endpoints que
+usan `djangoApiFetch` sin pasar `timeoutMs`.
+
+**Aprobado por:** hallazgo y fix de una sesión de QA en vivo pedida por
+Anthony Jácome ("realiza la validación de QA del módulo de inteligencia,
+lo que es Nova y lo que es inteligencia preventiva") — corrección de bugs
+reales encontrados, mismo patrón de autorización implícita ya establecido
+en la sesión para los hallazgos anteriores (v1.144.2-v1.144.4).
+
+---
+
 ## 2026-08-28 — Retiro de Neon/Vercel de la documentación de cumplimiento (RAT/PENDIENTES_LEGALES/README)
 
 **Problema:** tras confirmar que Neon (base de datos) y Vercel (hosting) ya

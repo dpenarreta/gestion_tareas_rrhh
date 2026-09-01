@@ -29,7 +29,6 @@ class ImprovementIdea(BaseModel):
         IMPLEMENTADA = "IMPLEMENTADA"
         RECHAZADA = "RECHAZADA"
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     title = models.CharField(max_length=255)
     description = models.TextField()
     impact = models.CharField(max_length=10, choices=Impact.choices)
@@ -59,7 +58,6 @@ class IdeaVote(BaseModel):
     se desnormaliza en `ImprovementIdea` (réplica fiel: el TS lo cuenta
     on-the-fly con `prisma.ideaVote.count()`/`_count.votes`)."""
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     idea = models.ForeignKey(ImprovementIdea, related_name="votes", on_delete=models.CASCADE)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="idea_votes", on_delete=models.PROTECT)
 
@@ -71,7 +69,6 @@ class IdeaVote(BaseModel):
 
 
 class IdeaStatusHistory(BaseModel):
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     idea = models.ForeignKey(ImprovementIdea, related_name="history", on_delete=models.CASCADE)
     from_status = models.CharField(max_length=20, choices=ImprovementIdea.Status.choices)
     to_status = models.CharField(max_length=20, choices=ImprovementIdea.Status.choices)

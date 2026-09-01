@@ -39,7 +39,7 @@ function mockSession(overrides: Partial<SessionPayload> | null) {
     overrides === null
       ? null
       : {
-          userId: "u1",
+          djangoUserId: 1,
           role: "JEFE_NACIONAL",
           name: "Test",
           email: "test@nexo.com",
@@ -238,7 +238,7 @@ describe("DELETE /api/users/[id]", () => {
   });
 
   it("responde 400 al intentar eliminarse a sí mismo", async () => {
-    mockSession({ role: "JEFE_NACIONAL", userId: "1" });
+    mockSession({ role: "JEFE_NACIONAL", djangoUserId: 1 });
     const res = await userDELETE(jsonRequest(), ctx("1"));
     expect(res.status).toBe(400);
     expect(djangoApiFetch).not.toHaveBeenCalled();
@@ -247,14 +247,14 @@ describe("DELETE /api/users/[id]", () => {
   it("responde 404 si el objetivo no existe", async () => {
     mockSession({ role: "JEFE_NACIONAL" });
     mockFetchUser({}, false);
-    const res = await userDELETE(jsonRequest(), ctx());
+    const res = await userDELETE(jsonRequest(), ctx("2"));
     expect(res.status).toBe(404);
   });
 
   it("responde 404 si el objetivo está fuera de la jerarquía visible (IDOR)", async () => {
     mockSession({ role: "COORDINADOR_NACIONAL" });
     mockFetchUser({ roles: [{ id: 1, name: "JEFE_NACIONAL" }] });
-    const res = await userDELETE(jsonRequest(), ctx());
+    const res = await userDELETE(jsonRequest(), ctx("2"));
     expect(res.status).toBe(404);
   });
 
@@ -262,12 +262,12 @@ describe("DELETE /api/users/[id]", () => {
     mockSession({ role: "JEFE_NACIONAL" });
     djangoApiFetch.mockImplementation(async (path: string, init?: RequestInit) => {
       if (init?.method === "POST") {
-        expect(path).toBe("/admin/users/1/disable/");
+        expect(path).toBe("/admin/users/2/disable/");
         return djangoResponse(true, {});
       }
       return djangoResponse(true, djangoUser());
     });
-    const res = await userDELETE(jsonRequest(), ctx());
+    const res = await userDELETE(jsonRequest(), ctx("2"));
     expect(res.status).toBe(200);
   });
 
@@ -277,7 +277,7 @@ describe("DELETE /api/users/[id]", () => {
       if (init?.method === "POST") return djangoResponse(false, {}, 500);
       return djangoResponse(true, djangoUser());
     });
-    const res = await userDELETE(jsonRequest(), ctx());
+    const res = await userDELETE(jsonRequest(), ctx("2"));
     expect(res.status).toBe(500);
   });
 });
@@ -365,30 +365,30 @@ describe("PATCH /api/users/[id]/theme", () => {
   });
 
   it("responde 403 si se intenta cambiar el tema de otro usuario", async () => {
-    mockSession({ userId: "u1" });
+    mockSession({ djangoUserId: 1 });
     const res = await themePATCH(jsonRequest({ theme: "DARK" }), ctx("otro-usuario"));
     expect(res.status).toBe(403);
     expect(djangoApiFetch).not.toHaveBeenCalled();
   });
 
   it("responde 400 ante un valor de tema inválido", async () => {
-    mockSession({ userId: "u1" });
-    const res = await themePATCH(jsonRequest({ theme: "PURPLE" }), ctx("u1"));
+    mockSession({ djangoUserId: 1 });
+    const res = await themePATCH(jsonRequest({ theme: "PURPLE" }), ctx("1"));
     expect(res.status).toBe(400);
     expect(djangoApiFetch).not.toHaveBeenCalled();
   });
 
   it("responde 401 si Django no tiene sesión disponible al resolver /auth/me/", async () => {
-    mockSession({ userId: "u1" });
+    mockSession({ djangoUserId: undefined });
     djangoApiFetch.mockResolvedValue(null);
-    const res = await themePATCH(jsonRequest({ theme: "DARK" }), ctx("u1"));
+    const res = await themePATCH(jsonRequest({ theme: "DARK" }), ctx("1"));
     expect(res.status).toBe(401);
   });
 
   it("con djangoUserId ya en la sesión (Fase 40), no llama a /auth/me/", async () => {
-    mockSession({ userId: "u1", djangoUserId: 7 });
+    mockSession({ djangoUserId: 7 });
     djangoApiFetch.mockResolvedValue(djangoResponse(true, { theme: "DARK" }));
-    const res = await themePATCH(jsonRequest({ theme: "DARK" }), ctx("u1"));
+    const res = await themePATCH(jsonRequest({ theme: "DARK" }), ctx("7"));
     expect(res.status).toBe(200);
     expect(djangoApiFetch).toHaveBeenCalledTimes(1);
     expect(djangoApiFetch).toHaveBeenCalledWith(
@@ -398,24 +398,24 @@ describe("PATCH /api/users/[id]/theme", () => {
   });
 
   it("sin djangoUserId en la sesión (previa a la Fase 40), resuelve el id numérico vía /auth/me/ y actualiza el propio tema", async () => {
-    mockSession({ userId: "u1" });
+    mockSession({ djangoUserId: undefined });
     djangoApiFetch.mockImplementation(async (path: string) => {
       if (path === "/auth/me/") return djangoResponse(true, { id: 7 });
       if (path === "/users/7/theme/") return djangoResponse(true, { theme: "DARK" });
       throw new Error(`unexpected path ${path}`);
     });
-    const res = await themePATCH(jsonRequest({ theme: "DARK" }), ctx("u1"));
+    const res = await themePATCH(jsonRequest({ theme: "DARK" }), ctx("7"));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ theme: "DARK" });
   });
 
   it("propaga el rechazo de Django (theme inválido para UserThemeView)", async () => {
-    mockSession({ userId: "u1" });
+    mockSession({ djangoUserId: undefined });
     djangoApiFetch.mockImplementation(async (path: string) => {
       if (path === "/auth/me/") return djangoResponse(true, { id: 7 });
       return djangoResponse(false, { error: "theme debe ser LIGHT o DARK" }, 400);
     });
-    const res = await themePATCH(jsonRequest({ theme: "DARK" }), ctx("u1"));
+    const res = await themePATCH(jsonRequest({ theme: "DARK" }), ctx("7"));
     expect(res.status).toBe(400);
   });
 });
@@ -430,31 +430,31 @@ describe("PATCH /api/users/[id]/view-preferences", () => {
   });
 
   it("responde 403 si se intenta cambiar las preferencias de otro usuario", async () => {
-    mockSession({ userId: "u1" });
+    mockSession({ djangoUserId: 1 });
     const res = await viewPreferencesPATCH(jsonRequest({ viewPreferences: ["kanban"] }), ctx("otro-usuario"));
     expect(res.status).toBe(403);
   });
 
   it("responde 400 si viewPreferences no es un array no vacío", async () => {
-    mockSession({ userId: "u1" });
-    expect((await viewPreferencesPATCH(jsonRequest({ viewPreferences: [] }), ctx("u1"))).status).toBe(400);
-    expect((await viewPreferencesPATCH(jsonRequest({ viewPreferences: "kanban" }), ctx("u1"))).status).toBe(400);
+    mockSession({ djangoUserId: 1 });
+    expect((await viewPreferencesPATCH(jsonRequest({ viewPreferences: [] }), ctx("1"))).status).toBe(400);
+    expect((await viewPreferencesPATCH(jsonRequest({ viewPreferences: "kanban" }), ctx("1"))).status).toBe(400);
   });
 
   it("responde 401 si la sesión de Next.js todavía no tiene acceso a Django", async () => {
-    mockSession({ userId: "u1" });
+    mockSession({});
     djangoApiFetch.mockResolvedValue(null);
-    const res = await viewPreferencesPATCH(jsonRequest({ viewPreferences: ["kanban", "tabla"] }), ctx("u1"));
+    const res = await viewPreferencesPATCH(jsonRequest({ viewPreferences: ["kanban", "tabla"] }), ctx("1"));
     expect(res.status).toBe(401);
   });
 
-  it("actualiza las propias preferencias de vista", async () => {
-    mockSession({ userId: "u1" });
+  it("actualiza las propias preferencias de vista, contra el id numérico de Django (no el path crudo)", async () => {
+    mockSession({ djangoUserId: 7 });
     djangoApiFetch.mockResolvedValue(djangoResponse(true, { view_preferences: ["kanban", "tabla"] }));
-    const res = await viewPreferencesPATCH(jsonRequest({ viewPreferences: ["kanban", "tabla"] }), ctx("u1"));
+    const res = await viewPreferencesPATCH(jsonRequest({ viewPreferences: ["kanban", "tabla"] }), ctx("7"));
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ viewPreferences: ["kanban", "tabla"] });
-    expect(djangoApiFetch).toHaveBeenCalledWith("/users/u1/view-preferences/", {
+    expect(djangoApiFetch).toHaveBeenCalledWith("/users/7/view-preferences/", {
       method: "PATCH",
       body: JSON.stringify({ viewPreferences: ["kanban", "tabla"] }),
     });

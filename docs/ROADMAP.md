@@ -2071,6 +2071,25 @@
 
 ## Planificado
 
+- **Migrar `src/lib/roles.ts` a `session.permissions` módulo por módulo**
+  (ver `docs/AUDIT_LOG.md` § 2026-09-01, "Catálogo dinámico de permisos
+  extendido a todo el sistema"). Desde v1.146.0, Django (`permission_classes`)
+  ya es la fuente de verdad real de autorización para 9 apps de dominio +
+  `apps/team`, gateada por el catálogo dinámico — pero el frontend
+  (`roles.ts`, ~40 funciones hardcodeadas: `canViewTeam`/`canCreateMeetings`/
+  `canReviewIdeas`/etc.) sigue sin tocar, deliberadamente, para acotar el
+  alcance de esa entrega. Migrar cada consumidor a `hasPermission(session.permissions, codename)`
+  (`src/lib/permissions.ts`) cierra el desfase de UX (un botón visible que
+  Django terminaría rechazando) sin ser un hueco de seguridad — Django ya
+  revalida todo server-side. No es urgente ni bloqueante; se puede hacer
+  módulo por módulo, sin coordinar un cambio único de gran superficie.
+- **Extender el catálogo dinámico a `apps.configuration` (Ajustes) y a las
+  partes de `apps.dashboard`/`apps.notifications` que hoy confían 100% en
+  el guard de frontend** (ver mismo hallazgo del AUDIT_LOG citado arriba)
+  — sin `permission_classes` propio a nivel de vista, análogo al gap que
+  tenía `apps.team` antes de esta entrega. Tamaño comparable a la Fase 2
+  de esa entrega completa.
+
 - **Migración de stack hacia skelleton_base — Fases 3b en adelante (hoja
   de ruta, cada una se planifica en detalle cuando llegue su turno; Fases 1,
   2 y 3a ya implementadas, ver "Implementado" arriba):**

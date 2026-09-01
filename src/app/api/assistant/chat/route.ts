@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import Groq from "groq-sdk";
+import { GoogleGenAI, type Content } from "@google/genai";
 import { getSession } from "@/lib/session";
 import { djangoApiFetch } from "@/lib/djangoSession";
 import { ROLE_LABEL, getSubordinateRoles, canViewTeam } from "@/lib/roles";
@@ -204,10 +204,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   }
 
-  const apiKey = process.env.GROQ_API_KEY;
-  safeLog("log", "[assistant/chat] GROQ_API_KEY presente:", !!apiKey);
+  const apiKey = process.env.GEMINI_API_KEY;
+  safeLog("log", "[assistant/chat] GEMINI_API_KEY presente:", !!apiKey);
   if (!apiKey) {
-    return NextResponse.json({ error: "GROQ_API_KEY no configurado" }, { status: 503 });
+    return NextResponse.json({ error: "GEMINI_API_KEY no configurado" }, { status: 503 });
   }
 
   let body: { mode: Mode; message: string; history: HistoryMessage[] };
@@ -222,7 +222,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Mensaje vacío" }, { status: 400 });
   }
 
-  safeLog("log", `[assistant/chat] modo=${mode} userId=${session.userId} role=${session.role}`);
+  safeLog("log", `[assistant/chat] modo=${mode} userId=${session.djangoUserId} role=${session.role}`);
 
   // Build system prompt + context
   let systemContent = SYSTEM_GENERAL;
@@ -297,36 +297,45 @@ export async function POST(request: NextRequest) {
     `[assistant/chat] System message chars: ${systemMessage.length} | History messages: ${history.length}`
   );
 
-  const messages: Groq.Chat.ChatCompletionMessageParam[] = [
-    { role: "system", content: systemMessage },
+  // Gemini no tiene rol "system" dentro de `contents` — el prompt de sistema
+  // va en `config.systemInstruction`. El resto del historial mapea
+  // "assistant" (Groq/OpenAI) → "model" (único nombre que acepta Gemini).
+  const contents: Content[] = [
     ...history.map((h) => ({
-      role: h.role as "user" | "assistant",
-      content: h.content,
+      role: h.role === "assistant" ? "model" : "user",
+      parts: [{ text: h.content }],
     })),
-    { role: "user", content: message },
+    { role: "user", parts: [{ text: message }] },
   ];
 
   try {
-    safeLog("log", "[assistant/chat] Llamando a Groq...");
-    const client = new Groq({ apiKey });
-    const response = await client.chat.completions.create({
-      model: "llama-3.3-70b-versatile",
-      max_tokens: 1500,
-      messages,
+    safeLog("log", "[assistant/chat] Llamando a Gemini...");
+    const ai = new GoogleGenAI({ apiKey });
+    const response = await ai.models.generateContent({
+      model: "gemini-3.6-flash",
+      contents,
+      config: {
+        systemInstruction: systemMessage,
+        // `gemini-3.6-flash` consume tokens de "thinking" del MISMO
+        // presupuesto que `maxOutputTokens`, sin poder desactivarse
+        // (`thinkingBudget: 0` es rechazado con 400 por este modelo) —
+        // margen amplio para no truncar respuestas de RRHH largas.
+        maxOutputTokens: 4096,
+      },
     });
-    const content = response.choices[0]?.message?.content ?? "";
-    // Registro de uso de Groq: solo metadatos (timestamp, userId, modo, tokens aproximados).
+    const content = response.text ?? "";
+    // Registro de uso de Gemini: solo metadatos (timestamp, userId, modo, tokens aproximados).
     // Nunca el texto de la consulta, los fragmentos RAG ni la respuesta del modelo.
     safeLog(
       "log",
-      `[assistant/chat] uso Groq: ts=${new Date().toISOString()} userId=${session.userId} modo=${mode} tokensAprox=${response.usage?.total_tokens ?? "n/a"}`
+      `[assistant/chat] uso Gemini: ts=${new Date().toISOString()} userId=${session.djangoUserId} modo=${mode} tokensAprox=${response.usageMetadata?.totalTokenCount ?? "n/a"}`
     );
     return NextResponse.json({ content, sources });
   } catch (err) {
-    safeLog("error", "[assistant/chat] ERROR Groq:", err);
-    // Detectar error de límite de tokens
+    safeLog("error", "[assistant/chat] ERROR Gemini:", err);
+    // Detectar error de límite de tokens/cuota
     const errMsg = err instanceof Error ? err.message : String(err);
-    if (errMsg.includes("token") || errMsg.includes("limit") || errMsg.includes("context_length")) {
+    if (errMsg.includes("token") || errMsg.includes("limit") || errMsg.includes("context_length") || errMsg.includes("RESOURCE_EXHAUSTED") || errMsg.includes("quota")) {
       return NextResponse.json(
         { error: "El contexto es demasiado extenso para el modelo. Intenta una pregunta más específica." },
         { status: 422 }

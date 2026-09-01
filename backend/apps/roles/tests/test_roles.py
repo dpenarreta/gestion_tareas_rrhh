@@ -155,3 +155,41 @@ def test_permissions_catalog_endpoint_returns_full_catalog(roles_admin_client):
     assert response.status_code == 200
     assert "usuarios" in response.data
     assert "roles" in response.data
+    # Módulos de negocio agregados en el catálogo dinámico extendido a todo
+    # el sistema (ver docs/AUDIT_LOG.md § 2026-09-01).
+    assert "reportes" in response.data
+    assert "equipo" in response.data
+
+
+# --- Integración con el catálogo dinámico extendido (ver docs/AUDIT_LOG.md
+# § 2026-09-01, "Catálogo dinámico de permisos extendido a todo el
+# sistema") — confirma que editar los permisos de un rol vía esta pantalla
+# cambia de verdad el resultado de `user_has_permission`, no solo el dato
+# persistido. ------------------------------------------------------------
+
+
+def test_editing_a_role_permission_changes_effective_authorization(roles_admin_client):
+    from apps.permissions.authorization import user_has_permission
+
+    role = Group.objects.create(name="Analista de Prueba")
+    member = User.objects.create_user(
+        username="miembro_prueba", email="miembro_prueba@example.com", password="Sup3r-Secr3t!"
+    )
+    member.groups.add(role)
+
+    assert user_has_permission(member, "reportes.ver") is False
+
+    response = roles_admin_client.patch(
+        f"/api/v1/admin/roles/{role.id}/",
+        {"permission_codenames": ["reportes.ver"]},
+        format="json",
+    )
+
+    assert response.status_code == 200
+    # Instancia NUEVA del usuario — `get_all_permissions()` cachea en el
+    # propio objeto Python (`_perm_cache`), así que reusar `member` (ya
+    # consultado arriba) daría un falso negativo. Cada request real sí
+    # obtiene una instancia nueva (ver docstring de
+    # `get_user_permission_codenames`), esto lo replica.
+    fresh_member = User.objects.get(pk=member.pk)
+    assert user_has_permission(fresh_member, "reportes.ver") is True

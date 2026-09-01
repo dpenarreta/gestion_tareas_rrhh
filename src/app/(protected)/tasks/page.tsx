@@ -55,7 +55,7 @@ export default async function TasksPage() {
           initialTasks={serializedTasks}
           initialViews={taskViews.length > 0 ? taskViews : ["KANBAN", "TABLA"]}
           initialUsers={assignableUsers}
-          currentUserId={djangoUserId ?? session.userId}
+          currentUserId={djangoUserId ?? String(session.djangoUserId)}
           currentUserRole={session.role}
           currentActivityFormat={currentActivityFormat}
         />

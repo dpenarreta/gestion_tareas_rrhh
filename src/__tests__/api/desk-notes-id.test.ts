@@ -25,7 +25,7 @@ function mockSession(overrides: Partial<SessionPayload> | null) {
     overrides === null
       ? null
       : {
-          userId: "u1",
+          djangoUserId: 1,
           role: "ASISTENTE_GH",
           name: "Ana",
           email: "test@nexo.com",
@@ -96,7 +96,7 @@ describe("GET /api/desk-notes/[id]", () => {
   });
 
   it("devuelve el detalle mapeado a la forma Nexo", async () => {
-    mockSession({ userId: "1" });
+    mockSession({});
     djangoApiFetch.mockResolvedValue(djangoResponse(true, djangoNote({ is_mine: true })));
     const res = await GET(jsonRequest(undefined), ctx("1"));
     expect(res.status).toBe(200);
@@ -170,14 +170,14 @@ describe("DELETE /api/desk-notes/[id]", () => {
   });
 
   it("responde 403 si no es remitente ni destinatario", async () => {
-    mockSession({ userId: "otro" });
+    mockSession({});
     djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "Sin permisos" }, 403));
     const res = await DELETE(jsonRequest(undefined), ctx());
     expect(res.status).toBe(403);
   });
 
   it("propaga el mensaje 409 de Django cuando el destinatario intenta eliminar una nota no archivada", async () => {
-    mockSession({ userId: "u1" });
+    mockSession({});
     djangoApiFetch.mockResolvedValue(
       djangoResponse(false, { error: "Solo puedes eliminar definitivamente una nota ya archivada" }, 409)
     );
@@ -187,7 +187,7 @@ describe("DELETE /api/desk-notes/[id]", () => {
   });
 
   it("propaga el mensaje 409 de Django cuando el elemento ya está en la papelera", async () => {
-    mockSession({ userId: "sender-1" });
+    mockSession({});
     djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "Este elemento ya está en la papelera" }, 409));
     const res = await DELETE(jsonRequest(undefined), ctx());
     expect(res.status).toBe(409);
@@ -195,7 +195,7 @@ describe("DELETE /api/desk-notes/[id]", () => {
   });
 
   it("el remitente elimina (envío a la papelera del Centro de Recuperación, resuelto en Django)", async () => {
-    mockSession({ userId: "sender-1" });
+    mockSession({});
     djangoApiFetch.mockResolvedValue(djangoResponse(true, { success: true }));
     const res = await DELETE(jsonRequest(undefined), ctx("1"));
     expect(res.status).toBe(200);
@@ -204,7 +204,7 @@ describe("DELETE /api/desk-notes/[id]", () => {
   });
 
   it("el destinatario elimina definitivamente una nota archivada", async () => {
-    mockSession({ userId: "u1" });
+    mockSession({});
     djangoApiFetch.mockResolvedValue(djangoResponse(true, { success: true }));
     const res = await DELETE(jsonRequest(undefined), ctx("1"));
     expect(res.status).toBe(200);

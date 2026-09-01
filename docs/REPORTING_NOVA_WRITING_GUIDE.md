@@ -119,8 +119,8 @@ realista y priorizable. Ejemplo de lo prohibido vs. lo exigido:
   Humana para disminuir la concentración operativa."
 
 **Validación en runtime** (`generateNarrative.ts`,
-`validateAndAlignRecommendations`): cualquier `id` inventado por Groq se
-descarta silenciosamente; cualquier `id` real que Groq haya omitido se
+`validateAndAlignRecommendations`): cualquier `id` inventado por el modelo se
+descarta silenciosamente; cualquier `id` real que haya omitido se
 completa con su propio fallback determinista puntual. El resultado final
 tiene exactamente un enriquecimiento por recomendación real — nunca de más,
 nunca de menos.
@@ -150,7 +150,7 @@ conceptos.
 NOVA responde **exclusivamente** con un objeto JSON válido, sin texto
 adicional ni markdown — la forma exacta de cada sección está fijada en el
 propio prompt (ver `nova/prompts.ts`). El parser (`extractJson`,
-`generateNarrative.ts`) tolera que Groq envuelva la respuesta en un bloque
+`generateNarrative.ts`) tolera que el modelo envuelva la respuesta en un bloque
 markdown pese a la instrucción, extrayendo el primer objeto `{...}` del
 texto — pero nunca acepta una respuesta que no valide contra la forma
 esperada (`validateSummary`/`validateInsights`/`validateAssessment`).
@@ -163,6 +163,6 @@ o con una respuesta que no valida, la sección cae a su fallback determinista
 (`nova/fallbacks.ts`) — texto construido puramente a partir del
 `ExecutiveReportContext`, sin IA, que sigue las mismas reglas de esta guía
 en la medida de lo posible (basado en evidencia, sin muletillas), aunque sin
-la elaboración narrativa que solo Groq aporta. El snapshot queda marcado
+la elaboración narrativa que solo Gemini aporta. El snapshot queda marcado
 `novaDegraded: true` y la degradación se audita (`nova_degraded`,
 `ExecutiveReportAuditLog`) — nunca bloquea la generación del reporte.

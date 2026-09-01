@@ -44,8 +44,8 @@ sin duplicar su contenido en ninguna tabla — ver
 
 ## Cómo se mantiene actualizada
 
-Ver la sección "Documentación" de `CLAUDE.md` (raíz del repositorio) para el
-procedimiento que sigue Claude Code al completar una implementación:
+Ver `docs/CLAUDE.md` para el procedimiento que sigue Claude Code al
+completar una implementación:
 clasificar el cambio, registrar el módulo/fecha/versión, actualizar
 `CHANGELOG.md` y, cuando corresponda, `AUDIT_LOG.md`, `DECISIONS.md`,
 `ANALYTICS_FORMULAS.md` y `ROADMAP.md`.

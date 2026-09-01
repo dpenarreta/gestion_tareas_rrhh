@@ -96,7 +96,7 @@ import {
   type IndicatorExplanation,
 } from "@/lib/reportInsights";
 import { fetchDjangoPredictionBundle, fetchDjangoTeamSubutilization, type PredictionHorizon } from "@/lib/djangoPredictionAdapter";
-import { resolveDjangoIdsForRoster, fetchPerformanceAndHealth, type DjangoPerformanceAndHealth } from "./djangoAnalyticsBridge";
+import { fetchPerformanceAndHealth, type DjangoPerformanceAndHealth } from "./djangoAnalyticsBridge";
 import { fetchMonthlyTeamReport, fetchCustomRangeTeamReport, fetchRangeTeamReport, fetchDjangoMonthlyReport } from "./djangoReportKpisBridge";
 import { verifySnapshotIntegrity } from "./verifySnapshotIntegrity";
 import { generateReportId } from "./reportId";
@@ -184,8 +184,7 @@ async function buildPredictivoForCurrentMonth(
   userIds: string[],
   members: ReportMemberKpi[],
   cutoff: Date,
-  cacheTtlMinutes: number,
-  djangoIds: Map<string, number>
+  cacheTtlMinutes: number
 ): Promise<SnapshotPredictivo> {
   // Cutover de stack (Fase 85, ver docs/AUDIT_LOG.md § 2026-08-27):
   // Cumplimiento/Sobrecarga/Subutilización ya no se recalculan localmente
@@ -193,24 +192,20 @@ async function buildPredictivoForCurrentMonth(
   // `/reports/executive/team-subutilization/`), verificado función por
   // función como réplica exacta antes del cutover. `cached()` — mismo
   // patrón/TTL que perf-bench/equilibrio-bench — evita repetir la llamada
-  // HTTP en regeneraciones dentro de la ventana de caché.
+  // HTTP en regeneraciones dentro de la ventana de caché. `userIds` ya es el
+  // id numérico de Django directo (retiro del bridge cuid↔Django, decisión
+  // explícita del usuario, ver docs/AUDIT_LOG.md § 2026-08-31).
   const [bundleResults, subutilizacionMap] = await Promise.all([
     Promise.all(
       userIds.map(async (id) => {
-        const djangoId = djangoIds.get(id);
-        // Mismo criterio que el Índice Ejecutivo: colaborador sin id de
-        // Django resuelto queda excluido del bloque, no aborta la generación.
-        if (djangoId === undefined) return null;
+        const djangoId = Number(id);
         const result = await cached(`prediction-bundle:${djangoId}:${cutoff.toISOString()}`, cacheTtlMinutes, () =>
           fetchDjangoPredictionBundle(djangoId, cutoff)
         );
         return result.value;
       })
     ),
-    fetchDjangoTeamSubutilization(
-      userIds.map((id) => djangoIds.get(id)).filter((id): id is number => id !== undefined),
-      cutoff
-    ),
+    fetchDjangoTeamSubutilization(userIds.map(Number), cutoff),
   ]);
 
   const UNAVAILABLE_CUMPLIMIENTO = { available: false as const, queOcurrira: "Sin datos de Django disponibles.", porQue: "", queHacer: [], confidencePct: 0 };
@@ -219,8 +214,8 @@ async function buildPredictivoForCurrentMonth(
   const predictiveMembers: SnapshotPredictiveMember[] = userIds.map((id, i) => {
     const member = members.find((m) => m.id === id);
     const bundle = bundleResults[i];
-    const djangoId = djangoIds.get(id);
-    const subutilizacionResult = djangoId !== undefined ? subutilizacionMap.get(djangoId) : undefined;
+    const djangoId = Number(id);
+    const subutilizacionResult = subutilizacionMap.get(djangoId);
     const cumplimientoResult = bundle?.cumplimiento;
     const sobrecargaResult = bundle?.sobrecarga;
     return {
@@ -349,17 +344,10 @@ export async function buildMonthlySnapshotData(params: BuildMonthlySnapshotDataP
   // borde de mes). Si Django no responde, la generación FALLA (decisión
   // explícita — a diferencia del Índice Ejecutivo, que degrada excluyendo
   // colaboradores sin romper la generación: `ReportMemberKpi` es el
-  // corazón visible del reporte, no un agregado secundario). Un
-  // colaborador sin id de Django resuelto (`legacy_postgres_id` nunca
-  // importado) queda excluido de la tabla — mismo criterio que el Índice
-  // Ejecutivo. El resto del builder (roster, Índice Ejecutivo,
-  // Predictivo, NOVA, metadatos) sigue sin cambios —
-  // `resolveDjangoIdsForRoster` se resuelve UNA sola vez acá y se
-  // reutiliza en la rama del Índice Ejecutivo más abajo (antes hacía su
-  // propia resolución aparte).
-  const djangoIds = await resolveDjangoIdsForRoster(userIds);
-  const djangoIdToUserId = new Map([...djangoIds.entries()].map(([userId, djangoId]) => [djangoId, userId]));
-  const bundle = (await fetchMonthlyTeamReport(djangoIdToUserId, year, month, filters.fechaCorte)) as unknown as MonthlyTeamReportBundle;
+  // corazón visible del reporte, no un agregado secundario). `userIds` ya
+  // es el id numérico de Django directo (retiro del bridge cuid↔Django,
+  // decisión explícita del usuario, ver docs/AUDIT_LOG.md § 2026-08-31).
+  const bundle = (await fetchMonthlyTeamReport(userIds, year, month, filters.fechaCorte)) as unknown as MonthlyTeamReportBundle;
   const { teamSummary, members, ranking, distribuciones, trends, findings, recommendations, indicatorExplanations, alerts, dataQuality } = bundle;
   const { totalCargaRealHours } = teamSummary;
   // Generado acá (no inline en `result`, como los otros 2 builders) porque
@@ -399,11 +387,7 @@ export async function buildMonthlySnapshotData(params: BuildMonthlySnapshotDataP
         const resultsById = new Map<string, DjangoPerformanceAndHealth>();
         await Promise.all(
           userIds.map(async (id) => {
-            const djangoId = djangoIds.get(id);
-            // Hallazgo documentado, no bloqueante: colaborador sin id de
-            // Django resuelto (nunca importado desde Postgres) — excluido
-            // del promedio del Índice Ejecutivo, no aborta la generación.
-            if (djangoId === undefined) return;
+            const djangoId = Number(id);
             const result = await cached(`exec-report-analytics:${djangoId}`, analyticsConfig.cacheTtlMinutes, () =>
               fetchPerformanceAndHealth(djangoId),
             );
@@ -425,8 +409,8 @@ export async function buildMonthlySnapshotData(params: BuildMonthlySnapshotDataP
 
         return { indiceEjecutivo: { ...classified, avgPerformance, avgEquilibrio, variacion }, resultsById };
       })(),
-      buildPredictivoForCurrentMonth(userIds, members, cutoff, analyticsConfig.cacheTtlMinutes, djangoIds),
-      filters.fechaCorte ? Promise.resolve(null) : verifySnapshotIntegrity(reportId, month, year, members, djangoIds),
+      buildPredictivoForCurrentMonth(userIds, members, cutoff, analyticsConfig.cacheTtlMinutes),
+      filters.fechaCorte ? Promise.resolve(null) : verifySnapshotIntegrity(reportId, month, year, members),
     ]);
 
     indiceEjecutivo = indiceResult.indiceEjecutivo;
@@ -584,12 +568,12 @@ export async function buildRangeSnapshotData(params: BuildRangeSnapshotDataParam
   // TS). Único glue code real de este builder: `monthlyEvolution[i].memberSnapshots`
   // llega como objeto `{djangoId: {...}}` (Fase 66/71, sin identidad — ver
   // `member_kpis.py`) — se reconstruye acá como array con `id`/`name`/`role`
-  // (tomados de `members`, ya remapeados a cuid) y se le aplica el mismo
-  // "strip" de campos que hacía el TS original (sin `overdueCount`/
-  // `cargaRealHours`/`cargaBaseHours`).
-  const djangoIds = await resolveDjangoIdsForRoster(userIds);
-  const djangoIdToUserId = new Map([...djangoIds.entries()].map(([userId, djangoId]) => [djangoId, userId]));
-  const bundle = (await fetchRangeTeamReport(djangoIdToUserId, fromYear, fromMonth, toYear, toMonth, filters.fechaCorte)) as unknown as RangeTeamReportBundle;
+  // (tomados de `members`, ya en id numérico de Django directo — retiro del
+  // bridge cuid↔Django, decisión explícita del usuario, ver
+  // docs/AUDIT_LOG.md § 2026-08-31) y se le aplica el mismo "strip" de
+  // campos que hacía el TS original (sin `overdueCount`/`cargaRealHours`/
+  // `cargaBaseHours`).
+  const bundle = (await fetchRangeTeamReport(userIds, fromYear, fromMonth, toYear, toMonth, filters.fechaCorte)) as unknown as RangeTeamReportBundle;
   const { teamSummary, members, ranking, distribuciones, rangeTrend, problematicMonths, findings, insights, recommendations, indicatorExplanations, alerts, dataQuality } = bundle;
 
   const membersById = new Map(members.map((m) => [m.id, m]));
@@ -602,24 +586,20 @@ export async function buildRangeSnapshotData(params: BuildRangeSnapshotDataParam
     totalCargaRealHours: ms.totalCargaRealHours,
     totalCargaBaseHours: ms.totalCargaBaseHours,
     totalConsultas: ms.totalConsultas,
-    memberSnapshots: Object.entries(ms.memberSnapshots)
-      .map(([djangoIdStr, snap]) => {
-        const userId = djangoIdToUserId.get(Number(djangoIdStr));
-        if (!userId) return null;
-        const identity = membersById.get(userId);
-        return {
-          id: userId,
-          name: identity?.name ?? "",
-          role: identity?.role ?? "",
-          completedPct: snap.completedPct,
-          cargaPct: snap.cargaPct,
-          cargaColor: snap.cargaColor,
-          cargaLabel: snap.cargaLabel,
-          score: snap.score,
-          totalTasks: snap.totalTasks,
-        };
-      })
-      .filter((m): m is NonNullable<typeof m> => m !== null),
+    memberSnapshots: Object.entries(ms.memberSnapshots).map(([userId, snap]) => {
+      const identity = membersById.get(userId);
+      return {
+        id: userId,
+        name: identity?.name ?? "",
+        role: identity?.role ?? "",
+        completedPct: snap.completedPct,
+        cargaPct: snap.cargaPct,
+        cargaColor: snap.cargaColor,
+        cargaLabel: snap.cargaLabel,
+        score: snap.score,
+        totalTasks: snap.totalTasks,
+      };
+    }),
   }));
 
   const periodStatus = await resolveMonthlyPeriodStatus(toMonth, toYear, now);
@@ -718,9 +698,7 @@ export async function buildCustomRangeSnapshotData(params: BuildCustomRangeSnaps
   // `estadoOperativo`/`principalHallazgo` SÍ vienen completos del bundle
   // — este builder nunca tuvo Índice Ejecutivo (no hay `healthByMember`
   // del que depender), así que no hace falta recomputar nada en TS.
-  const djangoIds = await resolveDjangoIdsForRoster(userIds);
-  const djangoIdToUserId = new Map([...djangoIds.entries()].map(([userId, djangoId]) => [djangoId, userId]));
-  const bundle = (await fetchCustomRangeTeamReport(djangoIdToUserId, periodStart, periodEnd, filters.fechaCorte)) as unknown as CustomRangeTeamReportBundle;
+  const bundle = (await fetchCustomRangeTeamReport(userIds, periodStart, periodEnd, filters.fechaCorte)) as unknown as CustomRangeTeamReportBundle;
   const { teamSummary, members, ranking, distribuciones, findings, insights, recommendations, indicatorExplanations, alerts, dataQuality } = bundle;
 
   const periodStatus = resolveCustomRangePeriodStatus(periodEnd, now);

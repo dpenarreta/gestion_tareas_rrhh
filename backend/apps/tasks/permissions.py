@@ -22,29 +22,36 @@ class CanDeleteTask(IsAuthenticated):
 
 
 class CanRegularize(IsAuthenticated):
-    """`CAN_REGULARIZE` legacy (ADMINISTRADOR + JEFE_NACIONAL) — MÁS
-    ESTRECHO que `usuarios.editar` (que además incluye
-    COORDINADOR_NACIONAL). Usado por las operaciones en bloque de Tiempo
-    Objetivo/Fecha Fin y el listado de pendientes — ver plan de sub-fase
-    3c-bulk. No es un permiso de objeto: es una capacidad general, sin
-    tarea específica detrás."""
-
-    def has_permission(self, request, view) -> bool:
-        if not super().has_permission(request, view):
-            return False
-        return request.user.is_superuser or request.user.groups.filter(name="JEFE_NACIONAL").exists()
-
-
-class CanCloseMonth(IsAuthenticated):
-    """`canManageUsers` legacy (ADMINISTRADOR/JEFE_NACIONAL/
-    COORDINADOR_NACIONAL, ver `CAN_MANAGE_USERS` en `src/lib/roles.ts`) —
-    verificado que es exactamente el mismo conjunto que ya tiene
-    `usuarios.editar` en el catálogo sembrado, igual criterio que
-    `TaskService.can_access` — ver plan de sub-fase 3d."""
+    """Migrado al catálogo dinámico de permisos (`tareas.regularizar`) —
+    ver docs/AUDIT_LOG.md § 2026-09-01 ("Catálogo dinámico de permisos
+    extendido a todo el sistema"). Sembrado 1:1 al mismo set que tenía
+    `CAN_REGULARIZE` legacy (ADMINISTRADOR vía `is_superuser` +
+    JEFE_NACIONAL) — MÁS ESTRECHO que `usuarios.editar` (que además
+    incluye COORDINADOR_NACIONAL). Usado por las operaciones en bloque de
+    Tiempo Objetivo/Fecha Fin y el listado de pendientes. No es un
+    permiso de objeto: es una capacidad general, sin tarea específica
+    detrás."""
 
     def has_permission(self, request, view) -> bool:
         if not super().has_permission(request, view):
             return False
         from apps.permissions.authorization import user_has_permission
 
-        return user_has_permission(request.user, "usuarios.editar")
+        return user_has_permission(request.user, "tareas.regularizar")
+
+
+class CanCloseMonth(IsAuthenticated):
+    """Migrado al catálogo dinámico de permisos (`tareas.cerrar_mes`) —
+    ver docs/AUDIT_LOG.md § 2026-09-01. Antes reutilizaba
+    `usuarios.editar` (ADMINISTRADOR/JEFE_NACIONAL/COORDINADOR_NACIONAL,
+    `CAN_MANAGE_USERS` en `src/lib/roles.ts`) — reutilización
+    semánticamente incorrecta ya señalada en versiones previas de este
+    docstring; ahora tiene su propio codename, sembrado al mismo set
+    exacto para preservar el comportamiento."""
+
+    def has_permission(self, request, view) -> bool:
+        if not super().has_permission(request, view):
+            return False
+        from apps.permissions.authorization import user_has_permission
+
+        return user_has_permission(request.user, "tareas.cerrar_mes")

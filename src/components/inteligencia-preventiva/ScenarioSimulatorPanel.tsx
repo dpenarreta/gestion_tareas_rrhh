@@ -33,7 +33,12 @@ const FIELD_LABEL: Record<string, string> = {
 };
 
 function SnapshotTable({ before, after }: { before: Record<string, unknown>; after: Record<string, unknown> }) {
-  const keys = Object.keys(before);
+  // Solo se muestran los campos con etiqueta conocida — el snapshot de
+  // Django trae además campos puramente de estilo (p. ej. `cargaColor`,
+  // sin equivalente en `FIELD_LABEL`) que antes se filtraban a la tabla
+  // como una fila cruda con el nombre técnico del campo (bug encontrado en
+  // QA en vivo, 2026-08-31).
+  const keys = Object.keys(FIELD_LABEL).filter((k) => k in before);
   return (
     <table className="w-full text-xs mt-2">
       <thead>
@@ -98,7 +103,16 @@ export default function ScenarioSimulatorPanel({ userId, isTeam }: { userId: str
     fetch("/api/predictive/team-subutilization")
       .then((r) => (r.ok ? r.json() : { members: [] }))
       .then((json) => {
-        const opts: UserOption[] = (json.members ?? []).filter((m: UserOption) => m.id !== userId);
+        // `team-subutilization` devuelve `userId` (numérico), no `id` — sin
+        // este mapeo, `m.id` era siempre `undefined`: el filtro de
+        // "excluirme a mí mismo" nunca excluía a nadie (comparaba
+        // `undefined !== userId`, siempre verdadero) y el POST a
+        // `simulate/redistribute` mandaba `toUserId: undefined`, fallando
+        // siempre con "Escenario inválido" en cuanto había un compañero de
+        // equipo real (bug encontrado en QA en vivo, 2026-08-31).
+        const opts: UserOption[] = (json.members ?? [])
+          .map((m: { userId: number; name: string }) => ({ id: String(m.userId), name: m.name }))
+          .filter((m: UserOption) => m.id !== userId);
         setMembers(opts);
         if (opts[0]) setToUserId(opts[0].id);
       })

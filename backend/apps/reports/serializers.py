@@ -66,10 +66,9 @@ class ExecutiveReportCreateSerializer(serializers.ModelSerializer):
 class MonthlyTeamReportRequestSerializer(serializers.Serializer):
     """`POST /reports/executive/monthly-team-kpis/` — Fase 68 (ver
     docs/AUDIT_LOG.md § 2026-08-26). `user_ids` son ids numéricos de
-    Django (el caller los resuelve antes vía `GET /reports/user-lookup/`),
-    NO se acepta `legacy_ids` acá — mismo criterio que
-    `ExecutiveReportCreateSerializer`: esta vista no hace su propia
-    traducción cuid→id, ya existe un endpoint dedicado para eso."""
+    Django — el roster (`GET /reports/roster/`) ya los expone directo,
+    sin traducción intermedia (retiro del bridge cuid↔Django, decisión
+    explícita del usuario, ver docs/AUDIT_LOG.md § 2026-08-31)."""
 
     user_ids = serializers.ListField(child=serializers.IntegerField(), allow_empty=True)
     year = serializers.IntegerField(min_value=2000, max_value=2100)

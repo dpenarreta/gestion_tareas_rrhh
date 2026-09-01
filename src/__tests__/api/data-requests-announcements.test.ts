@@ -28,7 +28,8 @@ function mockSession(overrides: Partial<SessionPayload> | null) {
     overrides === null
       ? null
       : {
-          userId: "u1",
+          djangoUserId: 1,
+          permissions: [],
           role: "ASISTENTE_GH",
           name: "Ana",
           email: "test@nexo.com",
@@ -161,7 +162,7 @@ describe("PATCH /api/data-requests/[id]", () => {
   });
 
   it("marca RESUELTA y mapea resolvedBy/resolvedAt", async () => {
-    mockSession({ role: "ADMINISTRADOR", userId: "admin-1" });
+    mockSession({ role: "ADMINISTRADOR" });
     djangoApiFetch.mockResolvedValue(
       djangoResponse(true, { ...DJANGO_REQUEST_FIXTURE, status: "RESUELTA", resolved_by_id: 9, resolved_at: "2026-08-02T00:00:00Z" })
     );
@@ -190,7 +191,7 @@ describe("GET /api/data-requests/my-data", () => {
   });
 
   it("mapea el export de Django (snake_case) a la forma Nexo y arma la descarga", async () => {
-    mockSession({ userId: "u1" });
+    mockSession({});
     djangoApiFetch.mockResolvedValue(
       djangoResponse(true, {
         generado_el: "2026-08-24T00:00:00Z",
@@ -209,7 +210,7 @@ describe("GET /api/data-requests/my-data", () => {
     const res = await myDataGET();
     expect(res.status).toBe(200);
     expect(djangoApiFetch).toHaveBeenCalledWith("/data-requests/my-data/");
-    expect(res.headers.get("Content-Disposition")).toContain("nexo-mis-datos-u1.json");
+    expect(res.headers.get("Content-Disposition")).toContain("nexo-mis-datos-1.json");
 
     const body = JSON.parse(await res.text());
     expect(body.usuario).toMatchObject({ id: "7", name: "Ana", role: "ASISTENTE_GH" });

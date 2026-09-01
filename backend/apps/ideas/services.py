@@ -10,7 +10,7 @@ from apps.notifications.services import notify, notify_many
 from apps.users.models import User
 
 from .models import IdeaStatusHistory, IdeaVote, ImprovementIdea
-from .permissions import CAN_REVIEW_IDEAS, role_name
+from .permissions import role_name
 
 IDEA_STATUS_LABELS = {
     ImprovementIdea.Status.PROPUESTA: "Propuesta",
@@ -92,12 +92,17 @@ def create_idea(
     attachment_name: str | None, attachment_mime: str | None, attachment_data: str | None,
 ) -> ImprovementIdea:
     """Réplica exacta del handler `POST /api/ideas`: notifica a TODOS
-    los roles que pueden revisar ideas (`CAN_REVIEW_IDEAS`)."""
+    los usuarios que pueden revisar ideas (`mejora_continua.revisar`,
+    catálogo dinámico de permisos — ver docs/AUDIT_LOG.md § 2026-09-01).
+    `is_superuser=True` (ADMINISTRADOR) se incluye aparte: ese rol nunca
+    tiene el permiso sembrado explícitamente, su bypass es estructural."""
     idea = ImprovementIdea.objects.create(
         title=title, description=description, impact=impact, author=author,
         attachment_name=attachment_name, attachment_mime=attachment_mime, attachment_data=attachment_data,
     )
-    reviewers = User.objects.filter(groups__name__in=CAN_REVIEW_IDEAS).distinct()
+    reviewers = User.objects.filter(
+        Q(groups__permissions__codename="mejora_continua.revisar") | Q(is_superuser=True)
+    ).distinct()
     notify_many(
         users=reviewers,
         message=f'{author.first_name} propuso una nueva idea: "{title}"',

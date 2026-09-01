@@ -23,6 +23,668 @@
 
 ---
 
+## v1.146.2 — 2026-09-01
+
+**Tipo:** UX / REFACTOR
+**Módulo:** Reemplazo de `confirm()`/`window.confirm()` nativo por un
+diálogo de confirmación propio — hallazgo real de la "prueba integral de
+toda la plataforma" (verificación manual de Tareas): el diálogo nativo
+bloquea la pestaña completa del navegador (incluida cualquier
+automatización/testing) y es visualmente inconsistente con el resto de la
+app, que ya usa `Modal`/`ModalHeader` para toda otra confirmación.
+
+**Cambios:**
+- `src/components/ui/ConfirmDialog.tsx` (nuevo) — envoltorio delgado sobre
+  `Modal`/`ModalHeader`/`Button` ya existentes. Sin Context nuevo (regla
+  del repo: usar estado local cuando alcanza) — cada call site guarda su
+  propio estado de "acción pendiente" en vez de un provider global.
+- 16 usos migrados en 13 archivos: `TasksModule.tsx`/`TableView.tsx`
+  (tareas, individual y masivo), `MeetingsModule.tsx` (reuniones),
+  `ProjectPhasesTab.tsx`/`ProjectSummaryTab.tsx`/`ProjectTrashPanel.tsx`
+  ×2 (proyectos: fases, papelera, restaurar/eliminar definitivo),
+  `ActivityReasonsSection.tsx`/`RestoreDefaultButton.tsx`/
+  `HolidaysSection.tsx`/`KnowledgeBaseSection.tsx`/
+  `LeaveRecordsSection.tsx`/`SpecialStatusSection.tsx` ×2 (Configuración),
+  `UsersManager.tsx` ×2 (usuarios).
+
+**Verificado:** `tsc`/`eslint` limpios, Vitest 1122/1122, y confirmado
+visualmente en browser que el modal nuevo no bloquea la pestaña (a
+diferencia del nativo, que sí lo hacía — verificado empíricamente durante
+la migración).
+
+**Fuera de alcance, no corregido:** `TableView.tsx` también usa `alert()`
+nativo (2 veces, mensajes informativos) — mismo problema de raíz, categoría
+distinta a lo pedido.
+
+**Archivos:** `src/components/ui/ConfirmDialog.tsx` (nuevo),
+`src/components/tasks/{TasksModule,TableView}.tsx`,
+`src/components/meetings/MeetingsModule.tsx`,
+`src/components/projects/{ProjectPhasesTab,ProjectSummaryTab,ProjectTrashPanel}.tsx`,
+`src/components/settings/{ActivityReasonsSection,HolidaysSection,KnowledgeBaseSection,LeaveRecordsSection,SpecialStatusSection}.tsx`,
+`src/components/settings/history/RestoreDefaultButton.tsx`,
+`src/components/UsersManager.tsx`.
+
+**Autor:** Claude Code (Sonnet 5)
+
+---
+
+## v1.146.1 — 2026-09-01
+
+**Tipo:** SECURITY
+**Módulo:** "SuperUsuario" = `ADMINISTRADOR` con todo el catálogo de
+permisos sembrado explícito en la base — pedido explícito del usuario tras
+v1.146.0 ("crea un rol de SuperUsuario que tenga control de todos los
+permisos, tenga asignado todo por defecto"). Aclarado con `AskUserQuestion`:
+NO es un rol nuevo (`Role` sigue fijo en 11 valores) — es el `ADMINISTRADOR`
+existente, que ya es el superusuario de facto de Nexo, con el catálogo
+completo asignado en la base en vez de depender solo del bypass
+`is_superuser`.
+
+**Backend:**
+- Nueva migración `apps/permissions/migrations/0004_seed_all_permissions_to_administrador.py`
+  (aditiva, dependiente de `0003`): asigna a `ADMINISTRADOR` los 26
+  codenames completos de `PERMISSION_CATALOG` — incluidos los 5 módulos
+  administrativos originales (`usuarios`/`roles`/`permisos`/
+  `configuracion`/`auditoria`, nunca antes sembrados explícitamente a
+  ningún rol) y los 3 codenames que `0003` había excluido a propósito para
+  reproducir fielmente el comportamiento legacy (`tareas.regularizar`,
+  `tareas.cerrar_mes`, `escritorio_digital.usar`).
+- Test actualizado (`apps/permissions/tests/test_business_module_permissions_seed.py`):
+  `test_administrador_receives_every_catalog_codename` reemplaza al test
+  anterior que verificaba un set acotado — ahora verifica que
+  `ADMINISTRADOR` tiene exactamente `all_codenames()`.
+- 5 tests de `apps/desk` que verificaban que ADMINISTRADOR recibía 403
+  (`test_desk_notes.py`, `test_desk_search.py`, `test_desk_today.py`,
+  `test_personal_reminders.py`) actualizados para reflejar el nuevo
+  comportamiento intencional (200/201) — regresión real, no debilitada:
+  la suite completa detectó estas 5 fallas tras aplicar la migración, cada
+  una confirmando el efecto exacto descrito abajo.
+
+**Efecto real (no solo cosmético):** para un superusuario real
+(`is_superuser=True`) no cambia nada — ya tenía acceso total. El cambio es
+para el caso `ADMINISTRADOR`-solo-por-grupo (`is_superuser=False`, estado
+real alcanzable — `UserAdminService.create_user` nunca setea
+`is_superuser`): pasa a tener acceso a Escritorio Digital y a
+regularizar/cerrar mes en bloque, que antes no tenía — reversión
+deliberada de una exclusión de producto documentada, por pedido explícito
+y literal del usuario. `src/lib/roles.ts` no se tocó — el link de
+Escritorio Digital sigue oculto en el frontend para `role === "ADMINISTRADOR"`.
+
+**Archivos:** `backend/apps/permissions/migrations/0004_seed_all_permissions_to_administrador.py`
+(nuevo), `backend/apps/permissions/tests/test_business_module_permissions_seed.py`,
+`backend/apps/desk/tests/{test_desk_notes,test_desk_search,test_desk_today,test_personal_reminders}.py`.
+
+**Autor:** Claude Code (Sonnet 5)
+
+---
+
+## v1.146.0 — 2026-09-01
+
+**Tipo:** SECURITY + FEATURE
+**Módulo:** Catálogo dinámico de permisos extendido a todo el sistema (19
+módulos) + pantalla "Roles y Permisos" (`/admin/roles`) — pedido explícito
+del usuario ("porque si copie o inicie todo desde el proyecto de skelleton
+no tengo el tema de gestion y asignacion de permisos?" → "Si, quiero que se
+arme esa pantalla de control de permisos para cada rol" →, ante el
+trade-off presentado, "Extender el catálogo a todo el sistema").
+
+Nexo heredó de `skelleton_base` un sistema de permisos por rol
+(`Group`↔`Permission` de Django) completo pero sin ninguna pantalla que lo
+consuma, y limitado a 4-5 módulos administrativos (usuarios/roles/
+permisos/configuración/auditoría) — el resto de la autorización real
+(~15 apps de dominio) vivía en checks de rol hardcodeados, tanto en
+`src/lib/roles.ts` como en `permission_classes` de Django. El usuario
+eligió extender el catálogo a todo el sistema en vez de limitarse a una
+pantalla sobre el catálogo administrativo existente.
+
+**Backend:**
+- 10 módulos nuevos en `PERMISSION_CATALOG` (`backend/apps/permissions/catalog.py`):
+  `tareas`, `reportes`, `equipo`, `reuniones`, `mejora_continua`,
+  `base_conocimiento`, `inteligencia_preventiva`, `proyectos`,
+  `escritorio_digital`, `announcements` (13 codenames nuevos en total).
+- Migración de datos (`apps/permissions/migrations/0003_seed_business_module_permissions.py`)
+  que siembra cada codename EXACTAMENTE al set de roles que reproduce su
+  comportamiento previo — verificado codename por codename contra
+  `src/lib/roles.ts` y el `permission_classes` real de cada app.
+- 9 apps migradas de checks hardcodeados (`role_name()`/`role_level()`,
+  duplicados literalmente en 6+ archivos) al catálogo dinámico
+  (`user_has_permission`): `apps/tasks`, `apps/reports`, `apps/meetings`,
+  `apps/ideas`, `apps/desk`, `apps/announcements`, `apps/assistant` (×2),
+  `apps/projects`.
+- `apps/team` gana `TeamPermission` (`equipo.ver`) — antes sin
+  `permission_classes` propio a nivel de vista (el frontend ya ocultaba el
+  link, pero el endpoint no lo exigía server-side).
+- Nuevo test `apps/permissions/tests/test_business_module_permissions_seed.py`
+  (13 tests) que verifica la migración contra `src/lib/roles.ts` en tiempo
+  de test, mismo patrón que `apps/hierarchy/tests/test_seed_matches_legacy_roles.py`.
+
+**Frontend:**
+- `SessionPayload.permissions: string[]` (JWT) — mismo trade-off de
+  staleness ya aceptado para `role`/`djangoUserId`.
+- `src/lib/permissions.ts` (nuevo): `hasPermission`/`hasAnyPermission`/
+  `canManageRoles`/`canViewRoles`.
+- Pantalla nueva `/admin/roles` (`RolesPermissionsManager.tsx`): matriz de
+  19 módulos × 11 roles, un rol a la vez. Fila de Administrador con todo
+  tildado y sin edición (el bypass real es `is_superuser`, destildar acá no
+  cambiaría nada). Guardado con modal de confirmación (reemplazo completo
+  del set de codenames, igual que `RoleService.update_role`), advertencia
+  si el usuario está por quitarse `roles.ver` a su propio rol en sesión.
+  Deliberadamente sin crear/eliminar roles pese a que el backend lo soporta
+  (`Role` es un union type TS fijo de 11 valores).
+- `src/lib/roles.ts` deliberadamente SIN modificar — sigue gateando la UI
+  hoy; migrarlo módulo por módulo a `session.permissions` queda en
+  `docs/ROADMAP.md`.
+
+**Hallazgo crítico corregido durante la implementación (ver `docs/AUDIT_LOG.md`
+§ 2026-09-01):** los helpers legacy `role_name()`/`role_level()` tratan la
+sola pertenencia al grupo `ADMINISTRADOR` como equivalente a
+`is_superuser=True` (sin serlo necesariamente — `UserAdminService.create_user`
+nunca asigna `is_superuser`). El catálogo dinámico (`user_has_permission`)
+NO replica ese bypass por defecto — la primera versión de la migración de
+datos dejaba a un ADMINISTRADOR-solo-por-grupo sin los permisos nuevos,
+causando 23 fallas de test. Corregido sembrando explícitamente los
+codenames nuevos también a `ADMINISTRADOR` (salvo los 2 casos donde el
+comportamiento original tampoco lo incluía).
+
+**Archivos:** `backend/apps/permissions/catalog.py`,
+`backend/apps/permissions/migrations/0002_alter_modulepermission_options.py`,
+`backend/apps/permissions/migrations/0003_seed_business_module_permissions.py`,
+`backend/apps/permissions/tests/test_business_module_permissions_seed.py`,
+`backend/apps/{tasks,reports,meetings,ideas,desk,announcements,assistant,projects}/permissions.py`,
+`backend/apps/ideas/services.py`, `backend/apps/team/permissions.py` (nuevo),
+`backend/apps/team/views.py`, `backend/apps/tasks/tests/test_month_closure.py`,
+`backend/apps/roles/tests/test_roles.py`, `src/lib/session.ts`,
+`src/lib/permissions.ts` (nuevo), `src/lib/djangoRolesAdapter.ts` (nuevo),
+`src/app/api/admin/{roles,roles/[id],permissions}/route.ts` (nuevos),
+`src/app/(protected)/admin/roles/page.tsx` (nuevo),
+`src/components/RolesPermissionsManager.tsx` (nuevo), `src/lib/navLinks.ts`,
+`src/app/api/auth/{login,me}/route.ts`.
+
+**Impacto:** autorización real de 9 apps de dominio + `apps/team` pasa de
+checks hardcodeados a un catálogo administrable en runtime, sin cambio de
+comportamiento el día del rollout (verificado con la suite completa +
+verificación manual en browser con 3 roles representativos). Riesgo
+documentado: revocar un permiso no tiene efecto inmediato sobre sesiones
+Next.js activas de ese rol hasta su próximo login (mismo comportamiento ya
+aceptado para `role`). `apps/configuration` (Ajustes) y partes de
+`apps/dashboard`/`apps/notifications` quedan fuera de alcance — dependen
+100% del guard de frontend, documentado como hallazgo relacionado, no
+corregido.
+
+**Autor:** Claude Code (Sonnet 5)
+
+---
+
+## v1.145.3 — 2026-08-31
+
+**Tipo:** REFACTOR
+**Módulo:** Retiro completo de `legacy_postgres_id` y del puente de id
+cuid↔Django — pedido explícito del usuario tras ver el resumen de v1.145.2
+("Si, quiero que también retires eso, repito, no voy a utilizar nada de lo
+antiguo, nunca más volveré a topar la información antigua").
+
+A diferencia de v1.145.2 (código de conexión ya inerte, sin consumidor
+real), este cambio SÍ es de arquitectura de sesión — toca el JWT de todo
+usuario autenticado. La investigación previa confirmó que el campo ya no
+conectaba con nada externo (Prisma no existe en el código desde la Fase 90)
+y que el "puente" causaba 2 bugs activos en producción, cerrados en el
+mismo cambio.
+
+**Backend — eliminado:**
+- **14 migraciones nuevas** (`RemoveField`, una por app): `legacy_postgres_id`
+  retirado de los ~40 modelos que lo conservaban (`users`, `reports`,
+  `assistant`, `configuration`, `data_requests`, `desk`, `ideas`,
+  `meetings`, `notifications`, `projects`, `recovery`, `tasks`, `analytics`,
+  `announcements`).
+- **`UserLegacyIdLookupView`** (`GET /reports/user-lookup/`) — endpoint
+  completo eliminado, junto con su ruta.
+- **`UserPublicSerializer`** (`apps/users/serializers.py`) — deja de exponer
+  `legacy_postgres_id` en `GET/PATCH /auth/me/`.
+- **`RosterView`** (`GET /reports/roster/`) — expone el id numérico de
+  Django directo en `users[].id` (antes exponía el cuid).
+
+**Frontend — `SessionPayload` (cambio de forma del JWT de sesión):**
+- `src/lib/session.ts`: se elimina `userId: string` (cuid); `djangoUserId: number`
+  pasa a ser obligatorio (antes opcional, resuelto vía fallback).
+- `auth/login/route.ts`: se elimina el gate `if (!me.legacy_postgres_id) return 401`
+  — cierra un bug activo: cualquier usuario creado directo en el panel de
+  administración de Django (sin `legacy_postgres_id` histórico) no podía
+  iniciar sesión hasta este cambio.
+- `auth/me/route.ts`: `mapDjangoMe` devuelve `id: String(me.id)` en vez de
+  `me.legacy_postgres_id ?? sessionUserId`.
+- Propagación de `djangoUserId` en los 8 sitios que ya usaban el patrón
+  `djangoUserId ?? session.userId` (páginas protegidas principales),
+  `AppShell`/`Topbar`/`ThemeToggle`/`profile/page.tsx`.
+
+**2 bugs activos cerrados** (consecuencia directa del mismo cambio, no
+tareas aparte):
+- `src/app/api/users/[id]/route.ts` — el guard "no puedes eliminarte a ti
+  mismo" comparaba el `id` numérico del path contra `session.userId`
+  (cuid) — nunca coincidía, el guard estaba inerte. Ahora compara contra
+  `djangoUserId` resuelto de la sesión.
+- `src/app/api/users/[id]/view-preferences/route.ts` — llamaba a Django con
+  el cuid crudo del path contra una ruta `<int:pk>/`, que nunca matcheaba
+  — la escritura de `viewPreferences` fallaba siempre (404 interno). Ahora
+  resuelve `djangoUserId` primero, mismo patrón que `theme/route.ts`.
+
+**Reportes Ejecutivos — colapso del espacio cuid interno:**
+- `djangoAnalyticsBridge.ts`: se elimina `resolveDjangoIdsForRoster`
+  (ya no hace falta ningún `Map<cuid, djangoId>`).
+- `djangoReportKpisBridge.ts`: se elimina `remapDjangoIdentity`/
+  `remapListIdentity` — `fetchMonthlyTeamReport`/`fetchCustomRangeTeamReport`/
+  `fetchRangeTeamReport` reciben `userIds: string[]` (numéricos) directo.
+- `buildSnapshotData.ts` (3 builders): eliminado el paso de traducción
+  cuid↔numérico en cada uno; `buildPredictivoForCurrentMonth` y el bloque
+  del Índice Ejecutivo usan `Number(id)` directo.
+
+**Documentación de código actualizada** (ya no describe un puente vigente):
+`backend/CLAUDE.md`, `.claude/rules/backend/database.md`,
+`.claude/rules/architecture.md`, `.claude/rules/frontend/api.md`,
+`/CLAUDE.md`.
+
+**Verificación:** `pytest apps/` backend en verde (293 tests de
+`reports`/`users`/`authentication` re-verificados tras el cambio de capa de
+lectura, antes de tocar el modelo); `npx tsc --noEmit`/`npx eslint src`
+limpios; `npx vitest run` 1095/1095 en verde. No se invalidan sesiones
+activas al desplegar (decisión confirmada con el usuario — riesgo mínimo,
+el sistema ya degrada con gracia).
+
+---
+
+## v1.145.2 — 2026-08-31
+
+**Tipo:** REFACTOR
+**Módulo:** Decommission de la infraestructura de conexión al Postgres
+legacy — pedido explícito del usuario: nunca se va a volver a usar, el
+proyecto pasa a una base SQL Server nueva en un servidor de aplicaciones
+distinto al anterior.
+
+A diferencia de la depuración de código muerto de v1.145.1 (archivos/
+dependencias sin ninguna referencia), esto es la eliminación deliberada de
+infraestructura que SÍ tenía un propósito documentado (migrar datos
+históricos reales) pero que una decisión explícita anterior (Fase 82, ver
+`docs/AUDIT_LOG.md` § 2026-08-27) ya había dejado sin ejecutar contra
+producción — el usuario confirmó ahora que tampoco se va a ejecutar en el
+futuro.
+
+**Backend — eliminado:**
+- **41 comandos `migrate_*_from_postgres.py`** (uno por entidad de
+  negocio, en 20 apps de Django) — nunca se corrieron contra datos reales.
+- **`apps/core/legacy_migration.py`** — helper compartido por esos 41
+  comandos (`bulk_import_rows`/`filter_not_yet_imported`/etc.), sin otro
+  consumidor tras eliminarlos.
+- **`apps/users/tests/test_migrate_users_from_postgres.py`** — único test
+  existente para uno de esos comandos.
+- **`LEGACY_POSTGRES_URL`** — variable de entorno (`backend/.env`,
+  `backend/.env.example`, `config/settings/base.py`), solo la usaban los
+  comandos eliminados.
+- **`psycopg2-binary`** (driver de Postgres) y **`bcrypt`** (paquete
+  Python — fallback de `PASSWORD_HASHERS` para verificar hashes `bcryptjs`
+  importados) — `requirements/base.txt`, desinstalados del venv.
+  `BCryptPasswordHasher` retirado de `PASSWORD_HASHERS`
+  (`config/settings/base.py`); `Argon2PasswordHasher` sigue siendo el
+  hasher primario, sin cambios.
+
+**Frontend — código específico de Vercel (hosting retirado el
+2026-08-28) simplificado, sin cambio de comportamiento real:**
+- `src/app/api/assistant/documents/route.ts`: se quita
+  `export const maxDuration = 300` — es una convención de Route Segment
+  Config que Next.js solo interpreta al desplegar en Vercel, inerte en
+  cualquier otro entorno.
+- `src/lib/pdfPolyfill.ts` y `src/app/api/assistant/documents/route.ts`
+  (límite de 4.5MB): el código funcional se conserva sin cambios (siguen
+  siendo salvaguardas reales — el polyfill evita un crash real de
+  `pdfjs-dist` ante un binario nativo faltante, el límite de tamaño evita
+  cargar PDFs enormes en memoria), pero los comentarios que enmarcaban
+  ambos como "porque estamos en Vercel" se generalizan — ninguno de los
+  dos depende en verdad de esa plataforma específica.
+- `docker-compose.yml`: comentario corregido — ya no menciona la carpeta
+  `prisma/` (eliminada en la Fase 90) ni una "convivencia" con Postgres
+  que terminó hace días.
+
+**Explícitamente NO tocado en este cambio — es una decisión distinta,
+mayor, que el usuario no pidió todavía:** el campo `legacy_postgres_id`
+en ~40 modelos de Django. A diferencia de los comandos de importación
+(que sí eran código muerto puro), este campo está **activo hoy** — lo usa
+`RosterView`/`user-lookup` (Reportes Ejecutivos) para resolver
+colaboradores, y sigue el mismo patrón de bridging cuid↔id-Django que
+`session.userId` (JWT de Next.js) usa en el resto de la app. Eliminarlo
+requiere re-arquitecturar cómo viaja el id de usuario por toda la sesión
+(no solo borrar código sin uso) — se documenta como pendiente, no se
+ejecuta sin pedido explícito.
+
+**Verificación:** `pytest apps/` 1853/1853 en verde (1853, no 1856 — la
+diferencia son los tests del comando eliminado), `ruff check`/`black
+--check`/`isort --check` limpios en los archivos tocados. `tsc --noEmit`
+limpio, `vitest run` 1100/1100 en verde.
+
+**Archivos:** ver arriba — 41 comandos + `legacy_migration.py` + 1 test
+(backend), `requirements/base.txt`, `config/settings/base.py`,
+`backend/.env`, `backend/.env.example`, `docker-compose.yml`,
+`src/lib/pdfPolyfill.ts`, `src/app/api/assistant/documents/route.ts`,
+`backend/CLAUDE.md`, `.claude/rules/backend/database.md`.
+
+**Impacto:** cierra por completo la dependencia de código hacia el
+Postgres legacy y hacia el hosting anterior (Vercel) — el repositorio
+queda listo para conectar la base SQL Server nueva sin ningún rastro
+funcional de la infraestructura previa, salvo el bridging de id
+(`legacy_postgres_id`) que sigue activo por diseño.
+
+**Autor:** Claude Code (pedido explícito de Anthony Jácome: "debes de
+limpiar el código de las conexiones previas... vamos a conectar una nueva
+base de datos en sqlserver y en otro servidor de aplicaciones")
+
+---
+
+## v1.145.1 — 2026-08-31
+
+**Tipo:** REFACTOR
+**Módulo:** Depuración de código muerto — todo el repositorio
+
+Auditoría de código muerto usando herramientas dedicadas (`knip` para el
+frontend TypeScript, `vulture` para el backend Python), no solo grep manual
+— cada candidato se verificó individualmente antes de borrar, porque ambas
+herramientas dieron falsos positivos reales (scripts standalone invocados
+por `tsx`/git hooks, assets vendorizados cargados vía `<script src>`,
+convenciones de Django como `AppConfig`/`urlpatterns`/migraciones que
+`vulture` no reconoce como "usadas").
+
+**Eliminado (frontend):**
+- **`frontend/`** (25 archivos) — prototipo Vite/React abandonado, no
+  relacionado con la app real (que vive en la raíz del repo). Ya estaba
+  excluido de los tests (`vitest.config.ts`); confirmado sin ninguna
+  referencia real hacia/desde `src/`.
+- **7 archivos de `src/lib/`, huérfanos tras la migración de stack**:
+  `deskNotes.ts`, `personalReminders.ts`, `taskAccess.ts`,
+  `teamComparison.ts`, `zoom.ts` (superado por `backend/apps/meetings/zoom.py`),
+  `executiveReporting/nova/renderMarkdown.ts` (superado por
+  `generateExecutiveNarrative`), `djangoWorkdayEndHourConfig.ts` (escrito en
+  la Fase 73 para un consumidor —`capacityForecast.ts`— eliminado en la
+  Fase 85, quedó sin caller). Cero imports hacia cualquiera de los 7,
+  verificado por archivo.
+- **`scripts/stub-server-only.cjs`** — mecanismo de stub para "server-only"
+  en scripts standalone, nunca invocado desde ningún `package.json`/script
+  committeado (a diferencia de `vitest.server-only-stub.ts`, que sí está
+  referenciado en `vitest.config.ts` y se conserva).
+- **`src/generated/`** — directorio vacío, remanente de la eliminación de
+  Prisma (Fase 90).
+- **5 dependencias de `package.json`**: `@anthropic-ai/sdk`, `bcryptjs`
+  (Django ya hashea con Argon2 desde el cutover de auth), `html2canvas` y
+  `jspdf` (solo se usan las copias vendorizadas en `public/vendor/`,
+  cargadas vía `<script src>`, no el paquete npm), `@types/bcryptjs`.
+  `@types/pdf-parse` también se retira — `pdf-parse@2.4.5` ya trae sus
+  propios `.d.ts`, el paquete de DefinitelyTyped quedó redundante.
+
+**Conservado pese a la señal de "no usado" de la herramienta (falso
+positivo verificado):** `.githooks/update-changelog.js` (invocado por
+`post-commit`, no por import), `scripts/bench-executive-report.ts`/
+`scripts/generate-manuals.ts` (scripts manuales vía `npx tsx`, con sus
+dependencias `dotenv`/`pdfkit`/`@types/pdfkit`/`tsx` real y activamente
+usadas), `vitest.server-only-stub.ts` (alias de `vitest.config.ts`),
+`public/vendor/*.min.js` (cargados vía `<script src>` en las ventanas de
+reporte/PDF).
+
+**Backend (Django):** auditoría de módulos huérfanos (archivos `.py` fuera
+de las convenciones de Django — `models.py`/`views.py`/`serializers.py`/
+`urls.py`/`migrations/`/`tests/`/`management/` — sin ninguna referencia en
+el resto del código) **no encontró candidatos** — consistente con las
+múltiples pasadas de limpieza ya realizadas durante la migración de stack
+(Fases 63, 74, 85, 86, 90). `vulture` no dio señal accionable sin una lista
+de exclusión extensa (ruido casi total: `AppConfig`, `urlpatterns`,
+migraciones, `pytestmark`, campos de serializer — todos patrones de
+Django/DRF/pytest que la herramienta no reconoce como "en uso").
+
+**Verificación:** `npx tsc --noEmit` limpio, `npx vitest run` 1100/1100 en
+verde, `npm install` sincronizó `package-lock.json`. `npm run lint` reporta
+163 errores/1863 warnings preexistentes (ninguno relacionado con este
+cambio, verificado — ninguno de los archivos/paquetes tocados aparece en
+esa lista) — deuda de lint no relacionada, fuera de alcance de esta tarea,
+no corregida acá.
+
+**Archivos:** ver arriba. `package.json`, `package-lock.json`.
+
+**Impacto:** repositorio más chico y sin rutas de código que ya no llevan a
+ningún lado — ningún cambio de comportamiento (todo lo eliminado estaba
+genuinamente sin uso, verificado antes de borrar).
+
+**Autor:** Claude Code (pedido explícito de Anthony Jácome: "depuración de
+todo el código muerto")
+
+---
+
+## v1.145.0 — 2026-08-31
+
+**Tipo:** FEATURE
+**Módulo:** Nova (asistente conversacional, saludo del dashboard, Insights de
+Analytics, narrativa de Reportes Ejecutivos) — reemplazo completo del
+proveedor de IA generativa
+
+Pedido explícito del usuario: reemplazar Groq por Google Gemini como
+proveedor de IA de Nova, aportando su propia API key. Groq era el único
+proveedor de IA generativa del sistema, con 4 puntos de integración reales
+vía `groq-sdk` — todos migrados a `@google/genai` (SDK oficial y activo de
+Google, no el legado `@google/generative-ai`) en el mismo cambio:
+
+- `src/app/api/assistant/chat/route.ts` — chat multi-turno de Nova (modos
+  general/tareas/RRHH, con RAG sobre la base de conocimiento). El historial
+  de conversación pasa de `messages` (rol `system`/`user`/`assistant`) a
+  `contents` (rol `user`/`model`, con el prompt de sistema movido a
+  `config.systemInstruction` — Gemini no tiene rol `system` dentro de
+  `contents`).
+- `src/app/api/dashboard/nova-message/route.ts` — mensaje corto del
+  dashboard.
+- `src/app/api/kpis/nova-insights/[userId]/route.ts` — análisis técnico y
+  mensaje motivacional (2 llamadas, ambas en modo JSON).
+- `src/lib/executiveReporting/nova/generateNarrative.ts` — 4 llamadas
+  paralelas de la narrativa del Reporte Ejecutivo (Executive Summary/
+  Insights/Assessment/Enriquecimiento de Recomendaciones).
+
+**2 hallazgos durante la verificación en vivo (no solo lectura de
+documentación) que determinaron la config final:**
+
+1. `gemini-2.5-flash` (elección inicial) devuelve `404` para la cuenta
+   asociada a la key provista — "ya no disponible para cuentas nuevas".
+   Modelo final: **`gemini-3.6-flash`** (verificado funcional).
+2. `gemini-3.6-flash` tiene una fase de "thinking" obligatoria que consume
+   tokens del MISMO presupuesto que `maxOutputTokens` (medido entre ~50 y
+   ~600 tokens incluso para prompts triviales) y **no puede desactivarse**
+   (`thinkingBudget: 0` es rechazado con `400`, a diferencia de la familia
+   2.5) — sin margen amplio, las respuestas se truncaban a mitad de frase
+   (`finishReason: "MAX_TOKENS"`). Se omite `thinkingConfig` y se sube
+   `maxOutputTokens` en los 6 call sites (60→1536, 600→2048, 220→1536,
+   1500→4096, 2048→4096 ×4) — verificado con respuestas completas
+   (`finishReason: "STOP"`) tras el ajuste. El deadline de
+   `generateExecutiveNarrative` sube de 8s a 15s por la misma razón
+   (latencia de Gemini más alta y variable que la de Groq).
+
+**Cambios adicionales en el mismo commit:**
+
+- `src/lib/logger.ts` — el patrón de redacción de tokens en logs gana el
+  formato estándar de API key de Google AI Studio/Cloud (`AIzaSy...`),
+  reemplazando la mención a Groq en el comentario (el patrón `gsk_` se
+  conserva como red de seguridad).
+- `src/components/ConsentGate.tsx` — texto de consentimiento LOPDP
+  mostrado al usuario actualizado ("Groq Inc." → "Google LLC (Gemini API)").
+- `src/components/assistant/AssistantModule.tsx` — badge de modelo visible
+  en la UI del chat actualizado.
+- `docs/RAT.md`, `docs/PENDIENTES_LEGALES.md`, `README.md` — Groq marcado
+  como proveedor **RETIRADO** (mismo patrón usado para Neon/Vercel el
+  2026-08-28), Google (API de Gemini) agregado como proveedor vigente.
+- `package.json` — `groq-sdk` removido, `@google/genai` agregado.
+- `.env`/`.env.example` — `GROQ_API_KEY` → `GEMINI_API_KEY`.
+- Documentación de referencia (`docs/ARCHITECTURE.md`,
+  `docs/ANALYTICS_FORMULAS.md`, `docs/ANALYTICS_CALCULATION_REGISTRY.md`,
+  `docs/REPORTING_NOVA_WRITING_GUIDE.md`, `docs/REPORTING_QUALITY_BENCHMARK.md`)
+  y comentarios de docstrings en 12 archivos del backend Django (solo
+  prosa, sin código funcional — el backend nunca llamó a Groq/Gemini
+  directamente) actualizados de "Groq" a "Gemini". `docs/ROADMAP.md`
+  deliberadamente NO tocado — es un log cronológico de fases pasadas, las
+  menciones a Groq ahí describen el estado real en el momento de cada fase.
+
+7 mocks de test migrados de `groq-sdk` a `@google/genai`
+(`src/__tests__/api/kpis-nova-insights.test.ts`,
+`src/__tests__/api/nova-badges-documents.test.ts`,
+`src/__tests__/api/assistant-chat.test.ts`,
+`src/__tests__/executiveReporting/nova.test.ts`,
+`src/__tests__/api/reports-executive.test.ts`), 1 test nuevo en
+`src/__tests__/logger.test.ts` para el patrón `AIzaSy...`. `tsc`/Vitest
+1100/1100 en verde, `pytest` de los 2 archivos backend tocados en verde.
+Verificado en vivo contra la API real de Gemini (Chrome + scripts Node
+aislados): `nova-insights` y `assistant/chat` devuelven contenido
+generado por IA bien formado (no solo el fallback determinista).
+
+**Impacto:** todo Nova pasa de Groq a Gemini sin cambio de contrato hacia
+el resto de la app — mismo shape de respuesta JSON en los 4 endpoints,
+mismo comportamiento de degradación a fallback determinista ante cualquier
+fallo del proveedor de IA (arquitectura preexistente, sin cambios).
+
+**Autor:** Claude Code (pedido explícito de Anthony Jácome, incluyendo la
+API key de Gemini a usar)
+
+---
+
+## v1.144.6 — 2026-08-31
+
+**Tipo:** FIX
+**Módulo:** Simulador de Escenarios de Inteligencia Preventiva
+(`ScenarioSimulatorPanel.tsx`)
+
+Continuación de la QA en vivo del módulo de Inteligencia (segunda mitad:
+Inteligencia Preventiva). 2 bugs reales encontrados ejercitando los 5
+escenarios del simulador con datos reales en Chrome (login como
+Coordinador Nacional y Jefe Nacional).
+
+**Bug 1 — "Redistribuir carga" siempre fallaba con "Escenario inválido"
+en cuanto había un compañero de equipo real:** el selector "Redistribuir
+hacia" se llena desde `GET /api/predictive/team-subutilization`, cuya
+respuesta trae `members[].userId` (numérico) — el componente esperaba
+`members[].id` (`UserOption = { id: string; name: string }`), campo que
+esa respuesta nunca tuvo. `m.id` era siempre `undefined`: el filtro
+"excluirme a mí mismo" nunca excluía a nadie (`undefined !== userId` es
+siempre verdadero) y el `<option>` seleccionado por defecto mandaba
+`toUserId: undefined` al simular, rechazado por el backend. Corregido
+mapeando `userId` → `id` (con `String()`) al poblar `members`.
+
+**Bug 2 (menor, UI) — el resultado del simulador filtraba un campo
+interno de estilo como si fuera un indicador:** `SnapshotTable` iteraba
+`Object.keys(before)` sin filtrar, así que cualquier campo del snapshot
+de Django sin traducción en `FIELD_LABEL` (p. ej. `cargaColor`, un hint
+de color puramente visual, nunca usado para colorear nada en este
+componente) se mostraba como una fila cruda con el nombre técnico del
+campo y su valor literal (`cargaColor: red / red`). Corregido iterando
+`Object.keys(FIELD_LABEL)` filtrado a los presentes en el snapshot, en
+vez de todas las claves del objeto.
+
+Verificado en vivo: los 5 escenarios (Agregar horas, Cerrar tareas,
+Modificar tiempo objetivo, Redistribuir carga, Agregar participantes)
+probados exitosamente tanto desde la vista de equipo (Jefe Nacional)
+como desde "Mi actividad" (Coordinador Nacional, self-service). Resto de
+Inteligencia Preventiva (predicciones de subutilización/sobrecarga/
+retrasos de tareas y proyectos, tendencias históricas, alertas
+preventivas individuales y de equipo — 9 rutas de `/api/predictive/*`)
+verificado sin hallazgos adicionales. `tsc`/Vitest 1099/1099 en verde (sin
+tests nuevos — el componente no tenía cobertura previa, fuera de alcance
+de una sesión de QA agregarla retroactivamente).
+
+**Archivos:** `src/components/inteligencia-preventiva/ScenarioSimulatorPanel.tsx`
+
+**Impacto:** el escenario de simulación más usado en la práctica
+("¿qué pasa si redistribuyo carga a un compañero?") estaba completamente
+roto para cualquier equipo con al menos un miembro real — nunca detectado
+porque el componente no tiene tests, y en pruebas manuales previas
+probablemente solo se ejercitaron los escenarios sin selector de
+colaborador.
+
+**Autor:** Claude Code (QA en vivo del módulo de Inteligencia, pedida por
+Anthony Jácome)
+
+---
+
+## v1.144.5 — 2026-08-31
+
+**Tipo:** FIX
+**Módulo:** Nova Insights (`kpis/nova-insights/[userId]`) + bundle de
+Analytics/Nova (`analytics/[userId]`, `analytics/insights/[userId]`,
+`analytics/operational-risk/[userId]`, `analytics/operational-risk/team`,
+`kpis/executive`) + `djangoAnalyticsBridge.ts` (Reportes Ejecutivos)
+
+Hallazgo de la QA en vivo del módulo de Inteligencia (Nova + Inteligencia
+Preventiva) pedida por el usuario, con datos reales en Chrome. Dos bugs
+distintos, ambos previamente indetectados porque la suite de Vitest mockea
+`djangoApiFetch` con fixtures ya en camelCase y con `mockResolvedValue`
+inmediato — ninguno de los dos escenarios se puede reproducir con mocks.
+
+**Bug 1 (crítico — Nova Insights roto con cualquier dato real desde el
+cutover a Django, Fase 54):** `generateAnalytical`/`generateMotivational`
+(`kpis/nova-insights/[userId]/route.ts`) nunca aplicaban el adaptador
+snake_case→camelCase sobre la respuesta de Django, a diferencia de TODOS
+los demás consumidores del mismo bundle (`analytics/[userId]`,
+`analytics/operational-risk/[userId]`, `kpis/[userId]`, que sí usan
+`mapDjangoAnalyticsPayloadToNexoShape`/`mapDjangoKpiPayloadToNexoShape`).
+`bundle.healthScore`/`kpi.cargaTiempo`/etc. eran siempre `undefined` (el
+campo real es `health_score`/`carga_tiempo`) — `TypeError: Cannot read
+properties of undefined (reading 'score')` en cualquier request real,
+nunca solo con el fallback determinista. `fetchDjangoJson` ahora exige un
+`mapper` explícito por call site.
+
+**Bug 2 (performance — timeout de 3s insuficiente para el bundle de
+Analytics):** `GET /analytics/<id>/` (Django, `AnalyticsBundleView`) no
+tiene caché con TTL (gap documentado desde su creación, Fase 4m) — toma
+~2.8s solo de cómputo (medido directo en Django) antes del overhead
+HTTP/DRF, por encima del `REQUEST_TIMEOUT_MS` genérico (3s) de
+`djangoApiFetch` casi siempre. Bajo la concurrencia real de una sola carga
+de página (bundle + KPIs + Riesgo Operativo + Motor de Insights + resumen
+ejecutivo, todos en paralelo), el mismo timeout genérico también hacía
+fallar de forma intermitente al resto de los consumidores de ese
+endpoint — incluido `kpis/executive` (`ExecutiveDashboardView`, agregado de
+todo el roster visible). El síntoma en todos los casos era un `500` con
+el body completamente vacío (Next.js aborta la conexión sin escribir JSON
+cuando el `AbortSignal` del timeout dispara fuera del `try/catch` de la
+ruta), no un error legible.
+
+Fix: nuevo `ANALYTICS_BUNDLE_TIMEOUT_MS` (12s, `djangoSession.ts`) —
+timeout dedicado y más generoso, aplicado únicamente a los consumidores de
+este endpoint puntual (`djangoApiFetch`/`callDjango` ganan un 3er parámetro
+opcional `timeoutMs`, default sin cambios). El resto de las llamadas a
+Django (login, CRUD liviano) se quedan con el default de 3s, que debe
+seguir fallando rápido. Cada ruta afectada ahora también atrapa el timeout
+explícitamente y responde `504` con un mensaje legible en vez de dejar
+que la excepción escape sin traducir.
+
+Verificado en vivo en Chrome (login real, Jefe Nacional viendo a un
+Coordinador Nacional): "Análisis del período" (Nova), "Índice de Riesgo
+Operativo" y "Motor de Insights" en la pestaña Score de Analytics — los
+3 pasaron de "No se pudo cargar"/500 vacío a datos reales. `tsc`/Vitest
+1099/1099 en verde (7 mocks de test actualizados para exponer
+`ANALYTICS_BUNDLE_TIMEOUT_MS` y no fijar el número exacto de argumentos de
+`djangoApiFetch`, que ahora varía por endpoint).
+
+**Archivos:** `src/lib/djangoSession.ts`,
+`src/app/api/kpis/nova-insights/[userId]/route.ts`,
+`src/app/api/analytics/[userId]/route.ts`,
+`src/app/api/analytics/insights/[userId]/route.ts`,
+`src/app/api/analytics/operational-risk/[userId]/route.ts`,
+`src/app/api/analytics/operational-risk/team/route.ts`,
+`src/app/api/kpis/executive/route.ts`,
+`src/lib/executiveReporting/djangoAnalyticsBridge.ts`,
+`src/__tests__/api/analytics-granular.test.ts`,
+`src/__tests__/api/kpis-nova-insights.test.ts`,
+`src/__tests__/api/kpis-executive.test.ts`,
+`src/__tests__/executiveReporting/djangoAnalyticsBridge.test.ts`
+
+**Impacto:** Nova Insights (recuadro "Análisis del período" en Analytics y
+en Equipo) pasa de estar roto con cualquier dato real a funcionar
+correctamente. La pantalla de Analytics/KPIs (Resumen Ejecutivo + detalle
+individual — Riesgo Operativo, Motor de Insights) deja de fallar de forma
+intermitente bajo carga concurrente normal. Reportes Ejecutivos
+(`fetchPerformanceAndHealth`) deja de arriesgarse a que un timeout
+interrumpa la generación completa del reporte.
+
+**Autor:** Claude Code (QA en vivo del módulo de Inteligencia, pedida por
+Anthony Jácome)
+
+---
+
 ## v1.144.4 — 2026-08-31
 
 **Tipo:** FIX

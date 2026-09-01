@@ -22,7 +22,8 @@ function mockSession(overrides: Partial<SessionPayload> | null) {
     overrides === null
       ? null
       : {
-          userId: "u1",
+          djangoUserId: 1,
+          permissions: [],
           role: "ASISTENTE_GH",
           name: "Ana",
           email: "test@nexo.com",
@@ -136,7 +137,7 @@ describe("PATCH /api/notifications/[id]", () => {
   });
 
   it("marca como leída la notificación (scoped por usuario del lado de Django)", async () => {
-    mockSession({ userId: "u1" });
+    mockSession({});
     djangoApiFetch.mockResolvedValue(djangoResponse(true, { ok: true }));
     const res = await notificationPATCH(jsonRequest(undefined), ctx("1"));
     expect(res.status).toBe(200);

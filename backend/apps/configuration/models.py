@@ -13,7 +13,6 @@ class Holiday(BaseModel):
     sincroniza con el catálogo real de Postgres, que sigue sirviendo la
     pantalla de Ajustes real (sin cutover de `route.ts`)."""
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     date = models.DateField(unique=True)
     name = models.CharField(max_length=255)
     year = models.PositiveSmallIntegerField(db_index=True)
@@ -35,7 +34,6 @@ class SystemConfigHistory(models.Model):
     modelo no tiene otra noción de "editado" — solo `created_at` explícito,
     igual que el Prisma original. Sin endpoint HTTP — ver `Holiday` arriba."""
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     key = models.CharField(max_length=100, db_index=True)
     value = models.CharField(max_length=255)
     valid_from = models.DateTimeField(default=timezone.now)
@@ -67,7 +65,6 @@ class LeaveRecord(BaseModel):
         PERSONAL = "PERSONAL"
         VACACIONES = "VACACIONES"
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="leave_records", on_delete=models.CASCADE)
     type = models.CharField(max_length=15, choices=Type.choices)
     date = models.DateField()
@@ -96,7 +93,6 @@ class SpecialStatus(BaseModel):
         MATERNIDAD = "MATERNIDAD"
         LACTANCIA = "LACTANCIA"
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="special_statuses", on_delete=models.CASCADE)
     type = models.CharField(max_length=15, choices=Type.choices)
     start_date = models.DateField()

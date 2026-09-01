@@ -8,7 +8,7 @@ import type { CurveName } from "@/lib/normalizationEngine";
  * consultas a PostgreSQL vía Prisma). Ese motor ya está portado a Django
  * (`apps.analytics.*`, Fases 4a-4m de la migración de stack) y
  * `GET /api/analytics/[userId]` sirve ese bundle en vivo desde hace muchas
- * fases — Groq/IA NUNCA calculó nada ahí tampoco, solo traduce resultados ya
+ * fases — Gemini/IA NUNCA calculó nada ahí tampoco, solo traduce resultados ya
  * calculados a lenguaje natural.
  *
  * Fase 84 (ver docs/AUDIT_LOG.md § 2026-08-27): se retiraron las funciones de

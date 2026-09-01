@@ -6,6 +6,7 @@ import type { ProjectDetail, ProjectStatus } from "./types";
 import { PROJECT_STATUS_LABEL } from "./types";
 import { StatusChip } from "@/components/ui/Chip";
 import { PROJECT_STATUS_CONFIG } from "@/lib/chipConfig";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 const STATUS_OPTIONS: ProjectStatus[] = [
   "PENDIENTE",
@@ -56,6 +57,7 @@ export default function ProjectSummaryTab({ project, canManage, canDelete, onUpd
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [trashing, setTrashing] = useState(false);
+  const [showTrashConfirm, setShowTrashConfirm] = useState(false);
 
   const pct = project.targetTimeHours > 0 ? Math.min(100, Math.round((project.realHours / project.targetTimeHours) * 100)) : 0;
 
@@ -100,7 +102,6 @@ export default function ProjectSummaryTab({ project, canManage, canDelete, onUpd
 
   async function moveToTrash() {
     if (trashing) return;
-    if (!window.confirm(`¿Mover "${project.name}" a la papelera? Podrás restaurarlo dentro del período de retención.`)) return;
     setTrashing(true);
     setError("");
     try {
@@ -115,6 +116,8 @@ export default function ProjectSummaryTab({ project, canManage, canDelete, onUpd
     } catch {
       setError("Error al mover a la papelera");
       setTrashing(false);
+    } finally {
+      setShowTrashConfirm(false);
     }
   }
 
@@ -246,7 +249,7 @@ export default function ProjectSummaryTab({ project, canManage, canDelete, onUpd
                 Mueve el proyecto a la papelera. Podrás restaurarlo dentro del período de retención configurado. Solo el creador del proyecto puede realizar esta acción.
               </p>
               <button
-                onClick={moveToTrash}
+                onClick={() => setShowTrashConfirm(true)}
                 disabled={trashing}
                 className="w-full border border-danger text-danger rounded-xl py-2 text-sm font-medium hover:bg-danger/[.08] disabled:opacity-40 transition-colors"
               >
@@ -258,6 +261,16 @@ export default function ProjectSummaryTab({ project, canManage, canDelete, onUpd
           {error && <p className="text-xs text-danger bg-danger/[.09] rounded-lg px-3 py-2">{error}</p>}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={showTrashConfirm}
+        title="Mover a la papelera"
+        message={`¿Mover "${project.name}" a la papelera? Podrás restaurarlo dentro del período de retención.`}
+        danger
+        loading={trashing}
+        onConfirm={moveToTrash}
+        onCancel={() => setShowTrashConfirm(false)}
+      />
     </div>
   );
 }

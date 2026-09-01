@@ -49,7 +49,7 @@ export default async function ProjectsPage() {
   return (
     <ProjectsModule
       initialProjects={serialized}
-      currentUserId={djangoUserId ?? session.userId}
+      currentUserId={djangoUserId ?? String(session.djangoUserId)}
       currentUserName={session.name}
       candidateUsers={serializedCandidates}
       canCreate={canCreateProject(session.role)}

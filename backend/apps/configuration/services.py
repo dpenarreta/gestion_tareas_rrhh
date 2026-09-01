@@ -67,7 +67,7 @@ DEFAULT_DESK_NOTE_MAX_REPLIES = 2
 # Fase 34 (ver docs/AUDIT_LOG.md § 2026-08-21): TTL de caché de mensajes
 # generados por Nova (Dashboard + Insights) — mismas clave/default que
 # `src/lib/systemConfig.ts`. Solo se porta la CONFIGURACIÓN: Nova en sí
-# (Groq) sigue fuera de alcance (mismo criterio que `nova-message`,
+# (Gemini) sigue fuera de alcance (mismo criterio que `nova-message`,
 # Fase 25, y `kpis/nova-insights`).
 CONFIG_KEY_NOVA_CACHE_TTL_MINUTES = "nova_cache_ttl_minutes"
 DEFAULT_NOVA_CACHE_TTL_MINUTES = 240

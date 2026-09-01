@@ -86,7 +86,7 @@ function ConsentModal({ onAccept }: { onAccept: () => void }) {
           </p>
           <p className="text-sm text-main">
             Tus datos no son compartidos con terceros comerciales. El asistente Nova
-            utiliza el servicio de IA de Groq Inc. para procesar consultas; las
+            utiliza el servicio de IA Gemini de Google LLC para procesar consultas; las
             preguntas que realices pueden ser enviadas a dicho servicio para generar
             respuestas.
           </p>

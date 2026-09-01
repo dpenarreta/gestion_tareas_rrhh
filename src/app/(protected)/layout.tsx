@@ -31,13 +31,8 @@ export default async function ProtectedLayout({
     <ConsentGate initialAccepted={dataConsentAccepted}>
       <AppShell
         role={session.role}
-        userId={session.userId}
-        // Fase 40 (ver docs/AUDIT_LOG.md § 2026-08-21): `NotificationBell`
-        // compara `taskAssignedToId` (id numérico de Django, Tareas ya
-        // cutover) contra el id del usuario en sesión — necesita el id de
-        // Django, no el `cuid` de Postgres que sigue usando `ThemeToggle`.
-        // `""` si no se pudo resolver: la comparación simplemente nunca da
-        // "es mía", degradado sin romper la página.
+        // `""` si no se pudo resolver: la comparación de `NotificationBell`
+        // simplemente nunca da "es mía", degradado sin romper la página.
         djangoUserId={djangoUserId !== null ? String(djangoUserId) : ""}
         userName={session.name}
         roleLabel={ROLE_LABEL[session.role]}

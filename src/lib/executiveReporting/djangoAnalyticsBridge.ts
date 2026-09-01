@@ -1,33 +1,14 @@
 // Puente hacia el motor de Analytics de Django para el Executive Reporting
 // Engine (Fase 57 de la migración de stack, ver docs/AUDIT_LOG.md §
-// 2026-08-25) — primer paso de portar el CÁLCULO del snapshot (hasta acá
-// solo se había portado la PERSISTENCIA, Fase 56). El resto de
-// `buildSnapshotData.ts` sigue contra Prisma sin cambios: este módulo
-// recompone únicamente el Índice Ejecutivo (Performance Score + Equilibrio
-// Operativo por colaborador, mes calendario en curso), que ya tiene
-// equivalente exacto en Django desde la Fase 4e/4g/47 — no requirió portar
-// ninguna fórmula nueva.
+// 2026-08-25) — recompone el Índice Ejecutivo (Performance Score +
+// Equilibrio Operativo por colaborador, mes calendario en curso), que ya
+// tiene equivalente exacto en Django desde la Fase 4e/4g/47. El roster de
+// `resolveRoster.ts` ya expone el id numérico de Django directo (retiro del
+// bridge cuid↔Django, decisión explícita del usuario, ver docs/AUDIT_LOG.md
+// § 2026-08-31) — sin traducción intermedia.
 import "server-only";
-import { djangoApiFetch } from "@/lib/djangoSession";
+import { djangoApiFetch, ANALYTICS_BUNDLE_TIMEOUT_MS } from "@/lib/djangoSession";
 import { mapDjangoAnalyticsPayloadToNexoShape } from "@/lib/djangoAnalyticsAdapter";
-
-/**
- * Resuelve el id numérico de Django de cada colaborador del roster a
- * partir de su `legacy_postgres_id` (cuid) — `GET /reports/user-lookup/`
- * (backend, Fase 57). El resto del builder sigue necesitando el cuid
- * (consultas Prisma de Tareas/Actividades), así que este puente NO
- * reemplaza `resolveReportRoster`, solo lo complementa para los cálculos
- * que sí ya viven en Django. Usuarios sin id de Django resuelto (nunca
- * importados desde Postgres — `migrate_users_from_postgres` diferido,
- * ver `docs/ROADMAP.md`) simplemente no aparecen en el Map devuelto.
- */
-export async function resolveDjangoIdsForRoster(userIds: string[]): Promise<Map<string, number>> {
-  if (userIds.length === 0) return new Map();
-  const response = await djangoApiFetch(`/reports/user-lookup/?legacy_ids=${encodeURIComponent(userIds.join(","))}`);
-  if (!response || !response.ok) return new Map();
-  const rows = (await response.json()) as { legacy_postgres_id: string; id: number }[];
-  return new Map(rows.map((r) => [r.legacy_postgres_id, r.id]));
-}
 
 export type DjangoPerformanceAndHealth = {
   performanceScore: number;
@@ -55,7 +36,16 @@ export type DjangoPerformanceAndHealth = {
  * `buildSnapshotData.ts`).
  */
 export async function fetchPerformanceAndHealth(djangoId: number): Promise<DjangoPerformanceAndHealth | null> {
-  const response = await djangoApiFetch(`/analytics/${djangoId}/`);
+  let response;
+  try {
+    // Timeout dedicado — ver `ANALYTICS_BUNDLE_TIMEOUT_MS` (djangoSession.ts):
+    // el default de 3s ya se demostró insuficiente para este endpoint
+    // específico. Un timeout que igual ocurre no debe romper la generación
+    // completa del reporte (mismo contrato "nunca lanza" documentado arriba).
+    response = await djangoApiFetch(`/analytics/${djangoId}/`, {}, ANALYTICS_BUNDLE_TIMEOUT_MS);
+  } catch {
+    return null;
+  }
   if (!response || !response.ok) return null;
   const bundle = mapDjangoAnalyticsPayloadToNexoShape(await response.json()) as {
     performanceScore: { score: number };

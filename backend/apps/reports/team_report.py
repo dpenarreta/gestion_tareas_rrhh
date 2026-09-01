@@ -178,9 +178,10 @@ def assemble_monthly_team_report(
     """Ensamblador principal — réplica del bundle de
     `buildMonthlySnapshotData` que SÍ puede calcularse solo con
     `member_kpis`/`insights` (ver docstring del módulo para lo que
-    queda fuera). `user_ids` son ids numéricos de Django — el caller
-    (Next.js) los resuelve antes vía `GET /reports/user-lookup/`,
-    mismo puente que ya usa el Índice Ejecutivo desde la Fase 57."""
+    queda fuera). `user_ids` son ids numéricos de Django — el roster
+    (`GET /reports/roster/`) ya los expone directo, sin traducción
+    intermedia (retiro del bridge cuid↔Django, decisión explícita del
+    usuario, ver docs/AUDIT_LOG.md § 2026-08-31)."""
     now = now or datetime.now(dt_timezone.utc)
     users = list(User.objects.filter(id__in=user_ids))
 

@@ -1,6 +1,6 @@
 // Executive Reporting Engine 2.0 — Fase C — prompts de NOVA (FPS Parte III).
 // Mismo criterio que kpis/nova-insights/[userId]/route.ts (ANALYTICAL_SYSTEM_PROMPT):
-// Groq recibe SOLO datos ya calculados, nunca los cuestiona ni recalcula, y
+// Gemini recibe SOLO datos ya calculados, nunca los cuestiona ni recalcula, y
 // responde EXCLUSIVAMENTE con JSON válido en la forma exacta indicada.
 import type { ExecutiveReportContext } from "../context";
 import type { NovaConfidence } from "./types";

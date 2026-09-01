@@ -33,7 +33,8 @@ function mockSession(overrides: Partial<SessionPayload> | null) {
     overrides === null
       ? null
       : {
-          userId: "u1",
+          djangoUserId: 1,
+          permissions: [],
           role: "ASISTENTE_GH",
           name: "Test",
           email: "test@nexo.com",

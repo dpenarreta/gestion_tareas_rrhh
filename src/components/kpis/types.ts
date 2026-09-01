@@ -433,7 +433,7 @@ export type ExecutiveDashboardData = {
   };
   ranking: ExecutiveRankingMember[];
   workload: ExecutiveWorkloadPoint[];
-  /** Resumen ejecutivo determinístico en cabecera — ver Sprint 2 § S2-A, ampliado en Sprint 5 § S5-K. Groq no interviene aquí. */
+  /** Resumen ejecutivo determinístico en cabecera — ver Sprint 2 § S2-A, ampliado en Sprint 5 § S5-K. Gemini no interviene aquí. */
   ceo: {
     estado: KpiColor;
     estadoLabel: string;

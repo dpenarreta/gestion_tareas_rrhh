@@ -1,10 +1,14 @@
 """Permisos de Reportes Ejecutivos — Fase 8 de la migración de stack (ver
-docs/AUDIT_LOG.md § 2026-08-18). Réplica exacta de `canAccessReports`
-(`src/lib/roles.ts`)."""
+docs/AUDIT_LOG.md § 2026-08-18). `can_access_reports` migrado al catálogo
+dinámico de permisos (`reportes.ver`) — ver docs/AUDIT_LOG.md §
+2026-09-01 ("Catálogo dinámico de permisos extendido a todo el sistema").
+`role_name` se preserva: la sigue usando `scope_for_role` (no es un gate
+de autorización, decide la forma de la respuesta — JEFE vs. COORDINADOR),
+así que NO es código muerto tras esta migración."""
 
 from rest_framework.permissions import IsAuthenticated
 
-CAN_ACCESS_REPORTS = {"ADMINISTRADOR", "JEFE_NACIONAL", "COORDINADOR_NACIONAL"}
+from apps.permissions.authorization import user_has_permission
 
 
 def role_name(user) -> str:
@@ -17,7 +21,7 @@ def role_name(user) -> str:
 
 
 def can_access_reports(user) -> bool:
-    return role_name(user) in CAN_ACCESS_REPORTS
+    return user_has_permission(user, "reportes.ver")
 
 
 def scope_for_role(user) -> str:

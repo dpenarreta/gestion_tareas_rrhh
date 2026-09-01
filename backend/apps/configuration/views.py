@@ -1204,7 +1204,7 @@ class NovaCacheView(generics.GenericAPIView):
     """`GET/PUT /api/v1/settings/nova-cache/` — Fase 34 (ver
     docs/AUDIT_LOG.md § 2026-08-21), réplica exacta de `route.ts`.
     `GET` no requiere rol especial; `PUT` solo ADMINISTRADOR. Solo se
-    porta la configuración (TTL) — Nova/Groq en sí sigue fuera de
+    porta la configuración (TTL) — Nova/Gemini en sí sigue fuera de
     alcance, mismo criterio que `nova-message` (Fase 25)."""
 
     permission_classes = [IsAuthenticated]

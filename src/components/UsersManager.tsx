@@ -9,6 +9,7 @@ import { SkeletonRow } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SearchInput } from "@/components/ui/SearchInput";
 import { useToast } from "@/components/ui/Toast";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { X } from "lucide-react";
 
 type User = {
@@ -58,6 +59,9 @@ export default function UsersManager({ currentUserRole }: Props) {
   // Revealed (unmasked) emails, keyed by user id
   const [revealedEmails, setRevealedEmails] = useState<Record<string, string>>({});
   const [revealLoading, setRevealLoading] = useState<string | null>(null);
+  const [pendingReveal, setPendingReveal] = useState<User | null>(null);
+  const [pendingDeleteUser, setPendingDeleteUser] = useState<User | null>(null);
+  const [deletingUser, setDeletingUser] = useState(false);
 
   // Roles that the current editor is allowed to assign
   const assignableRoles = ALL_ROLES.filter(
@@ -148,7 +152,7 @@ export default function UsersManager({ currentUserRole }: Props) {
     }
   }
 
-  async function handleReveal(user: User) {
+  function handleReveal(user: User) {
     if (revealedEmails[user.id]) {
       setRevealedEmails((prev) => {
         const next = { ...prev };
@@ -157,7 +161,12 @@ export default function UsersManager({ currentUserRole }: Props) {
       });
       return;
     }
-    if (!confirm(`¿Mostrar el correo completo de ${user.name}?`)) return;
+    setPendingReveal(user);
+  }
+
+  async function confirmReveal() {
+    if (!pendingReveal) return;
+    const user = pendingReveal;
     setRevealLoading(user.id);
     try {
       const res = await fetch(`/api/users/${user.id}`);
@@ -167,6 +176,7 @@ export default function UsersManager({ currentUserRole }: Props) {
       }
     } finally {
       setRevealLoading(null);
+      setPendingReveal(null);
     }
   }
 
@@ -202,8 +212,7 @@ export default function UsersManager({ currentUserRole }: Props) {
   }
 
   async function handleDelete(user: User) {
-    if (!confirm(`¿Eliminar a ${user.name}? Esta acción no se puede deshacer.`))
-      return;
+    setDeletingUser(true);
     try {
       const res = await fetch(`/api/users/${user.id}`, { method: "DELETE" });
       const data = await res.json();
@@ -215,6 +224,9 @@ export default function UsersManager({ currentUserRole }: Props) {
       }
     } catch {
       showToast("Error de conexión", "error");
+    } finally {
+      setDeletingUser(false);
+      setPendingDeleteUser(null);
     }
   }
 
@@ -398,7 +410,7 @@ export default function UsersManager({ currentUserRole }: Props) {
                         </button>
                       )}
                       <button
-                        onClick={() => handleDelete(user)}
+                        onClick={() => setPendingDeleteUser(user)}
                         className="text-xs text-danger hover:brightness-90 font-medium px-2 py-1 rounded hover:bg-danger/[.09] transition-colors"
                       >
                         Eliminar
@@ -500,6 +512,26 @@ export default function UsersManager({ currentUserRole }: Props) {
           </div>
         </>
       )}
+
+      <ConfirmDialog
+        open={pendingReveal !== null}
+        title="Mostrar correo completo"
+        message={pendingReveal ? `¿Mostrar el correo completo de ${pendingReveal.name}?` : ""}
+        confirmLabel="Mostrar"
+        loading={revealLoading === pendingReveal?.id}
+        onConfirm={confirmReveal}
+        onCancel={() => setPendingReveal(null)}
+      />
+
+      <ConfirmDialog
+        open={pendingDeleteUser !== null}
+        title="Eliminar usuario"
+        message={pendingDeleteUser ? `¿Eliminar a ${pendingDeleteUser.name}? Esta acción no se puede deshacer.` : ""}
+        danger
+        loading={deletingUser}
+        onConfirm={() => pendingDeleteUser && handleDelete(pendingDeleteUser)}
+        onCancel={() => setPendingDeleteUser(null)}
+      />
     </div>
   );
 }

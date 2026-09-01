@@ -423,13 +423,12 @@ async function downloadPDF(kpi: KpiData) {
 // ── KpisModule ────────────────────────────────────────────────────────────────
 
 type Props = {
-  currentUserId: string;
   currentUserRole: Role;
 };
 
 const CAN_ACCESS_REPORTS = ["ADMINISTRADOR", "JEFE_NACIONAL", "COORDINADOR_NACIONAL"];
 
-export default function KpisModule({ currentUserId: _uid, currentUserRole }: Props) {
+export default function KpisModule({ currentUserRole }: Props) {
   const canSeeReports = CAN_ACCESS_REPORTS.includes(currentUserRole);
   const [activeTab, setActiveTab] = useState<"kpis" | "informes">("kpis");
   const [month, setMonth] = useState(currentMonthParam);

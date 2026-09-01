@@ -45,7 +45,8 @@ function mockSession(overrides: Partial<SessionPayload> | null) {
     overrides === null
       ? null
       : {
-          userId: "u1",
+          djangoUserId: 1,
+          permissions: [],
           role: "ADMINISTRADOR",
           name: "Ana",
           email: "test@nexo.com",
@@ -110,7 +111,7 @@ describe("GET/PUT /api/settings/retention-policy", () => {
   });
 
   it("PUT reenvía solo los campos provistos, traducidos a snake_case", async () => {
-    mockSession({ userId: "admin-1" });
+    mockSession({});
     djangoApiFetch.mockResolvedValue(
       djangoResponse(true, { monthly_reports_months: "24", archived_tasks_months: "12", knowledge_docs_months: "indefinite" })
     );
@@ -162,7 +163,7 @@ describe("GET/POST /api/settings/retention-policy/purge", () => {
   });
 
   it("POST ejecuta la depuración con confirm=true y limpia GitHub best-effort", async () => {
-    mockSession({ userId: "admin-1" });
+    mockSession({});
     djangoApiFetch.mockResolvedValue(
       djangoResponse(true, {
         reportsDeleted: 2,
@@ -269,7 +270,7 @@ describe("GET/PUT /api/settings/workload-config", () => {
   });
 
   it("PUT reenvía solo los campos provistos, traducidos a snake_case, y devuelve los valores efectivos mapeados", async () => {
-    mockSession({ userId: "admin-1" });
+    mockSession({});
     djangoApiFetch.mockResolvedValue(
       djangoResponse(true, { hours_per_day: 7, workload_limit_low: 5.5, workload_limit_high: 7.5, workload_limit_overload: 8.5 })
     );
@@ -331,7 +332,7 @@ describe("GET/PUT /api/settings/welcome-message", () => {
   });
 
   it("PUT reenvía message/active a Django y devuelve la respuesta", async () => {
-    mockSession({ userId: "admin-1" });
+    mockSession({});
     djangoApiFetch.mockResolvedValue(djangoResponse(true, { message: "Hola equipo", active: true }));
     const res = await welcomeMessagePUT(jsonRequest({ message: "  Hola equipo  ", active: true }));
     expect(res.status).toBe(200);
@@ -406,7 +407,7 @@ describe("GET/PUT /api/settings/notification-rules", () => {
   });
 
   it("PUT reenvía la configuración a Django y devuelve la vigente", async () => {
-    mockSession({ userId: "admin-1" });
+    mockSession({});
     const config = {
       commentTargets: { ASISTENTE_GH: ["ANALISTA_CC"], ANALISTA_CC: [] },
       firstCommentRole: "COORDINADOR_NACIONAL" as const,

@@ -41,7 +41,8 @@ function mockSession(overrides: Partial<SessionPayload> | null) {
     overrides === null
       ? null
       : {
-          userId: "u1",
+          djangoUserId: 1,
+          permissions: [],
           role: "ASISTENTE_GH",
           name: "Ana",
           email: "test@nexo.com",
@@ -308,7 +309,7 @@ describe("GET/PATCH /api/settings/favorites", () => {
     expect((await favoritesGET()).status).toBe(401);
   });
   it("GET devuelve los favoritos del usuario en sesión, desde Django", async () => {
-    mockSession({ userId: "u1" });
+    mockSession({});
     djangoApiFetch.mockResolvedValue(djangoResponse(true, { favorites: ["holidays", "nova-cache"] }));
     expect(await (await favoritesGET()).json()).toEqual({ favorites: ["holidays", "nova-cache"] });
     expect(djangoApiFetch).toHaveBeenCalledWith("/settings/favorites/");
@@ -319,7 +320,7 @@ describe("GET/PATCH /api/settings/favorites", () => {
     expect(djangoApiFetch).not.toHaveBeenCalled();
   });
   it("PATCH marca/desmarca un favorito para el usuario en sesión (cualquier rol), en Django", async () => {
-    mockSession({ userId: "u2", role: "ASISTENTE_GH" });
+    mockSession({ role: "ASISTENTE_GH" });
     djangoApiFetch.mockResolvedValue(djangoResponse(true, { ok: true }));
     const res = await favoritesPATCH(jsonRequest({ settingId: "holidays", pinned: true }));
     expect(res.status).toBe(200);

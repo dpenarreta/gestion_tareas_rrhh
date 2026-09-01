@@ -25,11 +25,11 @@ vi.mock("@/lib/djangoTasksAdapter", () => ({
   fetchOwnDjangoTasks: (...a: unknown[]) => fetchOwnDjangoTasks(...a),
 }));
 
-const groqCreate = vi.fn();
-class MockGroq {
-  chat = { completions: { create: (...a: unknown[]) => groqCreate(...a) } };
+const geminiGenerate = vi.fn();
+class MockGoogleGenAI {
+  models = { generateContent: (...a: unknown[]) => geminiGenerate(...a) };
 }
-vi.mock("groq-sdk", () => ({ default: MockGroq }));
+vi.mock("@google/genai", () => ({ GoogleGenAI: MockGoogleGenAI }));
 
 const deleteFromGithub = vi.fn();
 vi.mock("@/lib/githubDocuments", () => ({ deleteFromGithub: (...a: unknown[]) => deleteFromGithub(...a) }));
@@ -51,9 +51,10 @@ const { POST: novaMessagePOST } = await import("@/app/api/dashboard/nova-message
 const { GET: badgesGET } = await import("@/app/api/profile/badges/route");
 const { DELETE: documentDELETE } = await import("@/app/api/assistant/documents/[id]/route");
 
-function mockSession(userId: string, overrides: Partial<SessionPayload> = {}) {
+function mockSession(djangoUserId: number, overrides: Partial<SessionPayload> = {}) {
   vi.mocked(getSession).mockResolvedValue({
-    userId,
+    djangoUserId,
+    permissions: [],
     role: "ADMINISTRADOR",
     name: "Ana",
     email: "test@nexo.com",
@@ -76,10 +77,10 @@ function resetAll() {
   commentFindMany.mockReset().mockResolvedValue([]);
   taskActivityFindMany.mockReset().mockResolvedValue([]);
   deleteFromGithub.mockReset().mockResolvedValue(undefined);
-  groqCreate.mockReset();
+  geminiGenerate.mockReset();
   vi.mocked(getSession).mockReset();
   djangoApiFetch.mockReset().mockResolvedValue(djangoResponse(true, NEUTRAL_KPI_PAYLOAD));
-  delete process.env.GROQ_API_KEY;
+  delete process.env.GEMINI_API_KEY;
 }
 
 describe("POST /api/dashboard/nova-message", () => {
@@ -97,7 +98,7 @@ describe("POST /api/dashboard/nova-message", () => {
   });
 
   it("prioriza el mensaje de tareas vencidas cuando existen", async () => {
-    mockSession("nova-overdue");
+    mockSession(1);
     fetchOwnDjangoTasks.mockResolvedValue([{ status: "PENDIENTE", end_date: new Date(2026, 6, 1).toISOString() }]);
     const res = await novaMessagePOST();
     const body = await res.json();
@@ -106,7 +107,7 @@ describe("POST /api/dashboard/nova-message", () => {
   });
 
   it("si no hay vencidas, prioriza tareas por vencer esta semana", async () => {
-    mockSession("nova-porvencer");
+    mockSession(2);
     fetchOwnDjangoTasks.mockResolvedValue([{ status: "PENDIENTE", end_date: new Date(2026, 7, 14).toISOString() }]);
     const res = await novaMessagePOST();
     const body = await res.json();
@@ -114,7 +115,7 @@ describe("POST /api/dashboard/nova-message", () => {
   });
 
   it("sin vencidas/por vencer y con carga extrema entre semana, comenta la carga laboral", async () => {
-    mockSession("nova-carga", { role: "ANALISTA_CC" });
+    mockSession(3, { role: "ANALISTA_CC" });
     djangoApiFetch.mockResolvedValue(
       djangoResponse(true, { carga_tiempo: { diaria: { pct: 150, real_hours: 9, base_hours: 6, is_weekend: false } } })
     );
@@ -124,7 +125,7 @@ describe("POST /api/dashboard/nova-message", () => {
   });
 
   it("roles de dirección (Administrador/Jefe Nacional) nunca reciben comentario de carga laboral individual", async () => {
-    mockSession("nova-carga-liderazgo", { role: "ADMINISTRADOR" });
+    mockSession(4, { role: "ADMINISTRADOR" });
     djangoApiFetch.mockResolvedValue(
       djangoResponse(true, { carga_tiempo: { diaria: { pct: 150, real_hours: 9, base_hours: 6, is_weekend: false } } })
     );
@@ -135,7 +136,7 @@ describe("POST /api/dashboard/nova-message", () => {
   });
 
   it("sin nada urgente, felicita por las tareas completadas del mes", async () => {
-    mockSession("nova-completadas");
+    mockSession(5);
     fetchOwnDjangoTasks.mockResolvedValue([{ status: "COMPLETADA", end_date: new Date(2026, 7, 5).toISOString() }]);
     const res = await novaMessagePOST();
     const body = await res.json();
@@ -143,14 +144,14 @@ describe("POST /api/dashboard/nova-message", () => {
   });
 
   it("sin ningún dato destacable, muestra el mensaje de bienvenida por defecto", async () => {
-    mockSession("nova-default");
+    mockSession(6);
     const res = await novaMessagePOST();
     const body = await res.json();
     expect(body.message).toMatch(/Bienvenido a Nexo/);
   });
 
   it("responde el mensaje cacheado en llamadas repetidas dentro del TTL, sin recalcular", async () => {
-    mockSession("nova-cache");
+    mockSession(7);
     fetchOwnDjangoTasks.mockResolvedValue([{ status: "PENDIENTE", end_date: new Date(2026, 6, 1).toISOString() }]);
 
     const first = await novaMessagePOST();
@@ -165,20 +166,20 @@ describe("POST /api/dashboard/nova-message", () => {
     expect(fetchOwnDjangoTasks).not.toHaveBeenCalled();
   });
 
-  it("con GROQ_API_KEY configurada, usa el mensaje generado por la IA", async () => {
-    mockSession("nova-ai-ok");
-    process.env.GROQ_API_KEY = "test-key";
-    groqCreate.mockResolvedValue({ choices: [{ message: { content: "  Mensaje generado por IA  " } }] });
+  it("con GEMINI_API_KEY configurada, usa el mensaje generado por la IA", async () => {
+    mockSession(8);
+    process.env.GEMINI_API_KEY = "test-key";
+    geminiGenerate.mockResolvedValue({ text: "  Mensaje generado por IA  " });
     const res = await novaMessagePOST();
     const body = await res.json();
     expect(body.message).toBe("Mensaje generado por IA");
     expect(body.cached).toBe(false);
   });
 
-  it("si la llamada a Groq falla, recae en el mensaje de respaldo", async () => {
-    mockSession("nova-ai-fail");
-    process.env.GROQ_API_KEY = "test-key";
-    groqCreate.mockRejectedValue(new Error("Groq caído"));
+  it("si la llamada a Gemini falla, recae en el mensaje de respaldo", async () => {
+    mockSession(9);
+    process.env.GEMINI_API_KEY = "test-key";
+    geminiGenerate.mockRejectedValue(new Error("Gemini caído"));
     const res = await novaMessagePOST();
     const body = await res.json();
     expect(body.message).toMatch(/Bienvenido a Nexo/);
@@ -189,7 +190,7 @@ describe("POST /api/dashboard/nova-message", () => {
   // saludo genérico en vez de fallar (criterio distinto al 401 usado en el
   // resto de la migración, ver docs/AUDIT_LOG.md § 2026-08-24).
   it("si Django no tiene tareas disponibles para esta sesión, degrada al saludo genérico (200, no error)", async () => {
-    mockSession("nova-no-django");
+    mockSession(10);
     fetchOwnDjangoTasks.mockResolvedValue(null);
     const res = await novaMessagePOST();
     expect(res.status).toBe(200);
@@ -198,7 +199,7 @@ describe("POST /api/dashboard/nova-message", () => {
   });
 
   it("si Django no tiene la carga de tiempo disponible para esta sesión, degrada al saludo genérico (200, no error)", async () => {
-    mockSession("nova-no-kpi");
+    mockSession(11);
     djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "no disponible" }, 401));
     const res = await novaMessagePOST();
     expect(res.status).toBe(200);
@@ -218,14 +219,14 @@ describe("GET /api/profile/badges", () => {
   });
 
   it("responde 401 si Django no tiene sesión disponible", async () => {
-    mockSession("u1");
+    mockSession(100);
     djangoApiFetch.mockResolvedValue(null);
     const res = await badgesGET();
     expect(res.status).toBe(401);
   });
 
   it("devuelve el payload de Django tal cual (ya en camelCase)", async () => {
-    mockSession("u1");
+    mockSession(100);
     const payload = {
       badges: [{ id: "cumplidor", icon: "🎯", name: "Cumplidor", description: "...", earned: true }],
       stats: { totalCompleted: 5, totalComments: 2, currentStreak: 3, earnedCount: 1 },
@@ -261,20 +262,20 @@ describe("DELETE /api/assistant/documents/[id]", () => {
   });
 
   it("responde 403 para un rol sin permiso de administración de la base de conocimiento", async () => {
-    mockSession("u1", { role: "JEFE_NACIONAL" });
+    mockSession(100, { role: "JEFE_NACIONAL" });
     const res = await documentDELETE(undefined as never, ctx());
     expect(res.status).toBe(403);
   });
 
   it("responde 404 si el documento no existe", async () => {
-    mockSession("u1", { role: "ADMINISTRADOR" });
+    mockSession(100, { role: "ADMINISTRADOR" });
     mockDoc(null);
     const res = await documentDELETE(undefined as never, ctx());
     expect(res.status).toBe(404);
   });
 
   it("elimina también el archivo de GitHub cuando hay path/sha registrados", async () => {
-    mockSession("u1", { role: "ADMINISTRADOR" });
+    mockSession(100, { role: "ADMINISTRADOR" });
     mockDoc({ github_path: "docs/doc-1.pdf", github_sha: "sha123" });
     const res = await documentDELETE(undefined as never, ctx());
     expect(res.status).toBe(200);
@@ -283,7 +284,7 @@ describe("DELETE /api/assistant/documents/[id]", () => {
   });
 
   it("no falla si eliminar de GitHub rechaza (se captura y continúa)", async () => {
-    mockSession("u1", { role: "ADMINISTRADOR" });
+    mockSession(100, { role: "ADMINISTRADOR" });
     mockDoc({ github_path: "docs/doc-1.pdf", github_sha: "sha123" });
     deleteFromGithub.mockRejectedValue(new Error("GitHub no disponible"));
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -293,7 +294,7 @@ describe("DELETE /api/assistant/documents/[id]", () => {
   });
 
   it("no intenta eliminar de GitHub si el documento no tiene path/sha (falló antes de subir)", async () => {
-    mockSession("u1", { role: "ADMINISTRADOR" });
+    mockSession(100, { role: "ADMINISTRADOR" });
     mockDoc({ github_path: null, github_sha: null });
     await documentDELETE(undefined as never, ctx());
     expect(deleteFromGithub).not.toHaveBeenCalled();

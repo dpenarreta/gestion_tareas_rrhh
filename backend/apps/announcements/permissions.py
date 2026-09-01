@@ -1,11 +1,11 @@
 """Permisos de Comunicados — Fase 25 (ver docs/AUDIT_LOG.md §
-2026-08-20). `CAN_POST_OR_DELETE` es réplica exacta de `CAN_POST`/
-`CAN_DELETE` (`src/app/api/announcements/route.ts`/`[id]/route.ts`) —
-ambas constantes TS tienen el mismo whitelist, por eso se colapsan en
-una sola acá, mismo criterio que `CAN_CREATE_MEETINGS`
-(`apps.meetings.permissions`)."""
+2026-08-20). `can_post_or_delete_announcement` migrado al catálogo
+dinámico de permisos (`comunicados.gestionar`) — ver docs/AUDIT_LOG.md §
+2026-09-01 ("Catálogo dinámico de permisos extendido a todo el sistema").
+`role_name` se preserva: `views.py` la usa para mostrar el rol del autor
+de un comunicado, no solo para este gate."""
 
-CAN_POST_OR_DELETE = {"ADMINISTRADOR", "JEFE_NACIONAL", "COORDINADOR_NACIONAL"}
+from apps.permissions.authorization import user_has_permission
 
 
 def role_name(user) -> str:
@@ -18,4 +18,4 @@ def role_name(user) -> str:
 
 
 def can_post_or_delete_announcement(user) -> bool:
-    return role_name(user) in CAN_POST_OR_DELETE
+    return user_has_permission(user, "comunicados.gestionar")

@@ -23,7 +23,7 @@ contexto histórico salvo que se indique lo contrario. La autenticación es JWT 
 firmado con `jose` (`^6.2.3`), almacenado en una cookie httpOnly (`nexo-session`), con
 contraseñas hasheadas vía `bcryptjs` (`^3.0.3`) — las credenciales se validan contra
 Django (`loginToDjango`). El estilado usa **Tailwind CSS v4** (`@tailwindcss/postcss`).
-La IA conversacional (Nova) usa `groq-sdk` (`^1.3.0`) para inferencia y `@xenova/transformers`
+La IA conversacional (Nova) usa `@google/genai` (`^2.19.0`, API de Gemini) para inferencia y `@xenova/transformers`
 (`^2.17.2`) para generar embeddings locales (sin costo de API) usados en el RAG de la
 base de conocimiento (persistidos en Django, `apps.assistant`). Gráficos con `recharts`
 (`^3.9.0`), drag-and-drop con `@dnd-kit/*`, generación de PDF con `jspdf` + `html2canvas`
@@ -67,7 +67,7 @@ src/
       analytics/                  # bundle por usuario, benchmarks, insights, operational-risk,
                                    #   recommendations, simulate, target-time, data-quality, diagnostics
       kpis/                       # me, [userId], team, team-capacity, executive, nova-insights
-      assistant/                  # chat (Groq + RAG) y gestión de documentos de la KB
+      assistant/                  # chat (Gemini + RAG) y gestión de documentos de la KB
       meetings/                   # CRUD de reuniones + invitados
       ideas/                      # CRUD de ideas + cambios de estado
       reports/                    # generate, range (informes mensuales)
@@ -308,7 +308,7 @@ Django todavía.
   `generated`/`viewed`/`nova_degraded` (`generation_failed` queda para una fase
   posterior de endurecimiento de errores).
 - **NOVA estructurado** (`src/lib/executiveReporting/nova/`) — reemplaza el bloque de
-  texto libre sin caché que generaba el reporte antiguo por 4 llamadas paralelas a Groq
+  texto libre sin caché que generaba el reporte antiguo por 4 llamadas paralelas a Gemini
   (Executive Summary/Insights/Assessment/Enriquecimiento de Recomendaciones), cada una
   con timeout independiente y fallback determinista garantizado (nunca en blanco, nunca
   bloquea la generación). Grounded exclusivamente en `ExecutiveReportContext`
@@ -431,7 +431,7 @@ Django todavía.
   `canManageKnowledgeBase` = ADMINISTRADOR para subir/eliminar). **Componentes**:
   `AssistantModule.tsx` + hook `useNovaChat.ts`. `NovaFab.tsx` (en `shell/`) expone a
   Nova como acceso flotante global.
-- Backend Groq (`groq-sdk`) con distintos `Mode` (`general`/`tasks`/`hr`, ver
+- Backend Gemini (`@google/genai`) con distintos `Mode` (`general`/`tasks`/`hr`, ver
   `src/app/api/assistant/chat/route.ts`), prompt adaptado al rol del usuario
   (`ROLE_LABEL[userRole]`).
 - **RAG**: documentos subidos se trocean (`DocumentChunk`), se embeben localmente con

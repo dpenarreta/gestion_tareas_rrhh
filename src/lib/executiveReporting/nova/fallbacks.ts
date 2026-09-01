@@ -2,7 +2,7 @@
 // Mismo criterio que fallbackAnalytical/fallbackMotivational en
 // kpis/nova-insights/[userId]/route.ts: SIEMPRE a partir de datos ya
 // calculados (ExecutiveReportContext), nunca inventados — se usan cuando
-// GROQ_API_KEY no está configurada, la llamada falla, excede el timeout, o
+// GEMINI_API_KEY no está configurada, la llamada falla, excede el timeout, o
 // la respuesta no viene en el formato esperado. La narrativa NUNCA queda en
 // blanco (FPS Parte IV §8 — nunca bloquea/nunca falla la generación).
 import type { ExecutiveReportContext } from "../context";

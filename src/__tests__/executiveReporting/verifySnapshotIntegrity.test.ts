@@ -14,7 +14,7 @@ function djangoResponse(ok: boolean, data: unknown, status = ok ? 200 : 400) {
 
 function member(overrides: Partial<ReportMemberKpi> = {}): ReportMemberKpi {
   return {
-    id: "sub1",
+    id: "1",
     name: "Ana",
     role: "ASISTENTE_GH",
     score: 80,
@@ -43,13 +43,7 @@ describe("verifySnapshotIntegrity", () => {
       djangoResponse(true, { users: [{ id: 1, completed_pct: 90, carga_pct: 100 }] }),
     );
 
-    const result = await verifySnapshotIntegrity(
-      "NXR-20260827-000000-AAAA",
-      8,
-      2026,
-      [member()],
-      new Map([["sub1", 1]]),
-    );
+    const result = await verifySnapshotIntegrity("NXR-20260827-000000-AAAA", 8, 2026, [member()]);
 
     expect(djangoApiFetch).toHaveBeenCalledWith("/kpis/team/?month=2026-08");
     expect(result).toEqual({ performed: true, discrepancyCount: 0 });
@@ -62,13 +56,9 @@ describe("verifySnapshotIntegrity", () => {
       djangoResponse(true, { users: [{ id: 1, completed_pct: 90.3, carga_pct: 100 }] }),
     );
 
-    const result = await verifySnapshotIntegrity(
-      "NXR-20260827-000000-AAAA",
-      8,
-      2026,
-      [member({ completedPct: 90 })],
-      new Map([["sub1", 1]]),
-    );
+    const result = await verifySnapshotIntegrity("NXR-20260827-000000-AAAA", 8, 2026, [
+      member({ completedPct: 90 }),
+    ]);
 
     expect(result).toEqual({ performed: true, discrepancyCount: 0 });
     expect(djangoApiFetch).toHaveBeenCalledTimes(1);
@@ -80,13 +70,9 @@ describe("verifySnapshotIntegrity", () => {
     );
     djangoApiFetch.mockResolvedValue(djangoResponse(true, { ok: true }));
 
-    const result = await verifySnapshotIntegrity(
-      "NXR-20260827-000000-AAAA",
-      8,
-      2026,
-      [member({ completedPct: 90, cargaPct: 100 })],
-      new Map([["sub1", 1]]),
-    );
+    const result = await verifySnapshotIntegrity("NXR-20260827-000000-AAAA", 8, 2026, [
+      member({ completedPct: 90, cargaPct: 100 }),
+    ]);
 
     expect(result).toEqual({ performed: true, discrepancyCount: 2 });
     expect(djangoApiFetch).toHaveBeenCalledTimes(3); // 1 consulta + 2 incidentes (completedPct y cargaPct)
@@ -96,7 +82,7 @@ describe("verifySnapshotIntegrity", () => {
         method: "POST",
         body: JSON.stringify({
           report_id: "NXR-20260827-000000-AAAA",
-          field_path: "members[sub1].completedPct",
+          field_path: "members[1].completedPct",
           expected_value: 90,
           actual_value: 70,
           source: "kpis_team",
@@ -109,13 +95,7 @@ describe("verifySnapshotIntegrity", () => {
   it("degrada sin lanzar cuando Django no responde", async () => {
     djangoApiFetch.mockResolvedValue(null);
 
-    const result = await verifySnapshotIntegrity(
-      "NXR-20260827-000000-AAAA",
-      8,
-      2026,
-      [member()],
-      new Map([["sub1", 1]]),
-    );
+    const result = await verifySnapshotIntegrity("NXR-20260827-000000-AAAA", 8, 2026, [member()]);
 
     expect(result).toEqual({ performed: false, discrepancyCount: 0 });
   });
@@ -126,29 +106,19 @@ describe("verifySnapshotIntegrity", () => {
     );
     djangoApiFetch.mockRejectedValueOnce(new Error("Django no disponible"));
 
-    const result = await verifySnapshotIntegrity(
-      "NXR-20260827-000000-AAAA",
-      8,
-      2026,
-      [member({ completedPct: 90, cargaPct: 100 })],
-      new Map([["sub1", 1]]),
-    );
+    const result = await verifySnapshotIntegrity("NXR-20260827-000000-AAAA", 8, 2026, [
+      member({ completedPct: 90, cargaPct: 100 }),
+    ]);
 
     expect(result).toEqual({ performed: true, discrepancyCount: 1 });
   });
 
-  it("ignora colaboradores del bundle de Django sin id resuelto en el roster", async () => {
+  it("ignora filas de Django sin colaborador correspondiente en el roster", async () => {
     djangoApiFetch.mockResolvedValue(
       djangoResponse(true, { users: [{ id: 999, completed_pct: 0, carga_pct: 0 }] }),
     );
 
-    const result = await verifySnapshotIntegrity(
-      "NXR-20260827-000000-AAAA",
-      8,
-      2026,
-      [member()],
-      new Map([["sub1", 1]]),
-    );
+    const result = await verifySnapshotIntegrity("NXR-20260827-000000-AAAA", 8, 2026, [member()]);
 
     expect(result).toEqual({ performed: true, discrepancyCount: 0 });
     expect(djangoApiFetch).toHaveBeenCalledTimes(1);

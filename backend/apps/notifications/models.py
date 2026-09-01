@@ -23,7 +23,6 @@ class Notification(models.Model):
     forma correcta de portar ese mismo mecanismo sin sobrecargar
     `task_id`."""
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="notifications", on_delete=models.CASCADE)
     message = models.TextField()
     task_id = models.PositiveBigIntegerField(null=True, blank=True, db_index=True)

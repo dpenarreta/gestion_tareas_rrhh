@@ -1,5 +1,5 @@
 // Nivel de confianza interno de NOVA (FPS Parte III) — determinista, sin
-// Groq. No es visible necesariamente en el documento; gobierna cuánto puede
+// IA generativa. No es visible necesariamente en el documento; gobierna cuánto puede
 // profundizar/extrapolar el texto generado (instruido en los prompts).
 import type { ExecutiveReportContext } from "../context";
 import type { NovaConfidence } from "./types";

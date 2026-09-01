@@ -69,10 +69,13 @@ def test_owner_creates_reminder(owner):
     assert response.data["status"] == "PENDIENTE"
 
 
-def test_admin_cannot_create_reminders(admin):
+def test_admin_can_create_reminders(admin):
+    # Ver docs/AUDIT_LOG.md § 2026-09-01 ("SuperUsuario = ADMINISTRADOR con
+    # todo el catálogo explícito") — ADMINISTRADOR tiene
+    # `escritorio_digital.usar` sembrado explícito desde la migración 0004.
     due_at = (timezone.now() + timedelta(hours=2)).isoformat()
     response = _client_for(admin).post("/api/v1/desk-reminders/", {"title": "X", "due_at": due_at}, format="json")
-    assert response.status_code == 403
+    assert response.status_code == 201
 
 
 def test_missing_title_returns_400(owner):

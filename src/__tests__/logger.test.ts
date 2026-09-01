@@ -31,6 +31,14 @@ describe("safeLog", () => {
     expect(loggedMessage).not.toContain("sk-abcDEF123");
   });
 
+  it("redacta una API key de Gemini/Google AI Studio (AIzaSy...)", () => {
+    const spy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const fakeKey = "AIzaSy" + "a".repeat(33);
+    safeLog("warn", `${fakeKey} no debería aparecer`);
+    const [loggedMessage] = spy.mock.calls[0];
+    expect(loggedMessage).not.toContain(fakeKey);
+  });
+
   it("no modifica mensajes sin tokens", () => {
     const spy = vi.spyOn(console, "log").mockImplementation(() => {});
     safeLog("log", "mensaje normal sin secretos");

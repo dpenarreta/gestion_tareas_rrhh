@@ -6,7 +6,7 @@ import { isTaskOverdue } from "@/lib/utils";
 import { weekBounds, monthBounds } from "@/lib/dateRanges";
 import { isLeadershipRole } from "@/lib/roles";
 import { fetchDjangoNovaCacheTtlMinutes } from "@/lib/djangoNovaCacheConfig";
-import Groq from "groq-sdk";
+import { GoogleGenAI } from "@google/genai";
 
 const cache = new Map<string, { message: string; expiresAt: number; generatedAt: number }>();
 
@@ -58,7 +58,7 @@ export async function POST() {
   const session = await getSession();
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
-  const cached = cache.get(session.userId);
+  const cached = cache.get(String(session.djangoUserId));
   if (cached && cached.expiresAt > Date.now()) {
     return NextResponse.json({ message: cached.message, cached: true });
   }
@@ -76,7 +76,7 @@ export async function POST() {
   // un error, en vez de adoptar el patrón de 401 usado en el resto de la
   // migración (criterio distinto, deliberado para esta única ruta).
   if (tasks === null || !kpiResponse || !kpiResponse.ok) {
-    cache.set(session.userId, { message: GENERIC_FALLBACK_MESSAGE, expiresAt: Date.now() + cacheTtlMs, generatedAt: Date.now() });
+    cache.set(String(session.djangoUserId), { message: GENERIC_FALLBACK_MESSAGE, expiresAt: Date.now() + cacheTtlMs, generatedAt: Date.now() });
     return NextResponse.json({ message: GENERIC_FALLBACK_MESSAGE, cached: false });
   }
 
@@ -104,48 +104,50 @@ export async function POST() {
 
   const fallback = buildFallback(ctx);
 
-  if (!process.env.GROQ_API_KEY) {
-    cache.set(session.userId, { message: fallback, expiresAt: Date.now() + cacheTtlMs, generatedAt: Date.now() });
+  if (!process.env.GEMINI_API_KEY) {
+    cache.set(String(session.djangoUserId), { message: fallback, expiresAt: Date.now() + cacheTtlMs, generatedAt: Date.now() });
     return NextResponse.json({ message: fallback, cached: false });
   }
 
   try {
-    // Construido acá, no a nivel de módulo: el constructor de Groq lanza
-    // síncronamente si falta GROQ_API_KEY (ver `Client` en `groq-sdk`), lo
-    // que rompía esta ruta con un 500 en TODAS las requests cuando la key
-    // no está configurada, saltándose por completo el guard de arriba.
-    const groq = new Groq({ apiKey: process.env.GROQ_API_KEY });
-    const completion = await groq.chat.completions.create({
-      model: "llama3-8b-8192",
-      messages: [
-        {
-          role: "system",
-          content:
-            "Eres Nova, asistente de Nexo. Genera UN mensaje corto (máximo 25 palabras) para el dashboard del usuario, en español, sin saludo, directo y accionable. " +
-            "Basa el mensaje ÚNICAMENTE en los datos reales que te doy, usando los números exactos, sin inventar nada. " +
-            "Prioriza en este orden: (1) si hay tareas vencidas, alerta sobre eso primero con tono de urgencia; " +
-            "(2) si no hay vencidas pero hay tareas por vencer esta semana, menciónalas; " +
-            "(3) si no hay ninguna de las dos, hoy NO es fin de semana (esFinDeSemana=false), y la carga laboral de hoy es mayor a 120% o menor a 60%, coméntalo con el porcentaje y las horas — si esFinDeSemana=true, nunca comentes el porcentaje de carga de hoy, pasa directo a la regla (4); " +
-            "(4) si todo está en orden, felicita por las tareas completadas este mes. " +
-            "Si esLiderazgo=true (rol de dirección: Administrador o Jefe Nacional), IGNORA por completo la regla (3) — nunca menciones carga laboral, horas ni porcentajes individuales para este rol, ya que dirige equipos y no ejecuta tareas operativas; salta directo a la regla (4) o, si tampoco aplica, sugiere revisar los indicadores del equipo. " +
-            "Ejemplos de estilo: \"Revisión urgente: tienes 3 tareas vencidas\", \"Tienes 2 tareas próximas a vencer esta semana\", " +
-            "\"Tu carga laboral hoy es del 130% (10.4h de 8h)\", \"Buen ritmo: completaste 5 tareas este mes\".",
-        },
-        {
-          role: "user",
-          content: JSON.stringify(ctx),
-        },
-      ],
-      max_tokens: 60,
-      temperature: 0.5,
+    // Construido acá, no a nivel de módulo — mismo criterio defensivo que el
+    // resto de las rutas de Nova (ver `generateNarrative.ts`), aunque el SDK
+    // de Gemini (a diferencia de `groq-sdk`) no lanza síncronamente si falta
+    // la key.
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+    const completion = await ai.models.generateContent({
+      model: "gemini-3.6-flash",
+      contents: [{ role: "user", parts: [{ text: JSON.stringify(ctx) }] }],
+      config: {
+        systemInstruction:
+          "Eres Nova, asistente de Nexo. Genera UN mensaje corto (máximo 25 palabras) para el dashboard del usuario, en español, sin saludo, directo y accionable. " +
+          "Basa el mensaje ÚNICAMENTE en los datos reales que te doy, usando los números exactos, sin inventar nada. " +
+          "Prioriza en este orden: (1) si hay tareas vencidas, alerta sobre eso primero con tono de urgencia; " +
+          "(2) si no hay vencidas pero hay tareas por vencer esta semana, menciónalas; " +
+          "(3) si no hay ninguna de las dos, hoy NO es fin de semana (esFinDeSemana=false), y la carga laboral de hoy es mayor a 120% o menor a 60%, coméntalo con el porcentaje y las horas — si esFinDeSemana=true, nunca comentes el porcentaje de carga de hoy, pasa directo a la regla (4); " +
+          "(4) si todo está en orden, felicita por las tareas completadas este mes. " +
+          "Si esLiderazgo=true (rol de dirección: Administrador o Jefe Nacional), IGNORA por completo la regla (3) — nunca menciones carga laboral, horas ni porcentajes individuales para este rol, ya que dirige equipos y no ejecuta tareas operativas; salta directo a la regla (4) o, si tampoco aplica, sugiere revisar los indicadores del equipo. " +
+          "Ejemplos de estilo: \"Revisión urgente: tienes 3 tareas vencidas\", \"Tienes 2 tareas próximas a vencer esta semana\", " +
+          "\"Tu carga laboral hoy es del 130% (10.4h de 8h)\", \"Buen ritmo: completaste 5 tareas este mes\".",
+        // `gemini-3.6-flash` consume tokens de "thinking" del MISMO
+        // presupuesto que `maxOutputTokens` (variable, medido entre ~50 y
+        // ~600 tokens incluso para prompts triviales — no puede desactivarse:
+        // `thinkingBudget: 0` es rechazado con 400 por este modelo, y un
+        // `thinkingBudget` explícito bajo no lo acota de forma confiable).
+        // Sin margen amplio, la respuesta se trunca a mitad de frase
+        // (`finishReason: "MAX_TOKENS"`) — verificado en vivo contra la API
+        // real antes de fijar este valor.
+        maxOutputTokens: 1536,
+        temperature: 0.5,
+      },
     });
 
-    const message = completion.choices[0]?.message?.content?.trim() || fallback;
+    const message = completion.text?.trim() || fallback;
 
-    cache.set(session.userId, { message, expiresAt: Date.now() + cacheTtlMs, generatedAt: Date.now() });
+    cache.set(String(session.djangoUserId), { message, expiresAt: Date.now() + cacheTtlMs, generatedAt: Date.now() });
     return NextResponse.json({ message, cached: false });
   } catch {
-    cache.set(session.userId, { message: fallback, expiresAt: Date.now() + cacheTtlMs, generatedAt: Date.now() });
+    cache.set(String(session.djangoUserId), { message: fallback, expiresAt: Date.now() + cacheTtlMs, generatedAt: Date.now() });
     return NextResponse.json({ message: fallback, cached: false });
   }
 }

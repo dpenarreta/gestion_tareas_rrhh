@@ -30,7 +30,7 @@ export async function GET() {
     status: 200,
     headers: {
       "Content-Type": "application/json",
-      "Content-Disposition": `attachment; filename="nexo-mis-datos-${session.userId}.json"`,
+      "Content-Disposition": `attachment; filename="nexo-mis-datos-${session.djangoUserId}.json"`,
     },
   });
 }

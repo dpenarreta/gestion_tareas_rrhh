@@ -15,6 +15,7 @@ vi.mock("@/lib/session", () => ({ getSession: (...args: unknown[]) => getSession
 const djangoApiFetch = vi.fn();
 vi.mock("@/lib/djangoSession", () => ({
   djangoApiFetch: (...args: unknown[]) => djangoApiFetch(...args),
+  ANALYTICS_BUNDLE_TIMEOUT_MS: 12000,
 }));
 
 const { GET: insightsGET } = await import("@/app/api/analytics/insights/[userId]/route");
@@ -102,7 +103,11 @@ describe.each(userScopedRoutes)("GET /api/$name/[userId]", ({ path, handler }) =
     djangoApiFetch.mockResolvedValue(djangoResponse(true, { low_cumplimiento: true, sub_items: [{ user_id: "a" }] }));
     const res = await handler(new Request("http://localhost"), ctx("target-1"));
     expect(res.status).toBe(200);
-    expect(djangoApiFetch).toHaveBeenCalledWith(`${path}/target-1/`);
+    // Primer argumento (la ruta) es el contrato que importa acá — algunos de
+    // estos endpoints (insights/operational-risk) pasan además un timeout
+    // extendido como 3er argumento (ver ANALYTICS_BUNDLE_TIMEOUT_MS,
+    // docs/AUDIT_LOG.md § 2026-08-31), sin efecto sobre este test.
+    expect(djangoApiFetch.mock.calls[0][0]).toBe(`${path}/target-1/`);
     const body = await res.json();
     expect(body).toEqual({ lowCumplimiento: true, subItems: [{ userId: "a" }] });
   });
@@ -189,7 +194,7 @@ describe.each(teamRoutes)("GET /api/$name", ({ path, handler }) => {
     djangoApiFetch.mockResolvedValue(djangoResponse(true, { high_risk_users: [{ user_id: "sub1" }] }));
     const res = await handler();
     expect(res.status).toBe(200);
-    expect(djangoApiFetch).toHaveBeenCalledWith(path);
+    expect(djangoApiFetch.mock.calls[0][0]).toBe(path);
     const body = await res.json();
     expect(body).toEqual({ highRiskUsers: [{ userId: "sub1" }] });
   });

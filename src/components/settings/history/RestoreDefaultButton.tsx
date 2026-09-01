@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useToast } from "@/components/ui/Toast";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import type { SettingDescriptor } from "@/components/settings/registry";
 
 /**
@@ -14,12 +15,12 @@ import type { SettingDescriptor } from "@/components/settings/registry";
 export default function RestoreDefaultButton({ descriptor }: { descriptor: SettingDescriptor }) {
   const { showToast } = useToast();
   const [loading, setLoading] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
   const defaults = descriptor.defaults;
 
   if (!defaults || descriptor.configKeys.length === 0) return null;
 
   async function handleRestore() {
-    if (!confirm(`¿Restaurar "${descriptor.label}" a sus valores predeterminados? Esta acción queda registrada en el historial.`)) return;
     setLoading(true);
     try {
       const res = await fetch("/api/settings/config-history/restore-default", {
@@ -31,6 +32,7 @@ export default function RestoreDefaultButton({ descriptor }: { descriptor: Setti
       if (!res.ok) {
         showToast(data.error ?? "Error al restaurar los valores predeterminados", "error");
         setLoading(false);
+        setShowConfirm(false);
         return;
       }
       showToast("Valores restaurados. Recargando…", "success");
@@ -38,17 +40,30 @@ export default function RestoreDefaultButton({ descriptor }: { descriptor: Setti
     } catch {
       showToast("Error de conexión", "error");
       setLoading(false);
+      setShowConfirm(false);
     }
   }
 
   return (
-    <button
-      type="button"
-      onClick={handleRestore}
-      disabled={loading}
-      className="text-[11px] text-secondary hover:text-danger px-2 py-1 rounded hover:bg-danger/[.09] transition-colors disabled:opacity-50"
-    >
-      {loading ? "Restaurando…" : "Restaurar predeterminado"}
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={() => setShowConfirm(true)}
+        disabled={loading}
+        className="text-[11px] text-secondary hover:text-danger px-2 py-1 rounded hover:bg-danger/[.09] transition-colors disabled:opacity-50"
+      >
+        {loading ? "Restaurando…" : "Restaurar predeterminado"}
+      </button>
+
+      <ConfirmDialog
+        open={showConfirm}
+        title="Restaurar valores predeterminados"
+        message={`¿Restaurar "${descriptor.label}" a sus valores predeterminados? Esta acción queda registrada en el historial.`}
+        confirmLabel="Restaurar"
+        loading={loading}
+        onConfirm={handleRestore}
+        onCancel={() => setShowConfirm(false)}
+      />
+    </>
   );
 }

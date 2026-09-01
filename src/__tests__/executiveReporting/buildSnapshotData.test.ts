@@ -61,13 +61,10 @@ vi.mock("@/lib/workload", async (importOriginal) => {
 // prorrateo, etc. — verificado con datos sintéticos reales en las Fases
 // 70/71) — estos tests mockean el bundle en vez de duplicar esa cobertura,
 // y se concentran en lo que SIGUE en TS: resolución de fecha de corte,
-// metadatos, inmutabilidad, roster.
-const resolveDjangoIdsForRoster = vi.fn();
-vi.mock("@/lib/executiveReporting/djangoAnalyticsBridge", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@/lib/executiveReporting/djangoAnalyticsBridge")>();
-  return { ...actual, resolveDjangoIdsForRoster: (...a: unknown[]) => resolveDjangoIdsForRoster(...a) };
-});
-
+// metadatos, inmutabilidad, roster. El puente cuid↔id-Django
+// (`resolveDjangoIdsForRoster`) se retiró por completo (decisión explícita
+// del usuario, ver docs/AUDIT_LOG.md § 2026-08-31) — el roster ya expone el
+// id numérico de Django directo, sin traducción.
 const fetchMonthlyTeamReport = vi.fn();
 const fetchCustomRangeTeamReport = vi.fn();
 const fetchRangeTeamReport = vi.fn();
@@ -132,7 +129,7 @@ function defaultRangeTeamReportBundle() {
         totalCargaRealHours: 0,
         totalCargaBaseHours: 0,
         totalConsultas: 0,
-        memberSnapshots: { "1": { completedPct: 0, cargaPct: 0, cargaColor: "green", cargaLabel: "Óptimo", score: 0, totalTasks: 0 } },
+        memberSnapshots: { sub1: { completedPct: 0, cargaPct: 0, cargaColor: "green", cargaLabel: "Óptimo", score: 0, totalTasks: 0 } },
       },
     ],
     rangeTrend: { cumplimientoTrend: "estancamiento", cumplimientoChange: 0, firstMonthAvgCumplimiento: 0, lastMonthAvgCumplimiento: 0 },
@@ -171,7 +168,6 @@ function resetAll() {
     limitHighHours: 120,
     limitOverloadHours: 140,
   }));
-  resolveDjangoIdsForRoster.mockReset().mockResolvedValue(new Map([["sub1", 1]]));
   fetchMonthlyTeamReport.mockReset().mockResolvedValue(defaultTeamReportBundle());
   fetchCustomRangeTeamReport.mockReset().mockResolvedValue(defaultCustomRangeTeamReportBundle());
   fetchRangeTeamReport.mockReset().mockResolvedValue(defaultRangeTeamReportBundle());
@@ -180,7 +176,7 @@ function resetAll() {
 describe("buildMonthlySnapshotData — bundle de Django (ReportMemberKpi + agregados de equipo)", () => {
   beforeEach(resetAll);
 
-  it("resuelve los ids de Django UNA sola vez y se los pasa a fetchMonthlyTeamReport", async () => {
+  it("pasa los userIds del roster directo a fetchMonthlyTeamReport, sin traducción de id", async () => {
     const roster = await resolveReportRoster({ role: "JEFE_NACIONAL" }, {});
     await buildMonthlySnapshotData({
       roster,
@@ -189,11 +185,8 @@ describe("buildMonthlySnapshotData — bundle de Django (ReportMemberKpi + agreg
       now: new Date("2026-08-01"),
     });
 
-    expect(resolveDjangoIdsForRoster).toHaveBeenCalledTimes(1);
-    expect(resolveDjangoIdsForRoster).toHaveBeenCalledWith(["sub1"]);
     expect(fetchMonthlyTeamReport).toHaveBeenCalledTimes(1);
-    const [djangoIdToUserId] = fetchMonthlyTeamReport.mock.calls[0];
-    expect(djangoIdToUserId).toEqual(new Map([[1, "sub1"]]));
+    expect(fetchMonthlyTeamReport.mock.calls[0][0]).toEqual(["sub1"]);
   });
 
   it("members/teamSummary/findings del snapshot vienen tal cual del bundle de Django", async () => {
@@ -384,7 +377,7 @@ describe("buildMonthlySnapshotData — Motor de Cierre Inteligente con Fecha de 
 describe("buildCustomRangeSnapshotData — bundle de Django (Fase 73)", () => {
   beforeEach(resetAll);
 
-  it("resuelve los ids de Django UNA sola vez y llama a fetchCustomRangeTeamReport con periodStart/periodEnd correctos", async () => {
+  it("pasa los userIds del roster directo a fetchCustomRangeTeamReport, con periodStart/periodEnd correctos", async () => {
     const roster = await resolveReportRoster({ role: "JEFE_NACIONAL" }, {});
     await buildCustomRangeSnapshotData({
       roster,
@@ -393,10 +386,9 @@ describe("buildCustomRangeSnapshotData — bundle de Django (Fase 73)", () => {
       now: new Date("2026-08-01"),
     });
 
-    expect(resolveDjangoIdsForRoster).toHaveBeenCalledTimes(1);
     expect(fetchCustomRangeTeamReport).toHaveBeenCalledTimes(1);
-    const [djangoIdToUserId, periodStart, periodEnd] = fetchCustomRangeTeamReport.mock.calls[0];
-    expect(djangoIdToUserId).toEqual(new Map([[1, "sub1"]]));
+    const [userIds, periodStart, periodEnd] = fetchCustomRangeTeamReport.mock.calls[0];
+    expect(userIds).toEqual(["sub1"]);
     expect(periodStart.toISOString()).toBe("2026-06-01T00:00:00.000Z");
     expect(periodEnd.toISOString()).toBe("2026-06-20T23:59:59.999Z");
   });
@@ -443,7 +435,7 @@ describe("buildCustomRangeSnapshotData — bundle de Django (Fase 73)", () => {
 describe("buildRangeSnapshotData — bundle de Django (Fase 73)", () => {
   beforeEach(resetAll);
 
-  it("resuelve los ids de Django UNA sola vez y llama a fetchRangeTeamReport con from/to correctos", async () => {
+  it("pasa los userIds del roster directo a fetchRangeTeamReport, con from/to correctos", async () => {
     const roster = await resolveReportRoster({ role: "JEFE_NACIONAL" }, {});
     await buildRangeSnapshotData({
       roster,
@@ -452,14 +444,13 @@ describe("buildRangeSnapshotData — bundle de Django (Fase 73)", () => {
       now: new Date("2026-08-01"),
     });
 
-    expect(resolveDjangoIdsForRoster).toHaveBeenCalledTimes(1);
     expect(fetchRangeTeamReport).toHaveBeenCalledTimes(1);
-    const [djangoIdToUserId, fromYear, fromMonth, toYear, toMonth] = fetchRangeTeamReport.mock.calls[0];
-    expect(djangoIdToUserId).toEqual(new Map([[1, "sub1"]]));
+    const [userIds, fromYear, fromMonth, toYear, toMonth] = fetchRangeTeamReport.mock.calls[0];
+    expect(userIds).toEqual(["sub1"]);
     expect([fromYear, fromMonth, toYear, toMonth]).toEqual([2026, 5, 2026, 6]);
   });
 
-  it("monthlyEvolution reconstruye memberSnapshots como array con identidad, remapeando id numérico de Django al cuid", async () => {
+  it("monthlyEvolution reconstruye memberSnapshots como array con identidad, a partir del id numérico de Django directo", async () => {
     const roster = await resolveReportRoster({ role: "JEFE_NACIONAL" }, {});
     const snapshot = await buildRangeSnapshotData({
       roster,

@@ -12,7 +12,7 @@ import type { DataRequestType, DataRequestStatus } from "@/components/settings/D
 import type { ActivityFormat } from "@/lib/activityFormat";
 
 type UserInfo = {
-  userId: string;
+  id: string;
   name: string;
   email: string;
   role: Role;
@@ -283,7 +283,7 @@ export default function ProfilePage() {
     setTheme(next);
     if (!user) return;
     try {
-      await fetch(`/api/users/${user.userId}/theme`, {
+      await fetch(`/api/users/${user.id}/theme`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ theme: next.toUpperCase() }),

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { djangoApiFetch } from "@/lib/djangoSession";
+import { djangoApiFetch, ANALYTICS_BUNDLE_TIMEOUT_MS } from "@/lib/djangoSession";
 import { mapDjangoAnalyticsPayloadToNexoShape } from "@/lib/djangoAnalyticsAdapter";
 
 const DJANGO_SESSION_REQUIRED_MESSAGE =
@@ -19,7 +19,18 @@ export async function GET(request: Request, ctx: Ctx) {
 
   const { userId } = await ctx.params;
 
-  const response = await djangoApiFetch(`/analytics/operational-risk/${userId}/`);
+  let response;
+  try {
+    // Mismo timeout extendido que `/api/analytics/[userId]` — este endpoint
+    // se llama en paralelo con el resto del bundle de Analytics/Nova en la
+    // misma carga de página (`OperationalRiskCard.tsx`, `NovaInsights`,
+    // resumen ejecutivo, riesgo de equipo…); bajo esa concurrencia el
+    // timeout genérico de 3s también lo hace fallar de forma intermitente
+    // (ver docs/AUDIT_LOG.md § 2026-08-31).
+    response = await djangoApiFetch(`/analytics/operational-risk/${userId}/`, {}, ANALYTICS_BUNDLE_TIMEOUT_MS);
+  } catch {
+    return NextResponse.json({ error: "El cálculo de Riesgo Operativo está tardando más de lo esperado. Intenta de nuevo en unos segundos." }, { status: 504 });
+  }
   if (!response) {
     return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
   }

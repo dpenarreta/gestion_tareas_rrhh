@@ -12,6 +12,7 @@ vi.mock("@/lib/session", () => ({ getSession: (...args: unknown[]) => getSession
 const djangoApiFetch = vi.fn();
 vi.mock("@/lib/djangoSession", () => ({
   djangoApiFetch: (...args: unknown[]) => djangoApiFetch(...args),
+  ANALYTICS_BUNDLE_TIMEOUT_MS: 12000,
   resolveDjangoUserId: async (session: { djangoUserId?: number }) => {
     if (typeof session.djangoUserId === "number") return session.djangoUserId;
     const response = await djangoApiFetch("/auth/me/");
@@ -29,11 +30,11 @@ vi.mock("@/lib/djangoNovaCacheConfig", () => ({
   fetchDjangoNovaCacheTtlMinutes: (...a: unknown[]) => fetchDjangoNovaCacheTtlMinutes(...a),
 }));
 
-const groqCreate = vi.fn();
-class MockGroq {
-  chat = { completions: { create: (...a: unknown[]) => groqCreate(...a) } };
+const geminiGenerate = vi.fn();
+class MockGoogleGenAI {
+  models = { generateContent: (...a: unknown[]) => geminiGenerate(...a) };
 }
-vi.mock("groq-sdk", () => ({ default: MockGroq }));
+vi.mock("@google/genai", () => ({ GoogleGenAI: MockGoogleGenAI }));
 
 const { GET: novaInsightsGET } = await import("@/app/api/kpis/nova-insights/[userId]/route");
 
@@ -99,8 +100,8 @@ function resetAll() {
   getSession.mockReset();
   djangoApiFetch.mockReset();
   fetchDjangoNovaCacheTtlMinutes.mockReset().mockResolvedValue(240);
-  groqCreate.mockReset();
-  delete process.env.GROQ_API_KEY;
+  geminiGenerate.mockReset();
+  delete process.env.GEMINI_API_KEY;
 }
 
 describe("GET /api/kpis/nova-insights/[userId]", () => {
@@ -119,8 +120,8 @@ describe("GET /api/kpis/nova-insights/[userId]", () => {
     const body = await res.json();
     expect(body.mode).toBe("motivational");
     expect(Array.isArray(body.messages)).toBe(true);
-    expect(djangoApiFetch).toHaveBeenCalledWith("/analytics/7/");
-    expect(djangoApiFetch).not.toHaveBeenCalledWith("/kpis/7/");
+    expect(djangoApiFetch.mock.calls.some((c) => c[0] === "/analytics/7/")).toBe(true);
+    expect(djangoApiFetch.mock.calls.some((c) => c[0] === "/kpis/7/")).toBe(false);
   });
 
   it("modo insights-only para un nivel 2 viendo a otra persona — sin riesgo operativo, sin riesgos/recomendaciones en la respuesta", async () => {
@@ -132,7 +133,7 @@ describe("GET /api/kpis/nova-insights/[userId]", () => {
     expect(body.hallazgoPrincipal).toBeTruthy();
     expect(body.riesgos).toBeUndefined();
     expect(body.recomendaciones).toBeUndefined();
-    expect(djangoApiFetch).not.toHaveBeenCalledWith("/analytics/operational-risk/8/");
+    expect(djangoApiFetch.mock.calls.some((c) => c[0] === "/analytics/operational-risk/8/")).toBe(false);
   });
 
   it("modo completo para un nivel >= 3 viendo a otra persona — incluye riesgo operativo", async () => {
@@ -143,7 +144,7 @@ describe("GET /api/kpis/nova-insights/[userId]", () => {
     expect(body.mode).toBe("full");
     expect(body.riesgos).toBeDefined();
     expect(body.recomendaciones).toEqual(["Redistribuir una tarea"]);
-    expect(djangoApiFetch).toHaveBeenCalledWith("/analytics/operational-risk/9/");
+    expect(djangoApiFetch.mock.calls.some((c) => c[0] === "/analytics/operational-risk/9/")).toBe(true);
   });
 
   it("propaga 404 de Django como 'Usuario no encontrado'", async () => {
@@ -181,32 +182,26 @@ describe("GET /api/kpis/nova-insights/[userId]", () => {
     expect(djangoApiFetch).not.toHaveBeenCalled();
   });
 
-  it("sin GROQ_API_KEY, usa el fallback determinista construido a partir del bundle", async () => {
+  it("sin GEMINI_API_KEY, usa el fallback determinista construido a partir del bundle", async () => {
     mockSession({ role: "ADMINISTRADOR", djangoUserId: 1 });
     mockDjangoRoutes("14", { risk: true });
     const res = await novaInsightsGET(undefined as never, ctx("14"));
     const body = await res.json();
     expect(body.hallazgoPrincipal).toMatch(/Equilibrio Operativo/);
-    expect(groqCreate).not.toHaveBeenCalled();
+    expect(geminiGenerate).not.toHaveBeenCalled();
   });
 
-  it("con GROQ_API_KEY configurada, usa el resultado generado por la IA", async () => {
+  it("con GEMINI_API_KEY configurada, usa el resultado generado por la IA", async () => {
     mockSession({ role: "ADMINISTRADOR", djangoUserId: 1 });
     mockDjangoRoutes("15", { risk: true });
-    process.env.GROQ_API_KEY = "test-key";
-    groqCreate.mockResolvedValue({
-      choices: [
-        {
-          message: {
-            content: JSON.stringify({
-              hallazgoPrincipal: "Hallazgo generado por IA",
-              riesgos: ["Riesgo 1"],
-              aspectosPositivos: ["Positivo 1"],
-              recomendaciones: ["Recomendación 1"],
-            }),
-          },
-        },
-      ],
+    process.env.GEMINI_API_KEY = "test-key";
+    geminiGenerate.mockResolvedValue({
+      text: JSON.stringify({
+        hallazgoPrincipal: "Hallazgo generado por IA",
+        riesgos: ["Riesgo 1"],
+        aspectosPositivos: ["Positivo 1"],
+        recomendaciones: ["Recomendación 1"],
+      }),
     });
     const res = await novaInsightsGET(undefined as never, ctx("15"));
     const body = await res.json();

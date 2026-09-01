@@ -7,6 +7,7 @@ import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/T
 import { SkeletonRow } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useToast } from "@/components/ui/Toast";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { FileX } from "lucide-react";
 
 type DocStatus = "PROCESANDO" | "LISTO" | "ERROR";
@@ -42,6 +43,7 @@ export default function KnowledgeBaseSection() {
   const [docTitle, setDocTitle] = useState("");
   const [docAdding, setDocAdding] = useState(false);
   const [docBusyId, setDocBusyId] = useState<string | null>(null);
+  const [pendingDeleteDoc, setPendingDeleteDoc] = useState<KnowledgeDoc | null>(null);
   const docFileInputRef = useRef<HTMLInputElement>(null);
 
   const loadDocs = useCallback(async () => {
@@ -98,13 +100,13 @@ export default function KnowledgeBaseSection() {
   }
 
   async function handleDeleteDoc(doc: KnowledgeDoc) {
-    if (!confirm(`¿Eliminar "${doc.title}" de la base de conocimiento?`)) return;
     setDocBusyId(doc.id);
     try {
       await fetch(`/api/assistant/documents/${doc.id}`, { method: "DELETE" });
       setDocs((prev) => prev.filter((d) => d.id !== doc.id));
     } finally {
       setDocBusyId(null);
+      setPendingDeleteDoc(null);
     }
   }
 
@@ -189,7 +191,7 @@ export default function KnowledgeBaseSection() {
                   </Td>
                   <Td className="text-right">
                     <button
-                      onClick={() => handleDeleteDoc(doc)}
+                      onClick={() => setPendingDeleteDoc(doc)}
                       disabled={docBusyId === doc.id}
                       className="text-xs text-danger hover:brightness-90 font-medium px-2 py-1 rounded hover:bg-danger/[.09] transition-colors disabled:opacity-50"
                     >
@@ -202,6 +204,16 @@ export default function KnowledgeBaseSection() {
           </Table>
         )}
       </div>
+
+      <ConfirmDialog
+        open={pendingDeleteDoc !== null}
+        title="Eliminar documento"
+        message={pendingDeleteDoc ? `¿Eliminar "${pendingDeleteDoc.title}" de la base de conocimiento?` : ""}
+        danger
+        loading={docBusyId === pendingDeleteDoc?.id}
+        onConfirm={() => pendingDeleteDoc && handleDeleteDoc(pendingDeleteDoc)}
+        onCancel={() => setPendingDeleteDoc(null)}
+      />
     </SectionCard>
   );
 }

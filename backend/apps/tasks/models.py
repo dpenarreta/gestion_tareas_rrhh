@@ -37,9 +37,6 @@ class Task(BaseModel):
         MODIFICADA = "MODIFICADA"
         RECHAZADA = "RECHAZADA"
 
-    # `cuid` original de Postgres/Prisma — mismo criterio que
-    # `User.legacy_postgres_id` (Fase 80, ver docs/AUDIT_LOG.md § 2026-08-27).
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True, default="")
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.PENDIENTE)
@@ -85,7 +82,6 @@ class Task(BaseModel):
 
 
 class Comment(BaseModel):
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     task = models.ForeignKey(Task, related_name="comments", on_delete=models.CASCADE)
     author = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="+", on_delete=models.PROTECT)
     text = models.TextField()
@@ -102,7 +98,6 @@ class ActivityReason(BaseModel):
     mismo criterio que el `ActivityReason`/`TaskActivity.reason` de
     Prisma."""
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     key = models.CharField(max_length=100, unique=True)
     label = models.CharField(max_length=255)
     description = models.TextField(blank=True, default="")
@@ -120,7 +115,6 @@ class TaskActivity(BaseModel):
     `modified_at` (edición por Admin) llegaron en la Fase 3f, ver
     docs/AUDIT_LOG.md § 2026-08-07."""
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     task = models.ForeignKey(Task, related_name="activities", on_delete=models.CASCADE)
     author = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="+", on_delete=models.PROTECT)
     reason = models.CharField(max_length=100)
@@ -143,7 +137,6 @@ class ActivityComment(BaseModel):
     docs/AUDIT_LOG.md § 2026-08-07). A diferencia de `ActivityAuditLog`,
     el Prisma original SÍ usa FK real aquí (`onDelete: Cascade`)."""
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     activity = models.ForeignKey(TaskActivity, related_name="comments", on_delete=models.CASCADE)
     author = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="+", on_delete=models.PROTECT)
     text = models.TextField()
@@ -161,7 +154,6 @@ class ActivityAuditLog(models.Model):
     log de auditoría nunca se "actualiza") — mismo criterio ya aplicado a
     `MonthClosure.closed_at` en la Fase 3d."""
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     activity_id = models.PositiveBigIntegerField(db_index=True)
     admin = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="+", on_delete=models.PROTECT)
     old_duration = models.PositiveIntegerField()
@@ -191,7 +183,6 @@ class TargetTimeAuditLog(BaseModel):
         REVISION_LIDER = "REVISION_LIDER"
         OTRO = "OTRO"
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     task_id = models.PositiveBigIntegerField(db_index=True)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="+", on_delete=models.PROTECT)
     user_role = models.CharField(max_length=50, blank=True, default="")
@@ -217,7 +208,6 @@ class EndDateAuditLog(BaseModel):
         MODIFICADA = "MODIFICADA"
         RECHAZADA = "RECHAZADA"
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     task_id = models.PositiveBigIntegerField(db_index=True)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="+", on_delete=models.PROTECT)
     user_role = models.CharField(max_length=50, blank=True, default="")
@@ -245,7 +235,6 @@ class MonthClosure(models.Model):
         EARLY = "EARLY"
         MANUAL = "MANUAL"
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     month = models.PositiveSmallIntegerField()
     year = models.PositiveSmallIntegerField()
     closed_by = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="closed_months", on_delete=models.PROTECT)
@@ -276,7 +265,6 @@ class TaskCommentView(BaseModel):
     `BaseModel`) hace de `viewedAt`: se actualiza en cada `save()`, incluido
     el `update_or_create` que dispara el endpoint de listado de comentarios."""
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     task = models.ForeignKey(Task, related_name="comment_views", on_delete=models.CASCADE)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="+", on_delete=models.CASCADE)
 

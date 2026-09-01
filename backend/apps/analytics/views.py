@@ -720,7 +720,7 @@ class TeamRecommendationsView(generics.GenericAPIView):
     24 (ver docs/AUDIT_LOG.md § 2026-08-20). Mismo gate y mismo
     conjunto de subordinados EJECUTORES que `TeamOperationalRiskView`.
     El motor cruza exceso de horas vs. capacidad disponible del
-    equipo, sin IA — Groq (si se usa en otra vista) solo redactaría
+    equipo, sin IA — Gemini (si se usa en otra vista) solo redactaría
     este resultado ya calculado, nunca lo calcula."""
 
     permission_classes = [IsAuthenticated]

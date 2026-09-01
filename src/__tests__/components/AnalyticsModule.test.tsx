@@ -16,7 +16,7 @@ const { default: AnalyticsModule } = await import("@/components/kpis/AnalyticsMo
 
 function renderAnalytics(role: Role) {
   return render(
-    <AnalyticsModule currentUserId="u1" currentUserRole={role} currentUserName="Marco Caguana" />
+    <AnalyticsModule currentUserRole={role} currentUserName="Marco Caguana" />
   );
 }
 

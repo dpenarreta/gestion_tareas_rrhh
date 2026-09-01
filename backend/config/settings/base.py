@@ -162,18 +162,10 @@ DATABASES = {
 AUTH_USER_MODEL = "users.User"
 
 # --- Hashing de contraseñas: Argon2 como algoritmo primario ---
-# BCryptPasswordHasher es un fallback TEMPORAL de la migracion de usuarios
-# legacy (ver apps/users/management/commands/migrate_users_from_postgres.py):
-# los hashes bcryptjs importados de Postgres se verifican con este hasher
-# hasta el primer login exitoso, donde Django los re-encripta a Argon2 de
-# forma automatica (check_password con setter). Retirar esta linea cuando
-# ya no existan filas User.password que empiecen con "bcrypt$" (tarea de
-# limpieza de la fase de decommission, no de esta fase).
 PASSWORD_HASHERS = [
     "django.contrib.auth.hashers.Argon2PasswordHasher",
     "django.contrib.auth.hashers.PBKDF2PasswordHasher",
     "django.contrib.auth.hashers.PBKDF2SHA1PasswordHasher",
-    "django.contrib.auth.hashers.BCryptPasswordHasher",
 ]
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -277,10 +269,6 @@ PASSWORD_RESET_TOKEN_EXPIRATION_MINUTES = env.int(
 
 # --- Módulo administrativo de usuarios ---
 ADMIN_USERS_PAGE_SIZE = env.int("ADMIN_USERS_PAGE_SIZE", default=20)
-
-# --- Migración de usuarios legacy (Postgres/Next.js, ver hoja de ruta) ---
-# Solo lo usa `migrate_users_from_postgres`; nunca se abre en request-path.
-LEGACY_POSTGRES_URL = env.str("LEGACY_POSTGRES_URL", default=None)
 
 # --- Paginación genérica (roles, auditoría, y futuros listados) ---
 DEFAULT_PAGE_SIZE = env.int("DEFAULT_PAGE_SIZE", default=20)

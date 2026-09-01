@@ -36,7 +36,6 @@ class RecoveryItem(models.Model):
     tiempo (papelera → restaurado → papelera de nuevo) — el registro
     ACTIVE vigente es el más reciente con ese status."""
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     entity_type = models.CharField(max_length=50)
     entity_id = models.CharField(max_length=64)
     entity_label = models.CharField(max_length=255, null=True, blank=True)
@@ -73,7 +72,6 @@ class RecoveryAuditLog(models.Model):
     definitiva de la entidad original. `user` es `null` cuando
     `origin=AUTOMATIC` (purga por expiración, sin actor humano)."""
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     entity_type = models.CharField(max_length=50)
     entity_id = models.CharField(max_length=64)
     module_label = models.CharField(max_length=100)

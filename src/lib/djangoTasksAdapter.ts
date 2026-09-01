@@ -421,13 +421,10 @@ export async function fetchDjangoEndDateInfo(taskId: string): Promise<DjangoEndD
 }
 
 /**
- * El `id` de tarea/usuario que devuelve Django es su PK numérica, NUNCA el
- * `cuid` de la sesión de Next.js (`session.userId`, todavía atado a
- * Postgres) — los componentes de Tareas comparan `currentUserId` contra
- * `task.assignedTo.id`/`task.createdBy.id`, así que `currentUserId` debe
- * ser el id de Django, no el de Postgres, o esas comparaciones nunca
- * coinciden. `null` cuando no hay sesión Django (el llamador debe
- * degradar, no romper la página).
+ * Resuelve el id NUMÉRICO de Django del usuario en sesión (los componentes
+ * de Tareas comparan `currentUserId` contra `task.assignedTo.id`/
+ * `task.createdBy.id`, también numéricos). `null` cuando no hay sesión
+ * Django disponible (el llamador debe degradar, no romper la página).
  */
 export async function fetchDjangoCurrentUserId(): Promise<string | null> {
   const response = await djangoApiFetch("/auth/me/");

@@ -19,7 +19,6 @@ class Meeting(BaseModel):
         EN_CURSO = "EN_CURSO"
         FINALIZADA = "FINALIZADA"
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     title = models.CharField(max_length=255)
     description = models.TextField(null=True, blank=True)
     # RESTRICT en el Prisma original -> PROTECT, mismo criterio que
@@ -53,7 +52,6 @@ class MeetingInvitee(BaseModel):
     modelo, confirmado en la investigación de esta fase) — se porta
     fiel al esquema, sin agregar funcionalidad nueva no solicitada."""
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     meeting = models.ForeignKey(Meeting, related_name="invitees", on_delete=models.CASCADE)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="meeting_invitations", on_delete=models.PROTECT)
     attended = models.BooleanField(default=False)

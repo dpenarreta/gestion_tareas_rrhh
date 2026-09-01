@@ -50,7 +50,6 @@ class AnalyticsAuditLog(models.Model):
     `AnalyticsAuditLog` (Prisma). Sin `updated_at`: cada evento es una
     fila nueva, nunca se edita ni se borra."""
 
-    legacy_postgres_id = models.CharField(max_length=30, unique=True, null=True, blank=True)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="analytics_audit_logs", on_delete=models.CASCADE)
     kind = models.CharField(max_length=100)
     period = models.CharField(max_length=7)  # "YYYY-MM"

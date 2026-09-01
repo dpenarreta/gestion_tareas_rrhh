@@ -17,22 +17,20 @@ def _client_for(user: User) -> APIClient:
     return client
 
 
-def _user(username: str, role: str, legacy_id: str) -> User:
+def _user(username: str, role: str) -> User:
     user = User.objects.create_user(username=username, email=f"{username}@example.com", password="Sup3r-Secr3t!")
     user.groups.set([Group.objects.get(name=role)])
-    user.legacy_postgres_id = legacy_id
-    user.save(update_fields=["legacy_postgres_id"])
     return user
 
 
 @pytest.fixture
 def coordinador():
-    return _user("coord", "COORDINADOR_NACIONAL", "cuid-coord")
+    return _user("coord", "COORDINADOR_NACIONAL")
 
 
 @pytest.fixture
 def sin_acceso():
-    return _user("ana", "ASISTENTE_GH", "cuid-ana")
+    return _user("ana", "ASISTENTE_GH")
 
 
 def test_requiere_autenticacion(coordinador):
@@ -46,10 +44,10 @@ def test_solo_can_access_reports(sin_acceso):
 
 
 def test_roster_consolidado_excluye_liderazgo_y_no_ejecutores(coordinador):
-    _user("zs", "COORDINADOR_ZS", "cuid-zs")
-    _user("cc", "ANALISTA_CC", "cuid-cc")
-    _user("jefe", "JEFE_NACIONAL", "cuid-jefe")  # visible para coordinador? NO — VISIBLE_ROLES no lo incluye
-    _user("admin", "ADMINISTRADOR", "cuid-admin")
+    _user("zs", "COORDINADOR_ZS")
+    _user("cc", "ANALISTA_CC")
+    _user("jefe", "JEFE_NACIONAL")  # visible para coordinador? NO — VISIBLE_ROLES no lo incluye
+    _user("admin", "ADMINISTRADOR")
 
     response = _client_for(coordinador).get("/api/v1/reports/roster/")
 
@@ -67,7 +65,7 @@ def test_pedir_roles_de_liderazgo_explicitos_no_los_filtra_hacia_adentro(coordin
     497-516): pedir ADMINISTRADOR/JEFE_NACIONAL/COORDINADOR_ZS como
     COORDINADOR_NACIONAL nunca hace aparecer roles de liderazgo — solo
     COORDINADOR_ZS sobrevive al narrowing."""
-    _user("zs", "COORDINADOR_ZS", "cuid-zs")
+    _user("zs", "COORDINADOR_ZS")
 
     response = _client_for(coordinador).get(
         "/api/v1/reports/roster/?roles=ADMINISTRADOR,JEFE_NACIONAL,COORDINADOR_ZS"
@@ -80,33 +78,44 @@ def test_pedir_roles_de_liderazgo_explicitos_no_los_filtra_hacia_adentro(coordin
 
 
 def test_colaboradores_intersecta_ademas_del_filtro_de_rol(coordinador):
-    zs = _user("zs", "COORDINADOR_ZS", "cuid-zs")
-    _user("cc", "ANALISTA_CC", "cuid-cc")
+    zs = _user("zs", "COORDINADOR_ZS")
+    _user("cc", "ANALISTA_CC")
 
-    response = _client_for(coordinador).get(f"/api/v1/reports/roster/?colaboradores={zs.legacy_postgres_id}")
+    response = _client_for(coordinador).get(f"/api/v1/reports/roster/?colaboradores={zs.id}")
 
     assert response.status_code == 200
-    assert response.data["users"] == [{"id": "cuid-zs", "name": "zs", "role": "COORDINADOR_ZS"}]
-    assert response.data["user_ids"] == ["cuid-zs"]
+    assert response.data["users"] == [{"id": str(zs.id), "name": "zs", "role": "COORDINADOR_ZS"}]
+    assert response.data["user_ids"] == [str(zs.id)]
     assert response.data["roster_kind"] == "INDIVIDUAL"
 
 
 def test_varios_colaboradores_da_roster_kind_por_area(coordinador):
-    zs = _user("zs", "COORDINADOR_ZS", "cuid-zs")
-    cc = _user("cc", "ANALISTA_CC", "cuid-cc")
+    zs = _user("zs", "COORDINADOR_ZS")
+    cc = _user("cc", "ANALISTA_CC")
 
     response = _client_for(coordinador).get(
-        f"/api/v1/reports/roster/?colaboradores={zs.legacy_postgres_id},{cc.legacy_postgres_id}"
+        f"/api/v1/reports/roster/?colaboradores={zs.id},{cc.id}"
     )
 
     assert response.status_code == 200
-    assert {u["id"] for u in response.data["users"]} == {"cuid-zs", "cuid-cc"}
+    assert {u["id"] for u in response.data["users"]} == {str(zs.id), str(cc.id)}
     assert response.data["roster_kind"] == "POR_AREA"
 
 
+def test_colaboradores_con_valor_no_numerico_se_descarta(coordinador):
+    """Un cuid legado en caché de cliente (o cualquier valor no numérico)
+    ya no matchea nada — se descarta en vez de romper el filtro."""
+    zs = _user("zs", "COORDINADOR_ZS")
+
+    response = _client_for(coordinador).get(f"/api/v1/reports/roster/?colaboradores=cuid-viejo,{zs.id}")
+
+    assert response.status_code == 200
+    assert response.data["users"] == [{"id": str(zs.id), "name": "zs", "role": "COORDINADOR_ZS"}]
+
+
 def test_areas_es_alias_literal_de_roles(coordinador):
-    _user("zs", "COORDINADOR_ZS", "cuid-zs")
-    _user("cc", "ANALISTA_CC", "cuid-cc")
+    _user("zs", "COORDINADOR_ZS")
+    _user("cc", "ANALISTA_CC")
 
     response = _client_for(coordinador).get("/api/v1/reports/roster/?areas=ANALISTA_CC")
 
@@ -116,7 +125,7 @@ def test_areas_es_alias_literal_de_roles(coordinador):
 
 
 def test_scope_jefe_para_jefe_nacional_y_administrador():
-    admin = _user("admin2", "ADMINISTRADOR", "cuid-admin2")
+    admin = _user("admin2", "ADMINISTRADOR")
     response = _client_for(admin).get("/api/v1/reports/roster/")
     assert response.status_code == 200
     assert response.data["scope"] == "JEFE"

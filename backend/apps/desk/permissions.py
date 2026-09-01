@@ -1,7 +1,13 @@
 """Permisos de Escritorio Digital — Fases 7a-7b (ver docs/AUDIT_LOG.md §
-2026-08-17). Réplica exacta de `canUseDeskNotes` (`src/lib/roles.ts`)."""
+2026-08-17). `can_use_desk_notes` migrado al catálogo dinámico de permisos
+(`escritorio_digital.usar`) — ver docs/AUDIT_LOG.md § 2026-09-01
+("Catálogo dinámico de permisos extendido a todo el sistema"). `role_name`
+se preserva: `views.py` la usa para filtrar destinatarios elegibles, no
+solo para este gate."""
 
 from rest_framework.permissions import IsAuthenticated
+
+from apps.permissions.authorization import user_has_permission
 
 from .models import DeskNote, PersonalReminder
 
@@ -17,10 +23,7 @@ def role_name(user) -> str:
 
 
 def can_use_desk_notes(user) -> bool:
-    """Réplica de `canUseDeskNotes` — Escritorio Digital excluye
-    deliberadamente al rol Administrador ("no es un participante
-    operativo del día a día")."""
-    return role_name(user) != "ADMINISTRADOR"
+    return user_has_permission(user, "escritorio_digital.usar")
 
 
 def can_access_desk_note(user, note: DeskNote) -> bool:

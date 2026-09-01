@@ -10,7 +10,6 @@ import NovaFab from "./NovaFab";
 
 type Props = {
   role: Role;
-  userId: string;
   djangoUserId: string;
   userName: string;
   roleLabel: string;
@@ -20,7 +19,7 @@ type Props = {
 
 const SIDEBAR_COLLAPSED_KEY = "nexo-sidebar-collapsed";
 
-export default function AppShell({ role, userId, djangoUserId, userName, roleLabel, onLogout, children }: Props) {
+export default function AppShell({ role, djangoUserId, userName, roleLabel, onLogout, children }: Props) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -69,7 +68,6 @@ export default function AppShell({ role, userId, djangoUserId, userName, roleLab
       <div className="flex-1 flex flex-col min-w-0">
         <Topbar
           role={role}
-          userId={userId}
           djangoUserId={djangoUserId}
           userName={userName}
           roleLabel={roleLabel}

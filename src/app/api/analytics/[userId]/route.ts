@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { djangoApiFetch } from "@/lib/djangoSession";
+import { djangoApiFetch, ANALYTICS_BUNDLE_TIMEOUT_MS } from "@/lib/djangoSession";
 import { mapDjangoAnalyticsPayloadToNexoShape } from "@/lib/djangoAnalyticsAdapter";
 
 // Fase 4m de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-12):
@@ -19,7 +19,14 @@ export async function GET(request: Request, ctx: Ctx) {
 
   const { userId } = await ctx.params;
 
-  const response = await djangoApiFetch(`/analytics/${userId}/`);
+  let response;
+  try {
+    response = await djangoApiFetch(`/analytics/${userId}/`, {}, ANALYTICS_BUNDLE_TIMEOUT_MS);
+  } catch {
+    // Timeout (`AbortSignal`) u otro fallo de red no traducible a un status
+    // HTTP — ver `ANALYTICS_BUNDLE_TIMEOUT_MS` en djangoSession.ts.
+    return NextResponse.json({ error: "El cálculo de Analytics está tardando más de lo esperado. Intenta de nuevo en unos segundos." }, { status: 504 });
+  }
   if (!response) {
     return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
   }

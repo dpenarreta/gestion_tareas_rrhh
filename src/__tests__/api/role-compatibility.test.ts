@@ -23,7 +23,7 @@ function mockSession(overrides: Partial<SessionPayload> | null) {
   getSession.mockResolvedValue(
     overrides === null
       ? null
-      : { userId: "u1", role: "ADMINISTRADOR", name: "Ana", email: "a@nexo.com", expiresAt: new Date(Date.now() + 100000).toISOString(), ...overrides }
+      : { djangoUserId: 1, role: "ADMINISTRADOR", name: "Ana", email: "a@nexo.com", expiresAt: new Date(Date.now() + 100000).toISOString(), ...overrides }
   );
 }
 
@@ -95,7 +95,7 @@ describe("PATCH /api/settings/role-compatibility", () => {
   });
 
   it("guarda una configuración válida del mismo nivel jerárquico, traduce compatibleRoles a compatible_roles", async () => {
-    mockSession({ role: "ADMINISTRADOR", userId: "admin-1" });
+    mockSession({ role: "ADMINISTRADOR" });
     djangoApiFetch.mockResolvedValue(
       djangoResponse(true, { matrix: { ASISTENTE_GH: ["ASISTENTE_NOMINA", "TRABAJO_SOCIAL"] } })
     );
@@ -110,7 +110,7 @@ describe("PATCH /api/settings/role-compatibility", () => {
   });
 
   it("filtra silenciosamente una auto-referencia (el propio cargo) antes de reenviar a Django", async () => {
-    mockSession({ role: "ADMINISTRADOR", userId: "admin-1" });
+    mockSession({ role: "ADMINISTRADOR" });
     djangoApiFetch.mockResolvedValue(djangoResponse(true, { matrix: {} }));
     await PATCH(patchRequest({ role: "ASISTENTE_GH", compatibleRoles: ["ASISTENTE_GH", "ASISTENTE_NOMINA"] }));
     expect(djangoApiFetch).toHaveBeenCalledWith("/settings/role-compatibility/", {
