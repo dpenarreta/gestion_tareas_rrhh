@@ -143,6 +143,99 @@ catálogo a todo el sistema" sobre las otras 2 opciones presentadas) y
 
 ---
 
+## 2026-09-01 — Corrección de los hallazgos de la auditoría de seguridad
+
+**Problema:** la auditoría de seguridad de Nexo (misma fecha, artifact
+publicado, resumen en la conversación) encontró 6 hallazgos — 2 de
+severidad media, 1 baja, 3 informativos. El usuario pidió corregir "las
+vulnerabilidades detectadas antes".
+
+**NEXO-01 (media) — control de acceso roto en asignación de tareas:**
+`POST /api/v1/tasks/`, `PATCH /api/v1/tasks/<id>/` y el importador de
+Excel aceptaban cualquier `assigned_to` de `User.objects.all()` sin cruzar
+contra la jerarquía visible del actor (`get_visible_groups`/`is_visible_to`,
+`apps/hierarchy/services.py`) — la misma primitiva que
+`AssignableUsersView` ya usa para poblar el selector de asignación del
+frontend, pero que la API nunca repetía del lado servidor (típico "confiar
+en la UI, no en la API", OWASP A01 Broken Access Control). Verificado en
+vivo durante la auditoría con dos cuentas de prueba descartables.
+
+*Decisión:* validar `assigned_to` contra `is_visible_to(actor, ...)` en
+`TaskService.create_task`/`update_task` y en
+`TaskImportService.import_rows` (los 3 puntos de entrada reales), en vez
+de duplicar la validación en cada serializer — mismo criterio que ya usa
+`update_task` para `SELF_ONLY_FIELDS` (la lógica de negocio de
+autorización vive en el service, no en la capa de validación de campos).
+
+*Hallazgo colateral durante la implementación:* 3 tests existentes
+(`test_manager_creates_task_assigned_to_collaborator`,
+`test_creating_task_already_completed_sets_progress_and_completed_at`,
+`test_import_resolves_assignee_by_email`) usaban fixtures de usuario sin
+ningún grupo asignado — nunca antes importaba porque no había validación
+de jerarquía. Se les asignó un grupo real *localmente, dentro de cada
+test*, sin tocar las fixtures compartidas `manager`/`collaborator`/`actor`
+— otro test (`test_commenting_does_not_notify_roles_without_a_target`)
+depende explícitamente de que `collaborator` no tenga grupo, para probar
+que sin `RoleNotificationTarget` aplicable no se crea notificación.
+Tocar la fixture compartida habría roto ese test por una razón no
+relacionada a este cambio.
+
+**NEXO-02 (media) — CSP con `unsafe-eval` sin necesidad real en
+producción:** `next.config.ts` incluía `'unsafe-eval'` en `script-src`
+desde que se agregó la primera CSP básica (2026-07-02, auditoría de
+seguridad anterior) — agregado preventivamente, sin verificar si hacía
+falta. Investigado en vivo esta vez: al quitarlo, `npm run dev` falla con
+un error explícito de React en consola ("React requires eval() in
+development mode for various debugging features... React will never use
+eval() in production mode"). `npm run build` (modo producción) compila y
+corre sin errores sin `unsafe-eval`. Sin `eval()`/`new Function()` en el
+código propio de Nexo (verificado por grep). *Decisión:* condicionar
+`unsafe-eval` a `!isProd`, mismo patrón ya usado para el header HSTS en el
+mismo archivo — cierra el hallazgo en el único lugar donde importa (lo que
+ve un atacante real, producción) sin romper el flujo de desarrollo.
+
+**NEXO-03 (baja) — HTML sin sanitizar en el visor de Documentación:**
+`DocumentationSection.tsx` pasaba `marked.parse(content)` directo a
+`dangerouslySetInnerHTML`. *Decisión:* agregar `dompurify` como dependencia
+nueva — justificado porque es la única forma correcta de sanitizar HTML
+arbitrario hoy (la vieja opción `sanitize` de `marked` fue retirada en
+versiones recientes de la librería, no hay alternativa sin agregar una
+librería dedicada).
+
+**NEXO-04 (informativa) — dependencias:** `npm audit fix` (sin romper
+nada) resolvió 4 advisories transitivos. Next.js actualizado
+manualmente 16.2.9 → 16.3.4 (cierra el CVE de divulgación no autenticada
+de endpoints internos de Server Functions — el más relevante de los 3
+altos de Next.js, por ser el framework que da la cara al público).
+*Decisión de no forzar el resto:* `npm audit fix --force` degradaría
+`@xenova/transformers` a 1.4.2 (breaking, motor de embeddings de Nova) —
+la vulnerabilidad de `protobufjs`/`sharp` en esa cadena es real pero de
+menor severidad práctica que romper una feature en producción sin
+evaluar el impacto. `xlsx` no tiene fix upstream; se re-confirmó (grep
+en el código) que las 4 llamadas en el repo son de exportación
+(`XLSX.writeFile`/`utils.aoa_to_sheet`), nunca de parseo de un archivo
+subido por un usuario — el vector de explotación real (parsear un
+`.xlsx` malicioso) no está expuesto hoy.
+
+**NEXO-05/NEXO-06:** no son hallazgos de código corregibles en este repo
+— recomendaciones de proceso (correr `pip-audit` en CI, sin la
+interceptación TLS corporativa que bloqueó el escaneo durante la
+auditoría; confirmar `DB_TRUST_SERVER_CERTIFICATE` en el `.env` real de
+producción, no solo en el `.env.example` de desarrollo). Sin cambios de
+código — quedan en `docs/ROADMAP.md`.
+
+**Impacto:** cierra el único hallazgo con impacto real de integridad de
+datos (NEXO-01) y reduce la superficie de XSS en dos puntos (CSP más
+estricta en producción, sanitización explícita del visor de
+Documentación). Suite completa verificada en verde después de cada
+cambio: backend 1864/1864 relevantes, frontend Vitest 1123/1123,
+`tsc`/`eslint` limpios, `npm run build` exitoso.
+
+**Aprobado por:** el usuario ("corrige las vulnerabilidades que has
+detectado antes").
+
+---
+
 ## 2026-09-01 — "SuperUsuario" = ADMINISTRADOR con todo el catálogo explícito (seguimiento)
 
 **Problema:** el usuario pidió *"crea un rol de SuperUsuario que tenga

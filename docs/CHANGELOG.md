@@ -23,6 +23,69 @@
 
 ---
 
+## v1.147.0 — 2026-09-01
+
+**Tipo:** SECURITY
+**Módulo:** Corrección de los hallazgos de la auditoría de seguridad
+publicada el mismo día (ver docs/AUDIT_LOG.md § 2026-09-01, "Auditoría de
+seguridad de Nexo — hallazgos corregidos"). Los 3 hallazgos con severidad
+real (media/baja) quedan corregidos; el resto eran informativos y no
+requerían cambio de código.
+
+**NEXO-01 (media) — asignación de tareas sin validar jerarquía visible:**
+`TaskService.create_task`/`update_task` y `TaskImportService.import_rows`
+ahora validan `assigned_to` contra `is_visible_to(actor, ...)` — la misma
+primitiva que ya usa `AssignableUsersView` para poblar el selector del
+frontend, pero que la API nunca repetía del lado servidor. Verificado en
+vivo durante la auditoría: un usuario nivel 1 podía asignar tareas a
+cualquier otro usuario del sistema (incluido Administrador) sin ninguna
+restricción. 3 tests de regresión nuevos.
+
+**NEXO-02 (media) — CSP con `unsafe-eval` sin necesidad real en producción:**
+`unsafe-eval` ahora solo se incluye en desarrollo (`!isProd`). Investigado
+en vivo: al quitarlo por completo, `npm run dev` falla con un error
+explícito de React ("React requires eval() in development mode... React
+will never use eval() in production mode"); `npm run build` (producción)
+compila y corre sin él. Sin `eval()`/`new Function()` en el código propio
+de Nexo.
+
+**NEXO-03 (baja) — HTML sin sanitizar en el visor de Documentación:**
+`DocumentationSection.tsx` ahora pasa el HTML generado por `marked` a
+través de `DOMPurify.sanitize()` antes de `dangerouslySetInnerHTML` —
+nueva dependencia (`dompurify`), justificada por ser la única forma
+correcta de sanitizar HTML arbitrario (ya no existe una opción de
+sanitizado confiable dentro de `marked`). Test nuevo que reproduce el
+escenario exacto (un `<script>` embebido en el Markdown fuente).
+
+**NEXO-04 (informativa) — dependencias con advisories abiertos:**
+`npm audit fix` (no disruptivo) resolvió `brace-expansion`/`js-yaml`/
+`nanoid`/`undici`. Next.js actualizado 16.2.9 → 16.3.4 (cierra el CVE alto
+de divulgación no autenticada de endpoints internos de Server Functions),
+verificado con `tsc`/`eslint`/Vitest/`npm run build` en verde. Quedan sin
+resolver, deliberadamente: la cadena `protobufjs`/`sharp` vía
+`@xenova/transformers` (el único fix requiere degradar esa librería a
+1.4.2, cambio disruptivo para el motor de embeddings de Nova) y `xlsx`
+(sin fix upstream — riesgo práctico bajo, confirmado que el repo solo lo
+usa para exportar, nunca para parsear archivos subidos).
+
+**NEXO-05/NEXO-06:** no son hallazgos de código — recomendaciones de
+proceso (correr `pip-audit` en un entorno sin interceptación TLS;
+confirmar `DB_TRUST_SERVER_CERTIFICATE` en producción). Sin cambios.
+
+**Verificado:** backend `pytest apps/` 1864/1864 relevantes (2 fallas
+preexistentes de calendario, no relacionadas), frontend `tsc`/`eslint`
+limpios, Vitest 1123/1123, `npm run build` exitoso.
+
+**Archivos:** `backend/apps/tasks/services.py`,
+`backend/apps/tasks/tests/{test_tasks,test_import_export}.py`,
+`next.config.ts`, `src/components/settings/DocumentationSection.tsx`,
+`src/__tests__/components/DocumentationSection.test.tsx` (nuevo),
+`package.json`/`package-lock.json`.
+
+**Autor:** Claude Code (Sonnet 5)
+
+---
+
 ## v1.146.2 — 2026-09-01
 
 **Tipo:** UX / REFACTOR

@@ -2071,6 +2071,29 @@
 
 ## Planificado
 
+- **Correr `pip-audit`/`safety check` sobre `backend/requirements/` en CI**
+  (ver docs/AUDIT_LOG.md § 2026-09-01, hallazgo NEXO-05 de la auditoría de
+  seguridad) — el escaneo manual quedó bloqueado en el sandbox de esa
+  sesión por la interceptación TLS de la red corporativa (certificado raíz
+  de Kaspersky), no por falta de la herramienta. Revisión manual de
+  `requirements/base.txt` no encontró versiones obviamente desactualizadas,
+  pero eso no reemplaza un escaneo real de CVEs.
+- **Confirmar `DB_TRUST_SERVER_CERTIFICATE` en el `.env` real de
+  producción** (hallazgo NEXO-06) — el `.env.example` de desarrollo lo
+  tiene en `true` (razonable para localhost), hay que verificar
+  explícitamente que la instancia de producción no herede ese mismo valor
+  (expondría la conexión a la base a un MITM si SQL Server corre en un
+  host distinto al del backend).
+- **Reemplazar `xlsx` por una librería mantenida** (ej. `exceljs`) — no
+  tiene fix upstream para sus 2 CVEs (prototype pollution + ReDoS). Riesgo
+  práctico bajo hoy (el repo solo lo usa para exportar, nunca para
+  parsear un archivo subido), pero si en algún momento se agrega
+  importación de `.xlsx` con esta misma librería, el riesgo se vuelve real.
+- **Actualizar `@xenova/transformers`** (motor de embeddings de Nova) a
+  una versión que no dependa de `protobufjs`/`sharp` vulnerables — hoy
+  requeriría degradar a 1.4.2 (`npm audit fix --force`), un cambio
+  breaking evaluado y descartado en esta misma entrega por falta de
+  tiempo para probar el impacto real en la generación de embeddings.
 - **Migrar `src/lib/roles.ts` a `session.permissions` módulo por módulo**
   (ver `docs/AUDIT_LOG.md` § 2026-09-01, "Catálogo dinámico de permisos
   extendido a todo el sistema"). Desde v1.146.0, Django (`permission_classes`)

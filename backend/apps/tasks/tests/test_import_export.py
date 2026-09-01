@@ -6,6 +6,7 @@ from io import BytesIO
 
 import openpyxl
 import pytest
+from django.contrib.auth.models import Group
 from django.core.files.uploadedfile import SimpleUploadedFile
 from rest_framework.test import APIClient
 
@@ -16,14 +17,29 @@ pytestmark = pytest.mark.django_db
 
 XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 HEADER = [
-    "Título", "Descripción", "Prioridad", "Frecuencia",
-    "Fecha Inicio", "Fecha Fin", "Tiempo Objetivo", "Asignado a", "Tipo",
+    "Título",
+    "Descripción",
+    "Prioridad",
+    "Frecuencia",
+    "Fecha Inicio",
+    "Fecha Fin",
+    "Tiempo Objetivo",
+    "Asignado a",
+    "Tipo",
 ]
 
 
 @pytest.fixture
 def actor():
-    return User.objects.create_user(username="importer", email="importer@example.com", password="Sup3r-Secr3t!")
+    # Grupo real (ver docs/AUDIT_LOG.md § 2026-09-01, NEXO-01): la
+    # importación por Excel ahora valida `assigned_to` contra la jerarquía
+    # visible del actor — un usuario sin grupo no puede asignarle tareas a
+    # nadie más que a sí mismo.
+    user = User.objects.create_user(
+        username="importer", email="importer@example.com", password="Sup3r-Secr3t!"
+    )
+    user.groups.set([Group.objects.get(name="ANALISTA_CC")])
+    return user
 
 
 @pytest.fixture
@@ -49,13 +65,27 @@ def _upload(rows: list[list]) -> SimpleUploadedFile:
 
 def _row(**overrides) -> list:
     fields = {
-        "title": "Informe", "description": "desc", "priority": "ALTA", "frequency": "MENSUAL",
-        "start": "2026-07-01", "end": "2026-07-15", "hours": "8", "email": "", "type": "FIJA",
+        "title": "Informe",
+        "description": "desc",
+        "priority": "ALTA",
+        "frequency": "MENSUAL",
+        "start": "2026-07-01",
+        "end": "2026-07-15",
+        "hours": "8",
+        "email": "",
+        "type": "FIJA",
     }
     fields.update(overrides)
     return [
-        fields["title"], fields["description"], fields["priority"], fields["frequency"],
-        fields["start"], fields["end"], fields["hours"], fields["email"], fields["type"],
+        fields["title"],
+        fields["description"],
+        fields["priority"],
+        fields["frequency"],
+        fields["start"],
+        fields["end"],
+        fields["hours"],
+        fields["email"],
+        fields["type"],
     ]
 
 
@@ -115,13 +145,35 @@ def test_import_valid_row_without_email_self_assigns(actor_client, actor):
 
 
 def test_import_resolves_assignee_by_email(actor_client):
-    other = User.objects.create_user(username="other", email="other@example.com", password="Sup3r-Secr3t!")
+    other = User.objects.create_user(
+        username="other", email="other@example.com", password="Sup3r-Secr3t!"
+    )
+    other.groups.set([Group.objects.get(name="ANALISTA_CC")])
     upload = _upload([HEADER, _row(email="other@example.com")])
 
     response = actor_client.post("/api/v1/tasks/import/", {"file": upload}, format="multipart")
 
     assert response.data == {"imported": 1, "errors": []}
     assert Task.objects.get(title="Informe").assigned_to_id == other.id
+
+
+def test_import_rejects_assignee_outside_visible_hierarchy(actor_client):
+    """Hallazgo real de la auditoría de seguridad (ver docs/AUDIT_LOG.md §
+    2026-09-01, NEXO-01) — mismo bug que la creación/edición directa de
+    tareas, alcanzable también vía importación masiva por Excel."""
+    outsider = User.objects.create_user(
+        username="outsider", email="outsider@example.com", password="Sup3r-Secr3t!"
+    )
+    outsider.groups.set([Group.objects.get(name="ADMINISTRADOR")])
+    upload = _upload([HEADER, _row(email="outsider@example.com")])
+
+    response = actor_client.post("/api/v1/tasks/import/", {"file": upload}, format="multipart")
+
+    assert response.data == {
+        "imported": 0,
+        "errors": [{"row": 2, "error": 'No podés asignar tareas a "outsider@example.com"'}],
+    }
+    assert not Task.objects.filter(title="Informe").exists()
 
 
 def test_import_skips_fully_empty_rows(actor_client):
@@ -169,7 +221,9 @@ def test_import_missing_start_date(actor_client):
 def test_import_invalid_start_date_format(actor_client):
     upload = _upload([HEADER, _row(start="no-es-fecha")])
     response = actor_client.post("/api/v1/tasks/import/", {"file": upload}, format="multipart")
-    assert response.data["errors"] == [{"row": 2, "error": "formato de fecha inválido, usar YYYY-MM-DD"}]
+    assert response.data["errors"] == [
+        {"row": 2, "error": "formato de fecha inválido, usar YYYY-MM-DD"}
+    ]
 
 
 def test_import_missing_end_date(actor_client):
@@ -187,7 +241,9 @@ def test_import_invalid_hours(actor_client):
 def test_import_unknown_email(actor_client):
     upload = _upload([HEADER, _row(email="nadie@example.com")])
     response = actor_client.post("/api/v1/tasks/import/", {"file": upload}, format="multipart")
-    assert response.data["errors"] == [{"row": 2, "error": 'Usuario no encontrado: "nadie@example.com"'}]
+    assert response.data["errors"] == [
+        {"row": 2, "error": 'Usuario no encontrado: "nadie@example.com"'}
+    ]
 
 
 # --- import: normalización de `type` ---------------------------------------
@@ -220,7 +276,9 @@ def test_import_accepts_native_date_cells(actor_client):
     workbook = openpyxl.Workbook()
     sheet = workbook.active
     sheet.append(HEADER)
-    sheet.append(["Informe", "d", "ALTA", "MENSUAL", date(2026, 7, 1), date(2026, 7, 15), 8, "", "FIJA"])
+    sheet.append(
+        ["Informe", "d", "ALTA", "MENSUAL", date(2026, 7, 1), date(2026, 7, 15), 8, "", "FIJA"]
+    )
     buffer = BytesIO()
     workbook.save(buffer)
     upload = SimpleUploadedFile("tasks.xlsx", buffer.getvalue(), content_type=XLSX_CONTENT_TYPE)
@@ -251,6 +309,9 @@ def test_import_continues_after_row_creation_failure(actor_client, monkeypatch):
     upload = _upload([HEADER, _row(title="Falla"), _row(title="Exito")])
     response = actor_client.post("/api/v1/tasks/import/", {"file": upload}, format="multipart")
 
-    assert response.data == {"imported": 1, "errors": [{"row": 2, "error": "Error al crear la tarea"}]}
+    assert response.data == {
+        "imported": 1,
+        "errors": [{"row": 2, "error": "Error al crear la tarea"}],
+    }
     assert Task.objects.filter(title="Exito").exists()
     assert not Task.objects.filter(title="Falla").exists()

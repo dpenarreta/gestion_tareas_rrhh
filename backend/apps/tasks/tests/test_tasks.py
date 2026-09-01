@@ -22,7 +22,9 @@ def _grant_permission(user: User, codename: str) -> None:
 
 @pytest.fixture
 def collaborator():
-    return User.objects.create_user(username="collab", email="collab@example.com", password="Sup3r-Secr3t!")
+    return User.objects.create_user(
+        username="collab", email="collab@example.com", password="Sup3r-Secr3t!"
+    )
 
 
 @pytest.fixture
@@ -34,7 +36,9 @@ def collaborator_client(collaborator):
 
 @pytest.fixture
 def manager():
-    user = User.objects.create_user(username="manager", email="manager@example.com", password="Sup3r-Secr3t!")
+    user = User.objects.create_user(
+        username="manager", email="manager@example.com", password="Sup3r-Secr3t!"
+    )
     _grant_permission(user, "usuarios.editar")
     return user
 
@@ -48,7 +52,9 @@ def manager_client(manager):
 
 @pytest.fixture
 def stranger():
-    return User.objects.create_user(username="stranger", email="stranger@example.com", password="Sup3r-Secr3t!")
+    return User.objects.create_user(
+        username="stranger", email="stranger@example.com", password="Sup3r-Secr3t!"
+    )
 
 
 @pytest.fixture
@@ -76,6 +82,14 @@ def _task_payload(assigned_to: User, **overrides) -> dict:
 
 
 def test_manager_creates_task_assigned_to_collaborator(manager_client, manager, collaborator):
+    # Grupos reales, solo para esta prueba (ver docs/AUDIT_LOG.md §
+    # 2026-09-01, NEXO-01): `TaskService.create_task` ahora valida
+    # `assigned_to` contra la jerarquía visible del actor. No se tocan las
+    # fixtures compartidas `manager`/`collaborator` — otros tests dependen
+    # de que sigan sin grupo (ver `test_commenting_does_not_notify_roles_without_a_target`).
+    manager.groups.set([Group.objects.get(name="COORDINADOR_NACIONAL")])
+    collaborator.groups.set([Group.objects.get(name="ANALISTA_CC")])
+
     response = manager_client.post("/api/v1/tasks/", _task_payload(collaborator), format="json")
 
     assert response.status_code == 201
@@ -86,7 +100,12 @@ def test_manager_creates_task_assigned_to_collaborator(manager_client, manager, 
     assert task.progress == 0
 
 
-def test_creating_task_already_completed_sets_progress_and_completed_at(manager_client, collaborator):
+def test_creating_task_already_completed_sets_progress_and_completed_at(
+    manager_client, manager, collaborator
+):
+    manager.groups.set([Group.objects.get(name="COORDINADOR_NACIONAL")])
+    collaborator.groups.set([Group.objects.get(name="ANALISTA_CC")])
+
     response = manager_client.post(
         "/api/v1/tasks/", _task_payload(collaborator, status="COMPLETADA"), format="json"
     )
@@ -97,22 +116,91 @@ def test_creating_task_already_completed_sets_progress_and_completed_at(manager_
     assert task.completed_at is not None
 
 
+def test_cannot_create_task_assigned_to_user_outside_visible_hierarchy():
+    """Hallazgo real de la auditoría de seguridad (ver docs/AUDIT_LOG.md §
+    2026-09-01, NEXO-01): antes de esta corrección, cualquier usuario
+    autenticado podía asignar una tarea a cualquier otro usuario del
+    sistema, sin importar su nivel/departamento — confirmado en vivo contra
+    el servidor real durante la auditoría."""
+    actor = User.objects.create_user(
+        username="asist_gh", email="asist_gh@example.com", password="Sup3r-Secr3t!"
+    )
+    actor.groups.set([Group.objects.get(name="ASISTENTE_GH")])
+    outsider = User.objects.create_user(
+        username="asist_sel", email="asist_sel@example.com", password="Sup3r-Secr3t!"
+    )
+    outsider.groups.set([Group.objects.get(name="ASISTENTE_SELECCION")])
+    client = APIClient()
+    client.force_authenticate(user=actor)
+
+    response = client.post("/api/v1/tasks/", _task_payload(outsider), format="json")
+
+    assert response.status_code == 400
+    assert not Task.objects.filter(title="Preparar informe").exists()
+
+
+def test_cannot_reassign_task_to_user_outside_visible_hierarchy(
+    manager_client, manager, collaborator
+):
+    manager.groups.set([Group.objects.get(name="COORDINADOR_NACIONAL")])
+    outsider = User.objects.create_user(
+        username="outsider", email="outsider@example.com", password="Sup3r-Secr3t!"
+    )
+    outsider.groups.set([Group.objects.get(name="ADMINISTRADOR")])
+    task = Task.objects.create(
+        title="Tarea de manager",
+        priority="MEDIA",
+        frequency="PUNTUAL",
+        start_date=timezone.now(),
+        end_date=timezone.now(),
+        estimated_hours=1,
+        assigned_to=manager,
+        created_by=manager,
+    )
+
+    response = manager_client.patch(
+        f"/api/v1/tasks/{task.id}/", {"assigned_to": outsider.id}, format="json"
+    )
+
+    assert response.status_code == 400
+    task.refresh_from_db()
+    assert task.assigned_to_id == manager.id
+
+
 # --- Listado (solo propias) -------------------------------------------------
 
 
 def test_list_only_returns_own_non_archived_tasks(collaborator_client, collaborator, stranger):
     own = Task.objects.create(
-        title="Propia", priority="MEDIA", frequency="PUNTUAL", start_date=timezone.now(),
-        end_date=timezone.now(), estimated_hours=1, assigned_to=collaborator, created_by=collaborator,
+        title="Propia",
+        priority="MEDIA",
+        frequency="PUNTUAL",
+        start_date=timezone.now(),
+        end_date=timezone.now(),
+        estimated_hours=1,
+        assigned_to=collaborator,
+        created_by=collaborator,
     )
     Task.objects.create(
-        title="Archivada", priority="MEDIA", frequency="PUNTUAL", start_date=timezone.now(),
-        end_date=timezone.now(), estimated_hours=1, assigned_to=collaborator, created_by=collaborator,
+        title="Archivada",
+        priority="MEDIA",
+        frequency="PUNTUAL",
+        start_date=timezone.now(),
+        end_date=timezone.now(),
+        estimated_hours=1,
+        assigned_to=collaborator,
+        created_by=collaborator,
         archived_month="2026-07",
     )
     Task.objects.create(
-        title="De otra persona", priority="MEDIA", frequency="PUNTUAL", start_date=timezone.now(),
-        end_date=timezone.now(), estimated_hours=1, assigned_to=stranger, created_by=stranger,
+        title="De otra persona",
+        priority="MEDIA",
+        frequency="PUNTUAL",
+        start_date=timezone.now(),
+        end_date=timezone.now(),
+        estimated_hours=1,
+        assigned_to=stranger,
+        created_by=stranger,
     )
 
     response = collaborator_client.get("/api/v1/tasks/")
@@ -127,24 +215,42 @@ def test_list_only_returns_own_non_archived_tasks(collaborator_client, collabora
 
 def test_assignee_can_edit_self_only_fields(collaborator_client, collaborator, manager):
     task = Task.objects.create(
-        title="Tarea", priority="MEDIA", frequency="PUNTUAL", start_date=timezone.now(),
-        end_date=timezone.now(), estimated_hours=1, assigned_to=collaborator, created_by=manager,
+        title="Tarea",
+        priority="MEDIA",
+        frequency="PUNTUAL",
+        start_date=timezone.now(),
+        end_date=timezone.now(),
+        estimated_hours=1,
+        assigned_to=collaborator,
+        created_by=manager,
     )
 
-    response = collaborator_client.patch(f"/api/v1/tasks/{task.id}/", {"status": "EN_PROGRESO"}, format="json")
+    response = collaborator_client.patch(
+        f"/api/v1/tasks/{task.id}/", {"status": "EN_PROGRESO"}, format="json"
+    )
 
     assert response.status_code == 200
     task.refresh_from_db()
     assert task.status == Task.Status.EN_PROGRESO
 
 
-def test_creator_without_being_assignee_cannot_edit_self_only_fields(manager_client, collaborator, manager):
+def test_creator_without_being_assignee_cannot_edit_self_only_fields(
+    manager_client, collaborator, manager
+):
     task = Task.objects.create(
-        title="Tarea", priority="MEDIA", frequency="PUNTUAL", start_date=timezone.now(),
-        end_date=timezone.now(), estimated_hours=1, assigned_to=collaborator, created_by=manager,
+        title="Tarea",
+        priority="MEDIA",
+        frequency="PUNTUAL",
+        start_date=timezone.now(),
+        end_date=timezone.now(),
+        estimated_hours=1,
+        assigned_to=collaborator,
+        created_by=manager,
     )
 
-    response = manager_client.patch(f"/api/v1/tasks/{task.id}/", {"status": "EN_PROGRESO"}, format="json")
+    response = manager_client.patch(
+        f"/api/v1/tasks/{task.id}/", {"status": "EN_PROGRESO"}, format="json"
+    )
 
     assert response.status_code == 400
     task.refresh_from_db()
@@ -153,24 +259,42 @@ def test_creator_without_being_assignee_cannot_edit_self_only_fields(manager_cli
 
 def test_creator_can_edit_non_restricted_fields(manager_client, collaborator, manager):
     task = Task.objects.create(
-        title="Tarea", priority="MEDIA", frequency="PUNTUAL", start_date=timezone.now(),
-        end_date=timezone.now(), estimated_hours=1, assigned_to=collaborator, created_by=manager,
+        title="Tarea",
+        priority="MEDIA",
+        frequency="PUNTUAL",
+        start_date=timezone.now(),
+        end_date=timezone.now(),
+        estimated_hours=1,
+        assigned_to=collaborator,
+        created_by=manager,
     )
 
-    response = manager_client.patch(f"/api/v1/tasks/{task.id}/", {"title": "Tarea editada"}, format="json")
+    response = manager_client.patch(
+        f"/api/v1/tasks/{task.id}/", {"title": "Tarea editada"}, format="json"
+    )
 
     assert response.status_code == 200
     task.refresh_from_db()
     assert task.title == "Tarea editada"
 
 
-def test_changing_status_to_completada_sets_progress_100_and_completed_at(collaborator_client, collaborator, manager):
+def test_changing_status_to_completada_sets_progress_100_and_completed_at(
+    collaborator_client, collaborator, manager
+):
     task = Task.objects.create(
-        title="Tarea", priority="MEDIA", frequency="PUNTUAL", start_date=timezone.now(),
-        end_date=timezone.now(), estimated_hours=1, assigned_to=collaborator, created_by=manager,
+        title="Tarea",
+        priority="MEDIA",
+        frequency="PUNTUAL",
+        start_date=timezone.now(),
+        end_date=timezone.now(),
+        estimated_hours=1,
+        assigned_to=collaborator,
+        created_by=manager,
     )
 
-    response = collaborator_client.patch(f"/api/v1/tasks/{task.id}/", {"status": "COMPLETADA"}, format="json")
+    response = collaborator_client.patch(
+        f"/api/v1/tasks/{task.id}/", {"status": "COMPLETADA"}, format="json"
+    )
 
     assert response.status_code == 200
     task.refresh_from_db()
@@ -180,11 +304,19 @@ def test_changing_status_to_completada_sets_progress_100_and_completed_at(collab
 
 def test_stranger_cannot_view_or_edit_unrelated_task(stranger_client, collaborator, manager):
     task = Task.objects.create(
-        title="Tarea", priority="MEDIA", frequency="PUNTUAL", start_date=timezone.now(),
-        end_date=timezone.now(), estimated_hours=1, assigned_to=collaborator, created_by=manager,
+        title="Tarea",
+        priority="MEDIA",
+        frequency="PUNTUAL",
+        start_date=timezone.now(),
+        end_date=timezone.now(),
+        estimated_hours=1,
+        assigned_to=collaborator,
+        created_by=manager,
     )
 
-    response = stranger_client.patch(f"/api/v1/tasks/{task.id}/", {"title": "Hackeada"}, format="json")
+    response = stranger_client.patch(
+        f"/api/v1/tasks/{task.id}/", {"title": "Hackeada"}, format="json"
+    )
 
     assert response.status_code == 403
     task.refresh_from_db()
@@ -196,8 +328,14 @@ def test_stranger_cannot_view_or_edit_unrelated_task(stranger_client, collaborat
 
 def test_creator_can_delete_own_task(manager_client, manager, collaborator):
     task = Task.objects.create(
-        title="Tarea", priority="MEDIA", frequency="PUNTUAL", start_date=timezone.now(),
-        end_date=timezone.now(), estimated_hours=1, assigned_to=collaborator, created_by=manager,
+        title="Tarea",
+        priority="MEDIA",
+        frequency="PUNTUAL",
+        start_date=timezone.now(),
+        end_date=timezone.now(),
+        estimated_hours=1,
+        assigned_to=collaborator,
+        created_by=manager,
     )
 
     response = manager_client.delete(f"/api/v1/tasks/{task.id}/")
@@ -206,10 +344,18 @@ def test_creator_can_delete_own_task(manager_client, manager, collaborator):
     assert not Task.objects.filter(id=task.id).exists()
 
 
-def test_user_with_usuarios_editar_can_delete_others_task(manager_client, manager, collaborator, stranger):
+def test_user_with_usuarios_editar_can_delete_others_task(
+    manager_client, manager, collaborator, stranger
+):
     task = Task.objects.create(
-        title="Tarea", priority="MEDIA", frequency="PUNTUAL", start_date=timezone.now(),
-        end_date=timezone.now(), estimated_hours=1, assigned_to=collaborator, created_by=stranger,
+        title="Tarea",
+        priority="MEDIA",
+        frequency="PUNTUAL",
+        start_date=timezone.now(),
+        end_date=timezone.now(),
+        estimated_hours=1,
+        assigned_to=collaborator,
+        created_by=stranger,
     )
 
     response = manager_client.delete(f"/api/v1/tasks/{task.id}/")
@@ -221,8 +367,14 @@ def test_assignee_without_usuarios_editar_cannot_delete_task_created_by_someone_
     collaborator_client, collaborator, stranger
 ):
     task = Task.objects.create(
-        title="Tarea", priority="MEDIA", frequency="PUNTUAL", start_date=timezone.now(),
-        end_date=timezone.now(), estimated_hours=1, assigned_to=collaborator, created_by=stranger,
+        title="Tarea",
+        priority="MEDIA",
+        frequency="PUNTUAL",
+        start_date=timezone.now(),
+        end_date=timezone.now(),
+        estimated_hours=1,
+        assigned_to=collaborator,
+        created_by=stranger,
     )
 
     response = collaborator_client.delete(f"/api/v1/tasks/{task.id}/")
@@ -234,13 +386,23 @@ def test_assignee_without_usuarios_editar_cannot_delete_task_created_by_someone_
 # --- Comentarios y has_unread_comments --------------------------------------
 
 
-def test_posting_comment_and_unread_flag_for_other_participant(collaborator_client, manager_client, collaborator, manager):
+def test_posting_comment_and_unread_flag_for_other_participant(
+    collaborator_client, manager_client, collaborator, manager
+):
     task = Task.objects.create(
-        title="Tarea", priority="MEDIA", frequency="PUNTUAL", start_date=timezone.now(),
-        end_date=timezone.now(), estimated_hours=1, assigned_to=collaborator, created_by=manager,
+        title="Tarea",
+        priority="MEDIA",
+        frequency="PUNTUAL",
+        start_date=timezone.now(),
+        end_date=timezone.now(),
+        estimated_hours=1,
+        assigned_to=collaborator,
+        created_by=manager,
     )
 
-    post_response = manager_client.post(f"/api/v1/tasks/{task.id}/comments/", {"text": "Hola"}, format="json")
+    post_response = manager_client.post(
+        f"/api/v1/tasks/{task.id}/comments/", {"text": "Hola"}, format="json"
+    )
     assert post_response.status_code == 201
     assert Comment.objects.filter(task=task, text="Hola", author=manager).exists()
 
@@ -262,20 +424,32 @@ def test_posting_comment_and_unread_flag_for_other_participant(collaborator_clie
 def test_commenting_notifies_role_notification_target(manager_client, manager, collaborator):
     # ANALISTA_CC -> COORDINADOR_NACIONAL, ya sembrado desde la Fase 1
     # (RoleNotificationTarget, equivalente a NOTIFICATION_TARGETS legacy).
-    analista = User.objects.create_user(username="analista", email="analista@example.com", password="Sup3r-Secr3t!")
+    analista = User.objects.create_user(
+        username="analista", email="analista@example.com", password="Sup3r-Secr3t!"
+    )
     analista.groups.set([Group.objects.get(name="ANALISTA_CC")])
-    coordinador = User.objects.create_user(username="coord", email="coord@example.com", password="Sup3r-Secr3t!")
+    coordinador = User.objects.create_user(
+        username="coord", email="coord@example.com", password="Sup3r-Secr3t!"
+    )
     coordinador.groups.set([Group.objects.get(name="COORDINADOR_NACIONAL")])
     analista_client = APIClient()
     analista_client.force_authenticate(user=analista)
 
     task = Task.objects.create(
-        title="Tarea con jerarquía", priority="MEDIA", frequency="PUNTUAL", start_date=timezone.now(),
-        end_date=timezone.now(), estimated_hours=1, assigned_to=analista, created_by=analista,
+        title="Tarea con jerarquía",
+        priority="MEDIA",
+        frequency="PUNTUAL",
+        start_date=timezone.now(),
+        end_date=timezone.now(),
+        estimated_hours=1,
+        assigned_to=analista,
+        created_by=analista,
     )
 
     long_text = "x" * 80
-    response = analista_client.post(f"/api/v1/tasks/{task.id}/comments/", {"text": long_text}, format="json")
+    response = analista_client.post(
+        f"/api/v1/tasks/{task.id}/comments/", {"text": long_text}, format="json"
+    )
 
     assert response.status_code == 201
     notification = Notification.objects.get(user=coordinador)
@@ -288,11 +462,19 @@ def test_commenting_does_not_notify_roles_without_a_target(collaborator_client, 
     # `collaborator` no tiene ningún grupo -> sin RoleNotificationTarget
     # aplicable, no debe crear ninguna notificación.
     task = Task.objects.create(
-        title="Tarea sin jerarquía", priority="MEDIA", frequency="PUNTUAL", start_date=timezone.now(),
-        end_date=timezone.now(), estimated_hours=1, assigned_to=collaborator, created_by=collaborator,
+        title="Tarea sin jerarquía",
+        priority="MEDIA",
+        frequency="PUNTUAL",
+        start_date=timezone.now(),
+        end_date=timezone.now(),
+        estimated_hours=1,
+        assigned_to=collaborator,
+        created_by=collaborator,
     )
 
-    response = collaborator_client.post(f"/api/v1/tasks/{task.id}/comments/", {"text": "Hola"}, format="json")
+    response = collaborator_client.post(
+        f"/api/v1/tasks/{task.id}/comments/", {"text": "Hola"}, format="json"
+    )
 
     assert response.status_code == 201
     assert not Notification.objects.exists()
@@ -302,7 +484,9 @@ def test_commenting_does_not_notify_roles_without_a_target(collaborator_client, 
 # docs/AUDIT_LOG.md § 2026-08-28): `CommentService.create_comment` ya lee
 # `comment_targets`/`first_comment_role` de `get_effective_notification_rules()`
 # en vez de la jerarquía fija (`RoleNotificationTarget`).
-def _set_notification_rules(*, comment_targets=None, first_comment_role=None, retroactive_notify_roles=None, actor):
+def _set_notification_rules(
+    *, comment_targets=None, first_comment_role=None, retroactive_notify_roles=None, actor
+):
     from apps.configuration.services import set_notification_rules
 
     set_notification_rules(
@@ -316,11 +500,17 @@ def _set_notification_rules(*, comment_targets=None, first_comment_role=None, re
 
 
 def test_commenting_uses_custom_comment_targets_when_configured(collaborator):
-    analista = User.objects.create_user(username="analista2", email="analista2@example.com", password="Sup3r-Secr3t!")
+    analista = User.objects.create_user(
+        username="analista2", email="analista2@example.com", password="Sup3r-Secr3t!"
+    )
     analista.groups.set([Group.objects.get(name="ANALISTA_CC")])
-    coordinador = User.objects.create_user(username="coord2", email="coord2@example.com", password="Sup3r-Secr3t!")
+    coordinador = User.objects.create_user(
+        username="coord2", email="coord2@example.com", password="Sup3r-Secr3t!"
+    )
     coordinador.groups.set([Group.objects.get(name="COORDINADOR_NACIONAL")])
-    trabajo_social = User.objects.create_user(username="ts", email="ts@example.com", password="Sup3r-Secr3t!")
+    trabajo_social = User.objects.create_user(
+        username="ts", email="ts@example.com", password="Sup3r-Secr3t!"
+    )
     trabajo_social.groups.set([Group.objects.get(name="TRABAJO_SOCIAL")])
 
     # Override: ANALISTA_CC notifica a TRABAJO_SOCIAL, NO al default (COORDINADOR_NACIONAL).
@@ -329,11 +519,19 @@ def test_commenting_uses_custom_comment_targets_when_configured(collaborator):
     analista_client = APIClient()
     analista_client.force_authenticate(user=analista)
     task = Task.objects.create(
-        title="Tarea con override", priority="MEDIA", frequency="PUNTUAL", start_date=timezone.now(),
-        end_date=timezone.now(), estimated_hours=1, assigned_to=analista, created_by=analista,
+        title="Tarea con override",
+        priority="MEDIA",
+        frequency="PUNTUAL",
+        start_date=timezone.now(),
+        end_date=timezone.now(),
+        estimated_hours=1,
+        assigned_to=analista,
+        created_by=analista,
     )
 
-    response = analista_client.post(f"/api/v1/tasks/{task.id}/comments/", {"text": "Hola"}, format="json")
+    response = analista_client.post(
+        f"/api/v1/tasks/{task.id}/comments/", {"text": "Hola"}, format="json"
+    )
 
     assert response.status_code == 201
     assert Notification.objects.filter(user=trabajo_social).exists()
@@ -341,62 +539,98 @@ def test_commenting_uses_custom_comment_targets_when_configured(collaborator):
 
 
 def test_first_comment_role_notifies_only_on_the_first_comment(collaborator_client, collaborator):
-    jefe = User.objects.create_user(username="jefe3", email="jefe3@example.com", password="Sup3r-Secr3t!")
+    jefe = User.objects.create_user(
+        username="jefe3", email="jefe3@example.com", password="Sup3r-Secr3t!"
+    )
     jefe.groups.set([Group.objects.get(name="JEFE_NACIONAL")])
     _set_notification_rules(first_comment_role="JEFE_NACIONAL", actor=collaborator)
 
     task = Task.objects.create(
-        title="Tarea primer comentario", priority="MEDIA", frequency="PUNTUAL", start_date=timezone.now(),
-        end_date=timezone.now(), estimated_hours=1, assigned_to=collaborator, created_by=collaborator,
+        title="Tarea primer comentario",
+        priority="MEDIA",
+        frequency="PUNTUAL",
+        start_date=timezone.now(),
+        end_date=timezone.now(),
+        estimated_hours=1,
+        assigned_to=collaborator,
+        created_by=collaborator,
     )
 
-    first = collaborator_client.post(f"/api/v1/tasks/{task.id}/comments/", {"text": "Primero"}, format="json")
+    first = collaborator_client.post(
+        f"/api/v1/tasks/{task.id}/comments/", {"text": "Primero"}, format="json"
+    )
     assert first.status_code == 201
     assert Notification.objects.filter(user=jefe).count() == 1
 
-    second = collaborator_client.post(f"/api/v1/tasks/{task.id}/comments/", {"text": "Segundo"}, format="json")
+    second = collaborator_client.post(
+        f"/api/v1/tasks/{task.id}/comments/", {"text": "Segundo"}, format="json"
+    )
     assert second.status_code == 201
     assert Notification.objects.filter(user=jefe).count() == 1  # sin nueva notificación
 
 
 def test_first_comment_role_and_comment_targets_union_without_duplicate_notification():
-    analista = User.objects.create_user(username="analista4", email="analista4@example.com", password="Sup3r-Secr3t!")
+    analista = User.objects.create_user(
+        username="analista4", email="analista4@example.com", password="Sup3r-Secr3t!"
+    )
     analista.groups.set([Group.objects.get(name="ANALISTA_CC")])
-    jefe = User.objects.create_user(username="jefe4", email="jefe4@example.com", password="Sup3r-Secr3t!")
+    jefe = User.objects.create_user(
+        username="jefe4", email="jefe4@example.com", password="Sup3r-Secr3t!"
+    )
     jefe.groups.set([Group.objects.get(name="JEFE_NACIONAL")])
     # JEFE_NACIONAL aparece en AMBOS conjuntos (comment_targets del rol del
     # autor Y first_comment_role) para verificar que un mismo destinatario
     # no recibe 2 notificaciones por el mismo comentario.
     _set_notification_rules(
-        comment_targets={"ANALISTA_CC": ["JEFE_NACIONAL"]}, first_comment_role="JEFE_NACIONAL", actor=analista
+        comment_targets={"ANALISTA_CC": ["JEFE_NACIONAL"]},
+        first_comment_role="JEFE_NACIONAL",
+        actor=analista,
     )
 
     analista_client = APIClient()
     analista_client.force_authenticate(user=analista)
     task = Task.objects.create(
-        title="Tarea unión", priority="MEDIA", frequency="PUNTUAL", start_date=timezone.now(),
-        end_date=timezone.now(), estimated_hours=1, assigned_to=analista, created_by=analista,
+        title="Tarea unión",
+        priority="MEDIA",
+        frequency="PUNTUAL",
+        start_date=timezone.now(),
+        end_date=timezone.now(),
+        estimated_hours=1,
+        assigned_to=analista,
+        created_by=analista,
     )
 
-    response = analista_client.post(f"/api/v1/tasks/{task.id}/comments/", {"text": "Primero"}, format="json")
+    response = analista_client.post(
+        f"/api/v1/tasks/{task.id}/comments/", {"text": "Primero"}, format="json"
+    )
 
     assert response.status_code == 201
     assert Notification.objects.filter(user=jefe).count() == 1
 
 
 def test_commenting_never_notifies_the_author_even_if_configured_to_target_own_role(collaborator):
-    analista = User.objects.create_user(username="analista3", email="analista3@example.com", password="Sup3r-Secr3t!")
+    analista = User.objects.create_user(
+        username="analista3", email="analista3@example.com", password="Sup3r-Secr3t!"
+    )
     analista.groups.set([Group.objects.get(name="ANALISTA_CC")])
     _set_notification_rules(comment_targets={"ANALISTA_CC": ["ANALISTA_CC"]}, actor=analista)
 
     analista_client = APIClient()
     analista_client.force_authenticate(user=analista)
     task = Task.objects.create(
-        title="Tarea auto-notificación", priority="MEDIA", frequency="PUNTUAL", start_date=timezone.now(),
-        end_date=timezone.now(), estimated_hours=1, assigned_to=analista, created_by=analista,
+        title="Tarea auto-notificación",
+        priority="MEDIA",
+        frequency="PUNTUAL",
+        start_date=timezone.now(),
+        end_date=timezone.now(),
+        estimated_hours=1,
+        assigned_to=analista,
+        created_by=analista,
     )
 
-    response = analista_client.post(f"/api/v1/tasks/{task.id}/comments/", {"text": "Hola"}, format="json")
+    response = analista_client.post(
+        f"/api/v1/tasks/{task.id}/comments/", {"text": "Hola"}, format="json"
+    )
 
     assert response.status_code == 201
     assert not Notification.objects.exists()

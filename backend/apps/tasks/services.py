@@ -16,7 +16,7 @@ from rest_framework import serializers as drf_serializers
 
 from apps.configuration.services import business_base_for_range
 from apps.core.rounding import round_half_up
-from apps.hierarchy.services import ROLE_LABEL
+from apps.hierarchy.services import ROLE_LABEL, is_visible_to
 from apps.users.models import User
 
 from .business_time import (
@@ -117,6 +117,19 @@ def _data_quality_from_counts(*, validated_count: int, total_count: int) -> dict
 class TaskService:
     @staticmethod
     def create_task(*, actor, **fields) -> Task:
+        # Hallazgo de la auditoría de seguridad (ver docs/AUDIT_LOG.md §
+        # 2026-09-01, NEXO-01): el serializer acepta cualquier `assigned_to`
+        # de `User.objects.all()` sin cruzar contra la jerarquía visible del
+        # actor — la UI ya oculta usuarios fuera de esa jerarquía en el
+        # selector (`AssignableUsersView`, misma primitiva `is_visible_to`),
+        # pero la API no repetía la restricción del lado servidor.
+        assigned_to = fields["assigned_to"]
+        assigned_group = assigned_to.groups.first()
+        if assigned_group is None or not is_visible_to(actor, assigned_group):
+            raise drf_serializers.ValidationError(
+                {"assigned_to": ["No podés asignar tareas a este usuario."]}
+            )
+
         status = fields.get("status", Task.Status.PENDIENTE)
         task = Task.objects.create(
             created_by=actor,
@@ -134,6 +147,15 @@ class TaskService:
             raise drf_serializers.ValidationError(
                 {"non_field_errors": ["Solo el responsable de la tarea puede editar ese campo."]}
             )
+
+        # Mismo hallazgo que `create_task` (ver docs/AUDIT_LOG.md § 2026-09-01,
+        # NEXO-01), alcanzable también vía reasignación por PATCH.
+        if "assigned_to" in fields:
+            assigned_group = fields["assigned_to"].groups.first()
+            if assigned_group is None or not is_visible_to(actor, assigned_group):
+                raise drf_serializers.ValidationError(
+                    {"assigned_to": ["No podés asignar tareas a este usuario."]}
+                )
 
         if "status" in fields:
             new_status = fields["status"]
@@ -250,7 +272,11 @@ class CommentService:
 
         if target_role_names:
             preview = text[:60] + ("…" if len(text) > 60 else "")
-            recipients = User.objects.filter(groups__name__in=target_role_names).exclude(id=author.id).distinct()
+            recipients = (
+                User.objects.filter(groups__name__in=target_role_names)
+                .exclude(id=author.id)
+                .distinct()
+            )
             notify_many(
                 users=recipients,
                 message=f'{author.first_name} comentó en "{task.title}": {preview}',
@@ -297,7 +323,9 @@ class ActivityService:
             )
 
         if task.type == Task.Type.FIJA and task.activities.count() >= FIJA_MAX_ACTIVITIES:
-            raise drf_serializers.ValidationError({"non_field_errors": [FIJA_MAX_ACTIVITIES_MESSAGE]})
+            raise drf_serializers.ValidationError(
+                {"non_field_errors": [FIJA_MAX_ACTIVITIES_MESSAGE]}
+            )
 
         # El validador de solapamiento solo aplica cuando se usa el formato
         # hora inicio/hora fin — igual criterio que el Next.js legacy.
@@ -393,12 +421,18 @@ class ActivityService:
 
         if not description.strip():
             raise drf_serializers.ValidationError(
-                {"non_field_errors": ["La descripción es obligatoria para un registro retroactivo."]}
+                {
+                    "non_field_errors": [
+                        "La descripción es obligatoria para un registro retroactivo."
+                    ]
+                }
             )
 
         duration = hours * 60 + minutes
         if duration <= 0:
-            raise drf_serializers.ValidationError({"non_field_errors": ["La duración debe ser mayor a 0."]})
+            raise drf_serializers.ValidationError(
+                {"non_field_errors": ["La duración debe ser mayor a 0."]}
+            )
 
         parsed_date = parse_date_only(activity_date_raw)
         if parsed_date is None:
@@ -419,7 +453,11 @@ class ActivityService:
 
         if task.type != Task.Type.SEGUIMIENTO:
             raise drf_serializers.ValidationError(
-                {"non_field_errors": ["El registro retroactivo solo aplica a tareas de tipo Seguimiento."]}
+                {
+                    "non_field_errors": [
+                        "El registro retroactivo solo aplica a tareas de tipo Seguimiento."
+                    ]
+                }
             )
 
         if start_time and end_time:
@@ -429,7 +467,9 @@ class ActivityService:
                 raise drf_serializers.ValidationError(
                     {"non_field_errors": ["La hora fin debe ser posterior a la hora inicio."]}
                 )
-            conflict = ActivityService._find_overlap_message(actor, parsed_date, start_time, end_time)
+            conflict = ActivityService._find_overlap_message(
+                actor, parsed_date, start_time, end_time
+            )
             if conflict:
                 raise drf_serializers.ValidationError({"non_field_errors": [conflict]})
 
@@ -438,12 +478,20 @@ class ActivityService:
         # cualquier cálculo que agrupe por `created_at` atribuya estas
         # horas al día correcto sin necesitar cambios propios.
         backdated_created_at, _ = business_day_real_range(parsed_date)
-        activity_date_dt = datetime(parsed_date.year, parsed_date.month, parsed_date.day, tzinfo=dt_timezone.utc)
+        activity_date_dt = datetime(
+            parsed_date.year, parsed_date.month, parsed_date.day, tzinfo=dt_timezone.utc
+        )
 
         activity = TaskActivity.objects.create(
-            task=task, author=actor, reason=reason, duration=duration, description=description.strip(),
-            is_retroactive=True, activity_date=activity_date_dt,
-            start_time=start_time or None, end_time=end_time or None,
+            task=task,
+            author=actor,
+            reason=reason,
+            duration=duration,
+            description=description.strip(),
+            is_retroactive=True,
+            activity_date=activity_date_dt,
+            start_time=start_time or None,
+            end_time=end_time or None,
         )
         TaskActivity.objects.filter(pk=activity.pk).update(created_at=backdated_created_at)
         activity.created_at = backdated_created_at
@@ -466,7 +514,9 @@ class ActivityService:
         return activity
 
     @staticmethod
-    def admin_edit_activity(*, admin, activity: TaskActivity, hours: int, minutes: int, comment: str) -> TaskActivity:
+    def admin_edit_activity(
+        *, admin, activity: TaskActivity, hours: int, minutes: int, comment: str
+    ) -> TaskActivity:
         """Edición de horas por un Administrador — Fase 3f, réplica de
         `PATCH /activities/{activityId}` legacy. La autorización
         (`ADMINISTRADOR` únicamente) vive en la vista, no aquí."""
@@ -474,7 +524,9 @@ class ActivityService:
 
         new_duration = hours * 60 + minutes
         if new_duration <= 0:
-            raise drf_serializers.ValidationError({"non_field_errors": ["La duración debe ser mayor a 0."]})
+            raise drf_serializers.ValidationError(
+                {"non_field_errors": ["La duración debe ser mayor a 0."]}
+            )
         if not comment.strip():
             raise drf_serializers.ValidationError(
                 {"non_field_errors": ["El comentario de modificación es obligatorio."]}
@@ -490,7 +542,9 @@ class ActivityService:
             activity.admin_comment = trimmed_comment
             activity.modified_by_admin = True
             activity.modified_at = modified_at
-            activity.save(update_fields=["duration", "admin_comment", "modified_by_admin", "modified_at"])
+            activity.save(
+                update_fields=["duration", "admin_comment", "modified_by_admin", "modified_at"]
+            )
 
             ActivityService._recalc_task_real_hours(task)
 
@@ -575,10 +629,16 @@ class TargetTimeService:
     @staticmethod
     def get_info(*, actor, task: Task) -> dict:
         official_target = (
-            task.target_time_validated if task.target_time_validated is not None else task.estimated_hours
+            task.target_time_validated
+            if task.target_time_validated is not None
+            else task.estimated_hours
         )
         deviation_hours = round_half_up(task.real_hours - official_target, 2)
-        deviation_pct = round_half_up((deviation_hours / official_target) * 100) if official_target > 0 else None
+        deviation_pct = (
+            round_half_up((deviation_hours / official_target) * 100)
+            if official_target > 0
+            else None
+        )
 
         return {
             "estimated_hours": task.estimated_hours,
@@ -604,7 +664,10 @@ class TargetTimeService:
         mismo título (case-insensitive), excluyendo la propia — igual
         criterio que `getHistoricalDeviationForTask`. Nunca sugiere
         reemplazar el objetivo automáticamente, solo informa."""
-        no_data = {"available": False, "reason": "Sin historial suficiente de casos similares para comparar."}
+        no_data = {
+            "available": False,
+            "reason": "Sin historial suficiente de casos similares para comparar.",
+        }
 
         cases = list(
             Task.objects.filter(
@@ -642,12 +705,21 @@ class TargetTimeService:
 
     @staticmethod
     def apply_validation(
-        *, actor, task: Task, new_value: float, reason: str, reason_detail: str | None,
+        *,
+        actor,
+        task: Task,
+        new_value: float,
+        reason: str,
+        reason_detail: str | None,
         ip_address: str | None = None,
     ) -> Task:
         if not TargetTimeService.can_validate(actor=actor, task=task):
             raise drf_serializers.ValidationError(
-                {"non_field_errors": ["No tienes permiso para validar el Tiempo Objetivo de esta tarea."]}
+                {
+                    "non_field_errors": [
+                        "No tienes permiso para validar el Tiempo Objetivo de esta tarea."
+                    ]
+                }
             )
 
         with transaction.atomic():
@@ -656,7 +728,11 @@ class TargetTimeService:
             task.target_time_validated_at = timezone.now()
             task.target_time_validated_by = actor
             task.save(
-                update_fields=["target_time_validated", "target_time_validated_at", "target_time_validated_by"]
+                update_fields=[
+                    "target_time_validated",
+                    "target_time_validated_at",
+                    "target_time_validated_by",
+                ]
             )
 
             TargetTimeAuditLog.objects.create(
@@ -685,7 +761,12 @@ class TargetTimeService:
 
     @staticmethod
     def bulk_validate(
-        *, actor, task_ids: list[int], new_value: float, reason: str, reason_detail: str | None,
+        *,
+        actor,
+        task_ids: list[int],
+        new_value: float,
+        reason: str,
+        reason_detail: str | None,
         ip_address: str | None = None,
     ) -> dict:
         """Reutiliza `apply_validation` por tarea — mismo criterio que
@@ -694,7 +775,11 @@ class TargetTimeService:
         de vista; IDs inexistentes se ignoran en silencio, igual que el
         legacy — ver plan de sub-fase 3c-bulk."""
         rounded_value = round_half_up(new_value, 2)
-        detail = reason_detail.strip() if isinstance(reason_detail, str) and reason_detail.strip() else None
+        detail = (
+            reason_detail.strip()
+            if isinstance(reason_detail, str) and reason_detail.strip()
+            else None
+        )
 
         tasks = list(Task.objects.filter(id__in=task_ids))
         skipped_self_assigned = [t.id for t in tasks if t.assigned_to_id == actor.id]
@@ -702,8 +787,12 @@ class TargetTimeService:
 
         for task in eligible:
             TargetTimeService.apply_validation(
-                actor=actor, task=task, new_value=rounded_value, reason=reason,
-                reason_detail=detail, ip_address=ip_address,
+                actor=actor,
+                task=task,
+                new_value=rounded_value,
+                reason=reason,
+                reason_detail=detail,
+                ip_address=ip_address,
             )
 
         return {"updated_count": len(eligible), "skipped_self_assigned": skipped_self_assigned}
@@ -728,13 +817,20 @@ class EndDateService:
             "approved_by": task.end_date_approved_by,
             "can_validate": EndDateService.can_validate(actor=actor, task=task),
             "audit_history": list(
-                EndDateAuditLog.objects.filter(task_id=task.id).select_related("user").order_by("-created_at")
+                EndDateAuditLog.objects.filter(task_id=task.id)
+                .select_related("user")
+                .order_by("-created_at")
             ),
         }
 
     @staticmethod
     def apply_action(
-        *, actor, task: Task, action: str, new_end_date, observaciones: str | None,
+        *,
+        actor,
+        task: Task,
+        action: str,
+        new_end_date,
+        observaciones: str | None,
         ip_address: str | None = None,
     ) -> Task:
         from apps.notifications.services import notify
@@ -759,7 +855,10 @@ class EndDateService:
             task.end_date_approved_by = actor
             task.save(
                 update_fields=[
-                    "end_date", "end_date_approval_status", "end_date_approved_at", "end_date_approved_by",
+                    "end_date",
+                    "end_date_approval_status",
+                    "end_date_approved_at",
+                    "end_date_approved_by",
                 ]
             )
 
@@ -777,7 +876,10 @@ class EndDateService:
             # Cierra el gap documentado en la Fase 3c: notifica al
             # colaborador cuando MODIFICADA/RECHAZADA (nunca en APROBADA)
             # — mensaje recuperado 1:1 de `notifyEndDateChange` legacy.
-            if result_status in (Task.EndDateApprovalStatus.MODIFICADA, Task.EndDateApprovalStatus.RECHAZADA):
+            if result_status in (
+                Task.EndDateApprovalStatus.MODIFICADA,
+                Task.EndDateApprovalStatus.RECHAZADA,
+            ):
                 fmt = lambda d: f"{d.day:02d}/{d.month:02d}/{d.year}"  # noqa: E731
                 obs_suffix = f" Observación: {observaciones}" if observaciones else ""
                 if result_status == Task.EndDateApprovalStatus.MODIFICADA:
@@ -791,7 +893,10 @@ class EndDateService:
                         f'la actividad "{task.title}". Debes proponer una nueva fecha.{obs_suffix}'
                     )
                 notify(
-                    user=task.assigned_to, message=message, task_id=task.id, task_title=task.title,
+                    user=task.assigned_to,
+                    message=message,
+                    task_id=task.id,
+                    task_title=task.title,
                 )
         return task
 
@@ -806,12 +911,20 @@ class EndDateService:
         if role:
             qs = qs.filter(assigned_to__groups__name=role)
         total_count = qs.count()
-        pending_count = qs.filter(end_date_approval_status=Task.EndDateApprovalStatus.PENDIENTE).count()
-        return _data_quality_from_counts(validated_count=total_count - pending_count, total_count=total_count)
+        pending_count = qs.filter(
+            end_date_approval_status=Task.EndDateApprovalStatus.PENDIENTE
+        ).count()
+        return _data_quality_from_counts(
+            validated_count=total_count - pending_count, total_count=total_count
+        )
 
     @staticmethod
     def bulk_approve(
-        *, actor, items: list[dict], observaciones: str | None, ip_address: str | None = None,
+        *,
+        actor,
+        items: list[dict],
+        observaciones: str | None,
+        ip_address: str | None = None,
     ) -> dict:
         """Reutiliza `apply_action` por tarea — mismo criterio que
         `applyEndDateAction` legacy, reusado también por el bulk. `items`
@@ -819,7 +932,11 @@ class EndDateService:
         "new_end_date": datetime | None}, ...]`. Reenviar la fecha vigente
         sin cambiarla se trata como aprobación simple, igual que el
         legacy — ver plan de sub-fase 3c-bulk."""
-        detail = observaciones.strip() if isinstance(observaciones, str) and observaciones.strip() else None
+        detail = (
+            observaciones.strip()
+            if isinstance(observaciones, str) and observaciones.strip()
+            else None
+        )
         task_ids = [item["task_id"] for item in items]
         tasks_by_id = {t.id: t for t in Task.objects.filter(id__in=task_ids)}
 
@@ -847,8 +964,12 @@ class EndDateService:
                     new_end_date_value = new_end_date
 
             EndDateService.apply_action(
-                actor=actor, task=task, action=action, new_end_date=new_end_date_value,
-                observaciones=detail, ip_address=ip_address,
+                actor=actor,
+                task=task,
+                action=action,
+                new_end_date=new_end_date_value,
+                observaciones=detail,
+                ip_address=ip_address,
             )
             updated_count += 1
 
@@ -867,7 +988,10 @@ class TaskValidationService:
 
     @staticmethod
     def list_pending(
-        *, user_id: int | None = None, role: str | None = None, task_type: str | None = None,
+        *,
+        user_id: int | None = None,
+        role: str | None = None,
+        task_type: str | None = None,
     ) -> QuerySet[Task]:
         from django.contrib.auth.models import Group
 
@@ -909,7 +1033,9 @@ class MonthClosureService:
     @staticmethod
     def _continued_active_count(month_end: datetime) -> int:
         return Task.objects.filter(
-            archived_month__isnull=True, end_date__lt=month_end, type=Task.Type.SEGUIMIENTO,
+            archived_month__isnull=True,
+            end_date__lt=month_end,
+            type=Task.Type.SEGUIMIENTO,
             status__in=[Task.Status.PENDIENTE, Task.Status.EN_PROGRESO],
         ).count()
 
@@ -919,7 +1045,11 @@ class MonthClosureService:
         existing = MonthClosure.objects.filter(month=month, year=year).exists()
         month_end = next_month_start(year, month)
 
-        statuses = list(MonthClosureService._candidate_tasks_queryset(month_end).values_list("status", flat=True))
+        statuses = list(
+            MonthClosureService._candidate_tasks_queryset(month_end).values_list(
+                "status", flat=True
+            )
+        )
         continued_active = MonthClosureService._continued_active_count(month_end)
         business = business_base_for_range(period_start(year, month).date(), cutoff_date.date())
 
@@ -941,8 +1071,12 @@ class MonthClosureService:
         }
 
     @staticmethod
-    def execute(*, actor, year: int, month: int, cutoff_date_raw: str | None, now: datetime) -> dict:
-        preview = MonthClosureService.preview(year=year, month=month, cutoff_date_raw=cutoff_date_raw, now=now)
+    def execute(
+        *, actor, year: int, month: int, cutoff_date_raw: str | None, now: datetime
+    ) -> dict:
+        preview = MonthClosureService.preview(
+            year=year, month=month, cutoff_date_raw=cutoff_date_raw, now=now
+        )
         if preview["already_closed"]:
             raise drf_serializers.ValidationError({"non_field_errors": ["Este mes ya fue cerrado"]})
 
@@ -961,12 +1095,20 @@ class MonthClosureService:
 
         duplicates = [
             Task(
-                title=t.title, description=t.description, status=Task.Status.PENDIENTE,
-                priority=t.priority, frequency=t.frequency, type=t.type,
+                title=t.title,
+                description=t.description,
+                status=Task.Status.PENDIENTE,
+                priority=t.priority,
+                frequency=t.frequency,
+                type=t.type,
                 start_date=shift_to_next_month(t.start_date, next_year, next_month),
                 end_date=shift_to_next_month(t.end_date, next_year, next_month),
-                estimated_hours=t.estimated_hours, real_hours=0, progress=0,
-                assigned_to_id=t.assigned_to_id, created_by_id=t.created_by_id, color=t.color,
+                estimated_hours=t.estimated_hours,
+                real_hours=0,
+                progress=0,
+                assigned_to_id=t.assigned_to_id,
+                created_by_id=t.created_by_id,
+                color=t.color,
             )
             for t in candidate_tasks
             if t.frequency in RECURRING_FREQUENCIES
@@ -977,18 +1119,29 @@ class MonthClosureService:
 
         with transaction.atomic():
             MonthClosure.objects.create(
-                month=month, year=year, closed_by=actor, cutoff_date=cutoff_date, closure_type=closure_type,
+                month=month,
+                year=year,
+                closed_by=actor,
+                cutoff_date=cutoff_date,
+                closure_type=closure_type,
                 calendar_days_total=preview["calendar_days_total"],
                 calendar_days_considered=preview["calendar_days_considered"],
                 working_days_considered=preview["working_days_considered"],
                 working_hours_considered=preview["working_hours_considered"],
-                total_tasks=total, completed_tasks=completed,
+                total_tasks=total,
+                completed_tasks=completed,
                 summary={
-                    "total": total, "completed": completed, "pending": pending, "inProgress": in_progress,
-                    "duplicated": len(duplicates), "continuedActive": continued_active,
+                    "total": total,
+                    "completed": completed,
+                    "pending": pending,
+                    "inProgress": in_progress,
+                    "duplicated": len(duplicates),
+                    "continuedActive": continued_active,
                 },
             )
-            Task.objects.filter(id__in=task_ids).update(archived_month=archived_month_key, archived_at=timezone.now())
+            Task.objects.filter(id__in=task_ids).update(
+                archived_month=archived_month_key, archived_at=timezone.now()
+            )
             if duplicates:
                 Task.objects.bulk_create(duplicates)
 
@@ -1010,7 +1163,11 @@ class MonthClosureService:
 
     @staticmethod
     def correct_archived_task(
-        *, actor, task: Task, real_hours: float | None = None, status: str | None = None,
+        *,
+        actor,
+        task: Task,
+        real_hours: float | None = None,
+        status: str | None = None,
     ) -> Task:
         if not task.archived_month:
             raise drf_serializers.ValidationError(
@@ -1028,8 +1185,12 @@ class MonthClosureService:
             if new_real_hours != task.real_hours:
                 corrections.append(
                     {
-                        "taskId": task.id, "field": "realHours", "oldValue": task.real_hours,
-                        "newValue": new_real_hours, "correctedBy": actor.id, "correctedAt": now_iso,
+                        "taskId": task.id,
+                        "field": "realHours",
+                        "oldValue": task.real_hours,
+                        "newValue": new_real_hours,
+                        "correctedBy": actor.id,
+                        "correctedAt": now_iso,
                     }
                 )
                 fields["real_hours"] = new_real_hours
@@ -1037,8 +1198,12 @@ class MonthClosureService:
         if status is not None and status != task.status:
             corrections.append(
                 {
-                    "taskId": task.id, "field": "status", "oldValue": task.status,
-                    "newValue": status, "correctedBy": actor.id, "correctedAt": now_iso,
+                    "taskId": task.id,
+                    "field": "status",
+                    "oldValue": task.status,
+                    "newValue": status,
+                    "correctedBy": actor.id,
+                    "correctedAt": now_iso,
                 }
             )
             fields["status"] = status
@@ -1052,7 +1217,9 @@ class MonthClosureService:
                 fields["completed_at"] = None
 
         if not corrections:
-            raise drf_serializers.ValidationError({"non_field_errors": ["No hay cambios para guardar"]})
+            raise drf_serializers.ValidationError(
+                {"non_field_errors": ["No hay cambios para guardar"]}
+            )
 
         fields["corrected"] = True
 
@@ -1062,7 +1229,9 @@ class MonthClosureService:
             task.save()
 
             closure_year, closure_month = task.archived_month.split("-")
-            closure = MonthClosure.objects.filter(year=int(closure_year), month=int(closure_month)).first()
+            closure = MonthClosure.objects.filter(
+                year=int(closure_year), month=int(closure_month)
+            ).first()
             if closure is not None:
                 existing = closure.corrections if isinstance(closure.corrections, list) else []
                 closure.corrections = existing + corrections
@@ -1070,7 +1239,8 @@ class MonthClosureService:
             else:
                 logger.warning(
                     "MonthClosure no encontrado para archived_month=%s al corregir Task %s",
-                    task.archived_month, task.id,
+                    task.archived_month,
+                    task.id,
                 )
 
         return task
@@ -1081,9 +1251,9 @@ class MonthClosureService:
         `apps.hierarchy` conectado a las vistas de Django, se acota a las
         propias tareas archivadas del actor — nunca más permisivo que el
         legacy, solo más estrecho."""
-        archived_tasks = Task.objects.filter(assigned_to=actor, archived_month__isnull=False).values(
-            "archived_month", "status", "real_hours"
-        )
+        archived_tasks = Task.objects.filter(
+            assigned_to=actor, archived_month__isnull=False
+        ).values("archived_month", "status", "real_hours")
         aggregates: dict[str, dict] = {}
         for row in archived_tasks:
             bucket = aggregates.setdefault(
@@ -1101,8 +1271,10 @@ class MonthClosureService:
                 continue
             result.append(
                 {
-                    "year": closure.year, "month": closure.month,
-                    "total_tasks": bucket["total_tasks"], "completed_tasks": bucket["completed_tasks"],
+                    "year": closure.year,
+                    "month": closure.month,
+                    "total_tasks": bucket["total_tasks"],
+                    "completed_tasks": bucket["completed_tasks"],
                     "total_hours": round_half_up(bucket["total_hours"], 2),
                 }
             )
@@ -1136,8 +1308,15 @@ class TaskImportService:
             row_num = index + 2
             padded = list(row) + [None] * (9 - len(row))
             (
-                title, description, priority, frequency,
-                start_raw, end_raw, hours_raw, email_raw, type_raw,
+                title,
+                description,
+                priority,
+                frequency,
+                start_raw,
+                end_raw,
+                hours_raw,
+                email_raw,
+                type_raw,
             ) = padded[:9]
 
             type_norm = str(type_raw or "").strip().upper()
@@ -1148,7 +1327,10 @@ class TaskImportService:
                 continue
             if priority not in VALID_PRIORITIES:
                 errors.append(
-                    {"row": row_num, "error": f'Prioridad inválida: "{priority}". Use ALTA, MEDIA o BAJA'}
+                    {
+                        "row": row_num,
+                        "error": f'Prioridad inválida: "{priority}". Use ALTA, MEDIA o BAJA',
+                    }
                 )
                 continue
             if frequency not in VALID_FREQUENCIES:
@@ -1168,7 +1350,9 @@ class TaskImportService:
                 continue
             start_date = parse_date(start_raw)
             if start_date is None:
-                errors.append({"row": row_num, "error": "formato de fecha inválido, usar YYYY-MM-DD"})
+                errors.append(
+                    {"row": row_num, "error": "formato de fecha inválido, usar YYYY-MM-DD"}
+                )
                 continue
 
             if end_raw is None or str(end_raw).strip() == "":
@@ -1176,7 +1360,9 @@ class TaskImportService:
                 continue
             end_date = parse_date(end_raw)
             if end_date is None:
-                errors.append({"row": row_num, "error": "formato de fecha inválido, usar YYYY-MM-DD"})
+                errors.append(
+                    {"row": row_num, "error": "formato de fecha inválido, usar YYYY-MM-DD"}
+                )
                 continue
 
             try:
@@ -1190,7 +1376,18 @@ class TaskImportService:
             if email:
                 user = User.objects.filter(email=email).first()
                 if user is None:
-                    errors.append({"row": row_num, "error": f'Usuario no encontrado: "{email_raw}"'})
+                    errors.append(
+                        {"row": row_num, "error": f'Usuario no encontrado: "{email_raw}"'}
+                    )
+                    continue
+                # Mismo hallazgo que TaskService.create_task/update_task
+                # (ver docs/AUDIT_LOG.md § 2026-09-01, NEXO-01), alcanzable
+                # también vía importación masiva desde Excel.
+                assigned_group = user.groups.first()
+                if assigned_group is None or not is_visible_to(actor, assigned_group):
+                    errors.append(
+                        {"row": row_num, "error": f'No podés asignar tareas a "{email_raw}"'}
+                    )
                     continue
                 assigned_to = user
 
@@ -1201,8 +1398,12 @@ class TaskImportService:
                     priority=priority,
                     frequency=frequency,
                     type=task_type,
-                    start_date=datetime(start_date.year, start_date.month, start_date.day, tzinfo=dt_timezone.utc),
-                    end_date=datetime(end_date.year, end_date.month, end_date.day, tzinfo=dt_timezone.utc),
+                    start_date=datetime(
+                        start_date.year, start_date.month, start_date.day, tzinfo=dt_timezone.utc
+                    ),
+                    end_date=datetime(
+                        end_date.year, end_date.month, end_date.day, tzinfo=dt_timezone.utc
+                    ),
                     estimated_hours=estimated_hours,
                     assigned_to=assigned_to,
                     created_by=actor,

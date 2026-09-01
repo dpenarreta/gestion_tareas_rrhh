@@ -2,9 +2,15 @@ import type { NextConfig } from "next";
 
 const isProd = process.env.NODE_ENV === "production";
 
+// Hallazgo de la auditoría de seguridad (ver docs/AUDIT_LOG.md § 2026-09-01,
+// NEXO-02): `unsafe-eval` no tiene una necesidad real en producción — el
+// propio React advierte en consola "React will never use eval() in
+// production mode" (solo lo usa en desarrollo para reconstruir stack
+// traces). Verificado en vivo: sin `unsafe-eval`, `npm run dev` falla con
+// ese error exacto; `npm run build` (producción) compila y corre sin él.
 const CSP = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' 'unsafe-eval'",
+  `script-src 'self' 'unsafe-inline'${isProd ? "" : " 'unsafe-eval'"}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",

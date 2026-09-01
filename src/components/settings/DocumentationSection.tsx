@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Spinner } from "@/components/ui/Skeleton";
 import { marked } from "marked";
+import DOMPurify from "dompurify";
 import SectionCard from "./SectionCard";
 
 type DocKey = "version" | "changelog" | "decisions" | "roadmap" | "architecture" | "formulas";
@@ -41,7 +42,13 @@ export default function DocumentationSection() {
         setUpdatedAt(null);
         return;
       }
-      setHtml(await marked.parse(data.content));
+      // Hallazgo de la auditoría de seguridad (ver docs/AUDIT_LOG.md §
+      // 2026-09-01, NEXO-03): `marked` no sanitiza HTML crudo embebido en
+      // el Markdown fuente — se sanitiza acá antes de `dangerouslySetInnerHTML`
+      // para no depender de que ningún .md commiteado sea 100% confiable
+      // (ej. si algún día cita texto de usuario sin escapar).
+      const rawHtml = await marked.parse(data.content);
+      setHtml(DOMPurify.sanitize(rawHtml));
       setUpdatedAt(data.updatedAt ?? null);
     } catch {
       setError("Error de conexión");
