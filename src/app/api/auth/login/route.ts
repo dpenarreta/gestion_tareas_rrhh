@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { Role } from "@/lib/roles";
 import { createSession } from "@/lib/session";
+import { sessionPermissionsFor } from "@/lib/permissions";
 import { djangoApiFetch, loginToDjango, setDjangoTokenCookies } from "@/lib/djangoSession";
 
 // Fase 6a de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-14):
@@ -56,7 +57,13 @@ export async function POST(request: NextRequest) {
     const durationHours = rememberMe ? result.tokens.session_policy.remember_hours : result.tokens.session_policy.default_hours;
 
     await createSession(
-      { role, name, email: me.email, djangoUserId: me.id, permissions: me.permissions },
+      {
+        role,
+        name,
+        email: me.email,
+        djangoUserId: me.id,
+        permissions: sessionPermissionsFor(role, me.permissions),
+      },
       Boolean(rememberMe),
       durationHours
     );

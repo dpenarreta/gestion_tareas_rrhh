@@ -23,6 +23,84 @@
 
 ---
 
+## v1.147.2 — 2026-09-02
+
+**Tipo:** SECURITY
+**Módulo:** Corrección de los 7 hallazgos de la re-auditoría de IA y datos
+personales (ver docs/AUDIT_LOG.md § 2026-09-02 para el detalle completo
+Problema/Decisión/Justificación de cada uno).
+
+- **H-1:** `docs/RAT.md` no desglosaba qué dato llega a Gemini en 3 de 4
+  flujos de IA — agregada sección 6.1 con el detalle de cada punto de
+  integración. Solo documentación.
+- **H-2:** la exportación de "mis datos" excluía `LeaveRecord`/
+  `SpecialStatus` (Art. 26 LOPDP) del propio titular —
+  `export_my_data`/`djangoDataRequestsAdapter.ts` ahora los incluyen,
+  filtrados estrictamente por el usuario autenticado.
+- **H-3:** Solicitudes LOPD no dejaban rastro en el `AuditLog` central —
+  `create_data_request`/`resolve_data_request`/`export_my_data` ahora
+  auditan (`data_request.created`/`.resolved`/`.exported`).
+- **H-4:** `docs/RAT.md` tenía datos técnicos desactualizados (bcrypt vs.
+  Argon2, campo eliminado, nomenclatura Prisma) — corregido.
+- **H-5:** gate inconsistente entre KPIs (`is_superuser`) y el CRUD de
+  `LeaveRecord`/`SpecialStatus` (grupo ADMINISTRADOR) — los 4 endpoints
+  ahora exigen `is_superuser=True` real.
+- **H-6** (regresión de H-5, hallazgo de la re-auditoría): ningún flujo
+  del producto asignaba `is_superuser` — `UserAdminService` ahora lo
+  sincroniza con la pertenencia al grupo ADMINISTRADOR, con guard de
+  "último administrador activo" y migración de backfill para cuentas ya
+  existentes.
+- **H-7** (hallazgo de seguridad real de la re-auditoría): bypass de
+  autorización vía caché compartida en Nova Insights — la clave de caché
+  no identificaba al viewer, permitiendo que un usuario sin visibilidad
+  jerárquica real sobre un colaborador recibiera el resultado cacheado
+  generado para otro viewer con el mismo rol. Clave ahora prefijada con
+  `session.djangoUserId`.
+
+**Verificación:** `pytest` backend 1870/1872 (2 fallos preexistentes no
+relacionados, test con fecha hardcodeada), Vitest 1129/1129, `tsc`/`eslint`
+limpios.
+
+## v1.147.1 — 2026-09-02
+
+**Tipo:** FIX
+**Módulo:** Autenticación — login roto para toda cuenta ADMINISTRADOR (ver
+docs/AUDIT_LOG.md § 2026-09-02).
+
+`session.permissions` (JWT `nexo-session`, catálogo dinámico de permisos,
+v1.146.0) embebía el array completo de `get_user_permission_codenames`.
+Para un superusuario, `get_all_permissions()` de Django devuelve el
+catálogo COMPLETO del sistema (~250 codenames, todo modelo × toda acción),
+no solo los ~30 del catálogo de negocio — el JSON de esa lista pesa ~8KB,
+por encima del límite práctico de ~4KB por cookie que aplican los
+navegadores. El servidor emitía el `Set-Cookie` igual (sin error, sin
+truncar), pero el navegador lo descartaba en silencio: cualquier login con
+una cuenta ADMINISTRADOR devolvía 200 con el usuario correcto, pero la
+sesión nunca quedaba realmente iniciada — cada request siguiente rebotaba
+a `/login`. Confirmado en vivo con `curl` (fuera del navegador, mismo
+resultado) para descartar que fuera un artefacto de la automatización de
+Chrome usada para probarlo.
+
+**Corrección:** `sessionPermissionsFor(role, permissions)`
+(`src/lib/permissions.ts`) colapsa la lista a un sentinel `["*"]` cuando
+`role === "ADMINISTRADOR"`, usado por los 2 puntos reales que arman
+`session.permissions` (`api/auth/login/route.ts`, `api/auth/me/route.ts`
+en el PATCH de perfil). `hasPermission`/`hasAnyPermission` tratan `"*"`
+como "todos los permisos" — ninguna pantalla gateada por estas funciones
+(`/admin/roles`, `canManageRoles`/`canViewRoles`) pierde acceso. Django
+sigue siendo la única fuente de verdad real (`user_has_permission` ya
+bypassea `is_superuser` de forma independiente) — este cambio es
+exclusivamente sobre qué entra en la cookie de UI.
+
+**Archivos:** `src/lib/permissions.ts`, `src/app/api/auth/login/route.ts`,
+`src/app/api/auth/me/route.ts`, `src/__tests__/permissions.test.ts`
+(2 tests nuevos de regresión).
+
+**Impacto:** desbloquea el login de cualquier cuenta ADMINISTRADOR/
+superusuario — estaba roto desde que se agregó `session.permissions`
+(v1.146.0) hasta esta corrección. Ningún otro rol se ve afectado (sus
+listas de permisos reales, ~5-15 codenames, nunca se acercaron al límite).
+
 ## v1.147.0 — 2026-09-01
 
 **Tipo:** SECURITY

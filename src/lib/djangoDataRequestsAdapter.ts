@@ -90,6 +90,15 @@ type DjangoMyDataExport = {
   solicitudes_previas: {
     id: number; type: string; status: string; description: string | null; created_at: string; resolved_at: string | null;
   }[];
+  permisos_y_ausencias: {
+    id: number; type: string; date: string; is_full_day: boolean; duration_minutes: number | null;
+    observation: string | null; created_at: string;
+  }[];
+  estado_especial: {
+    id: number; type: string; start_date: string; end_date: string | null; is_active: boolean;
+    daily_hours: number; limit_low: number; limit_base: number; limit_high: number; limit_overload: number;
+    created_at: string;
+  }[];
 };
 
 /**
@@ -101,6 +110,14 @@ type DjangoMyDataExport = {
  * theme/viewPreferences, Fase 11 para badges; consent fuera de alcance).
  * Se omiten de la exportación en vez de fabricar valores falsos — mismo
  * criterio que el backend.
+ *
+ * `permisosYAusencias`/`estadoEspecial` — hallazgo de la auditoría de
+ * datos personales (ver docs/AUDIT_LOG.md § 2026-09-02): agregados junto
+ * con el backend (`export_my_data`) porque antes de esta corrección
+ * `LeaveRecord`/`SpecialStatus` del propio titular no llegaban a esta
+ * exportación pese a que el backend ya los devuelve — saltear este
+ * adaptador habría dejado los campos nuevos de Django sin mapear y por
+ * lo tanto ausentes igual del JSON final (ver `.claude/rules/architecture.md`).
  */
 export function mapDjangoMyDataExportToNexoShape(data: DjangoMyDataExport) {
   return {
@@ -173,6 +190,28 @@ export function mapDjangoMyDataExportToNexoShape(data: DjangoMyDataExport) {
       description: r.description,
       createdAt: r.created_at,
       resolvedAt: r.resolved_at,
+    })),
+    permisosYAusencias: data.permisos_y_ausencias.map((l) => ({
+      id: String(l.id),
+      type: l.type,
+      date: l.date,
+      isFullDay: l.is_full_day,
+      durationMinutes: l.duration_minutes,
+      observation: l.observation,
+      createdAt: l.created_at,
+    })),
+    estadoEspecial: data.estado_especial.map((s) => ({
+      id: String(s.id),
+      type: s.type,
+      startDate: s.start_date,
+      endDate: s.end_date,
+      isActive: s.is_active,
+      dailyHours: s.daily_hours,
+      limitLow: s.limit_low,
+      limitBase: s.limit_base,
+      limitHigh: s.limit_high,
+      limitOverload: s.limit_overload,
+      createdAt: s.created_at,
     })),
   };
 }

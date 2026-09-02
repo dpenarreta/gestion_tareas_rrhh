@@ -26,12 +26,22 @@ type MotivationalCacheEntry = {
   expiresAt: number;
 };
 
-// Cache en memoria por colaborador + variante generada — "full"/"restricted"
-// (¿incluye detalle de salud del estado especial?) y "motivational" son
-// generaciones de Gemini DISTINTAS, nunca deben compartir entrada (ver
-// `sensitivity` más abajo: evita que un dato de salud generado para el propio
-// titular/Administrador se filtre a un viewer sin privilegio, dado que esta
-// caché no está aislada por viewer).
+// Cache en memoria por VIEWER + colaborador + variante generada —
+// "full"/"restricted" (¿incluye detalle de salud del estado especial?) y
+// "motivational" son generaciones de Gemini DISTINTAS, nunca deben compartir
+// entrada. Hallazgo de seguridad (ver docs/AUDIT_LOG.md § 2026-09-02,
+// "Bypass de autorización vía caché compartida en Nova Insights"): la
+// validación real de jerarquía (¿puede ESTE viewer ver a `userId`?) vive en
+// Django (`AnalyticsBundleView`/`KpiUserView`, 403/404) y solo se ejecuta en
+// un cache MISS — si la clave no incluye al viewer, un cache HIT devuelve
+// texto generado para un colaborador SIN que Django vuelva a validar nada,
+// exponiéndolo a cualquier otro usuario con el mismo rol/sensitivity/
+// canSeeRisk aunque no tenga visibilidad jerárquica real sobre ese target.
+// La clave se prefija con `session.djangoUserId` (el viewer autenticado) para
+// que el primer acceso de CADA viewer siempre pase por la validación de
+// Django — el costo es que 2 viewers legítimos sobre el mismo colaborador ya
+// no comparten una única llamada a Gemini, trade-off aceptado por ser un
+// problema de autorización, no de performance.
 const analyticalCache = new Map<string, AnalyticalCacheEntry>();
 const motivationalCache = new Map<string, MotivationalCacheEntry>();
 
@@ -397,14 +407,18 @@ export async function GET(request: NextRequest, ctx: Ctx) {
 
   try {
     if (mode === "motivational") {
-      const cacheKey = `${userId}:motivational`;
+      // `mode === "motivational"` solo es alcanzable con `isSelf === true`
+      // (ver más abajo), así que `userId` ya es el propio viewer — se
+      // prefija igual por consistencia/defensa en profundidad con la caché
+      // analítica de arriba, no porque haya un bypass real posible acá.
+      const cacheKey = `${session.djangoUserId}:${userId}:motivational`;
       const cached = motivationalCache.get(cacheKey);
       const entry = cached && cached.expiresAt > Date.now() ? cached : await generateMotivational(userId, session.name);
       if (!cached || cached.expiresAt <= Date.now()) motivationalCache.set(cacheKey, entry);
       return NextResponse.json({ mode, messages: entry.messages, generatedAt: entry.generatedAt });
     }
 
-    const cacheKey = `${userId}:${sensitivity}:${canSeeRisk ? "risk" : "norisk"}`;
+    const cacheKey = `${session.djangoUserId}:${userId}:${sensitivity}:${canSeeRisk ? "risk" : "norisk"}`;
     const cached = analyticalCache.get(cacheKey);
     const entry = cached && cached.expiresAt > Date.now() ? cached : await generateAnalytical(userId, sensitivity, canSeeRisk);
     if (!cached || cached.expiresAt <= Date.now()) analyticalCache.set(cacheKey, entry);

@@ -9,6 +9,8 @@ from datetime import timezone as dt_timezone
 import pytest
 from django.contrib.auth.models import Group
 
+from apps.configuration.models import LeaveRecord, SpecialStatus
+from apps.core.models import AuditLog
 from apps.data_requests.models import DataSubjectRequest
 from apps.data_requests.services import create_data_request, export_my_data, resolve_data_request
 from apps.notifications.models import Notification
@@ -19,7 +21,9 @@ pytestmark = pytest.mark.django_db
 
 
 def _user_with_group(username: str, group_name: str) -> User:
-    user = User.objects.create_user(username=username, email=f"{username}@example.com", password="Sup3r-Secr3t!")
+    user = User.objects.create_user(
+        username=username, email=f"{username}@example.com", password="Sup3r-Secr3t!"
+    )
     user.groups.set([Group.objects.get(name=group_name)])
     return user
 
@@ -38,7 +42,9 @@ def test_create_rectificacion_notifies_all_admins():
     user = _user_with_group("titular2", "ASISTENTE_GH")
     admin1 = _user_with_group("admin2", "ADMINISTRADOR")
     admin2 = _user_with_group("admin3", "ADMINISTRADOR")
-    create_data_request(user=user, type=DataSubjectRequest.Type.RECTIFICACION, description="Corregir email")
+    create_data_request(
+        user=user, type=DataSubjectRequest.Type.RECTIFICACION, description="Corregir email"
+    )
     notified = set(Notification.objects.values_list("user_id", flat=True))
     assert notified == {admin1.id, admin2.id}
     notification = Notification.objects.get(user=admin1)
@@ -55,7 +61,9 @@ def test_create_eliminacion_notifies_admins_with_correct_label():
 
 def test_create_data_request_defaults_to_pendiente():
     user = _user_with_group("titular4", "ASISTENTE_GH")
-    data_request = create_data_request(user=user, type=DataSubjectRequest.Type.ACCESO, description=None)
+    data_request = create_data_request(
+        user=user, type=DataSubjectRequest.Type.ACCESO, description=None
+    )
     assert data_request.status == DataSubjectRequest.Status.PENDIENTE
 
 
@@ -65,9 +73,13 @@ def test_create_data_request_defaults_to_pendiente():
 def test_resolve_to_resuelta_sets_resolver_and_timestamp():
     user = _user_with_group("titular5", "ASISTENTE_GH")
     admin = _user_with_group("admin5", "ADMINISTRADOR")
-    data_request = DataSubjectRequest.objects.create(user=user, type=DataSubjectRequest.Type.RECTIFICACION)
+    data_request = DataSubjectRequest.objects.create(
+        user=user, type=DataSubjectRequest.Type.RECTIFICACION
+    )
 
-    updated = resolve_data_request(data_request=data_request, status=DataSubjectRequest.Status.RESUELTA, resolver=admin)
+    updated = resolve_data_request(
+        data_request=data_request, status=DataSubjectRequest.Status.RESUELTA, resolver=admin
+    )
     assert updated.status == DataSubjectRequest.Status.RESUELTA
     assert updated.resolved_by == admin
     assert updated.resolved_at is not None
@@ -77,11 +89,16 @@ def test_resolve_to_non_resuelta_clears_resolver_even_if_previously_set():
     user = _user_with_group("titular6", "ASISTENTE_GH")
     admin = _user_with_group("admin6", "ADMINISTRADOR")
     data_request = DataSubjectRequest.objects.create(
-        user=user, type=DataSubjectRequest.Type.RECTIFICACION, status=DataSubjectRequest.Status.RESUELTA,
-        resolved_by=admin, resolved_at=datetime(2026, 1, 1, tzinfo=dt_timezone.utc),
+        user=user,
+        type=DataSubjectRequest.Type.RECTIFICACION,
+        status=DataSubjectRequest.Status.RESUELTA,
+        resolved_by=admin,
+        resolved_at=datetime(2026, 1, 1, tzinfo=dt_timezone.utc),
     )
 
-    updated = resolve_data_request(data_request=data_request, status=DataSubjectRequest.Status.EN_PROCESO, resolver=admin)
+    updated = resolve_data_request(
+        data_request=data_request, status=DataSubjectRequest.Status.EN_PROCESO, resolver=admin
+    )
     assert updated.status == DataSubjectRequest.Status.EN_PROCESO
     assert updated.resolved_by is None
     assert updated.resolved_at is None
@@ -102,14 +119,24 @@ def test_export_my_data_includes_own_tasks_only():
     user = _user_with_group("titular8", "ASISTENTE_GH")
     other = _user_with_group("other", "ASISTENTE_GH")
     Task.objects.create(
-        title="Propia", priority="MEDIA", frequency="PUNTUAL",
-        start_date=datetime(2026, 8, 1, tzinfo=dt_timezone.utc), end_date=datetime(2026, 8, 10, tzinfo=dt_timezone.utc),
-        estimated_hours=5, assigned_to=user, created_by=user,
+        title="Propia",
+        priority="MEDIA",
+        frequency="PUNTUAL",
+        start_date=datetime(2026, 8, 1, tzinfo=dt_timezone.utc),
+        end_date=datetime(2026, 8, 10, tzinfo=dt_timezone.utc),
+        estimated_hours=5,
+        assigned_to=user,
+        created_by=user,
     )
     Task.objects.create(
-        title="Ajena", priority="MEDIA", frequency="PUNTUAL",
-        start_date=datetime(2026, 8, 1, tzinfo=dt_timezone.utc), end_date=datetime(2026, 8, 10, tzinfo=dt_timezone.utc),
-        estimated_hours=5, assigned_to=other, created_by=other,
+        title="Ajena",
+        priority="MEDIA",
+        frequency="PUNTUAL",
+        start_date=datetime(2026, 8, 1, tzinfo=dt_timezone.utc),
+        end_date=datetime(2026, 8, 10, tzinfo=dt_timezone.utc),
+        estimated_hours=5,
+        assigned_to=other,
+        created_by=other,
     )
     payload = export_my_data(user=user)
     assert len(payload["tareas"]) == 1
@@ -133,3 +160,79 @@ def test_export_my_data_includes_prior_requests_before_the_new_traceability_one(
     # El registro de trazabilidad se crea DESPUÉS de armar el payload -> no debe aparecer en él.
     assert len(payload["solicitudes_previas"]) == 1
     assert payload["solicitudes_previas"][0]["type"] == DataSubjectRequest.Type.RECTIFICACION
+
+
+def test_export_my_data_includes_own_leave_records_and_special_status_only():
+    """Hallazgo de la auditoría de datos personales (ver docs/AUDIT_LOG.md
+    § 2026-09-02): antes de esta corrección, `LeaveRecord`/`SpecialStatus`
+    del propio titular no aparecían en su exportación de "mis datos" —
+    la única categoría de dato que no podía consultar sobre sí mismo."""
+    user = _user_with_group("titular11", "ASISTENTE_GH")
+    other = _user_with_group("other11", "ASISTENTE_GH")
+    admin = _user_with_group("admin11", "ADMINISTRADOR")
+
+    LeaveRecord.objects.create(
+        user=user,
+        type=LeaveRecord.Type.MEDICO,
+        date=datetime(2026, 8, 5, tzinfo=dt_timezone.utc),
+        is_full_day=True,
+        created_by=admin,
+    )
+    LeaveRecord.objects.create(
+        user=other,
+        type=LeaveRecord.Type.MEDICO,
+        date=datetime(2026, 8, 5, tzinfo=dt_timezone.utc),
+        is_full_day=True,
+        created_by=admin,
+    )
+    SpecialStatus.objects.create(
+        user=user,
+        type=SpecialStatus.Type.LACTANCIA,
+        start_date=datetime(2026, 8, 1, tzinfo=dt_timezone.utc),
+        created_by=admin,
+    )
+
+    payload = export_my_data(user=user)
+
+    assert len(payload["permisos_y_ausencias"]) == 1
+    assert payload["permisos_y_ausencias"][0]["type"] == LeaveRecord.Type.MEDICO
+    assert len(payload["estado_especial"]) == 1
+    assert payload["estado_especial"][0]["type"] == SpecialStatus.Type.LACTANCIA
+
+
+# --- auditoría (hallazgo H-3, ver docs/AUDIT_LOG.md § 2026-09-02) -------------------
+
+
+def test_create_data_request_writes_audit_log():
+    user = _user_with_group("titular12", "ASISTENTE_GH")
+    _user_with_group("admin12", "ADMINISTRADOR")
+    data_request = create_data_request(
+        user=user, type=DataSubjectRequest.Type.RECTIFICACION, description="Corregir email"
+    )
+    entry = AuditLog.objects.get(action="data_request.created", target_id=str(data_request.id))
+    assert entry.actor == user
+    assert entry.module == "solicitudes_lopd"
+    assert entry.new_values["type"] == DataSubjectRequest.Type.RECTIFICACION
+
+
+def test_resolve_data_request_writes_audit_log_with_previous_and_new_status():
+    user = _user_with_group("titular13", "ASISTENTE_GH")
+    admin = _user_with_group("admin13", "ADMINISTRADOR")
+    data_request = DataSubjectRequest.objects.create(
+        user=user, type=DataSubjectRequest.Type.RECTIFICACION
+    )
+
+    resolve_data_request(
+        data_request=data_request, status=DataSubjectRequest.Status.RESUELTA, resolver=admin
+    )
+
+    entry = AuditLog.objects.get(action="data_request.resolved", target_id=str(data_request.id))
+    assert entry.actor == admin
+    assert entry.previous_values["status"] == DataSubjectRequest.Status.PENDIENTE
+    assert entry.new_values["status"] == DataSubjectRequest.Status.RESUELTA
+
+
+def test_export_my_data_writes_audit_log():
+    user = _user_with_group("titular14", "ASISTENTE_GH")
+    export_my_data(user=user)
+    assert AuditLog.objects.filter(action="data_request.exported", actor=user).exists()

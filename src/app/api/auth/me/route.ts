@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import type { Role } from "@/lib/roles";
 import { getSession, createSession } from "@/lib/session";
 import { djangoApiFetch, extractDjangoFieldErrorMessage } from "@/lib/djangoSession";
+import { sessionPermissionsFor } from "@/lib/permissions";
 
 // Fase 6b de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-17):
 // identidad (name/email/role/createdAt) pasa a Django. `activityFormat`
@@ -132,7 +133,7 @@ export async function PATCH(request: NextRequest) {
         name: identity.name,
         email: identity.email,
         djangoUserId: me.id,
-        permissions: me.permissions,
+        permissions: sessionPermissionsFor(identity.role as Role, me.permissions),
       },
       false,
       durationHours

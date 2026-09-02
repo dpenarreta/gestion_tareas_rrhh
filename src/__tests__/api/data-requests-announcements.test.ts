@@ -204,6 +204,12 @@ describe("GET /api/data-requests/my-data", () => {
         ideas_propuestas: [],
         votos_en_ideas: [],
         solicitudes_previas: [],
+        permisos_y_ausencias: [
+          { id: 3, type: "MEDICO", date: "2026-08-05", is_full_day: true, duration_minutes: null, observation: null, created_at: "2026-08-05T00:00:00Z" },
+        ],
+        estado_especial: [
+          { id: 4, type: "LACTANCIA", start_date: "2026-08-01", end_date: null, is_active: true, daily_hours: 6, limit_low: 5, limit_base: 6, limit_high: 7, limit_overload: 8, created_at: "2026-08-01T00:00:00Z" },
+        ],
       })
     );
 
@@ -215,6 +221,10 @@ describe("GET /api/data-requests/my-data", () => {
     const body = JSON.parse(await res.text());
     expect(body.usuario).toMatchObject({ id: "7", name: "Ana", role: "ASISTENTE_GH" });
     expect(body.tareas[0]).toMatchObject({ id: "1", estimatedHours: 5, realHours: 3 });
+    // Hallazgo de la auditoría de datos personales (ver docs/AUDIT_LOG.md § 2026-09-02):
+    // el titular debe poder ver sus propios permisos médicos/estado especial en "mis datos".
+    expect(body.permisosYAusencias[0]).toMatchObject({ id: "3", type: "MEDICO", isFullDay: true });
+    expect(body.estadoEspecial[0]).toMatchObject({ id: "4", type: "LACTANCIA", dailyHours: 6 });
   });
 });
 

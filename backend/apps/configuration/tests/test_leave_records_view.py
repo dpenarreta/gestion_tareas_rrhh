@@ -20,8 +20,30 @@ def _client_for(user: User) -> APIClient:
 
 
 def _user_with_group(username: str, group_name: str) -> User:
-    user = User.objects.create_user(username=username, email=f"{username}@example.com", password="Sup3r-Secr3t!", first_name="Ana")
+    user = User.objects.create_user(
+        username=username,
+        email=f"{username}@example.com",
+        password="Sup3r-Secr3t!",
+        first_name="Ana",
+    )
     user.groups.set([Group.objects.get(name=group_name)])
+    return user
+
+
+def _superuser(username: str) -> User:
+    """Hallazgo H-5 de la auditoría de datos personales (ver
+    docs/AUDIT_LOG.md § 2026-09-02): estos endpoints ahora exigen
+    `is_superuser=True` real, no solo pertenencia al grupo ADMINISTRADOR
+    (antes inconsistente con el gate de `redact_sensitive_workload_detail`
+    en KPIs) — los fixtures "admin" de este archivo deben serlo de verdad."""
+    user = User.objects.create_user(
+        username=username,
+        email=f"{username}@example.com",
+        password="Sup3r-Secr3t!",
+        first_name="Ana",
+        is_superuser=True,
+    )
+    user.groups.set([Group.objects.get(name="ADMINISTRADOR")])
     return user
 
 
@@ -39,12 +61,36 @@ def test_get_requires_administrador():
     assert response.status_code == 403
 
 
+def test_get_rejects_administrador_group_without_real_superuser():
+    """Hallazgo H-5 de la auditoría de datos personales (ver
+    docs/AUDIT_LOG.md § 2026-09-02): antes de esta corrección, un usuario
+    en el grupo ADMINISTRADOR sin `is_superuser=True` (estado real
+    alcanzable, ver docs/DECISIONS.md § 2026-09-01) pasaba este gate
+    pero recibía la versión REDACTADA en KPIs — inconsistente."""
+    user = _user_with_group("admin_solo_grupo", "ADMINISTRADOR")
+    assert user.is_superuser is False
+    response = _client_for(user).get("/api/v1/settings/leave-records/")
+    assert response.status_code == 403
+
+
 def test_get_filters_by_user_id():
-    admin = _user_with_group("admin", "ADMINISTRADOR")
+    admin = _superuser("admin")
     target = _user_with_group("analista", "ANALISTA_CC")
     other = _user_with_group("otro", "ANALISTA_CC")
-    LeaveRecord.objects.create(user=target, type=LeaveRecord.Type.MEDICO, date=date(2026, 1, 5), is_full_day=True, created_by=admin)
-    LeaveRecord.objects.create(user=other, type=LeaveRecord.Type.MEDICO, date=date(2026, 1, 5), is_full_day=True, created_by=admin)
+    LeaveRecord.objects.create(
+        user=target,
+        type=LeaveRecord.Type.MEDICO,
+        date=date(2026, 1, 5),
+        is_full_day=True,
+        created_by=admin,
+    )
+    LeaveRecord.objects.create(
+        user=other,
+        type=LeaveRecord.Type.MEDICO,
+        date=date(2026, 1, 5),
+        is_full_day=True,
+        created_by=admin,
+    )
 
     response = _client_for(admin).get(f"/api/v1/settings/leave-records/?user_id={target.id}")
     assert response.status_code == 200
@@ -53,10 +99,22 @@ def test_get_filters_by_user_id():
 
 
 def test_get_filters_by_month():
-    admin = _user_with_group("admin2", "ADMINISTRADOR")
+    admin = _superuser("admin2")
     target = _user_with_group("analista2", "ANALISTA_CC")
-    LeaveRecord.objects.create(user=target, type=LeaveRecord.Type.MEDICO, date=date(2026, 1, 5), is_full_day=True, created_by=admin)
-    LeaveRecord.objects.create(user=target, type=LeaveRecord.Type.MEDICO, date=date(2026, 2, 5), is_full_day=True, created_by=admin)
+    LeaveRecord.objects.create(
+        user=target,
+        type=LeaveRecord.Type.MEDICO,
+        date=date(2026, 1, 5),
+        is_full_day=True,
+        created_by=admin,
+    )
+    LeaveRecord.objects.create(
+        user=target,
+        type=LeaveRecord.Type.MEDICO,
+        date=date(2026, 2, 5),
+        is_full_day=True,
+        created_by=admin,
+    )
 
     response = _client_for(admin).get("/api/v1/settings/leave-records/?month=2026-01")
     assert len(response.data) == 1
@@ -69,35 +127,54 @@ def test_get_filters_by_month():
 def test_post_requires_administrador():
     user = _user_with_group("jefe2", "JEFE_NACIONAL")
     target = _user_with_group("analista3", "ANALISTA_CC")
-    body = {"user_id": target.id, "type": "MEDICO", "start_date": "2026-01-05", "end_date": "2026-01-05", "is_full_day": True}
+    body = {
+        "user_id": target.id,
+        "type": "MEDICO",
+        "start_date": "2026-01-05",
+        "end_date": "2026-01-05",
+        "is_full_day": True,
+    }
     response = _client_for(user).post("/api/v1/settings/leave-records/", body, format="json")
     assert response.status_code == 403
 
 
 def test_post_400_for_end_before_start():
-    admin = _user_with_group("admin3", "ADMINISTRADOR")
+    admin = _superuser("admin3")
     target = _user_with_group("analista4", "ANALISTA_CC")
-    body = {"user_id": target.id, "type": "MEDICO", "start_date": "2026-01-05", "end_date": "2026-01-01", "is_full_day": True}
+    body = {
+        "user_id": target.id,
+        "type": "MEDICO",
+        "start_date": "2026-01-05",
+        "end_date": "2026-01-01",
+        "is_full_day": True,
+    }
     response = _client_for(admin).post("/api/v1/settings/leave-records/", body, format="json")
     assert response.status_code == 400
 
 
 def test_post_400_for_vacaciones_not_full_day():
-    admin = _user_with_group("admin4", "ADMINISTRADOR")
+    admin = _superuser("admin4")
     target = _user_with_group("analista5", "ANALISTA_CC")
     body = {
-        "user_id": target.id, "type": "VACACIONES", "start_date": "2026-01-05", "end_date": "2026-01-05",
-        "is_full_day": False, "duration_minutes": 60,
+        "user_id": target.id,
+        "type": "VACACIONES",
+        "start_date": "2026-01-05",
+        "end_date": "2026-01-05",
+        "is_full_day": False,
+        "duration_minutes": 60,
     }
     response = _client_for(admin).post("/api/v1/settings/leave-records/", body, format="json")
     assert response.status_code == 400
 
 
 def test_post_400_for_missing_duration_when_not_full_day():
-    admin = _user_with_group("admin5", "ADMINISTRADOR")
+    admin = _superuser("admin5")
     target = _user_with_group("analista6", "ANALISTA_CC")
     body = {
-        "user_id": target.id, "type": "MEDICO", "start_date": "2026-01-05", "end_date": "2026-01-05",
+        "user_id": target.id,
+        "type": "MEDICO",
+        "start_date": "2026-01-05",
+        "end_date": "2026-01-05",
         "is_full_day": False,
     }
     response = _client_for(admin).post("/api/v1/settings/leave-records/", body, format="json")
@@ -105,27 +182,45 @@ def test_post_400_for_missing_duration_when_not_full_day():
 
 
 def test_post_404_for_unknown_user():
-    admin = _user_with_group("admin6", "ADMINISTRADOR")
-    body = {"user_id": 999999, "type": "MEDICO", "start_date": "2026-01-05", "end_date": "2026-01-05", "is_full_day": True}
+    admin = _superuser("admin6")
+    body = {
+        "user_id": 999999,
+        "type": "MEDICO",
+        "start_date": "2026-01-05",
+        "end_date": "2026-01-05",
+        "is_full_day": True,
+    }
     response = _client_for(admin).post("/api/v1/settings/leave-records/", body, format="json")
     assert response.status_code == 404
 
 
 def test_post_400_when_range_has_no_business_days():
-    admin = _user_with_group("admin7", "ADMINISTRADOR")
+    admin = _superuser("admin7")
     target = _user_with_group("analista7", "ANALISTA_CC")
     # 2026-01-10/11 son sábado/domingo.
-    body = {"user_id": target.id, "type": "MEDICO", "start_date": "2026-01-10", "end_date": "2026-01-11", "is_full_day": True}
+    body = {
+        "user_id": target.id,
+        "type": "MEDICO",
+        "start_date": "2026-01-10",
+        "end_date": "2026-01-11",
+        "is_full_day": True,
+    }
     response = _client_for(admin).post("/api/v1/settings/leave-records/", body, format="json")
     assert response.status_code == 400
 
 
 def test_post_excludes_holidays_from_business_days():
-    admin = _user_with_group("admin8", "ADMINISTRADOR")
+    admin = _superuser("admin8")
     target = _user_with_group("analista8", "ANALISTA_CC")
     Holiday.objects.create(date=date(2026, 1, 6), name="Feriado", year=2026)
     # Lunes 5 a viernes 9 de enero de 2026 -> 5 días laborables, menos el feriado del martes 6 = 4.
-    body = {"user_id": target.id, "type": "MEDICO", "start_date": "2026-01-05", "end_date": "2026-01-09", "is_full_day": True}
+    body = {
+        "user_id": target.id,
+        "type": "MEDICO",
+        "start_date": "2026-01-05",
+        "end_date": "2026-01-09",
+        "is_full_day": True,
+    }
     response = _client_for(admin).post("/api/v1/settings/leave-records/", body, format="json")
     assert response.status_code == 201
     assert response.data["businessDaysCount"] == 4
@@ -134,11 +229,16 @@ def test_post_excludes_holidays_from_business_days():
 
 
 def test_post_creates_one_record_per_business_day_with_created_by():
-    admin = _user_with_group("admin9", "ADMINISTRADOR")
+    admin = _superuser("admin9")
     target = _user_with_group("analista9", "ANALISTA_CC")
     body = {
-        "user_id": target.id, "type": "PERSONAL", "start_date": "2026-01-05", "end_date": "2026-01-09",
-        "is_full_day": False, "duration_minutes": 90, "observation": "  Motivo  ",
+        "user_id": target.id,
+        "type": "PERSONAL",
+        "start_date": "2026-01-05",
+        "end_date": "2026-01-09",
+        "is_full_day": False,
+        "duration_minutes": 90,
+        "observation": "  Motivo  ",
     }
     response = _client_for(admin).post("/api/v1/settings/leave-records/", body, format="json")
     assert response.status_code == 201
@@ -154,24 +254,36 @@ def test_post_creates_one_record_per_business_day_with_created_by():
 
 
 def test_delete_requires_administrador():
-    admin = _user_with_group("admin10", "ADMINISTRADOR")
+    admin = _superuser("admin10")
     target = _user_with_group("analista10", "ANALISTA_CC")
-    record = LeaveRecord.objects.create(user=target, type=LeaveRecord.Type.MEDICO, date=date(2026, 1, 5), is_full_day=True, created_by=admin)
+    record = LeaveRecord.objects.create(
+        user=target,
+        type=LeaveRecord.Type.MEDICO,
+        date=date(2026, 1, 5),
+        is_full_day=True,
+        created_by=admin,
+    )
     user = _user_with_group("jefe3", "JEFE_NACIONAL")
     response = _client_for(user).delete(f"/api/v1/settings/leave-records/{record.id}/")
     assert response.status_code == 403
 
 
 def test_delete_404_for_missing_record():
-    admin = _user_with_group("admin11", "ADMINISTRADOR")
+    admin = _superuser("admin11")
     response = _client_for(admin).delete("/api/v1/settings/leave-records/999999/")
     assert response.status_code == 404
 
 
 def test_delete_removes_record():
-    admin = _user_with_group("admin12", "ADMINISTRADOR")
+    admin = _superuser("admin12")
     target = _user_with_group("analista11", "ANALISTA_CC")
-    record = LeaveRecord.objects.create(user=target, type=LeaveRecord.Type.MEDICO, date=date(2026, 1, 5), is_full_day=True, created_by=admin)
+    record = LeaveRecord.objects.create(
+        user=target,
+        type=LeaveRecord.Type.MEDICO,
+        date=date(2026, 1, 5),
+        is_full_day=True,
+        created_by=admin,
+    )
     response = _client_for(admin).delete(f"/api/v1/settings/leave-records/{record.id}/")
     assert response.status_code == 200
     assert not LeaveRecord.objects.filter(pk=record.id).exists()

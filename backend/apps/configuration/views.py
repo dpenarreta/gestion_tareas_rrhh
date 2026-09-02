@@ -156,6 +156,20 @@ def _role_name(user) -> str:
     return group.name if group else ""
 
 
+def _is_true_superuser(user) -> bool:
+    """Gate deliberadamente MÁS estrecho que `_role_name(user) ==
+    "ADMINISTRADOR"` (que también es verdadero para un usuario en el
+    grupo ADMINISTRADOR sin `is_superuser=True`, estado real alcanzable
+    — ver docs/DECISIONS.md § 2026-09-01). Usado solo en los 4 endpoints
+    de `LeaveRecord`/`SpecialStatus` (datos de salud, Art. 26 LOPDP) para
+    que coincida exactamente con el gate ya usado por
+    `redact_sensitive_workload_detail` (`apps/analytics/workload.py`) —
+    antes de este cambio, un ADMINISTRADOR-solo-por-grupo veía la lista
+    cruda acá pero la versión redactada en KPIs (hallazgo de la auditoría
+    de datos personales, ver docs/AUDIT_LOG.md § 2026-09-02)."""
+    return user.is_superuser
+
+
 def _can_manage_users(user) -> bool:
     """Réplica exacta de `canManageUsers`/`CAN_MANAGE_USERS`
     (`src/lib/roles.ts`) — mismo whitelist de 3 roles ya usado como
@@ -189,7 +203,11 @@ class PredictionWindowSettingsView(generics.GenericAPIView):
         if not serializer.is_valid():
             return Response({"error": "Ventana histórica inválida"}, status=400)
 
-        set_config_value(CONFIG_KEY_PREDICTION_WINDOW_WEEKS, serializer.validated_data["window_weeks"], request.user)
+        set_config_value(
+            CONFIG_KEY_PREDICTION_WINDOW_WEEKS,
+            serializer.validated_data["window_weeks"],
+            request.user,
+        )
         window_weeks = get_effective_prediction_window_weeks(timezone.now())
         return Response({"window_weeks": window_weeks, "options": list(PREDICTION_WINDOW_OPTIONS)})
 
@@ -231,7 +249,7 @@ class FavoritesView(generics.GenericAPIView):
 
     def get(self, request):
         favorites = [
-            v[len(_CONFIG_FAVORITE_PREFIX):]
+            v[len(_CONFIG_FAVORITE_PREFIX) :]
             for v in request.user.view_preferences
             if v.startswith(_CONFIG_FAVORITE_PREFIX)
         ]
@@ -264,7 +282,10 @@ class WelcomeMessageView(generics.GenericAPIView):
     def get(self, request):
         now = timezone.now()
         return Response(
-            {"message": get_effective_welcome_message(now), "active": get_effective_welcome_message_active(now)}
+            {
+                "message": get_effective_welcome_message(now),
+                "active": get_effective_welcome_message_active(now),
+            }
         )
 
     def put(self, request):
@@ -306,7 +327,8 @@ class RoleTargetsView(generics.GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         if not serializer.is_valid():
             return Response(
-                {"error": "Objetivo inválido: cada campo debe ser un número entre 0 y 100, o null"}, status=400
+                {"error": "Objetivo inválido: cada campo debe ser un número entre 0 y 100, o null"},
+                status=400,
             )
 
         role = serializer.validated_data["role"]
@@ -331,7 +353,14 @@ class RoleCompatibilityView(generics.GenericAPIView):
     def get(self, request):
         now = timezone.now()
         matrix = get_all_effective_role_compatibility(ALL_ROLES, now)
-        return Response({"matrix": matrix, "roles": ALL_ROLES, "role_labels": ROLE_LABEL, "role_levels": ROLE_LEVEL})
+        return Response(
+            {
+                "matrix": matrix,
+                "roles": ALL_ROLES,
+                "role_labels": ROLE_LABEL,
+                "role_levels": ROLE_LEVEL,
+            }
+        )
 
     def patch(self, request):
         if not _can_manage_users(request.user):
@@ -339,12 +368,16 @@ class RoleCompatibilityView(generics.GenericAPIView):
 
         serializer = self.get_serializer(data=request.data)
         if not serializer.is_valid():
-            return Response({"error": "compatible_roles debe ser una lista de cargos válidos"}, status=400)
+            return Response(
+                {"error": "compatible_roles debe ser una lista de cargos válidos"}, status=400
+            )
 
         role = serializer.validated_data["role"]
         compatible_roles = serializer.validated_data["compatible_roles"]
 
-        invalid_level = next((r for r in compatible_roles if ROLE_LEVEL[r] != ROLE_LEVEL[role]), None)
+        invalid_level = next(
+            (r for r in compatible_roles if ROLE_LEVEL[r] != ROLE_LEVEL[role]), None
+        )
         if invalid_level:
             return Response(
                 {
@@ -400,7 +433,9 @@ class HolidayListView(generics.GenericAPIView):
         if Holiday.objects.filter(date=date).exists():
             return Response({"error": "Ya existe un feriado registrado en esa fecha"}, status=409)
 
-        holiday = Holiday.objects.create(date=date, name=serializer.validated_data["name"].strip(), year=date.year)
+        holiday = Holiday.objects.create(
+            date=date, name=serializer.validated_data["name"].strip(), year=date.year
+        )
         return Response(_serialize_holiday(holiday), status=201)
 
 
@@ -442,7 +477,7 @@ class LeaveRecordListView(generics.GenericAPIView):
     serializer_class = LeaveRecordCreateSerializer
 
     def get(self, request):
-        if _role_name(request.user) != "ADMINISTRADOR":
+        if not _is_true_superuser(request.user):
             return Response({"error": "Sin permisos"}, status=403)
 
         queryset = LeaveRecord.objects.select_related("user")
@@ -454,7 +489,9 @@ class LeaveRecordListView(generics.GenericAPIView):
             try:
                 year, mm = int(month[:4]), int(month[5:7])
                 month_start = date(year, mm, 1)
-                month_end = (date(year + 1, 1, 1) if mm == 12 else date(year, mm + 1, 1)) - timedelta(days=1)
+                month_end = (
+                    date(year + 1, 1, 1) if mm == 12 else date(year, mm + 1, 1)
+                ) - timedelta(days=1)
                 queryset = queryset.filter(date__gte=month_start, date__lte=month_end)
             except ValueError:
                 pass
@@ -462,7 +499,7 @@ class LeaveRecordListView(generics.GenericAPIView):
         return Response([_serialize_leave_record(r) for r in queryset.order_by("-date")])
 
     def post(self, request):
-        if _role_name(request.user) != "ADMINISTRADOR":
+        if not _is_true_superuser(request.user):
             return Response({"error": "Sin permisos"}, status=403)
 
         serializer = self.get_serializer(data=request.data)
@@ -482,7 +519,9 @@ class LeaveRecordListView(generics.GenericAPIView):
                 business_days.append(current)
             current += timedelta(days=1)
         if not business_days:
-            return Response({"error": "El rango seleccionado no incluye días laborables"}, status=400)
+            return Response(
+                {"error": "El rango seleccionado no incluye días laborables"}, status=400
+            )
 
         trimmed_observation = (data.get("observation") or "").strip() or None
         records = [
@@ -498,7 +537,10 @@ class LeaveRecordListView(generics.GenericAPIView):
             for day in business_days
         ]
         return Response(
-            {"records": [_serialize_leave_record(r) for r in records], "businessDaysCount": len(business_days)},
+            {
+                "records": [_serialize_leave_record(r) for r in records],
+                "businessDaysCount": len(business_days),
+            },
             status=201,
         )
 
@@ -510,7 +552,7 @@ class LeaveRecordDetailView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
 
     def delete(self, request, pk: int):
-        if _role_name(request.user) != "ADMINISTRADOR":
+        if not _is_true_superuser(request.user):
             return Response({"error": "Sin permisos"}, status=403)
 
         record = get_object_or_404(LeaveRecord, pk=pk)
@@ -543,7 +585,7 @@ class SpecialStatusListView(generics.GenericAPIView):
     serializer_class = SpecialStatusCreateSerializer
 
     def get(self, request):
-        if _role_name(request.user) != "ADMINISTRADOR":
+        if not _is_true_superuser(request.user):
             return Response({"error": "Sin permisos"}, status=403)
 
         queryset = SpecialStatus.objects.select_related("user")
@@ -553,7 +595,7 @@ class SpecialStatusListView(generics.GenericAPIView):
         return Response([_serialize_special_status(s) for s in queryset.order_by("-start_date")])
 
     def post(self, request):
-        if _role_name(request.user) != "ADMINISTRADOR":
+        if not _is_true_superuser(request.user):
             return Response({"error": "Sin permisos"}, status=403)
 
         serializer = self.get_serializer(data=request.data)
@@ -589,7 +631,7 @@ class SpecialStatusDetailView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
 
     def patch(self, request, pk: int):
-        if _role_name(request.user) != "ADMINISTRADOR":
+        if not _is_true_superuser(request.user):
             return Response({"error": "Sin permisos"}, status=403)
 
         record = get_object_or_404(SpecialStatus, pk=pk)
@@ -602,7 +644,7 @@ class SpecialStatusDetailView(generics.GenericAPIView):
         return Response(_serialize_special_status(record))
 
     def delete(self, request, pk: int):
-        if _role_name(request.user) != "ADMINISTRADOR":
+        if not _is_true_superuser(request.user):
             return Response({"error": "Sin permisos"}, status=403)
 
         record = get_object_or_404(SpecialStatus, pk=pk)
@@ -611,17 +653,42 @@ class SpecialStatusDetailView(generics.GenericAPIView):
 
 
 _WORKLOAD_CONFIG_FIELDS = {
-    "hours_per_day": (get_effective_horas_efectivas, "HORAS_EFECTIVAS_DIA", 4, 8, "Las horas efectivas"),
-    "workload_limit_low": (get_effective_workload_limit_low, "workload_limit_low", 0, 24, "El límite de Subutilización"),
-    "workload_limit_high": (get_effective_workload_limit_high, "workload_limit_high", 0, 24, "El límite superior óptimo"),
+    "hours_per_day": (
+        get_effective_horas_efectivas,
+        "HORAS_EFECTIVAS_DIA",
+        4,
+        8,
+        "Las horas efectivas",
+    ),
+    "workload_limit_low": (
+        get_effective_workload_limit_low,
+        "workload_limit_low",
+        0,
+        24,
+        "El límite de Subutilización",
+    ),
+    "workload_limit_high": (
+        get_effective_workload_limit_high,
+        "workload_limit_high",
+        0,
+        24,
+        "El límite superior óptimo",
+    ),
     "workload_limit_overload": (
-        get_effective_workload_limit_overload, "workload_limit_overload", 0, 24, "El límite de Sobrecarga",
+        get_effective_workload_limit_overload,
+        "workload_limit_overload",
+        0,
+        24,
+        "El límite de Sobrecarga",
     ),
 }
 
 
 def _effective_workload_config(now) -> dict[str, float]:
-    return {name: getter(now) for name, (getter, _key, _min, _max, _label) in _WORKLOAD_CONFIG_FIELDS.items()}
+    return {
+        name: getter(now)
+        for name, (getter, _key, _min, _max, _label) in _WORKLOAD_CONFIG_FIELDS.items()
+    }
 
 
 class WorkloadConfigView(generics.GenericAPIView):
@@ -642,19 +709,30 @@ class WorkloadConfigView(generics.GenericAPIView):
         if _role_name(request.user) != "ADMINISTRADOR":
             return Response({"error": "Sin permisos"}, status=403)
 
-        provided = {name: request.data[name] for name in _WORKLOAD_CONFIG_FIELDS if name in request.data}
+        provided = {
+            name: request.data[name] for name in _WORKLOAD_CONFIG_FIELDS if name in request.data
+        }
         if not provided:
             return Response({"error": "Nada que guardar"}, status=400)
 
         for name, value in provided.items():
             _getter, _key, min_value, max_value, label = _WORKLOAD_CONFIG_FIELDS[name]
-            if not isinstance(value, (int, float)) or isinstance(value, bool) or not (min_value <= value <= max_value):
-                return Response({"error": f"{label} debe ser un número entre {min_value} y {max_value} horas"}, status=400)
+            if (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or not (min_value <= value <= max_value)
+            ):
+                return Response(
+                    {"error": f"{label} debe ser un número entre {min_value} y {max_value} horas"},
+                    status=400,
+                )
 
         current = _effective_workload_config(timezone.now())
         merged = {**current, **provided}
         if not (
-            merged["workload_limit_low"] < merged["hours_per_day"] <= merged["workload_limit_high"]
+            merged["workload_limit_low"]
+            < merged["hours_per_day"]
+            <= merged["workload_limit_high"]
             < merged["workload_limit_overload"]
         ):
             return Response(
@@ -713,7 +791,12 @@ class KpiStartDateView(generics.GenericAPIView):
 
         kpi_start_date = serializer.validated_data.get("kpi_start_date")
         target.kpi_start_date = (
-            datetime(kpi_start_date.year, kpi_start_date.month, kpi_start_date.day, tzinfo=dt_timezone.utc)
+            datetime(
+                kpi_start_date.year,
+                kpi_start_date.month,
+                kpi_start_date.day,
+                tzinfo=dt_timezone.utc,
+            )
             if kpi_start_date
             else None
         )
@@ -790,7 +873,8 @@ class RetentionPolicyPurgeView(generics.GenericAPIView):
                 "tasksDeleted": result["tasks_deleted"],
                 "docsDeleted": result["docs_deleted"],
                 "deletedDocs": [
-                    {"githubPath": d["github_path"], "githubSha": d["github_sha"]} for d in result["deleted_docs"]
+                    {"githubPath": d["github_path"], "githubSha": d["github_sha"]}
+                    for d in result["deleted_docs"]
                 ],
             }
         )
@@ -870,16 +954,27 @@ _ANALYTICS_CONFIG_VALIDATION: dict[str, tuple[float, float]] = {
 }
 
 _HEALTH_WEIGHT_KEYS = (
-    "health_weight_cumplimiento", "health_weight_carga", "health_weight_vencidas",
-    "health_weight_consistencia", "health_weight_capacidad",
+    "health_weight_cumplimiento",
+    "health_weight_carga",
+    "health_weight_vencidas",
+    "health_weight_consistencia",
+    "health_weight_capacidad",
 )
 _PERF_WEIGHT_KEYS = (
-    "perf_weight_cumplimiento", "perf_weight_vencidas", "perf_weight_consistencia", "perf_weight_trazabilidad",
+    "perf_weight_cumplimiento",
+    "perf_weight_vencidas",
+    "perf_weight_consistencia",
+    "perf_weight_trazabilidad",
 )
 _RISK_WEIGHT_KEYS = (
-    "risk_weight_sobrecarga", "risk_weight_vencidas_criticas", "risk_weight_tendencia_negativa",
-    "risk_weight_horas_extra", "risk_weight_baja_capacidad", "risk_weight_variabilidad",
-    "risk_weight_concentracion", "risk_weight_sin_planificacion",
+    "risk_weight_sobrecarga",
+    "risk_weight_vencidas_criticas",
+    "risk_weight_tendencia_negativa",
+    "risk_weight_horas_extra",
+    "risk_weight_baja_capacidad",
+    "risk_weight_variabilidad",
+    "risk_weight_concentracion",
+    "risk_weight_sin_planificacion",
 )
 
 
@@ -928,9 +1023,14 @@ class AnalyticsConfigView(generics.GenericAPIView):
             if rule is None:
                 return Response({"error": f"Clave de configuración desconocida: {key}"}, status=400)
             min_value, max_value = rule
-            if not isinstance(value, (int, float)) or isinstance(value, bool) or not (min_value <= value <= max_value):
+            if (
+                not isinstance(value, (int, float))
+                or isinstance(value, bool)
+                or not (min_value <= value <= max_value)
+            ):
                 return Response(
-                    {"error": f"{key} debe ser un número entre {min_value} y {max_value}"}, status=400
+                    {"error": f"{key} debe ser un número entre {min_value} y {max_value}"},
+                    status=400,
                 )
 
         current = get_effective_analytics_config(timezone.now())
@@ -946,9 +1046,13 @@ class AnalyticsConfigView(generics.GenericAPIView):
                 return Response({"error": error}, status=400)
 
         if not (
-            merged["risk_threshold_medio"] < merged["risk_threshold_alto"] < merged["risk_threshold_critico"]
+            merged["risk_threshold_medio"]
+            < merged["risk_threshold_alto"]
+            < merged["risk_threshold_critico"]
         ):
-            return Response({"error": "Los umbrales de riesgo deben cumplir Medio < Alto < Crítico"}, status=400)
+            return Response(
+                {"error": "Los umbrales de riesgo deben cumplir Medio < Alto < Crítico"}, status=400
+            )
 
         for key, value in body.items():
             set_analytics_config_value(key, value, request.user)
@@ -957,7 +1061,12 @@ class AnalyticsConfigView(generics.GenericAPIView):
 
 
 _CURVE_NAMES: tuple[CurveName, ...] = (
-    "cumplimiento", "vencidas", "carga", "capacidad", "consistencia", "trazabilidad",
+    "cumplimiento",
+    "vencidas",
+    "carga",
+    "capacidad",
+    "consistencia",
+    "trazabilidad",
 )
 
 
@@ -988,7 +1097,9 @@ class NormalizationCurvesView(generics.GenericAPIView):
             return Response({"error": f"Curva desconocida: {name}"}, status=400)
         if not is_valid_curve(points):
             return Response(
-                {"error": "Curva inválida: se requieren al menos 2 puntos con x/y finitos e y en [0,100]"},
+                {
+                    "error": "Curva inválida: se requieren al menos 2 puntos con x/y finitos e y en [0,100]"
+                },
                 status=400,
             )
 
@@ -1029,18 +1140,26 @@ class SeguridadConfigView(generics.GenericAPIView):
         data = serializer.validated_data
 
         if "password_min_length" in data:
-            set_config_value(CONFIG_KEY_PASSWORD_MIN_LENGTH, str(data["password_min_length"]), request.user)
+            set_config_value(
+                CONFIG_KEY_PASSWORD_MIN_LENGTH, str(data["password_min_length"]), request.user
+            )
         if "session_duration_default_hours" in data:
             set_config_value(
-                CONFIG_KEY_SESSION_DURATION_DEFAULT_HOURS, str(data["session_duration_default_hours"]), request.user
+                CONFIG_KEY_SESSION_DURATION_DEFAULT_HOURS,
+                str(data["session_duration_default_hours"]),
+                request.user,
             )
         if "session_duration_remember_hours" in data:
             set_config_value(
-                CONFIG_KEY_SESSION_DURATION_REMEMBER_HOURS, str(data["session_duration_remember_hours"]), request.user
+                CONFIG_KEY_SESSION_DURATION_REMEMBER_HOURS,
+                str(data["session_duration_remember_hours"]),
+                request.user,
             )
         if "retention_login_attempts_days" in data:
             set_config_value(
-                CONFIG_KEY_RETENTION_LOGIN_ATTEMPTS, data["retention_login_attempts_days"], request.user
+                CONFIG_KEY_RETENTION_LOGIN_ATTEMPTS,
+                data["retention_login_attempts_days"],
+                request.user,
             )
 
         return Response(self._payload(timezone.now()))
@@ -1073,9 +1192,15 @@ class TrabajoAvanzadoView(generics.GenericAPIView):
         data = serializer.validated_data
 
         if "retroactive_window_days" in data:
-            set_config_value(CONFIG_KEY_RETROACTIVE_WINDOW_DAYS, str(data["retroactive_window_days"]), request.user)
+            set_config_value(
+                CONFIG_KEY_RETROACTIVE_WINDOW_DAYS,
+                str(data["retroactive_window_days"]),
+                request.user,
+            )
         if "workday_end_hour" in data:
-            set_config_value(CONFIG_KEY_WORKDAY_END_HOUR, str(data["workday_end_hour"]), request.user)
+            set_config_value(
+                CONFIG_KEY_WORKDAY_END_HOUR, str(data["workday_end_hour"]), request.user
+            )
 
         return Response(self._payload(timezone.now()))
 
@@ -1124,7 +1249,11 @@ class ConfigHistoryView(generics.GenericAPIView):
         if not keys:
             return Response({"error": "keys es requerido"}, status=400)
 
-        rows = SystemConfigHistory.objects.filter(key__in=keys).select_related("updated_by").order_by("-valid_from")
+        rows = (
+            SystemConfigHistory.objects.filter(key__in=keys)
+            .select_related("updated_by")
+            .order_by("-valid_from")
+        )
         return Response(
             [
                 {
@@ -1193,7 +1322,9 @@ class DocumentationView(generics.GenericAPIView):
         file_path = Path(django_settings.BASE_DIR).parent / "docs" / file_name
         try:
             content = file_path.read_text(encoding="utf-8")
-            updated_at = datetime.fromtimestamp(file_path.stat().st_mtime, tz=dt_timezone.utc).isoformat()
+            updated_at = datetime.fromtimestamp(
+                file_path.stat().st_mtime, tz=dt_timezone.utc
+            ).isoformat()
         except OSError:
             return Response({"error": "No se pudo leer el documento"}, status=500)
 
@@ -1220,11 +1351,14 @@ class NovaCacheView(generics.GenericAPIView):
         serializer = self.get_serializer(data=request.data)
         if not serializer.is_valid():
             return Response(
-                {"error": "El TTL de caché debe ser un entero entre 1 y 10080 minutos (7 días)"}, status=400
+                {"error": "El TTL de caché debe ser un entero entre 1 y 10080 minutos (7 días)"},
+                status=400,
             )
 
         set_config_value(
-            CONFIG_KEY_NOVA_CACHE_TTL_MINUTES, str(serializer.validated_data["cache_ttl_minutes"]), request.user
+            CONFIG_KEY_NOVA_CACHE_TTL_MINUTES,
+            str(serializer.validated_data["cache_ttl_minutes"]),
+            request.user,
         )
         return Response({"cache_ttl_minutes": get_effective_nova_cache_ttl_minutes(timezone.now())})
 

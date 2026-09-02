@@ -5,6 +5,8 @@ from rest_framework import generics
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from apps.core.request_meta import get_request_context
+
 from .models import DataSubjectRequest
 from .permissions import is_administrator
 from .serializers import (
@@ -17,7 +19,9 @@ from .services import create_data_request, export_my_data, resolve_data_request
 
 
 def _queryset():
-    return DataSubjectRequest.objects.select_related("user", "resolved_by").prefetch_related("user__groups")
+    return DataSubjectRequest.objects.select_related("user", "resolved_by").prefetch_related(
+        "user__groups"
+    )
 
 
 class DataRequestListCreateView(generics.GenericAPIView):
@@ -43,7 +47,12 @@ class DataRequestListCreateView(generics.GenericAPIView):
             return Response({"error": "Tipo de solicitud inválido"}, status=400)
 
         data = serializer.validated_data
-        data_request = create_data_request(user=request.user, type=data["type"], description=data.get("description"))
+        data_request = create_data_request(
+            user=request.user,
+            type=data["type"],
+            description=data.get("description"),
+            context=get_request_context(request),
+        )
         return Response(DataSubjectRequestFlatSerializer(data_request).data, status=201)
 
 
@@ -67,7 +76,12 @@ class DataRequestDetailView(generics.GenericAPIView):
         if data_request is None:
             return Response({"error": "Solicitud no encontrada"}, status=404)
 
-        resolve_data_request(data_request=data_request, status=serializer.validated_data["status"], resolver=request.user)
+        resolve_data_request(
+            data_request=data_request,
+            status=serializer.validated_data["status"],
+            resolver=request.user,
+            context=get_request_context(request),
+        )
         updated = _queryset().get(pk=data_request.id)
         return Response(DataSubjectRequestSerializer(updated).data)
 
@@ -81,8 +95,10 @@ class MyDataExportView(generics.GenericAPIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        payload = export_my_data(user=request.user)
+        payload = export_my_data(user=request.user, context=get_request_context(request))
         content = json.dumps(payload, indent=2, ensure_ascii=False, default=str)
         response = HttpResponse(content, content_type="application/json")
-        response["Content-Disposition"] = f'attachment; filename="nexo-mis-datos-{request.user.id}.json"'
+        response["Content-Disposition"] = (
+            f'attachment; filename="nexo-mis-datos-{request.user.id}.json"'
+        )
         return response

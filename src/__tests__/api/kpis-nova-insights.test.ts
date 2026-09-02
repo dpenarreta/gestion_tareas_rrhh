@@ -182,6 +182,36 @@ describe("GET /api/kpis/nova-insights/[userId]", () => {
     expect(djangoApiFetch).not.toHaveBeenCalled();
   });
 
+  it("dos viewers distintos sobre el mismo colaborador NO comparten la caché — cada uno dispara su propia validación en Django", async () => {
+    // Hallazgo de seguridad corregido (ver docs/AUDIT_LOG.md § 2026-09-02,
+    // "Bypass de autorización vía caché compartida en Nova Insights"):
+    // antes del fix, la clave de caché no incluía al viewer — un segundo
+    // viewer con el mismo rol reutilizaba el resultado del primero SIN
+    // que Django volviera a validar la jerarquía real sobre ese target.
+    mockSession({ role: "ANALISTA_CC", djangoUserId: 1 });
+    mockDjangoRoutes("20");
+    await novaInsightsGET(undefined as never, ctx("20"));
+    djangoApiFetch.mockClear();
+
+    mockSession({ role: "ANALISTA_CC", djangoUserId: 2 }); // mismo rol, viewer distinto
+    mockDjangoRoutes("20");
+    await novaInsightsGET(undefined as never, ctx("20"));
+    expect(djangoApiFetch.mock.calls.some((c) => c[0] === "/analytics/20/")).toBe(true);
+  });
+
+  it("un segundo viewer sin visibilidad jerárquica real recibe el 403 de Django, nunca el resultado cacheado del primero", async () => {
+    mockSession({ role: "ANALISTA_CC", djangoUserId: 1 });
+    mockDjangoRoutes("21");
+    const first = await novaInsightsGET(undefined as never, ctx("21"));
+    expect(first.status).toBe(200);
+    djangoApiFetch.mockReset();
+
+    mockSession({ role: "ANALISTA_CC", djangoUserId: 2 });
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, { error: "forbidden" }, 403));
+    const second = await novaInsightsGET(undefined as never, ctx("21"));
+    expect(second.status).toBe(403);
+  });
+
   it("sin GEMINI_API_KEY, usa el fallback determinista construido a partir del bundle", async () => {
     mockSession({ role: "ADMINISTRADOR", djangoUserId: 1 });
     mockDjangoRoutes("14", { risk: true });

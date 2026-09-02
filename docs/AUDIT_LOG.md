@@ -15,6 +15,216 @@
 
 ---
 
+## 2026-09-02 — Corrección de los 7 hallazgos de la re-auditoría de IA y datos personales
+
+**Contexto:** tras publicar el informe "IA y Privacidad de Nexo" (inventario
+de los 4 puntos de integración con Gemini + auditoría de tratamiento de
+datos personales), el usuario pidió corregir los 5 hallazgos encontrados
+(H-1 a H-5), uno por uno. Al cerrar H-5, pidió correr una segunda pasada de
+la misma auditoría para buscar hallazgos nuevos — apareció H-6 (una
+regresión operacional causada por el propio fix de H-5) y H-7 (una
+vulnerabilidad de autorización real, sin relación con los 5 anteriores).
+Los 7 se corrigen en este mismo bloque de trabajo.
+
+### H-1 — RAT.md no desglosaba qué dato llega a Gemini en 3 de 4 flujos
+
+**Problema:** `docs/RAT.md` § 6 solo documentaba el chat de Nova como
+destinatario de datos hacia Google/Gemini — no mencionaba que Nova Insights
+individual también envía el estado de licencia de maternidad/lactancia
+(dato de salud, Art. 26 LOPDP) cuando consulta el propio titular o un
+Administrador, ni que la narrativa de Reportes Ejecutivos envía el nombre
+real de 2 colaboradores identificados individualmente.
+**Decisión:** nueva sección 6.1 en `docs/RAT.md` con el desglose de los 4
+puntos reales (archivo, qué recibe cada uno), más una nota cruzada desde la
+sección 5.1 (categorías especiales de dato) y un riesgo actualizado en la
+sección 11. Solo documentación — no requiere cambio de código, el
+comportamiento del sistema ya era el correcto.
+
+### H-2 — La exportación de "mis datos" excluía la categoría de dato más sensible del propio titular
+
+**Problema:** `export_my_data` (`backend/apps/data_requests/services.py`)
+armaba el JSON de "mis datos" con Tareas/Actividades/Comentarios/Reuniones/
+Ideas/Votos/solicitudes previas, pero nunca incluía `LeaveRecord`
+(permisos médicos) ni `SpecialStatus` (maternidad/lactancia) del propio
+titular — la única categoría de dato que la persona no podía consultar
+sobre sí misma, pese a ser Art. 26 LOPDP.
+**Decisión:** se agregan `permisos_y_ausencias`/`estado_especial` al
+payload, filtrados estrictamente por `user=user` (el titular autenticado,
+nunca un `user_id` del cliente). El adaptador frontend
+(`src/lib/djangoDataRequestsAdapter.ts`) se actualiza en el mismo cambio —
+saltearlo habría hecho que Django devolviera el dato pero el adaptador lo
+descartara en silencio (`.claude/rules/architecture.md`). La restricción de
+quién puede CREAR/EDITAR estos registros (solo Administrador/superusuario)
+no se toca — este cambio es solo sobre el derecho de acceso del propio
+titular a su propio dato.
+**Verificado (re-auditoría H-6/H-7):** el filtro por `user=request.user`
+en `MyDataExportView` no acepta ningún parámetro controlable por el
+cliente — sin riesgo de IDOR.
+
+### H-3 — Solicitudes LOPD no dejaban rastro en el AuditLog central
+
+**Problema:** `create_data_request`/`resolve_data_request`/`export_my_data`
+eran el único flujo de datos personales de todo el sistema que no llamaba a
+`record_audit_event` — crear, resolver o exportar una solicitud ARCO no
+quedaba en el registro de auditoría central, solo en los propios campos de
+`DataSubjectRequest`.
+**Decisión:** las 3 funciones ahora auditan (`data_request.created`/
+`.resolved`/`.exported`), con `context` (IP/user-agent) propagado desde las
+vistas — mismo patrón ya usado en `apps.authentication`.
+
+### H-4 — RAT.md tenía datos técnicos desactualizados
+
+**Problema:** pese a decir "actualizado el 2026-08-28", `docs/RAT.md`
+seguía describiendo el hasheo de contraseñas como `bcrypt` (el código usa
+`Argon2PasswordHasher` desde antes de esa fecha), citaba
+`src/lib/retentionPolicy.ts` (eliminado en la Fase 83 de la migración de
+stack) y usaba nombres de campo camelCase heredados de Prisma
+(`User.dataConsentAccepted`).
+**Decisión:** corregidas las 3 referencias (secciones 5, 9, 10) + nota
+"Revisado el 2026-09-02" al inicio del documento explicando qué cambió, sin
+borrar el historial previo (convención ya establecida del documento).
+
+### H-5 — Gate inconsistente entre KPIs y el CRUD de datos de salud
+
+**Problema:** el redactado de datos de salud en KPIs
+(`redact_sensitive_workload_detail`) usa `actor.is_superuser`; los 4
+endpoints CRUD de `LeaveRecord`/`SpecialStatus`
+(`backend/apps/configuration/views.py`) usaban
+`_role_name(user) == "ADMINISTRADOR"` — verdadero también para un usuario
+en el grupo ADMINISTRADOR sin `is_superuser=True` (estado real alcanzable).
+Ese usuario veía la lista cruda de permisos médicos en Ajustes, pero la
+versión redactada en KPIs — inconsistente para el mismo dato.
+**Decisión:** nuevo helper `_is_true_superuser` (exige `is_superuser=True`
+real), aplicado únicamente a los 4 endpoints de `LeaveRecord`/
+`SpecialStatus` — el resto de `apps/configuration/views.py` (~25 endpoints
+de Ajustes general) sigue con el gate por grupo, sin tocar.
+**Alternativa descartada:** ensanchar el gate de KPIs para aceptar
+pertenencia al grupo (en vez de angostar el CRUD a superusuario real) —
+hubiera ampliado la exposición de un dato de salud, dirección incorrecta
+para un hallazgo de LOPDP.
+
+### H-6 — El fix de H-5 dejó la función inutilizable para cuentas creadas por el camino normal
+
+**Problema (hallazgo de la re-auditoría, no del informe original):**
+verificado que ningún flujo del producto asignaba `is_superuser=True` —
+`UserAdminService.create_user`/`assign_roles` solo hacían
+`groups.set(...)`. Combinado con H-5, cualquier Administrador de RRHH
+creado por el camino normal (Usuarios → grupo ADMINISTRADOR) quedaba
+permanentemente bloqueado de gestionar permisos médicos/estado especial —
+la única vía era el Django admin nativo, sin enlazar desde el producto.
+**Decisión:** `UserAdminService._sync_superuser_with_administrador_group`
+mantiene `is_superuser` sincronizado con la pertenencia al grupo
+ADMINISTRADOR en `create_user`/`assign_roles`, coherente con el diseño ya
+establecido en la migración 0004 de `apps.permissions`
+(`0004_seed_all_permissions_to_administrador`, ver entrada del 2026-09-01:
+"SuperUsuario = ADMINISTRADOR con todo el catálogo explícito") — ese cambio
+ya trataba al grupo ADMINISTRADOR como equivalente a superusuario en el
+catálogo de permisos; este cierra el mismo criterio para el flag real de
+Django. Se agrega un guard de "último administrador activo" (mismo criterio
+que AC-038/`_set_status`) para que quitarle el rol ADMINISTRADOR al único
+superusuario activo del sistema quede bloqueado explícitamente, en vez de
+dejar el sistema sin ningún admin real por accidente. Migración de backfill
+(`apps/users/migrations/0008_...`) para reparar cuentas ya existentes en
+ese estado.
+
+### H-7 — Bypass de autorización vía caché compartida en Nova Insights
+
+**Problema (hallazgo de seguridad real de la re-auditoría):** la caché en
+memoria de `src/app/api/kpis/nova-insights/[userId]/route.ts`
+(`analyticalCache`) usaba como clave `` `${userId}:${sensitivity}:${canSeeRisk}` ``
+— sin identificar al viewer. La validación real de jerarquía (¿puede este
+usuario ver a `userId`?) vive en Django y solo se ejecuta en un cache MISS.
+Dos viewers con el mismo rol pero distinta jerarquía real sobre el mismo
+target (ej. dos Analistas CC de equipos distintos) generaban la misma clave
+— si el primero consultaba legítimamente y quedaba cacheado, el segundo
+recibía el mismo texto generado por IA sin que Django volviera a validar
+nada, durante toda la ventana de TTL (4 horas por defecto). El flujo de
+dato de salud no era alcanzable por esta vía (esa rama solo se activa para
+`isSelf`/Administrador, ambos casos legítimos) — lo expuesto era texto de
+desempeño/KPI de un tercero fuera de la jerarquía real del viewer.
+**Decisión:** la clave de caché se prefija con `session.djangoUserId` (el
+viewer autenticado), tanto en la caché analítica como en la motivacional
+(esta última por consistencia/defensa en profundidad, no por un bypass real
+posible ahí — `mode === "motivational"` solo es alcanzable con
+`isSelf === true`). Cada viewer nuevo sobre un target dado siempre pasa por
+la validación de Django en su primer acceso.
+**Trade-off aceptado:** 2 viewers legítimos sobre el mismo colaborador ya
+no comparten una única llamada a Gemini dentro del TTL — se prioriza
+corrección de autorización sobre eficiencia de caché.
+
+**Impacto general:** `pytest` backend completo 1870/1872 (2 fallos
+preexistentes de un test con fecha hardcodeada en Reportes Ejecutivos, no
+relacionados), Vitest 1129/1129, `tsc`/`eslint` limpios. Archivos tocados:
+`docs/RAT.md`, `backend/apps/data_requests/services.py` + tests,
+`src/lib/djangoDataRequestsAdapter.ts`,
+`backend/apps/configuration/views.py` + tests,
+`backend/apps/users/services.py` + migración `0008` + tests nuevos,
+`src/app/api/kpis/nova-insights/[userId]/route.ts` + tests. Ver
+`docs/CHANGELOG.md` § v1.147.2 para el detalle de versión.
+
+---
+
+## 2026-09-02 — Login roto para cuentas ADMINISTRADOR (cookie de sesión sobre el límite del navegador)
+
+**Problema:** al intentar loguear con la cuenta ADMINISTRADOR
+(`dpenarreta@grupolaar.com`) para una prueba manual, el login devolvía
+200 con los datos correctos del usuario, pero cualquier request
+siguiente rebotaba a `/login` como si no hubiera sesión. Diagnóstico
+(confirmado con `curl` fuera del navegador, para descartar que fuera un
+artefacto de la automatización usada para probarlo): el servidor SÍ
+emitía el `Set-Cookie` de `nexo-session`, pero el navegador lo descartaba
+en silencio porque el valor superaba el límite práctico de ~4KB por
+cookie que aplican Chrome y la mayoría de los clientes HTTP (curl
+incluido — su cookie jar tampoco lo guardó).
+
+Causa raíz: `session.permissions` (agregado en v1.146.0, "Catálogo
+dinámico de permisos extendido a todo el sistema", ver entrada anterior)
+embebe `get_user_permission_codenames(user)` completo en el JWT de la
+cookie. Para un usuario normal esa lista tiene ~5-15 codenames — sin
+problema. Para un superusuario, `user.get_all_permissions()` de Django
+devuelve el catálogo COMPLETO del sistema (todo modelo × toda acción,
+246 codenames verificados en este caso), no solo los ~30 del catálogo de
+negocio (`PERMISSION_CATALOG`) — el JSON de esa lista pesa ~8KB, muy por
+encima del límite de cookie. El bug estaba latente desde que se agregó
+`session.permissions`: cualquier cuenta ADMINISTRADOR nueva o con la
+sesión re-emitida (login o edición de perfil) quedaba con el login roto.
+
+**Alternativas consideradas:**
+1. **Aumentar el límite o partir la cookie en varias.** Descartada — trata
+   el síntoma, no la causa; seguiría creciendo con cada permiso nuevo que
+   se agregue al catálogo, y varias cookies para un solo valor lógico es
+   un patrón más frágil, no más simple.
+2. **Sacar `permissions` de la cookie por completo, resolverlo con una
+   llamada aparte en cada carga de página.** Descartada — reintroduce
+   exactamente el problema de latencia que `session.permissions` vino a
+   resolver (el comentario original en `MeView` documenta que evita "otra
+   llamada" para decidir qué mostrar en el menú), y complica todos los
+   guards existentes (`canViewRoles`, etc.) que hoy son síncronos.
+3. **Sentinel `"*"` para ADMINISTRADOR (elegida).** `sessionPermissionsFor`
+   colapsa la lista completa a `["*"]` cuando el rol es `ADMINISTRADOR`;
+   `hasPermission`/`hasAnyPermission` tratan ese sentinel como "todos los
+   permisos". Consistente con el bypass que ya existe del lado servidor
+   (`user_has_permission` en `backend/apps/permissions/authorization.py`
+   ya hace `if user.is_superuser: return True` antes de mirar la lista) —
+   el catálogo dinámico nunca fue la fuente de autorización real para
+   ADMINISTRADOR, solo texto de más en una cookie que de todos modos
+   Django ignora para esa cuenta.
+
+**Justificación:** la opción 3 es la más chica posible (un `if` en un solo
+helper, 2 call sites) y elimina la clase entera de bug — no puede
+recurrir aunque el catálogo de permisos crezca, porque ADMINISTRADOR
+nunca vuelve a serializar la lista literal. `docs/CLAUDE.md`/
+`.claude/rules/security.md` ya establecen que `session.permissions` es
+"exclusivamente para gating de UI, nunca la fuente de verdad real" —
+reemplazar el valor por un sentinel no cambia esa garantía en absoluto.
+
+**Impacto:** el login de cualquier cuenta ADMINISTRADOR/superusuario
+estaba roto en producción desde v1.146.0 hasta esta corrección (v1.147.1).
+Ningún otro rol se vio afectado. Detalle técnico completo en
+`docs/CHANGELOG.md` § v1.147.1.
+
+---
+
 ## 2026-09-01 — Catálogo dinámico de permisos extendido a todo el sistema
 
 **Problema:** el usuario preguntó por qué un proyecto iniciado desde

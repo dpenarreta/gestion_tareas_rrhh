@@ -21,6 +21,10 @@ LAST_ACTIVE_ADMIN_ERROR = (
     "No es posible deshabilitar/bloquear a este usuario: es el único "
     "administrador activo del sistema."
 )
+LAST_ACTIVE_ADMIN_ROLE_ERROR = (
+    "No es posible quitarle el rol ADMINISTRADOR a este usuario: es el "
+    "único administrador activo del sistema."
+)
 
 
 class UserAdminService:
@@ -53,7 +57,9 @@ class UserAdminService:
         user.save(update_fields=["created_by", "updated_by"])
 
         if role_ids:
-            user.groups.set(Group.objects.filter(id__in=role_ids))
+            groups = list(Group.objects.filter(id__in=role_ids))
+            user.groups.set(groups)
+            UserAdminService._sync_superuser_with_administrador_group(user, groups)
 
         record_audit_event(
             actor=actor,
@@ -89,6 +95,32 @@ class UserAdminService:
                 context=context,
             )
         return user
+
+    @staticmethod
+    def _administrador_in(groups) -> bool:
+        return any(g.name == "ADMINISTRADOR" for g in groups)
+
+    @staticmethod
+    def _sync_superuser_with_administrador_group(user: User, groups) -> None:
+        """Hallazgo H-6 de la re-auditoría de datos personales (ver
+        docs/AUDIT_LOG.md § 2026-09-02): `is_superuser` es el único
+        bypass real de autorización (`user_has_permission`), y desde la
+        migración 0004 de `apps.permissions`
+        (`0004_seed_all_permissions_to_administrador`) el grupo
+        ADMINISTRADOR ya tiene sembrado TODO el catálogo de permisos —
+        pero ningún flujo del producto asignaba realmente
+        `is_superuser`, dejando a cualquier Administrador creado por el
+        camino normal sin poder gestionar `LeaveRecord`/`SpecialStatus`
+        (Art. 26 LOPDP, gate `_is_true_superuser` desde H-5). Se
+        mantiene sincronizado con la pertenencia al grupo en cada
+        creación/reasignación de rol — nunca se asigna a mano en otro
+        lado. El guard de "último administrador" vive en el llamador
+        (`assign_roles`), antes de tocar los grupos, para no dejar un
+        cambio a medias si se bloquea."""
+        should_be_superuser = UserAdminService._administrador_in(groups)
+        if user.is_superuser != should_be_superuser:
+            user.is_superuser = should_be_superuser
+            user.save(update_fields=["is_superuser"])
 
     @staticmethod
     def _is_last_active_admin(user: User) -> bool:
@@ -183,7 +215,20 @@ class UserAdminService:
     ) -> User:
         previous_groups = list(user.groups.all())
         groups = list(Group.objects.filter(id__in=role_ids))
+
+        # Guard ANTES de tocar los grupos (ver AC-038): si esta
+        # reasignación le quita ADMINISTRADOR al único administrador
+        # activo del sistema, se bloquea sin dejar ningún cambio a
+        # medias — mismo criterio que `_set_status` para
+        # deshabilitar/bloquear.
+        if not UserAdminService._administrador_in(
+            groups
+        ) and UserAdminService._is_last_active_admin(user):
+            raise serializers.ValidationError({"non_field_errors": [LAST_ACTIVE_ADMIN_ROLE_ERROR]})
+
+        previous_is_superuser = user.is_superuser
         user.groups.set(groups)
+        UserAdminService._sync_superuser_with_administrador_group(user, groups)
         user.updated_by = actor
         user.save(update_fields=["updated_by", "updated_at"])
         record_audit_event(
@@ -194,8 +239,13 @@ class UserAdminService:
             previous_values={
                 "role_ids": [g.id for g in previous_groups],
                 "role_names": [g.name for g in previous_groups],
+                "is_superuser": previous_is_superuser,
             },
-            new_values={"role_ids": role_ids, "role_names": [g.name for g in groups]},
+            new_values={
+                "role_ids": role_ids,
+                "role_names": [g.name for g in groups],
+                "is_superuser": user.is_superuser,
+            },
             context=context,
         )
         return user
@@ -214,12 +264,21 @@ class UserAdminService:
         # auditar.
         previous = {
             "data_consent_accepted": user.data_consent_accepted,
-            "data_consent_accepted_at": user.data_consent_accepted_at.isoformat() if user.data_consent_accepted_at else None,
+            "data_consent_accepted_at": (
+                user.data_consent_accepted_at.isoformat() if user.data_consent_accepted_at else None
+            ),
         }
         user.data_consent_accepted = False
         user.data_consent_accepted_at = None
         user.updated_by = actor
-        user.save(update_fields=["data_consent_accepted", "data_consent_accepted_at", "updated_by", "updated_at"])
+        user.save(
+            update_fields=[
+                "data_consent_accepted",
+                "data_consent_accepted_at",
+                "updated_by",
+                "updated_at",
+            ]
+        )
         record_audit_event(
             actor=actor,
             action="user.consent_reset",
@@ -238,7 +297,9 @@ class UserAdminService:
         tocadas por el `updateMany` sin `where` del TS (no solo las que
         tenían el consentimiento en `true`), réplica fiel de esa
         semántica."""
-        count = User.objects.all().update(data_consent_accepted=False, data_consent_accepted_at=None)
+        count = User.objects.all().update(
+            data_consent_accepted=False, data_consent_accepted_at=None
+        )
         record_audit_event(
             actor=actor,
             action="user.consent_reset_all",
