@@ -205,7 +205,7 @@ export const SETTINGS_REGISTRY: SettingDescriptor[] = [
   {
     id: "knowledge-base",
     label: "Base de conocimiento RRHH",
-    description: "Documentos PDF indexados que NOVA usa para responder consultas de RRHH (búsqueda semántica).",
+    description: "Documentos PDF indexados que Gemini usa para responder consultas de RRHH (búsqueda semántica).",
     keywords: ["nova", "documentos", "rag", "conocimiento"],
     category: "nova",
     configKeys: [],
@@ -213,7 +213,7 @@ export const SETTINGS_REGISTRY: SettingDescriptor[] = [
   {
     id: "nova-cache",
     label: "Caché de mensajes",
-    description: "Minutos que NOVA reutiliza un mensaje generado (Dashboard + Insights de Analytics) antes de volver a llamar al modelo de IA.",
+    description: "Minutos que Gemini reutiliza un mensaje generado (Dashboard + Insights de Analytics) antes de volver a llamar al modelo de IA.",
     keywords: ["nova", "caché", "ttl", "gemini"],
     category: "nova",
     configKeys: ["nova_cache_ttl_minutes"],
@@ -268,7 +268,7 @@ export const SETTINGS_REGISTRY: SettingDescriptor[] = [
   {
     id: "retention-policy",
     label: "Política de retención de datos",
-    description: "Meses de conservación de informes mensuales, tareas archivadas y documentos de Nova, con depuración manual.",
+    description: "Meses de conservación de informes mensuales, tareas archivadas y documentos de Gemini, con depuración manual.",
     keywords: ["lopdp", "purga", "eliminación", "retención"],
     category: "seguridad",
     configKeys: ["retention_monthly_reports", "retention_archived_tasks", "retention_knowledge_docs"],

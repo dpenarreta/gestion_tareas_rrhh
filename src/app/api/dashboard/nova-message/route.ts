@@ -120,7 +120,7 @@ export async function POST() {
       contents: [{ role: "user", parts: [{ text: JSON.stringify(ctx) }] }],
       config: {
         systemInstruction:
-          "Eres Nova, asistente de Nexo. Genera UN mensaje corto (máximo 25 palabras) para el dashboard del usuario, en español, sin saludo, directo y accionable. " +
+          "Eres Gemini, asistente de Nexo. Genera UN mensaje corto (máximo 25 palabras) para el dashboard del usuario, en español, sin saludo, directo y accionable. " +
           "Basa el mensaje ÚNICAMENTE en los datos reales que te doy, usando los números exactos, sin inventar nada. " +
           "Prioriza en este orden: (1) si hay tareas vencidas, alerta sobre eso primero con tono de urgencia; " +
           "(2) si no hay vencidas pero hay tareas por vencer esta semana, menciónalas; " +

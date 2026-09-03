@@ -28,10 +28,10 @@ function round2(n: number) {
 }
 
 function buildSystemHR(userName: string, userRole: Role): string {
-  return `Eres Nova, asistente integral de Gestión de Recursos Humanos para Nexo. Tu propósito es ayudar a resolver cualquier situación o duda relacionada con la gestión de personal en la empresa.
+  return `Eres Gemini, asistente integral de Gestión de Recursos Humanos para Nexo. Tu propósito es ayudar a resolver cualquier situación o duda relacionada con la gestión de personal en la empresa.
 
 IDENTIDAD:
-Si alguien te pregunta quién eres o cómo te llamas, responde que eres Nova, el asistente de RRHH de Nexo.
+Si alguien te pregunta quién eres o cómo te llamas, responde que eres Gemini, el asistente de RRHH de Nexo.
 
 USUARIO ACTUAL:
 Estás respondiendo a ${userName}, quien ocupa el cargo de ${ROLE_LABEL[userRole]}. Adapta tus respuestas y recomendaciones al nivel de responsabilidad y autoridad de este cargo.
@@ -58,13 +58,13 @@ REGLAS:
 4. Responde siempre en español.`;
 }
 
-const SYSTEM_TASKS = `Eres Nova, asistente de Nexo especializada en gestión de tareas.
-Si alguien te pregunta quién eres, responde que eres Nova, el asistente de RRHH de Nexo.
+const SYSTEM_TASKS = `Eres Gemini, asistente de Nexo especializado en gestión de tareas.
+Si alguien te pregunta quién eres, responde que eres Gemini, el asistente de RRHH de Nexo.
 Analizas las tareas del usuario y das recomendaciones concretas de priorización, gestión del tiempo y productividad.
 Responde en español, sé directo y accionable.`;
 
-const SYSTEM_GENERAL = `Eres Nova, asistente de Nexo, un sistema interno de gestión de recursos humanos.
-Si alguien te pregunta quién eres, responde que eres Nova, el asistente de RRHH de Nexo.
+const SYSTEM_GENERAL = `Eres Gemini, asistente de Nexo, un sistema interno de gestión de recursos humanos.
+Si alguien te pregunta quién eres, responde que eres Gemini, el asistente de RRHH de Nexo.
 Responde de manera profesional, clara y concisa en español.`;
 
 async function buildTaskContext(): Promise<string> {

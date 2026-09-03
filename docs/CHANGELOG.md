@@ -23,6 +23,198 @@
 
 ---
 
+## v1.149.0 — 2026-09-02
+
+**Tipo:** FEATURE
+**Módulo:** Despliegue en IIS (Windows) con SQL Server de producción (ver
+docs/AUDIT_LOG.md § 2026-09-02, "Despliegue en IIS nativo de Windows" —
+guía completa en `docs/DEPLOYMENT_IIS.md`).
+
+- **`web.config`** (raíz del repo): regla única de reverse proxy de IIS
+  (ARR + URL Rewrite) hacia Next.js (127.0.0.1:3000). Django nunca se
+  expone vía IIS — solo `127.0.0.1:8000`, Next.js le habla server-side.
+- **`backend/requirements/prod-windows.txt`** (nuevo): `waitress` en vez
+  de `gunicorn` (Unix-only, no instala en Windows) —
+  `requirements/prod.txt` (Docker/Linux, sin cambios) sigue siendo el
+  path de despliegue con contenedores.
+- **`backend/scripts/serve_production_windows.py`** (nuevo): pipeline de
+  arranque de producción para Windows (espera DB → collectstatic →
+  migrate → sirve con waitress), equivalente Windows de `entrypoint.sh`.
+  Verificado en vivo contra la base de datos de desarrollo real.
+- **`python manage.py seed_superadmin`** (nuevo, `apps/users`): crea el
+  usuario ADMINISTRADOR inicial en una base de datos vacía — reutiliza
+  `UserAdminService.create_user` (hasheo, sincronización de
+  `is_superuser`, auditoría), idempotente, valida la contraseña y fuerza
+  `must_change_password=True`.
+- **`scripts/deploy/register-windows-services.ps1`** (nuevo): registra
+  backend y frontend como Windows Services vía NSSM (arranque automático,
+  reinicio si el proceso muere, logs rotados).
+  **`scripts/deploy/seed-superadmin.ps1`** (nuevo): envoltorio del comando
+  anterior para el servidor de producción.
+- **`.env.production.example`** (raíz) y
+  **`backend/.env.production.example`** (nuevos): plantillas de variables
+  de entorno de producción, distintas de los `.env.example` de
+  desarrollo ya existentes.
+- **`docs/DEPLOYMENT_IIS.md`** (nuevo): guía operativa completa —
+  prerrequisitos (IIS/ARR/URL Rewrite/NSSM, instalación manual con
+  privilegios de administrador), pasos de instalación, registro de
+  servicios, configuración del sitio IIS, verificación end-to-end,
+  checklist de seguridad.
+
+**Verificación:** pipeline completo de arranque de producción del backend
+probado en vivo (puerto de prueba, sin afectar el servidor de desarrollo);
+`npm run build` de producción ejecutado con éxito (servidor de desarrollo
+pausado ~1 minuto y restaurado limpio); 6 tests nuevos de
+`seed_superadmin` (`pytest apps/users/tests/test_seed_superadmin.py`,
+6/6). La instalación real de IIS/ARR/URL Rewrite/NSSM queda como paso
+manual documentado (requiere privilegios de administrador que esta sesión
+no tiene).
+
+## v1.148.1 — 2026-09-02
+
+**Tipo:** FIX
+**Módulo:** Consentimiento de datos — "Restablecer"/"Restablecer todos"
+usaban `confirm()` nativo del navegador en vez de `ConfirmDialog` (ver
+docs/AUDIT_LOG.md § 2026-09-02, "Restablecer consentimiento usaba confirm()
+nativo en vez de ConfirmDialog").
+
+`DataConsentSection.tsx::handleResetConsent`/`handleResetConsentAll`
+usaban `window.confirm()` (heredado 1:1 de `SettingsManager.tsx`, nunca
+migrado cuando el resto del sistema adoptó `ConfirmDialog` — ver su propio
+docstring: "reemplaza confirm() nativo, usado hasta ahora en 13 archivos").
+El usuario notó, al ver el diálogo del navegador sin el estilo de la app,
+que era inconsistente con el resto de confirmaciones del sistema (incluida
+"Eliminar consentimiento" en `UsersManager.tsx`, ya migrada en v1.148.0).
+Ambos flujos ahora usan `ConfirmDialog`, con el mismo patrón de
+`pendingXxx`/`loading` ya establecido. "Restablecer todos" (afecta a todos
+los usuarios) consolida sus 2 `confirm()` encadenados en un solo diálogo
+con estilo `danger`, en vez de duplicar la confirmación.
+
+**Archivos:** `src/components/settings/DataConsentSection.tsx`.
+**Verificación:** 9 tests nuevos en
+`src/__tests__/components/settings/DataConsentSection.test.tsx` (14/14 en
+el archivo), Vitest completo 1158/1158, `tsc`/`eslint` limpios. Verificado
+en Chrome: ambos diálogos ahora usan el modal estándar de la app.
+
+## v1.148.0 — 2026-09-02
+
+**Tipo:** FEATURE
+**Módulo:** Consentimiento de datos personales — gate real por scroll+checkbox,
+eliminación individual desde Usuarios, contenido editable desde Ajustes (ver
+docs/AUDIT_LOG.md § 2026-09-02, "Consentimiento de datos editable desde
+Ajustes").
+
+- **Gate real en `ConsentGate.tsx`:** el botón "Aceptar y continuar" ahora
+  exige DOS condiciones independientes — checkbox marcado Y haber llegado
+  al final del texto (`scrollTop + clientHeight >= scrollHeight - 4`, con
+  chequeo adicional post-carga para el caso "el texto entra sin scroll").
+  Antes bastaba con el checkbox, sin haber leído nada.
+- **Eliminar consentimiento individual (`UsersManager.tsx`):** la columna
+  "Consentimiento" de Usuarios muestra un botón "Eliminar" (con
+  `ConfirmDialog`) cuando el usuario ya aceptó — fuerza a que vuelva a ver
+  y aceptar el aviso en su próximo login. Reutiliza el endpoint existente
+  `PATCH /api/users/:id/reset-consent` (antes solo disponible desde
+  "Restablecer todos" en Ajustes).
+- **Contenido editable desde Ajustes (`DataConsentSection.tsx`):** nuevo
+  botón "✏️ Editar contenido" junto a "🔄 Restablecer todos" (mismo estilo
+  `Button variant="secondary"`) que abre un modal con un textarea Markdown
+  precargado con el aviso vigente. El texto pasa de estar hardcodeado en
+  `ConsentGate.tsx` a ser un valor de `SystemConfigHistory`
+  (`consent_text`, mismo mecanismo versionado ya usado por
+  `welcome_message`/`nova_cache_ttl_minutes`) — `ConsentGate.tsx` lo trae
+  de `GET /api/settings/consent-text` y lo renderiza como Markdown
+  (`marked` + `DOMPurify.sanitize`, mismo patrón que
+  `DocumentationSection.tsx`), con el texto anterior hardcodeado como
+  respaldo (`FALLBACK_CONSENT_TEXT`) si la carga falla.
+- **Backend:** `ConsentTextView` (`GET` cualquier usuario autenticado,
+  `PUT` solo ADMINISTRADOR) en `apps/configuration/`; `SystemConfigHistory.value`
+  pasa de `CharField(max_length=255)` a `TextField()` (migración
+  `0006_alter_systemconfighistory_value`) — el aviso completo (~1500
+  caracteres) no entraba en 255. Beneficia a todos los valores que usan
+  ese mecanismo, no solo `consent_text`.
+
+**Archivos:** `src/components/ConsentGate.tsx`,
+`src/components/settings/DataConsentSection.tsx`,
+`src/components/UsersManager.tsx`,
+`src/app/api/settings/consent-text/route.ts` (nuevo),
+`backend/apps/configuration/{models,serializers,views,urls,services}.py`,
+`backend/apps/configuration/migrations/0006_alter_systemconfighistory_value.py`
+(nueva).
+
+**Verificación:** backend `pytest apps/` 1884/1886 (2 fallos preexistentes
+no relacionados, mismo caso de fecha hardcodeada ya documentado en
+v1.147.2); frontend `tsc`/`eslint` limpios, Vitest 1154/1154.
+
+## v1.147.5 — 2026-09-02
+
+**Tipo:** FIX
+**Módulo:** Ajustes → Seguridad — pantalla se rompía al entrar (ver
+docs/AUDIT_LOG.md § 2026-09-02, "ConfigCenter no validaba la respuesta de
+/api/users").
+
+`ConfigCenter.tsx::loadUsers()` asignaba el body de la respuesta a
+`setUsers(data)` sin comprobar `res.ok` — un error (`{error: "..."}`, no un
+array) se pasaba igual a `PasswordManagementSection.tsx`, que rompía en
+`users.map is not a function`. Ahora valida `res.ok` y el tipo de `data`
+antes de `setUsers`, con toast de error y `users = []` en cualquier fallo.
+Hallazgo real del usuario ("intenté entrar a seguridad dentro de ajustes y
+se rompió"), reproducido con la captura de pantalla del error.
+
+**Archivos:** `src/components/settings/ConfigCenter.tsx`.
+
+## v1.147.4 — 2026-09-02
+
+**Tipo:** FIX
+**Módulo:** Autenticación — `ConsentGate` fallaba en silencio,
+`djangoApiFetch` no refrescaba el token cuando faltaba la cookie (ver
+docs/AUDIT_LOG.md § 2026-09-02, "ConsentGate no mostraba ningún error si el
+PATCH fallaba").
+
+- `ConsentGate.tsx::handleAccept()` hacía `if (res.ok) onAccept()` sin
+  rama `else` — cualquier fallo del `PATCH /api/auth/consent` (ej. token de
+  Django recién vencido tras el login) dejaba al usuario sin ninguna señal:
+  el botón volvía a su estado normal, indistinguible de no haber hecho
+  clic. Ahora reintenta una vez automáticamente si el primer intento
+  devuelve 401, y si sigue fallando muestra el error real por toast.
+- `djangoApiFetch` (`src/lib/djangoSession.ts`) solo intentaba refrescar el
+  token de Django cuando la respuesta era 401 con un token presente pero
+  inválido — si la cookie de acceso faltaba directamente (mismo escenario
+  del punto anterior), devolvía `null` sin siquiera intentar el refresh.
+  Ahora, si no hay `access_token`, intenta refrescar antes de rendirse.
+
+Ambos bugs fueron descubiertos porque el usuario insistió en que el
+problema era real y reproducible en su propio navegador ("siempre, siempre,
+siempre no me deja poner en aceptar y continuar"), no una falla puntual de
+las pruebas automatizadas de Chrome como se había asumido inicialmente.
+
+**Archivos:** `src/components/ConsentGate.tsx`, `src/lib/djangoSession.ts`.
+**Verificación:** nuevo `src/__tests__/djangoSession.test.ts` (6 tests).
+
+## v1.147.3 — 2026-09-01
+
+**Tipo:** UX
+**Módulo:** Renombrado de marca — "Nova" → "Gemini" en toda la interfaz de
+usuario (ver docs/AUDIT_LOG.md § 2026-09-01, "Renombrado de marca de Nova a
+Gemini").
+
+Solo texto visible (labels, títulos, placeholders, mensajes) en ~12
+archivos — identificadores internos, nombres de archivo, rutas, claves de
+config y el modelo de Gemini usado (`@google/genai`) quedan exactamente
+igual. El usuario pidió el cambio por percepción de seguridad/marca
+("Nova" sonaba a un proveedor propio en vez de dejar explícito que es
+Gemini bajo la licencia corporativa existente), no por un cambio real de
+proveedor — ya se había migrado de Groq a Gemini en 2026-08-31.
+
+**Archivos:** `src/lib/navLinks.ts`, `src/lib/settingsCategories.ts`,
+`src/components/shell/NovaFab.tsx`,
+`src/components/settings/{NovaCacheSection,RetentionPolicySection,registry}.tsx`,
+`src/components/assistant/AssistantModule.tsx`,
+`src/components/dashboard/DashboardModule.tsx`,
+`src/app/(protected)/profile/page.tsx`,
+`src/app/api/assistant/chat/route.ts`,
+`src/app/api/dashboard/nova-message/route.ts`,
+`src/app/api/kpis/nova-insights/[userId]/route.ts`.
+
 ## v1.147.2 — 2026-09-02
 
 **Tipo:** SECURITY

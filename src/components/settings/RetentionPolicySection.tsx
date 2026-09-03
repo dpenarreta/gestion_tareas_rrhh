@@ -124,7 +124,7 @@ export default function RetentionPolicySection() {
         <>
           <p className="text-xs text-secondary">
             Define por cuánto tiempo se conservan los informes mensuales, las tareas archivadas y los documentos
-            de la base de conocimiento de Nova antes de poder depurarlos.
+            de la base de conocimiento de Gemini antes de poder depurarlos.
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -159,7 +159,7 @@ export default function RetentionPolicySection() {
             </div>
 
             <div className="space-y-1.5">
-              <label className="text-sm font-medium text-title">Retener documentos de Nova por</label>
+              <label className="text-sm font-medium text-title">Retener documentos de Gemini por</label>
               <select
                 value={retentionPolicy.knowledgeDocsMonths}
                 onChange={(e) =>

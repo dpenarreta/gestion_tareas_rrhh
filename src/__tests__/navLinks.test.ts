@@ -36,7 +36,7 @@ describe("getNavLinks", () => {
     expect(hrefs("COORDINADOR_NACIONAL")).not.toContain("/settings");
   });
 
-  it("todos los roles ven Nova seguido de Inteligencia Preventiva al final (sección 'inteligencia')", () => {
+  it("todos los roles ven Gemini seguido de Inteligencia Preventiva al final (sección 'inteligencia')", () => {
     for (const role of ["ASISTENTE_GH", "COORDINADOR_ZS", "JEFE_NACIONAL", "ADMINISTRADOR"] as const) {
       const links = getNavLinks(role);
       expect(links[links.length - 2].href).toBe("/assistant");

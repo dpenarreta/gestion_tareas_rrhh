@@ -52,6 +52,7 @@ from apps.users.models import User
 from .data_quality import build_data_quality_report
 from .models import Holiday, LeaveRecord, SpecialStatus, SystemConfigHistory
 from .serializers import (
+    ConsentTextUpdateSerializer,
     EscritorioDigitalConfigUpdateSerializer,
     FavoriteUpdateSerializer,
     HolidayCreateSerializer,
@@ -69,6 +70,7 @@ from .serializers import (
 )
 from .services import (
     ANALYTICS_CONFIG_DEFAULTS,
+    CONFIG_KEY_CONSENT_TEXT,
     CONFIG_KEY_NOVA_CACHE_TTL_MINUTES,
     CONFIG_KEY_PASSWORD_MIN_LENGTH,
     CONFIG_KEY_PREDICTION_WINDOW_WEEKS,
@@ -85,6 +87,7 @@ from .services import (
     get_all_effective_role_compatibility,
     get_all_effective_role_targets,
     get_effective_analytics_config,
+    get_effective_consent_text,
     get_effective_desk_archive_retention_days,
     get_effective_desk_note_max_replies,
     get_effective_horas_efectivas,
@@ -301,6 +304,35 @@ class WelcomeMessageView(generics.GenericAPIView):
         set_config_value(CONFIG_KEY_WELCOME_MESSAGE, message, request.user)
         set_config_value(CONFIG_KEY_WELCOME_MESSAGE_ACTIVE, str(active).lower(), request.user)
         return Response({"message": message, "active": active})
+
+
+class ConsentTextView(generics.GenericAPIView):
+    """`GET/PUT /api/v1/settings/consent-text/` — pedido explícito del
+    usuario (ver docs/AUDIT_LOG.md § 2026-09-02, "Consentimiento de datos
+    editable desde Ajustes"). `GET` sin rol especial (`ConsentGate.tsx` lo
+    necesita para CUALQUIER usuario, no solo Administrador — es el aviso
+    que se le muestra antes de dejarlo entrar); `PUT` solo ADMINISTRADOR,
+    mismo criterio que `WelcomeMessageView`."""
+
+    permission_classes = [IsAuthenticated]
+    serializer_class = ConsentTextUpdateSerializer
+
+    def get(self, request):
+        return Response({"text": get_effective_consent_text(timezone.now())})
+
+    def put(self, request):
+        if _role_name(request.user) != "ADMINISTRADOR":
+            return Response({"error": "Sin permisos"}, status=403)
+
+        serializer = self.get_serializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({"error": "Datos inválidos"}, status=400)
+
+        text = serializer.validated_data["text"].strip()
+        if not text:
+            return Response({"error": "El texto no puede quedar vacío"}, status=400)
+        set_config_value(CONFIG_KEY_CONSENT_TEXT, text, request.user)
+        return Response({"text": text})
 
 
 class RoleTargetsView(generics.GenericAPIView):

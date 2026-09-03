@@ -18,6 +18,7 @@ para el procedimiento exacto.
 | [`DECISIONS.md`](./DECISIONS.md) | Índice liviano de decisiones de arquitectura y diseño técnico, con enlace a `AUDIT_LOG.md` cuando existe un análisis completo. |
 | [`ROADMAP.md`](./ROADMAP.md) | Roadmap vivo: Implementado / En desarrollo / Planificado / Ideas futuras. |
 | [`ARCHITECTURE.md`](./ARCHITECTURE.md) | Arquitectura actual del sistema: stack, estructura de carpetas, modelo de datos, autenticación, módulos funcionales, flujo de una request, convenciones técnicas. |
+| [`DEPLOYMENT_IIS.md`](./DEPLOYMENT_IIS.md) | Guía operativa de instalación en un servidor Windows con IIS (reverse proxy) y SQL Server de producción — prerrequisitos, registro como Windows Services, checklist de seguridad. |
 | [`ANALYTICS_FORMULAS.md`](./ANALYTICS_FORMULAS.md) | Documentación completa de cada fórmula del motor de Analytics: objetivo, fórmula, variables, pesos, normalización, ejemplo de cálculo, casos borde, reglas de negocio, versión. |
 | [`VERSION.md`](./VERSION.md) | Versionado de NEXO, del Analytics Engine y del set de fórmulas, con el historial completo reconstruido desde Git. |
 | [`DESIGN_SYSTEM.md`](./DESIGN_SYSTEM.md) | Referencia oficial de UI: tokens, botones, chips, tablas, modales, toasts, loading, empty states, iconografía — y el informe de Design Review de cada sprint de UX. |

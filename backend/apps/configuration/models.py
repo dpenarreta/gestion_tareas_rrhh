@@ -35,7 +35,12 @@ class SystemConfigHistory(models.Model):
     igual que el Prisma original. Sin endpoint HTTP — ver `Holiday` arriba."""
 
     key = models.CharField(max_length=100, db_index=True)
-    value = models.CharField(max_length=255)
+    # `TextField` desde 2026-09-02 (ver docs/AUDIT_LOG.md § 2026-09-02,
+    # "Consentimiento de datos editable desde Ajustes") — era
+    # `CharField(max_length=255)`, insuficiente para el texto completo del
+    # aviso de tratamiento de datos personales (~1500 caracteres). Sin
+    # pérdida de datos: todo valor existente ya cabía en 255 caracteres.
+    value = models.TextField()
     valid_from = models.DateTimeField(default=timezone.now)
     valid_until = models.DateTimeField(null=True, blank=True)
     updated_by = models.ForeignKey(
@@ -65,13 +70,17 @@ class LeaveRecord(BaseModel):
         PERSONAL = "PERSONAL"
         VACACIONES = "VACACIONES"
 
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="leave_records", on_delete=models.CASCADE)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, related_name="leave_records", on_delete=models.CASCADE
+    )
     type = models.CharField(max_length=15, choices=Type.choices)
     date = models.DateField()
     is_full_day = models.BooleanField()
     duration_minutes = models.PositiveIntegerField(null=True, blank=True)
     observation = models.TextField(null=True, blank=True)
-    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="+", on_delete=models.PROTECT)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, related_name="+", on_delete=models.PROTECT
+    )
 
     class Meta:
         indexes = [models.Index(fields=["user", "date"])]
@@ -93,7 +102,9 @@ class SpecialStatus(BaseModel):
         MATERNIDAD = "MATERNIDAD"
         LACTANCIA = "LACTANCIA"
 
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="special_statuses", on_delete=models.CASCADE)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, related_name="special_statuses", on_delete=models.CASCADE
+    )
     type = models.CharField(max_length=15, choices=Type.choices)
     start_date = models.DateField()
     end_date = models.DateField(null=True, blank=True)
@@ -107,7 +118,9 @@ class SpecialStatus(BaseModel):
     limit_base = models.FloatField(default=6)
     limit_high = models.FloatField(default=7)
     limit_overload = models.FloatField(default=8)
-    created_by = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="+", on_delete=models.PROTECT)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, related_name="+", on_delete=models.PROTECT
+    )
 
     class Meta:
         indexes = [models.Index(fields=["user", "start_date"])]
@@ -125,7 +138,9 @@ class DataPurgeLog(models.Model):
     edita. Sin `legacy_postgres_id`: decisión explícita del usuario (Fase
     82) de no migrar datos históricos reales."""
 
-    executed_by = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="+", on_delete=models.PROTECT)
+    executed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, related_name="+", on_delete=models.PROTECT
+    )
     reports_deleted = models.PositiveIntegerField()
     tasks_deleted = models.PositiveIntegerField()
     docs_deleted = models.PositiveIntegerField()

@@ -15,6 +15,275 @@
 
 ---
 
+## 2026-09-02 — Despliegue en IIS nativo de Windows
+
+**Contexto:** el usuario pidió dejar todo listo para instalar NEXO en un
+servidor de aplicaciones IIS, conectado a una base de datos SQL Server de
+producción vacía, con un usuario ADMINISTRADOR por defecto creado durante
+la configuración. Consultado explícitamente (`AskUserQuestion`) sobre dos
+decisiones que cambian el enfoque completo: (1) si el servidor destino
+tiene Docker disponible — el backend ya tiene un `Dockerfile` de
+producción probado (gunicorn + driver ODBC), que hubiera sido el camino de
+menor riesgo detrás de IIS como simple reverse proxy a un contenedor — el
+usuario eligió **sin Docker, todo nativo en Windows**; (2) si el servidor
+de destino es la máquina de esta sesión — el usuario confirmó que sí, lo
+que permitió verificar en vivo el pipeline de arranque de producción del
+backend (no solo dejarlo documentado sin probar).
+
+**Problema:** ni el frontend (Next.js) ni el backend (Django) corren de
+forma nativa dentro de IIS con buen soporte para las features usadas acá
+— `iisnode`/`wfastcgi` están poco mantenidos. Además, `gunicorn`
+(`requirements/prod.txt`, ya usado en el `Dockerfile`/`entrypoint.sh`
+Linux existentes) depende de `fcntl`, exclusivo de Unix — no instala en
+Windows. Tampoco existía ningún mecanismo para crear el primer usuario
+ADMINISTRADOR en una base de datos vacía (todo el flujo de creación de
+usuarios existente requiere un `actor` ya autenticado).
+
+**Decisión:**
+- **IIS como reverse proxy puro** (ARR + URL Rewrite) hacia dos procesos
+  Windows Service independientes — Next.js (`npm start`, puerto 3000) y
+  Django (`waitress`, nuevo `requirements/prod-windows.txt`, puerto 8000)
+  — en vez de alojar Node/Python dentro de IIS. `web.config` (raíz del
+  repo) contiene la única regla de reescritura, hacia el puerto 3000.
+- **Django no se expone vía IIS** — solo escucha en `127.0.0.1`,
+  inalcanzable desde fuera del servidor. Next.js le habla exclusivamente
+  server-side (`djangoApiFetch`), y toda la UI de administración ya vive
+  en el frontend — no hace falta el admin de Django públicamente. Decisión
+  documentada como deliberada en `docs/DEPLOYMENT_IIS.md`, no un
+  descuido — se puede agregar una regla aparte si hace falta en el
+  futuro.
+- **`waitress`** (puro Python, sin dependencias nativas) reemplaza a
+  `gunicorn` solo en el path de Windows — `requirements/prod.txt`
+  (Docker/Linux) no se toca. `backend/scripts/serve_production_windows.py`
+  replica el mismo pipeline que `entrypoint.sh` (esperar DB → collectstatic
+  → migrate → servir), verificado en vivo contra la base de datos de
+  desarrollo real, en un puerto distinto al del servidor de desarrollo
+  activo, sin interferir con él.
+- **NSSM** para registrar ambos procesos como Windows Services de verdad
+  (arranque automático, reinicio si el proceso muere, logs rotados) —
+  script `scripts/deploy/register-windows-services.ps1`. Se eligió NSSM
+  (estándar de facto para envolver ejecutables arbitrarios como servicio
+  en Windows) en vez de Tarea Programada "al inicio" — esta última no
+  reinicia el proceso solo si muere en caliente.
+- **`python manage.py seed_superadmin`** (nuevo, `apps/users`) crea el
+  primer usuario ADMINISTRADOR reutilizando `UserAdminService.create_user`
+  con `actor=None` — el único caso legítimo de "sin actor humano" (no
+  existe todavía ningún usuario que pueda serlo), en vez de reimplementar
+  el hasheo/sincronización de `is_superuser`/auditoría a mano. Idempotente
+  (no duplica si ya existe el username/email), valida la contraseña contra
+  `AUTH_PASSWORD_VALIDATORS` (mínimo 10 caracteres, mismo piso que el
+  resto del sistema) y fuerza `must_change_password=True` — nunca queda
+  una contraseña de arranque sin cambiar.
+
+**Justificación:** todo el path elegido reutiliza infraestructura ya
+existente y probada (el modelo de servicio de `UserAdminService`, el
+pipeline de `entrypoint.sh`, `SIMPLE_JWT`/`config/settings/production.py`
+ya preparados) en vez de construir un camino paralelo — el único
+componente genuinamente nuevo es el servidor WSGI de Windows (`waitress`)
+y el reverse proxy de IIS, ambos inevitables por el cambio de plataforma.
+
+**Impacto:** `web.config`, `.env.production.example` (raíz),
+`backend/.env.production.example`, `backend/requirements/prod-windows.txt`,
+`backend/scripts/serve_production_windows.py`,
+`backend/apps/users/management/commands/seed_superadmin.py`,
+`scripts/deploy/{register-windows-services,seed-superadmin}.ps1`,
+`docs/DEPLOYMENT_IIS.md` (nuevo). Verificado en vivo en esta sesión: (1)
+pipeline completo de arranque del backend contra la base de datos de
+desarrollo real, puerto 8001; (2) `npm run build` de producción, con el
+servidor de desarrollo pausado ~1 minuto y restaurado limpio al terminar;
+(3) 6 tests nuevos de `seed_superadmin` (`apps/users/tests/test_seed_superadmin.py`).
+No se instaló IIS/ARR/URL Rewrite/NSSM en esta máquina — son pasos que
+exigen privilegios de administrador que esta sesión no tiene; quedan
+documentados como pasos manuales explícitos en `docs/DEPLOYMENT_IIS.md`.
+
+---
+
+## 2026-09-02 — Restablecer consentimiento usaba confirm() nativo en vez de ConfirmDialog
+
+**Contexto:** durante la verificación en Chrome de "Consentimiento de datos
+editable desde Ajustes" (entrada anterior), el usuario vio el diálogo de
+confirmación de "Restablecer" y preguntó por qué se veía como un popup del
+navegador en vez del formato que usa el resto del sistema.
+
+**Problema:** `DataConsentSection.tsx::handleResetConsent`/
+`handleResetConsentAll` usaban `window.confirm()` — código heredado 1:1 de
+`SettingsManager.tsx` (Sprint O) que nunca se migró cuando el resto de la
+app adoptó `ConfirmDialog` (`src/components/ui/ConfirmDialog.tsx`, que ya
+documenta en su propio código el reemplazo de `confirm()` "usado hasta
+ahora en 13 archivos" — este era uno de los que quedaron pendientes).
+"Restablecer todos" además encadenaba DOS `confirm()` seguidos.
+
+**Decisión:** ambos handlers pasan a `ConfirmDialog`, mismo patrón
+`pendingXxx`/`loading` ya usado en `UsersManager.tsx` para "Eliminar
+consentimiento" (implementado en la entrada anterior de este mismo bloque
+de trabajo). Los 2 `confirm()` encadenados de "Restablecer todos" se
+consolidan en un solo `ConfirmDialog` con `danger` (rojo) y un mensaje que
+ya advierte "esta acción no se puede deshacer" — un solo diálogo bien
+redactado cubre la misma intención sin la fricción de dos clics
+consecutivos.
+
+**Justificación:** consistencia visual con el resto del sistema — un
+diálogo nativo del navegador no se puede estilizar y además bloquea toda
+la pestaña (incluida la automatización de pruebas, verificado en vivo
+durante esta misma sesión), a diferencia de `ConfirmDialog`.
+
+**Impacto:** `src/components/settings/DataConsentSection.tsx`. Ver
+`docs/CHANGELOG.md` § v1.148.1.
+
+---
+
+## 2026-09-02 — Consentimiento de datos editable desde Ajustes
+
+**Contexto:** el usuario preguntó si el texto del aviso de "Tratamiento de
+Datos Personales" (`ConsentGate.tsx`) estaba configurado desde algún lugar
+— no lo estaba, vivía hardcodeado en JSX. Pidió hacerlo editable desde
+Ajustes → Seguridad → Consentimiento de datos, con un botón nuevo junto a
+"Restablecer todos", mismo estilo visual. Esto llegó después de dos pedidos
+relacionados ya resueltos en el mismo bloque de trabajo: (1) que el botón
+"Aceptar y continuar" solo se habilite si el usuario marcó el checkbox Y
+llegó al final del texto (antes bastaba el checkbox), y (2) que desde
+Usuarios se pueda eliminar el consentimiento ya aceptado de un usuario
+puntual (antes solo existía "Restablecer todos").
+
+**Problema:** el texto no tenía ningún mecanismo de configuración —
+cambiarlo exigía tocar código y desplegar. Además, `SystemConfigHistory.value`
+(el mecanismo versionado ya usado por `welcome_message`/
+`nova_cache_ttl_minutes`) era `CharField(max_length=255)`, insuficiente para
+el aviso completo (~1500 caracteres).
+
+**Alternativas consideradas:**
+1. Guardar el texto como HTML — descartado: el modal ya renderiza con
+   `dangerouslySetInnerHTML` en otros lugares del sistema
+   (`DocumentationSection.tsx`) usando Markdown + sanitización, exigirle al
+   Administrador escribir HTML a mano es peor UX y mayor superficie de XSS
+   si `DOMPurify` tuviera una brecha.
+2. Un modelo dedicado nuevo para el texto de consentimiento — descartado:
+   `SystemConfigHistory` ya resuelve exactamente este problema (valor
+   versionado por fecha, con historial navegable desde la UI de Ajustes) y
+   ampliarlo un modelo nuevo hubiera duplicado esa infraestructura sin
+   necesidad real.
+
+**Decisión:** `consent_text` como una clave más de `SystemConfigHistory`
+(`get_effective_consent_text`/`set_config_value`, `apps/configuration/services.py`),
+con `ConsentTextView` (`GET` — cualquier usuario autenticado, lo necesita
+antes de aceptar el consentimiento; `PUT` — solo rol ADMINISTRADOR, mismo
+criterio que `WelcomeMessageView`). Se amplía `SystemConfigHistory.value` a
+`TextField()` (migración `0006_alter_systemconfighistory_value`) — beneficia
+a todos los valores de ese mecanismo, no solo este. `ConsentGate.tsx` pasa
+de JSX hardcodeado a `GET /api/settings/consent-text` + `marked.parse` +
+`DOMPurify.sanitize`, con el texto anterior conservado como
+`FALLBACK_CONSENT_TEXT` (respaldo si la carga falla, para no dejar el modal
+vacío por un problema de red transitorio). `DataConsentSection.tsx` gana un
+botón "✏️ Editar contenido" (mismo `Button variant="secondary"` que
+"🔄 Restablecer todos") con un modal de textarea Markdown.
+
+**Justificación:** reutiliza infraestructura ya probada (versionado +
+historial + patrón de sanitización) en vez de crear un mecanismo paralelo;
+el texto legal ahora se puede corregir sin desplegar código, con auditoría
+de quién y cuándo lo cambió (gratis, vía `SystemConfigHistory`).
+
+**Impacto:** `backend/apps/configuration/{models,serializers,views,urls,services}.py`
++ migración nueva; `src/components/ConsentGate.tsx`,
+`src/components/settings/DataConsentSection.tsx`,
+`src/app/api/settings/consent-text/route.ts` (nuevo). Ver
+`docs/CHANGELOG.md` § v1.148.0.
+
+---
+
+## 2026-09-02 — ConsentGate no mostraba ningún error si el PATCH fallaba
+
+**Contexto:** durante las pruebas del gate por scroll+checkbox, el usuario
+reportó repetidamente que "Aceptar y continuar" no funcionaba, con
+frustración creciente ("siempre, siempre, siempre no me deja... siempre me
+das excusas pero el problema no se resuelve"). El intento inicial de
+explicarlo como una falla puntual de las pruebas automatizadas de Chrome
+(precedente de otras sesiones) fue incorrecto — el usuario estaba
+reproduciendo el mismo problema en su propio navegador real.
+
+**Problema (2 bugs reales, no relacionados entre sí, ambos silenciosos):**
+1. `ConsentGate.tsx::handleAccept()` hacía `if (res.ok) onAccept()` sin
+   ninguna rama para el caso contrario — un `PATCH /api/auth/consent`
+   fallido (ej. token de Django recién vencido justo tras el login) dejaba
+   al usuario sin ninguna señal visible; el botón volvía a su estado
+   normal, indistinguible de no haber hecho clic.
+2. `djangoApiFetch` (`src/lib/djangoSession.ts`) solo intentaba refrescar
+   el token de Django cuando la respuesta era 401 con un `access_token`
+   presente pero inválido — si la cookie de acceso faltaba directamente
+   (mismo escenario del punto 1, justo después del login), la función
+   devolvía `null` sin intentar el refresh, y el caller lo interpretaba
+   como "sin sesión".
+
+**Decisión:** `handleAccept()` reintenta una vez automáticamente si el
+primer intento devuelve 401, y si sigue fallando muestra el error real por
+toast (`useToast`) en vez de fallar en silencio. `djangoApiFetch` intenta
+refrescar el token también cuando `access_token` no está presente, no solo
+cuando está presente-pero-inválido.
+
+**Justificación:** el caso más común de ambos bugs es exactamente el mismo
+(el token de Django terminando de propagarse justo después del login) — un
+reintento automático cubre ese caso sin exigirle al usuario repetir la
+acción, y el toast de error cubre cualquier otro fallo real.
+
+**Impacto:** `src/components/ConsentGate.tsx`, `src/lib/djangoSession.ts`.
+Nuevo `src/__tests__/djangoSession.test.ts`. Ver `docs/CHANGELOG.md` §
+v1.147.4.
+
+---
+
+## 2026-09-02 — ConfigCenter no validaba la respuesta de /api/users
+
+**Contexto:** el usuario reportó, con captura de pantalla, que la pantalla
+se rompía al entrar a Ajustes → Seguridad ("intenté entrar a seguridad
+dentro de ajustes y se rompió"): `TypeError: users.map is not a function`
+en `PasswordManagementSection.tsx`.
+
+**Problema:** `ConfigCenter.tsx::loadUsers()` hacía `setUsers(data)` sin
+comprobar `res.ok` — si `/api/users` devolvía un error (`{error: "..."}`,
+un objeto, no un array), ese objeto se guardaba igual como si fuera la
+lista de usuarios, y cualquier sección hija que hiciera `users.map(...)`
+(como `PasswordManagementSection.tsx`) rompía en runtime.
+
+**Decisión:** `loadUsers()` ahora valida `res.ok` y que `data` sea
+efectivamente un array antes de `setUsers`; en cualquier fallo (respuesta
+de error o excepción de red) muestra un toast y deja `users = []` en vez de
+propagar un valor inválido a los componentes hijos.
+
+**Justificación:** el fix es local a la única función responsable de
+poblar ese estado — no se tocó ninguna sección hija, todas ya asumían
+correctamente que `users` es un array.
+
+**Impacto:** `src/components/settings/ConfigCenter.tsx`. Sin test dedicado
+— el componente monta ~25 secciones hijas con sus propios fetches, mockear
+todo el árbol para este fix puntual sería desproporcionado (decisión de
+alcance, no un olvido). Ver `docs/CHANGELOG.md` § v1.147.5.
+
+---
+
+## 2026-09-01 — Renombrado de marca de Nova a Gemini
+
+**Contexto:** el usuario preguntó dónde más se usaba la IA "Nova" en el
+sistema. Al explicarle los 4 puntos de integración (todos ya sobre Gemini
+desde el reemplazo de Groq, 2026-08-31), planteó que el nombre "Nova" le
+resultaba menos transparente que dejar explícito que es Gemini, operando
+bajo la licencia corporativa existente. Preguntado explícitamente
+(`AskUserQuestion`) sobre el alcance, el usuario eligió: renombrar
+únicamente la marca/nombre visible en la UI, sin tocar la API key ni pedir
+una nueva, y sin renombrar identificadores internos, archivos o rutas.
+
+**Decisión:** reemplazo de texto de UI de "Nova" → "Gemini" en ~12
+archivos (labels, títulos, placeholders, mensajes) — cero cambios de
+lógica, de API key, de modelo (`@google/genai`, `gemini-3.6-flash`), de
+nombres de archivo/ruta/identificador interno.
+
+**Justificación:** el pedido era de percepción/transparencia de marca, no
+un cambio de proveedor real (eso ya había ocurrido en 2026-08-31) — acotar
+el cambio a texto visible evita el riesgo de romper algo funcional por un
+pedido puramente cosmético.
+
+**Impacto:** ver lista de archivos en `docs/CHANGELOG.md` § v1.147.3.
+
+---
+
 ## 2026-09-02 — Corrección de los 7 hallazgos de la re-auditoría de IA y datos personales
 
 **Contexto:** tras publicar el informe "IA y Privacidad de Nexo" (inventario

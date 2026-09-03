@@ -62,6 +62,8 @@ export default function UsersManager({ currentUserRole }: Props) {
   const [pendingReveal, setPendingReveal] = useState<User | null>(null);
   const [pendingDeleteUser, setPendingDeleteUser] = useState<User | null>(null);
   const [deletingUser, setDeletingUser] = useState(false);
+  const [pendingResetConsentUser, setPendingResetConsentUser] = useState<User | null>(null);
+  const [resettingConsent, setResettingConsent] = useState(false);
 
   // Roles that the current editor is allowed to assign
   const assignableRoles = ALL_ROLES.filter(
@@ -230,6 +232,30 @@ export default function UsersManager({ currentUserRole }: Props) {
     }
   }
 
+  // Pedido explícito del usuario (ver docs/AUDIT_LOG.md § 2026-09-02): desde
+  // Usuarios, forzar que alguien vuelva a ver y aceptar el aviso de
+  // protección de datos en su próximo login — mismo endpoint que ya usa
+  // `DataConsentSection.tsx` (Ajustes → Seguridad), expuesto acá también
+  // porque es donde el Administrador ya está mirando a la persona puntual.
+  async function handleResetConsent(user: User) {
+    setResettingConsent(true);
+    try {
+      const res = await fetch(`/api/users/${user.id}/reset-consent`, { method: "PATCH" });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data.error ?? "Error al restablecer el consentimiento", "error");
+      } else {
+        showToast(`Se restableció el consentimiento de ${user.name} — lo verá de nuevo en su próximo login.`, "success");
+        loadUsers();
+      }
+    } catch {
+      showToast("Error de conexión", "error");
+    } finally {
+      setResettingConsent(false);
+      setPendingResetConsentUser(null);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
@@ -389,10 +415,20 @@ export default function UsersManager({ currentUserRole }: Props) {
                   </Td>
                   <Td className="hidden md:table-cell">
                     {user.dataConsentAccepted ? (
-                      <span className="px-2.5 py-1 bg-success/[.13] text-success rounded-full text-xs font-medium">
-                        Aceptado
-                        {user.dataConsentAcceptedAt && ` · ${formatConsentDate(user.dataConsentAcceptedAt)}`}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="px-2.5 py-1 bg-success/[.13] text-success rounded-full text-xs font-medium">
+                          Aceptado
+                          {user.dataConsentAcceptedAt && ` · ${formatConsentDate(user.dataConsentAcceptedAt)}`}
+                        </span>
+                        {canEdit(user) && (
+                          <button
+                            onClick={() => setPendingResetConsentUser(user)}
+                            className="text-xs text-danger hover:brightness-90 font-medium px-2 py-1 rounded hover:bg-danger/[.09] transition-colors"
+                          >
+                            Eliminar
+                          </button>
+                        )}
+                      </div>
                     ) : (
                       <span className="px-2.5 py-1 bg-surface2 text-secondary rounded-full text-xs font-medium">
                         Pendiente
@@ -531,6 +567,20 @@ export default function UsersManager({ currentUserRole }: Props) {
         loading={deletingUser}
         onConfirm={() => pendingDeleteUser && handleDelete(pendingDeleteUser)}
         onCancel={() => setPendingDeleteUser(null)}
+      />
+
+      <ConfirmDialog
+        open={pendingResetConsentUser !== null}
+        title="Eliminar consentimiento"
+        message={
+          pendingResetConsentUser
+            ? `¿Eliminar el consentimiento de ${pendingResetConsentUser.name}? Va a tener que aceptar de nuevo el aviso de protección de datos en su próximo login.`
+            : ""
+        }
+        danger
+        loading={resettingConsent}
+        onConfirm={() => pendingResetConsentUser && handleResetConsent(pendingResetConsentUser)}
+        onCancel={() => setPendingResetConsentUser(null)}
       />
     </div>
   );

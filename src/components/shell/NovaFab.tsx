@@ -23,7 +23,7 @@ export default function NovaFab() {
           >
             <div className="flex items-center gap-2 text-white">
               <Sparkles className="w-4 h-4" strokeWidth={2} />
-              <span className="text-[13px] font-semibold">Nova</span>
+              <span className="text-[13px] font-semibold">Gemini</span>
             </div>
             <button
               onClick={() => setOpen(false)}
@@ -37,7 +37,7 @@ export default function NovaFab() {
           <div className="flex-1 overflow-y-auto p-3.5 space-y-3">
             {messages.length === 0 && (
               <p className="text-[13px] text-secondary text-center py-6">
-                Pregúntale algo a Nova sobre Nexo o tu trabajo.
+                Pregúntale algo a Gemini sobre Nexo o tu trabajo.
               </p>
             )}
             {messages.map((msg) => (
@@ -56,7 +56,7 @@ export default function NovaFab() {
             {loading && (
               <div className="flex justify-start">
                 <div className="bg-surface2 rounded-2xl rounded-tl-sm px-3 py-2 text-[13px] text-secondary">
-                  Nova está escribiendo…
+                  Gemini está escribiendo…
                 </div>
               </div>
             )}
@@ -95,7 +95,7 @@ export default function NovaFab() {
 
       <button
         onClick={() => setOpen((v) => !v)}
-        aria-label={open ? "Cerrar Nova" : "Abrir Nova"}
+        aria-label={open ? "Cerrar Gemini" : "Abrir Gemini"}
         className="w-14 h-14 rounded-full flex items-center justify-center text-white shadow-2xl hover:brightness-110 transition-all"
         style={{ background: "var(--gradient-nova)" }}
       >

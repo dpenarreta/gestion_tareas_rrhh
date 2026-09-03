@@ -185,7 +185,7 @@ export default function AssistantModule() {
           {MODE_CONFIG[mode].description}
         </span>
         <span className="ml-auto text-[10px] text-disabled bg-background border border-border px-2 py-1 rounded-lg">
-          Nova · Gemini 2.5 Flash
+          Gemini 3.6 Flash
         </span>
       </div>
 
@@ -283,7 +283,7 @@ export default function AssistantModule() {
                 </svg>
               </div>
               <div className="text-center">
-                <p className="text-base font-semibold text-title">Nova — {MODE_CONFIG[mode].label}</p>
+                <p className="text-base font-semibold text-title">Gemini — {MODE_CONFIG[mode].label}</p>
                 <p className="text-sm text-secondary mt-1">{MODE_CONFIG[mode].description}</p>
               </div>
               <div className="flex flex-col gap-2 w-full max-w-md">
@@ -353,7 +353,7 @@ export default function AssistantModule() {
           <div className="flex gap-3 items-end">
             <textarea
               ref={inputRef}
-              aria-label="Mensaje para Nova"
+              aria-label="Mensaje para Gemini"
               rows={1}
               value={input}
               onChange={(e) => {

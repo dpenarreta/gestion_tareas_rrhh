@@ -22,7 +22,7 @@ export const SETTINGS_CATEGORY_LABEL: Record<SettingsCategory, string> = {
   proyectos: "Proyectos",
   escritorio_digital: "Escritorio Digital",
   reportes: "Reportes",
-  nova: "NOVA",
+  nova: "GEMINI",
   seguridad: "Seguridad",
   notificaciones: "Notificaciones",
   parametros_globales: "Parámetros Globales",

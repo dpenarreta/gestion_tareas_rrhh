@@ -74,7 +74,7 @@ export function getNavLinks(role: Role): NavLink[] {
     links.push({ href: "/settings", label: "Ajustes", icon: Settings, section: "gestion" });
   }
 
-  links.push({ href: "/assistant", label: "Nova", icon: Sparkles, section: "inteligencia" });
+  links.push({ href: "/assistant", label: "Gemini", icon: Sparkles, section: "inteligencia" });
   // Sprint E — Analytics Predictivo: abierto a todos los roles autenticados,
   // igual que Nova. La composición individual/equipo se decide DENTRO del
   // módulo (isExecutorRole/canViewTeam), no con un predicado de navegación

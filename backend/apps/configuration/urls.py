@@ -7,6 +7,7 @@ from .views import (
     AnalyticsConfigView,
     ConfigHistoryRestoreDefaultView,
     ConfigHistoryView,
+    ConsentTextView,
     DataQualityView,
     DocumentationView,
     EscritorioDigitalConfigView,
@@ -36,11 +37,16 @@ from .views import (
 )
 
 urlpatterns = [
-    path("prediction-window/", PredictionWindowSettingsView.as_view(), name="prediction-window-settings"),
+    path(
+        "prediction-window/",
+        PredictionWindowSettingsView.as_view(),
+        name="prediction-window-settings",
+    ),
     path("retroactive-window/", RetroactiveWindowView.as_view(), name="retroactive-window"),
     path("snooze-presets/", SnoozePresetsView.as_view(), name="snooze-presets"),
     path("favorites/", FavoritesView.as_view(), name="config-favorites"),
     path("welcome-message/", WelcomeMessageView.as_view(), name="welcome-message"),
+    path("consent-text/", ConsentTextView.as_view(), name="consent-text"),
     path("role-targets/", RoleTargetsView.as_view(), name="role-targets"),
     path("role-compatibility/", RoleCompatibilityView.as_view(), name="role-compatibility"),
     path("holidays/", HolidayListView.as_view(), name="holidays"),
@@ -48,12 +54,20 @@ urlpatterns = [
     path("leave-records/", LeaveRecordListView.as_view(), name="leave-records"),
     path("leave-records/<int:pk>/", LeaveRecordDetailView.as_view(), name="leave-record-detail"),
     path("special-status/", SpecialStatusListView.as_view(), name="special-status"),
-    path("special-status/<int:pk>/", SpecialStatusDetailView.as_view(), name="special-status-detail"),
+    path(
+        "special-status/<int:pk>/", SpecialStatusDetailView.as_view(), name="special-status-detail"
+    ),
     path("workload-config/", WorkloadConfigView.as_view(), name="workload-config"),
     path("kpi-start-date/", KpiStartDateView.as_view(), name="kpi-start-date"),
     path("retention-policy/", RetentionPolicyView.as_view(), name="retention-policy"),
-    path("retention-policy/purge/", RetentionPolicyPurgeView.as_view(), name="retention-policy-purge"),
-    path("escritorio-digital-config/", EscritorioDigitalConfigView.as_view(), name="escritorio-digital-config"),
+    path(
+        "retention-policy/purge/", RetentionPolicyPurgeView.as_view(), name="retention-policy-purge"
+    ),
+    path(
+        "escritorio-digital-config/",
+        EscritorioDigitalConfigView.as_view(),
+        name="escritorio-digital-config",
+    ),
     path("analytics-config/", AnalyticsConfigView.as_view(), name="analytics-config"),
     path("normalization-curves/", NormalizationCurvesView.as_view(), name="normalization-curves"),
     path("seguridad-config/", SeguridadConfigView.as_view(), name="seguridad-config"),

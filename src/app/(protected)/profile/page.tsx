@@ -105,7 +105,7 @@ function getManualForRole(role: Role): ManualInfo {
     return {
       href: "/manuales/manual-jefe-coordinador.pdf",
       label: "Manual de Jefe Nacional y Coordinador Nacional",
-      description: "Dashboard, gestión de equipo, Analytics, Nova, reuniones y Mejora Continua.",
+      description: "Dashboard, gestión de equipo, Analytics, Gemini, reuniones y Mejora Continua.",
     };
   }
   return {

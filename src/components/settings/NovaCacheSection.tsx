@@ -50,7 +50,7 @@ export default function NovaCacheSection() {
         showToast(data.error ?? "Error al guardar", "error");
       } else {
         setCurrent(data.cacheTtlMinutes);
-        showToast("TTL de caché de NOVA actualizado.", "success");
+        showToast("TTL de caché de Gemini actualizado.", "success");
       }
     } catch {
       showToast("Error de conexión", "error");
@@ -60,13 +60,13 @@ export default function NovaCacheSection() {
   }
 
   return (
-    <SectionCard title="NOVA — caché de mensajes">
+    <SectionCard title="Gemini — caché de mensajes">
       {loading || current === null ? (
         <SkeletonText lines={2} />
       ) : (
         <>
           <p className="text-xs text-secondary">
-            Tiempo (en minutos) que NOVA reutiliza un mensaje ya generado (mensaje del Dashboard e Insights de
+            Tiempo (en minutos) que Gemini reutiliza un mensaje ya generado (mensaje del Dashboard e Insights de
             Analytics) antes de volver a llamar al modelo de IA.
           </p>
           <div className="space-y-1.5">

@@ -76,7 +76,7 @@ const ANALYTICAL_SYSTEM_PROMPT =
   "recomendaciones = entre 1 y 2 acciones concretas y priorizadas, con plazo (qué hacer, cuándo) — nunca genéricas.";
 
 const MOTIVATIONAL_SYSTEM_PROMPT =
-  "Eres Nova, la asistente de People Analytics de Nexo. Recibirás un JSON con datos YA CALCULADOS (nunca los " +
+  "Eres Gemini, la asistente de People Analytics de Nexo. Recibirás un JSON con datos YA CALCULADOS (nunca los " +
   "calcules ni los inventes) sobre el desempeño de un colaborador. Genera un mensaje breve, cercano y " +
   "motivador sobre su propio desempeño, en tono cálido y de apoyo, en español simple, sin tecnicismos de RRHH. " +
   "Si hay algo que mejorar, menciónalo con delicadeza y de forma constructiva — nunca alarmante. Responde " +
@@ -185,7 +185,7 @@ async function fetchDjangoJson<T>(path: string, mapper: (raw: Record<string, unk
     throw new DjangoUnavailable(NextResponse.json({ error: "Sin permisos" }, { status: 403 }));
   }
   if (!response.ok) {
-    throw new DjangoUnavailable(NextResponse.json({ error: "Error al obtener Insights de Nova" }, { status: response.status }));
+    throw new DjangoUnavailable(NextResponse.json({ error: "Error al obtener Insights de Gemini" }, { status: response.status }));
   }
   return mapper((await response.json()) as Record<string, unknown>) as T;
 }
@@ -448,6 +448,6 @@ export async function GET(request: NextRequest, ctx: Ctx) {
     // causa): se loguea server-side y se responde JSON legible en vez de
     // dejarlo propagar.
     console.error("[nova-insights] Error inesperado:", err);
-    return NextResponse.json({ error: "Error al generar Insights de Nova" }, { status: 500 });
+    return NextResponse.json({ error: "Error al generar Insights de Gemini" }, { status: 500 });
   }
 }

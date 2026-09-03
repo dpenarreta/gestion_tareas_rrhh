@@ -10,6 +10,7 @@ import ConfigSectionCard from "@/components/settings/ConfigSectionCard";
 import ProximamenteCard from "@/components/settings/ProximamenteCard";
 import GlobalParamsSection from "@/components/settings/GlobalParamsSection";
 import { getDescriptor, searchSettings, SETTINGS_REGISTRY } from "@/components/settings/registry";
+import { useToast } from "@/components/ui/Toast";
 
 // ── Secciones existentes (migradas 1:1 desde SettingsManager.tsx) ──────────
 import RoleCompatibilitySection from "@/components/settings/RoleCompatibilitySection";
@@ -53,21 +54,36 @@ const d = getDescriptor;
 
 function ConfigCenterInner({ currentUserRole }: { currentUserRole: Role }) {
   const isAdmin = currentUserRole === "ADMINISTRADOR";
+  const { showToast } = useToast();
   const [category, setCategory] = useState<SettingsCategory>("organizacion");
   const [query, setQuery] = useState("");
   const [users, setUsers] = useState<User[]>([]);
   const [usersLoading, setUsersLoading] = useState(true);
 
+  // Bug real encontrado en vivo (ver docs/AUDIT_LOG.md § 2026-09-02): esto
+  // hacía `setUsers(data)` sin revisar `res.ok` — ante cualquier error
+  // (sesión, permisos, timeout de Django), `data` es `{error: "..."}`, no
+  // un array, y cualquier `.map()` de las secciones hijas (ej.
+  // `PasswordManagementSection`) rompía toda la pantalla de Seguridad con
+  // un TypeError sin ningún mensaje explicable para quien lo usa.
   const loadUsers = useCallback(async () => {
     setUsersLoading(true);
     try {
       const res = await fetch("/api/users");
       const data = await res.json();
-      setUsers(data);
+      if (!res.ok) {
+        showToast(data?.error ?? "No se pudo cargar la lista de usuarios.", "error");
+        setUsers([]);
+        return;
+      }
+      setUsers(Array.isArray(data) ? data : []);
+    } catch {
+      showToast("Error de conexión al cargar usuarios.", "error");
+      setUsers([]);
     } finally {
       setUsersLoading(false);
     }
-  }, []);
+  }, [showToast]);
 
   useEffect(() => {
     if (isAdmin) queueMicrotask(loadUsers);

@@ -242,8 +242,21 @@ export async function extractDjangoFlatErrorMessage(response: Response): Promise
  */
 export async function djangoApiFetch(path: string, init: RequestInit = {}, timeoutMs: number = REQUEST_TIMEOUT_MS): Promise<Response | null> {
   const cookieStore = await cookies();
-  const accessToken = cookieStore.get(ACCESS_COOKIE)?.value;
-  if (!accessToken) return null;
+  let accessToken = cookieStore.get(ACCESS_COOKIE)?.value;
+
+  // Bug real encontrado en vivo (2026-09-02): `nexo-django-access` vive solo
+  // 15 minutos (`ACCESS_COOKIE_MAX_AGE_SECONDS`) — pasado ese tiempo el
+  // propio NAVEGADOR deja de enviar la cookie (no llega ni vacía), así que
+  // antes de este fix el bloque de abajo nunca se ejecutaba (nunca había un
+  // 401 que disparara el refresh: simplemente no había token que probar) y
+  // se devolvía `null` de inmediato — forzando un relogin completo pese a
+  // que el refresh token (7 días) seguía siendo válido. Ahora, si no hay
+  // access token en la cookie, se intenta refrescar ANTES de rendirse.
+  if (!accessToken) {
+    accessToken = (await refreshDjangoAccessToken()) ?? undefined;
+    if (!accessToken) return null;
+    return callDjango(path, init, accessToken, timeoutMs);
+  }
 
   let response = await callDjango(path, init, accessToken, timeoutMs);
   if (response.status === 401) {

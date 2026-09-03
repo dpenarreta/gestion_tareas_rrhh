@@ -1,0 +1,7 @@
+# Producción en Windows (IIS como reverse proxy) — ver docs/DEPLOYMENT_IIS.md.
+# `gunicorn` (requirements/prod.txt) depende de `fcntl`, exclusivo de
+# Unix — no instala en Windows. `waitress` es el servidor WSGI de
+# producción estándar para Windows (puro Python, sin dependencias nativas).
+-r base.txt
+waitress==3.0.2
+whitenoise==6.8.2

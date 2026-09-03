@@ -99,20 +99,28 @@ def get_effective_horas_efectivas(as_of: datetime) -> float:
 
 
 def get_effective_workload_limit_low(as_of: datetime) -> float:
-    return get_effective_config_value(CONFIG_KEY_WORKLOAD_LIMIT_LOW, as_of, DEFAULT_WORKLOAD_LIMIT_LOW)
+    return get_effective_config_value(
+        CONFIG_KEY_WORKLOAD_LIMIT_LOW, as_of, DEFAULT_WORKLOAD_LIMIT_LOW
+    )
 
 
 def get_effective_workload_limit_high(as_of: datetime) -> float:
-    return get_effective_config_value(CONFIG_KEY_WORKLOAD_LIMIT_HIGH, as_of, DEFAULT_WORKLOAD_LIMIT_HIGH)
+    return get_effective_config_value(
+        CONFIG_KEY_WORKLOAD_LIMIT_HIGH, as_of, DEFAULT_WORKLOAD_LIMIT_HIGH
+    )
 
 
 def get_effective_workload_limit_overload(as_of: datetime) -> float:
-    return get_effective_config_value(CONFIG_KEY_WORKLOAD_LIMIT_OVERLOAD, as_of, DEFAULT_WORKLOAD_LIMIT_OVERLOAD)
+    return get_effective_config_value(
+        CONFIG_KEY_WORKLOAD_LIMIT_OVERLOAD, as_of, DEFAULT_WORKLOAD_LIMIT_OVERLOAD
+    )
 
 
 def get_effective_retroactive_window_days(as_of: datetime) -> int:
     return int(
-        get_effective_config_value(CONFIG_KEY_RETROACTIVE_WINDOW_DAYS, as_of, DEFAULT_RETROACTIVE_WINDOW_DAYS)
+        get_effective_config_value(
+            CONFIG_KEY_RETROACTIVE_WINDOW_DAYS, as_of, DEFAULT_RETROACTIVE_WINDOW_DAYS
+        )
     )
 
 
@@ -135,20 +143,26 @@ def get_effective_session_duration_default_hours(as_of: datetime) -> int:
 def get_effective_session_duration_remember_hours(as_of: datetime) -> int:
     return int(
         get_effective_config_value(
-            CONFIG_KEY_SESSION_DURATION_REMEMBER_HOURS, as_of, DEFAULT_SESSION_DURATION_REMEMBER_HOURS
+            CONFIG_KEY_SESSION_DURATION_REMEMBER_HOURS,
+            as_of,
+            DEFAULT_SESSION_DURATION_REMEMBER_HOURS,
         )
     )
 
 
 def get_effective_desk_note_max_replies(as_of: datetime) -> int:
     return int(
-        get_effective_config_value(CONFIG_KEY_DESK_NOTE_MAX_REPLIES, as_of, DEFAULT_DESK_NOTE_MAX_REPLIES)
+        get_effective_config_value(
+            CONFIG_KEY_DESK_NOTE_MAX_REPLIES, as_of, DEFAULT_DESK_NOTE_MAX_REPLIES
+        )
     )
 
 
 def get_effective_nova_cache_ttl_minutes(as_of: datetime) -> int:
     return int(
-        get_effective_config_value(CONFIG_KEY_NOVA_CACHE_TTL_MINUTES, as_of, DEFAULT_NOVA_CACHE_TTL_MINUTES)
+        get_effective_config_value(
+            CONFIG_KEY_NOVA_CACHE_TTL_MINUTES, as_of, DEFAULT_NOVA_CACHE_TTL_MINUTES
+        )
     )
 
 
@@ -200,7 +214,9 @@ def get_effective_notification_rules() -> dict:
     default individual — fidelidad exacta al operador `??` de JS, que
     no distingue "nunca configurado" de "guardado parcialmente"."""
     record = (
-        SystemConfigHistory.objects.filter(key=CONFIG_KEY_NOTIFICATION_RULES, valid_until__isnull=True)
+        SystemConfigHistory.objects.filter(
+            key=CONFIG_KEY_NOTIFICATION_RULES, valid_until__isnull=True
+        )
         .order_by("-valid_from")
         .first()
     )
@@ -246,7 +262,11 @@ def validate_notification_rules_body(body) -> tuple[dict | None, str | None]:
         return None, "Configuración inválida"
     clean_targets: dict[str, list[str]] = {}
     for role, targets in comment_targets.items():
-        if role not in ALL_ROLES or not isinstance(targets, list) or not all(t in ALL_ROLES for t in targets):
+        if (
+            role not in ALL_ROLES
+            or not isinstance(targets, list)
+            or not all(t in ALL_ROLES for t in targets)
+        ):
             return None, "Configuración inválida"
         clean_targets[role] = targets
 
@@ -257,7 +277,9 @@ def validate_notification_rules_body(body) -> tuple[dict | None, str | None]:
         return None, "Configuración inválida"
 
     retroactive_notify_roles = body.get("retroactive_notify_roles")
-    if not isinstance(retroactive_notify_roles, list) or not all(r in ALL_ROLES for r in retroactive_notify_roles):
+    if not isinstance(retroactive_notify_roles, list) or not all(
+        r in ALL_ROLES for r in retroactive_notify_roles
+    ):
         return None, "Configuración inválida"
 
     return (
@@ -292,7 +314,14 @@ def get_effective_password_min_length(as_of: datetime) -> int:
     con un valor menor no queda mostrando un mínimo por debajo del que
     Django realmente aplica hasta que un Administrador la vuelva a guardar;
     la corrección es inmediata sin necesidad de migrar datos históricos."""
-    return max(10, int(get_effective_config_value(CONFIG_KEY_PASSWORD_MIN_LENGTH, as_of, DEFAULT_PASSWORD_MIN_LENGTH)))
+    return max(
+        10,
+        int(
+            get_effective_config_value(
+                CONFIG_KEY_PASSWORD_MIN_LENGTH, as_of, DEFAULT_PASSWORD_MIN_LENGTH
+            )
+        ),
+    )
 
 
 # Retención de `LoginAttempt` (`apps.authentication.models`, ya
@@ -307,7 +336,9 @@ RETENTION_LOGIN_ATTEMPTS_OPTIONS = ("7", "15", "30", "60", "90")
 
 
 def get_effective_retention_login_attempts(as_of: datetime) -> str:
-    return get_effective_config_string(CONFIG_KEY_RETENTION_LOGIN_ATTEMPTS, as_of, DEFAULT_RETENTION_LOGIN_ATTEMPTS)
+    return get_effective_config_string(
+        CONFIG_KEY_RETENTION_LOGIN_ATTEMPTS, as_of, DEFAULT_RETENTION_LOGIN_ATTEMPTS
+    )
 
 
 # Fase 25 (ver docs/AUDIT_LOG.md § 2026-08-20): mensaje de bienvenida
@@ -328,6 +359,33 @@ def get_effective_welcome_message_active(as_of: datetime) -> bool:
     return get_effective_config_string(CONFIG_KEY_WELCOME_MESSAGE_ACTIVE, as_of, "false") == "true"
 
 
+# Pedido explícito del usuario (ver docs/AUDIT_LOG.md § 2026-09-02,
+# "Consentimiento de datos editable desde Ajustes"): el aviso de
+# "Tratamiento de Datos Personales" (`ConsentGate.tsx`) estaba hardcodeado
+# en JSX — ahora es Markdown editable, sanitizado con DOMPurify en el
+# cliente antes de renderizar (mismo criterio que `DocumentationSection.tsx`,
+# NEXO-03). `DEFAULT_CONSENT_TEXT` es una réplica exacta del texto que
+# estaba hardcodeado, para que el primer `GET` (sin ningún registro en
+# `SystemConfigHistory` todavía) devuelva lo mismo que ya se mostraba.
+CONFIG_KEY_CONSENT_TEXT = "consent_text"
+DEFAULT_CONSENT_TEXT = """Nexo recopila y almacena los siguientes datos personales con el fin de gestionar los recursos humanos de la organización:
+
+- Datos de identificación: nombre completo y correo electrónico
+- Datos de actividad laboral: tareas, horas trabajadas, actividades de seguimiento y KPIs de desempeño
+- Datos de asistencia y permisos: registro de vacaciones, permisos personales y permisos médicos
+- Datos de condición laboral especial: estados de maternidad o lactancia que afectan la jornada laboral
+
+Los datos de salud (permisos médicos, maternidad y lactancia) son tratados exclusivamente por el Administrador del sistema con la finalidad de calcular correctamente la carga laboral y KPIs, conforme al Art. 26 de la Ley Orgánica de Protección de Datos Personales del Ecuador.
+
+Tus datos no son compartidos con terceros comerciales. El asistente utiliza el servicio de IA Gemini de Google LLC para procesar consultas; las preguntas que realices pueden ser enviadas a dicho servicio para generar respuestas.
+
+Puedes ejercer tus derechos de acceso, rectificación y eliminación desde tu perfil en la sección "Mis derechos sobre mis datos"."""
+
+
+def get_effective_consent_text(as_of: datetime) -> str:
+    return get_effective_config_string(CONFIG_KEY_CONSENT_TEXT, as_of, DEFAULT_CONSENT_TEXT)
+
+
 # Fase 4f (ver docs/AUDIT_LOG.md § 2026-08-11): hora local (huso de
 # negocio) a la que se asume terminada la jornada, usada por Capacidad
 # Proyectada — antes de esta hora "hoy" cuenta como parcial, después la
@@ -337,7 +395,9 @@ DEFAULT_WORKDAY_END_HOUR = 17
 
 
 def get_effective_workday_end_hour(as_of: datetime) -> int:
-    return int(get_effective_config_value(CONFIG_KEY_WORKDAY_END_HOUR, as_of, DEFAULT_WORKDAY_END_HOUR))
+    return int(
+        get_effective_config_value(CONFIG_KEY_WORKDAY_END_HOUR, as_of, DEFAULT_WORKDAY_END_HOUR)
+    )
 
 
 def get_effective_config_string(key: str, as_of: datetime, fallback: str) -> str:
@@ -362,7 +422,9 @@ PREDICTION_WINDOW_OPTIONS = ("3", "4", "6", "8", "12")
 
 
 def get_effective_prediction_window_weeks(as_of: datetime) -> str:
-    return get_effective_config_string(CONFIG_KEY_PREDICTION_WINDOW_WEEKS, as_of, DEFAULT_PREDICTION_WINDOW_WEEKS)
+    return get_effective_config_string(
+        CONFIG_KEY_PREDICTION_WINDOW_WEEKS, as_of, DEFAULT_PREDICTION_WINDOW_WEEKS
+    )
 
 
 def get_effective_prediction_window_weeks_number(as_of: datetime) -> int:
@@ -382,7 +444,11 @@ DEFAULT_RECOVERY_RETENTION_HOURS = 48
 
 
 def get_effective_recovery_retention_hours(as_of: datetime) -> int:
-    return int(get_effective_config_value(CONFIG_KEY_RECOVERY_RETENTION_HOURS, as_of, DEFAULT_RECOVERY_RETENTION_HOURS))
+    return int(
+        get_effective_config_value(
+            CONFIG_KEY_RECOVERY_RETENTION_HOURS, as_of, DEFAULT_RECOVERY_RETENTION_HOURS
+        )
+    )
 
 
 # Fase 14 (ver docs/AUDIT_LOG.md § 2026-08-20): retención del archivo de
@@ -395,7 +461,11 @@ DEFAULT_DESK_ARCHIVE_RETENTION_DAYS = 15
 
 
 def get_effective_desk_archive_retention_days(as_of: datetime) -> int:
-    return int(get_effective_config_value(CONFIG_KEY_DESK_ARCHIVE_RETENTION_DAYS, as_of, DEFAULT_DESK_ARCHIVE_RETENTION_DAYS))
+    return int(
+        get_effective_config_value(
+            CONFIG_KEY_DESK_ARCHIVE_RETENTION_DAYS, as_of, DEFAULT_DESK_ARCHIVE_RETENTION_DAYS
+        )
+    )
 
 
 # Objetivo esperado del cargo (Sprint 7, ver docs/AUDIT_LOG.md §
@@ -427,7 +497,11 @@ def get_effective_role_target(role_name: str, as_of: datetime) -> dict | None:
         value = parsed.get(key)
         return value if isinstance(value, (int, float)) and not isinstance(value, bool) else None
 
-    return {"performance": _num("performance"), "riesgo_max": _num("riesgo_max"), "cumplimiento": _num("cumplimiento")}
+    return {
+        "performance": _num("performance"),
+        "riesgo_max": _num("riesgo_max"),
+        "cumplimiento": _num("cumplimiento"),
+    }
 
 
 # Matriz de Compatibilidad Operativa (Fase 24, ver docs/AUDIT_LOG.md §
@@ -556,15 +630,21 @@ KNOWLEDGE_DOCS_OPTIONS = ("12", "24", "36", "indefinite")
 
 
 def get_effective_retention_monthly_reports(as_of: datetime) -> str:
-    return get_effective_config_string(CONFIG_KEY_RETENTION_MONTHLY_REPORTS, as_of, DEFAULT_RETENTION_MONTHLY_REPORTS)
+    return get_effective_config_string(
+        CONFIG_KEY_RETENTION_MONTHLY_REPORTS, as_of, DEFAULT_RETENTION_MONTHLY_REPORTS
+    )
 
 
 def get_effective_retention_archived_tasks(as_of: datetime) -> str:
-    return get_effective_config_string(CONFIG_KEY_RETENTION_ARCHIVED_TASKS, as_of, DEFAULT_RETENTION_ARCHIVED_TASKS)
+    return get_effective_config_string(
+        CONFIG_KEY_RETENTION_ARCHIVED_TASKS, as_of, DEFAULT_RETENTION_ARCHIVED_TASKS
+    )
 
 
 def get_effective_retention_knowledge_docs(as_of: datetime) -> str:
-    return get_effective_config_string(CONFIG_KEY_RETENTION_KNOWLEDGE_DOCS, as_of, DEFAULT_RETENTION_KNOWLEDGE_DOCS)
+    return get_effective_config_string(
+        CONFIG_KEY_RETENTION_KNOWLEDGE_DOCS, as_of, DEFAULT_RETENTION_KNOWLEDGE_DOCS
+    )
 
 
 def get_effective_retention_policy(as_of: datetime) -> dict[str, str]:
@@ -609,14 +689,18 @@ def find_purge_candidates(as_of: datetime) -> dict:
 
     tasks_cutoff = _retention_cutoff_date(int(policy["archived_tasks_months"]), as_of)
     task_ids = list(
-        Task.objects.filter(archived_month__isnull=False, archived_at__lt=tasks_cutoff).values_list("id", flat=True)
+        Task.objects.filter(archived_month__isnull=False, archived_at__lt=tasks_cutoff).values_list(
+            "id", flat=True
+        )
     )
 
     docs: list[dict] = []
     if policy["knowledge_docs_months"] != "indefinite":
         docs_cutoff = _retention_cutoff_date(int(policy["knowledge_docs_months"]), as_of)
         docs = list(
-            KnowledgeDocument.objects.filter(created_at__lt=docs_cutoff).values("id", "github_path", "github_sha")
+            KnowledgeDocument.objects.filter(created_at__lt=docs_cutoff).values(
+                "id", "github_path", "github_sha"
+            )
         )
 
     return {"policy": policy, "report_ids": report_ids, "task_ids": task_ids, "docs": docs}
@@ -656,7 +740,9 @@ def execute_purge(executed_by) -> dict:
 
     return {
         **result,
-        "deleted_docs": [{"github_path": d["github_path"], "github_sha": d["github_sha"]} for d in docs],
+        "deleted_docs": [
+            {"github_path": d["github_path"], "github_sha": d["github_sha"]} for d in docs
+        ],
     }
 
 
@@ -696,7 +782,9 @@ ANALYTICS_CONFIG_DEFAULTS: dict[str, float] = {
     "prediction_min_weeks_alta": 4,
 }
 
-_ANALYTICS_CONFIG_KEYS: dict[str, str] = {name: f"analytics_{name}" for name in ANALYTICS_CONFIG_DEFAULTS}
+_ANALYTICS_CONFIG_KEYS: dict[str, str] = {
+    name: f"analytics_{name}" for name in ANALYTICS_CONFIG_DEFAULTS
+}
 
 
 def get_effective_analytics_config(as_of: datetime) -> dict[str, float]:
@@ -722,7 +810,9 @@ def set_config_value(key: str, value: str, actor) -> None:
     sub-fase (ver plan de Fase 3d); usado hoy solo por tests/fixtures."""
     now = timezone.now()
     with transaction.atomic():
-        SystemConfigHistory.objects.filter(key=key, valid_until__isnull=True).update(valid_until=now)
+        SystemConfigHistory.objects.filter(key=key, valid_until__isnull=True).update(
+            valid_until=now
+        )
         SystemConfigHistory.objects.create(key=key, value=value, valid_from=now, updated_by=actor)
 
 
@@ -793,8 +883,10 @@ def get_leave_minutes_by_day(user, range_start: date, range_end: date) -> dict[d
         entry = day_map.setdefault(
             record.date,
             {
-                "medico_minutes": 0, "medico_full_day": False,
-                "personal_minutes": 0, "personal_full_day": False,
+                "medico_minutes": 0,
+                "medico_full_day": False,
+                "personal_minutes": 0,
+                "personal_full_day": False,
                 "vacaciones_full_day": False,
             },
         )
@@ -824,7 +916,9 @@ def leave_hours_for_day(info: dict | None, hours_per_day: float) -> float:
     return min(hours, hours_per_day)
 
 
-def total_leave_minutes(day_map: dict[date, dict], start: date, end: date, hours_per_day: float) -> dict:
+def total_leave_minutes(
+    day_map: dict[date, dict], start: date, end: date, hours_per_day: float
+) -> dict:
     """Totales de minutos de permiso médico/personal/vacaciones en un
     rango — para el desglose del KPI mensual."""
     medico = personal = vacaciones = 0.0
@@ -833,7 +927,9 @@ def total_leave_minutes(day_map: dict[date, dict], start: date, end: date, hours
         info = day_map.get(current)
         if info:
             medico += hours_per_day * 60 if info["medico_full_day"] else info["medico_minutes"]
-            personal += hours_per_day * 60 if info["personal_full_day"] else info["personal_minutes"]
+            personal += (
+                hours_per_day * 60 if info["personal_full_day"] else info["personal_minutes"]
+            )
             vacaciones += hours_per_day * 60 if info["vacaciones_full_day"] else 0
         current += timedelta(days=1)
     return {
@@ -876,7 +972,9 @@ def get_special_status_day_map(user, range_start: date, range_end: date) -> dict
     return day_map
 
 
-def get_team_special_status_day_map(users, range_start: date, range_end: date) -> dict[int, dict[date, dict]]:
+def get_team_special_status_day_map(
+    users, range_start: date, range_end: date
+) -> dict[int, dict[date, dict]]:
     """Igual que `get_special_status_day_map` pero para varios usuarios en
     una sola consulta — solo devuelve entradas para usuarios que
     realmente tienen algún estado especial superpuesto al rango."""

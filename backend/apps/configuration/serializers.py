@@ -30,6 +30,14 @@ class WelcomeMessageUpdateSerializer(serializers.Serializer):
     active = serializers.BooleanField()
 
 
+class ConsentTextUpdateSerializer(serializers.Serializer):
+    """`PUT /api/v1/settings/consent-text/` — a diferencia del mensaje de
+    bienvenida (opcional), acá `allow_blank=False`: un aviso de
+    tratamiento de datos vacío no tiene sentido legal."""
+
+    text = serializers.CharField(allow_blank=False)
+
+
 class FavoriteUpdateSerializer(serializers.Serializer):
     """Réplica de la validación inline de `PATCH
     /api/settings/favorites`."""
@@ -84,16 +92,22 @@ class LeaveRecordCreateSerializer(serializers.Serializer):
     start_date = serializers.DateField()
     end_date = serializers.DateField()
     is_full_day = serializers.BooleanField()
-    duration_minutes = serializers.IntegerField(required=False, allow_null=True, min_value=1, max_value=1440)
+    duration_minutes = serializers.IntegerField(
+        required=False, allow_null=True, min_value=1, max_value=1440
+    )
     observation = serializers.CharField(required=False, allow_null=True, allow_blank=True)
 
     def validate(self, attrs):
         if attrs["end_date"] < attrs["start_date"]:
-            raise serializers.ValidationError("La fecha fin debe ser igual o posterior a la fecha inicio")
+            raise serializers.ValidationError(
+                "La fecha fin debe ser igual o posterior a la fecha inicio"
+            )
         if attrs["type"] == LeaveRecord.Type.VACACIONES and not attrs["is_full_day"]:
             raise serializers.ValidationError("Las vacaciones siempre son de día completo")
         if not attrs["is_full_day"] and attrs.get("duration_minutes") is None:
-            raise serializers.ValidationError("La duración debe ser un número de minutos entre 1 y 1440")
+            raise serializers.ValidationError(
+                "La duración debe ser un número de minutos entre 1 y 1440"
+            )
         return attrs
 
 
@@ -113,7 +127,9 @@ class SpecialStatusCreateSerializer(serializers.Serializer):
 
     def _validate_hours_field(self, value, label):
         if value <= 0 or value > 24:
-            raise serializers.ValidationError(f"El campo {label} debe ser un número entre 0 y 24 horas")
+            raise serializers.ValidationError(
+                f"El campo {label} debe ser un número entre 0 y 24 horas"
+            )
         return value
 
     def validate_daily_hours(self, value):
@@ -133,9 +149,14 @@ class SpecialStatusCreateSerializer(serializers.Serializer):
 
     def validate(self, attrs):
         if attrs.get("end_date") and attrs["end_date"] < attrs["start_date"]:
-            raise serializers.ValidationError("La fecha fin debe ser igual o posterior a la fecha inicio")
+            raise serializers.ValidationError(
+                "La fecha fin debe ser igual o posterior a la fecha inicio"
+            )
         if not (
-            attrs["limit_low"] < attrs["limit_base"] <= attrs["limit_high"] < attrs["limit_overload"]
+            attrs["limit_low"]
+            < attrs["limit_base"]
+            <= attrs["limit_high"]
+            < attrs["limit_overload"]
         ):
             raise serializers.ValidationError(
                 "Los límites deben cumplir: Subutilización < Moderado/Óptimo ≤ Óptimo/Elevada < Elevada/Sobrecarga"
@@ -157,7 +178,9 @@ class RetentionPolicyUpdateSerializer(serializers.Serializer):
     /api/settings/retention-policy` — Fase 31. Todos los campos
     opcionales (solo se actualiza lo presente)."""
 
-    monthly_reports_months = serializers.ChoiceField(choices=MONTHLY_REPORTS_OPTIONS, required=False)
+    monthly_reports_months = serializers.ChoiceField(
+        choices=MONTHLY_REPORTS_OPTIONS, required=False
+    )
     archived_tasks_months = serializers.ChoiceField(choices=ARCHIVED_TASKS_OPTIONS, required=False)
     knowledge_docs_months = serializers.ChoiceField(choices=KNOWLEDGE_DOCS_OPTIONS, required=False)
 
@@ -170,7 +193,9 @@ class EscritorioDigitalConfigUpdateSerializer(serializers.Serializer):
     archive_retention_days = serializers.IntegerField(required=False, min_value=1, max_value=365)
     max_replies = serializers.IntegerField(required=False, min_value=1, max_value=20)
     snooze_presets_minutes = serializers.ListField(
-        child=serializers.IntegerField(min_value=1, max_value=43200), required=False, allow_empty=False
+        child=serializers.IntegerField(min_value=1, max_value=43200),
+        required=False,
+        allow_empty=False,
     )
 
     def validate(self, attrs):
@@ -195,9 +220,15 @@ class SeguridadConfigUpdateSerializer(serializers.Serializer):
     que Django nunca respetaba en la práctica."""
 
     password_min_length = serializers.IntegerField(required=False, min_value=10, max_value=128)
-    session_duration_default_hours = serializers.IntegerField(required=False, min_value=1, max_value=8760)
-    session_duration_remember_hours = serializers.IntegerField(required=False, min_value=1, max_value=8760)
-    retention_login_attempts_days = serializers.ChoiceField(choices=RETENTION_LOGIN_ATTEMPTS_OPTIONS, required=False)
+    session_duration_default_hours = serializers.IntegerField(
+        required=False, min_value=1, max_value=8760
+    )
+    session_duration_remember_hours = serializers.IntegerField(
+        required=False, min_value=1, max_value=8760
+    )
+    retention_login_attempts_days = serializers.ChoiceField(
+        choices=RETENTION_LOGIN_ATTEMPTS_OPTIONS, required=False
+    )
 
 
 class TrabajoAvanzadoUpdateSerializer(serializers.Serializer):

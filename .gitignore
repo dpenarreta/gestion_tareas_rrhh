@@ -33,6 +33,7 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example
+!.env.production.example
 
 # vercel
 .vercel
@@ -44,14 +45,16 @@ next-env.d.ts
 # uploaded attachments
 /public/uploads
 
-.vercel
-.env*
-
 # temp migration scripts (may reference env-provided DB creds, never commit)
 /_migration_tmp
 
 # backend (Django, Fase 1 de la migracion de stack)
 backend/.venv
+
+# logs de los Windows Services de produccion (NSSM, ver
+# scripts/deploy/register-windows-services.ps1 y docs/DEPLOYMENT_IIS.md)
+/logs
+backend/logs
 backend/__pycache__
 backend/**/__pycache__
 backend/**/migrations/__pycache__
