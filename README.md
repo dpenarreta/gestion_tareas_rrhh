@@ -331,6 +331,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-09-04: fix(ux): responsividad de Trabajo (Kanban/Tabla) en mobile/tablet (v1.149.1)
 - 2026-09-03: feat: consentimiento de datos editable, fixes de ConsentGate/sesion y despliegue en IIS (v1.147.3-v1.149.0)
 - 2026-09-02: fix(security): corrige login de ADMINISTRADOR y 7 hallazgos de IA/datos personales (v1.147.1-v1.147.2)
 - 2026-09-01: fix(security): corrige los hallazgos de la auditoria de seguridad (v1.147.0)

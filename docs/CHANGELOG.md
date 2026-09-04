@@ -23,6 +23,44 @@
 
 ---
 
+## v1.149.1 — 2026-09-03
+
+**Tipo:** UX
+**Módulo:** Responsividad del módulo Trabajo (Kanban/Tabla) en mobile/tablet
+(ver docs/AUDIT_LOG.md § 2026-09-03, "Responsividad de Trabajo en
+mobile/tablet"). Único módulo con problemas reales tras una auditoría
+completa de dos pasadas de toda la aplicación — el resto ya manejaba
+correctamente mobile/tablet.
+
+- **Kanban** (`KanbanView.tsx`): `grid-cols-3` fijo → `grid-cols-1
+  md:grid-cols-3` — las 3 columnas (Pendiente/En Progreso/Completada) se
+  apilan verticalmente en pantallas angostas en vez de aplastarse a
+  ~110px cada una.
+- **Barra de pestañas de vista** (`TasksModule.tsx`): agrega
+  `overflow-x-auto min-w-0` al contenedor de tabs y `shrink-0` al botón
+  "Cerrar mes" — antes, sin espacio suficiente, arrastraba toda la
+  página en scroll horizontal en vez de scrollear solo esa barra.
+- **Barra flotante de selección masiva** (`TableView.tsx`): agrega
+  `max-w-[calc(100vw-1.5rem)] overflow-x-auto` — antes, siendo un
+  elemento `fixed` centrado sin límite de ancho, sus extremos quedaban
+  literalmente cortados fuera de la pantalla en viewports angostos.
+- **Tabla principal de Trabajo** (`TableView.tsx`): oculta columnas
+  secundarias en mobile (`hidden sm:table-cell`/`hidden md:table-cell` en
+  Frecuencia/Coment./Inicio/T. Objetivo/H. Reales) — mismo patrón ya
+  usado en `UsersManager.tsx`. Quedan siempre visibles Título, Estado,
+  Prioridad, Fin y Acciones.
+
+**Verificación:** dos auditorías de código completas de toda la
+aplicación (todas las pantallas protegidas) no encontraron otros
+problemas reales — solo 2 hallazgos menores de bajo riesgo, sin cambios
+(`TaskCard.tsx`, popover derivado del Kanban ya corregido;
+`ScenarioSimulatorPanel.tsx`, tabla cruda sin wrapper, 3 columnas cortas
+en un panel angosto). `tsc`/`eslint` limpios, Vitest 1158/1158,
+confirmado en Chrome que Kanban y Tabla no tienen regresión visual en
+desktop tras el cambio (no fue posible verificar visualmente en un
+viewport móvil real en este entorno — la emulación de tamaño de ventana
+de Chrome no funcionó).
+
 ## v1.149.0 — 2026-09-02
 
 **Tipo:** FEATURE

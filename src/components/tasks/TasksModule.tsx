@@ -230,7 +230,7 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
 
       {/* Tab bar */}
       <div className="flex items-center justify-between gap-2 mb-5 relative">
-        <div className="flex items-center gap-0.5 bg-surface2 rounded-[10px] p-1">
+        <div className="flex items-center gap-0.5 bg-surface2 rounded-[10px] p-1 overflow-x-auto min-w-0">
           {activeViews.map((view) => (
             <button
               key={view}
@@ -294,7 +294,7 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
         </div>
 
         {canManageUsers(currentUserRole) && (
-          <Button size="sm" onClick={() => setShowCloseMonth(true)}>
+          <Button size="sm" className="shrink-0" onClick={() => setShowCloseMonth(true)}>
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>

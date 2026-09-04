@@ -197,7 +197,7 @@ function TaskRow({
           <p className="text-[10px] text-disabled mt-0.5">{task.assignedTo.name}</p>
         )}
       </Td>
-      <Td>
+      <Td className="hidden sm:table-cell">
         <InlineEdit
           value={task.frequency}
           type="select"
@@ -227,19 +227,19 @@ function TaskRow({
       <Td>
         <PriorityChip value={task.priority} config={TASK_PRIORITY_CONFIG} />
       </Td>
-      <Td className="whitespace-nowrap">{formatDate(task.startDate)}</Td>
+      <Td className="hidden md:table-cell whitespace-nowrap">{formatDate(task.startDate)}</Td>
       <Td className={`whitespace-nowrap ${isTaskOverdue(task.endDate, task.status) ? "text-danger font-semibold" : "text-main"}`}>{formatDate(task.endDate)}</Td>
-      <Td className="text-right">
+      <Td className="hidden md:table-cell text-right">
         {hoursToDisplay(getOfficialTargetTime(task))}h
         {isTargetTimeValidated(task) && (
           <span className="ml-1 text-success text-[10px]" title="Tiempo objetivo validado">✓</span>
         )}
       </Td>
-      <Td className="text-right">
+      <Td className="hidden md:table-cell text-right">
         {hoursToDisplay(task.realHours)}
         <span className="text-disabled ml-0.5 text-xs">h</span>
       </Td>
-      <Td className="text-center">
+      <Td className="hidden sm:table-cell text-center">
         <div className="inline-flex items-center gap-2">
           <button
             onClick={() => onActivityClick(task)}
@@ -626,14 +626,14 @@ export default function TableView({
                         </Th>
                         <th className="w-1 px-0" />
                         <Th onDoubleClick={() => handleSort("title")} className="cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Título<SortIcon col="title" /></Th>
-                        <Th onDoubleClick={() => handleSort("frequency")} className="cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Frecuencia<SortIcon col="frequency" /></Th>
+                        <Th onDoubleClick={() => handleSort("frequency")} className="hidden sm:table-cell cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Frecuencia<SortIcon col="frequency" /></Th>
                         <Th>Estado</Th>
                         <Th onDoubleClick={() => handleSort("priority")} className="cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Prioridad<SortIcon col="priority" /></Th>
-                        <Th onDoubleClick={() => handleSort("startDate")} className="cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Inicio<SortIcon col="startDate" /></Th>
+                        <Th onDoubleClick={() => handleSort("startDate")} className="hidden md:table-cell cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Inicio<SortIcon col="startDate" /></Th>
                         <Th onDoubleClick={() => handleSort("endDate")} className="cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">Fin<SortIcon col="endDate" /></Th>
-                        <Th onDoubleClick={() => handleSort("estimatedHours")} className="text-right cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">T. Objetivo<SortIcon col="estimatedHours" /></Th>
-                        <Th onDoubleClick={() => handleSort("realHours")} className="text-right cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">H. Reales<SortIcon col="realHours" /></Th>
-                        <Th className="text-center">Coment.</Th>
+                        <Th onDoubleClick={() => handleSort("estimatedHours")} className="hidden md:table-cell text-right cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">T. Objetivo<SortIcon col="estimatedHours" /></Th>
+                        <Th onDoubleClick={() => handleSort("realHours")} className="hidden md:table-cell text-right cursor-pointer select-none hover:text-title" title="Doble clic para ordenar">H. Reales<SortIcon col="realHours" /></Th>
+                        <Th className="hidden sm:table-cell text-center">Coment.</Th>
                         <Th />
                       </tr>
                     </TableHead>
@@ -709,7 +709,7 @@ export default function TableView({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 20 }}
             transition={{ type: "spring", stiffness: 500, damping: 40 }}
-            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 bg-title text-background rounded-2xl shadow-2xl px-5 py-3"
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 flex items-center gap-3 bg-title text-background rounded-2xl shadow-2xl px-5 py-3 max-w-[calc(100vw-1.5rem)] overflow-x-auto"
           >
             <span className="text-sm font-medium whitespace-nowrap">
               {selectedTasks.length} tarea{selectedTasks.length !== 1 ? "s" : ""} seleccionada{selectedTasks.length !== 1 ? "s" : ""}

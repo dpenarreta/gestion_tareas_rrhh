@@ -15,6 +15,72 @@
 
 ---
 
+## 2026-09-03 — Responsividad de Trabajo en mobile/tablet
+
+**Contexto:** al preguntar por la responsividad de la app antes de seguir
+con el despliegue en IIS, se lanzó una auditoría de código de dos pasadas
+sobre toda la aplicación (una inicial cubriendo los módulos con más
+contenido/tablas, y una segunda pasada de verificación + cobertura de los
+módulos restantes: menú mobile, Reportes Ejecutivos, Reuniones, Mejora
+Continua, Inteligencia Preventiva, Escritorio Digital, Tiempo Objetivo,
+Asistente, Login/ConsentGate, Perfil). No fue posible verificar
+visualmente en un viewport móvil real — la herramienta de emulación de
+tamaño de ventana de Chrome disponible en este entorno no cambia el
+`window.innerWidth` real (confirmado empíricamente, la ventana queda fija
+a la resolución física del entorno) — así que la auditoría y la
+verificación post-fix fueron por código, no visuales.
+
+**Problema:** de las ~20 pantallas/módulos auditados, solo **Trabajo**
+(Kanban y Vista Tabla) tenía problemas reales de responsividad — el resto
+ya manejaba mobile/tablet correctamente (el componente `Table` base ya
+envuelve todo en `overflow-x-auto`, los modales son responsive por
+diseño, `Sidebar.tsx`/`Topbar.tsx` ya tienen un menú mobile off-canvas
+funcional). 4 hallazgos concretos en Trabajo:
+1. `KanbanView.tsx`: `grid-cols-3` fijo sin breakpoints — en ~375px cada
+   columna quedaba en ~110px real, tarjetas ilegibles.
+2. `TasksModule.tsx`: la barra de pestañas de vista (Kanban/Tabla/Gantt +
+   botón "+ Vista" + "Repositorio" + "Cerrar mes") sin `overflow-x-auto`
+   ni `flex-wrap`, a diferencia del mismo patrón ya resuelto en
+   Escritorio Digital/Proyectos/KPIs — si se desbordaba, arrastraba toda
+   la página en scroll horizontal.
+3. `TableView.tsx`: la barra flotante de selección masiva (elemento
+   `fixed` centrado, `whitespace-nowrap`, sin `max-w-*`) — único caso real
+   de "contenido oculto de verdad" encontrado en toda la app: en un
+   viewport angosto sus extremos quedaban literalmente fuera de pantalla,
+   no solo "hay que scrollear".
+4. `TableView.tsx`: la tabla principal de Trabajo (12 columnas) no ocultaba
+   nada en mobile, a diferencia de `UsersManager.tsx` (que ya usa `hidden
+   sm:table-cell`/`hidden md:table-cell` para columnas secundarias) — no
+   rota (tiene scroll horizontal vía el `Table` compartido), pero peor
+   experiencia que el resto del sistema.
+
+**Decisión:** los 4 se corrigieron con el patrón ya establecido en el
+resto del código (mismas clases de Tailwind que ya usa `UsersManager.tsx`/
+`DeskBoard.tsx`/`ProjectDetailView.tsx`/`AdvancedAnalytics.tsx`, sin
+introducir un patrón nuevo):
+1. `grid-cols-3` → `grid-cols-1 md:grid-cols-3`.
+2. `overflow-x-auto min-w-0` en el contenedor de tabs, `shrink-0` en el
+   botón "Cerrar mes".
+3. `max-w-[calc(100vw-1.5rem)] overflow-x-auto` en la barra flotante.
+4. `hidden sm:table-cell`/`hidden md:table-cell` en
+   Frecuencia/Coment./Inicio/T.Objetivo/H.Reales (headers y celdas
+   correspondientes verificados como consistentes en la segunda pasada —
+   sin desalineación de columnas, `colSpan={12}` de la fila vacía sigue
+   coincidiendo con el total real de columnas declaradas).
+
+**Justificación:** se priorizó de menor a mayor impacto (pedido explícito
+del usuario) — el orden real de arreglo fue tabla de columnas (4) → barra
+flotante (3) → barra de pestañas (2) → Kanban (1), inverso al orden de
+gravedad reportado. Ningún fix introduce un componente/patrón nuevo, todos
+reutilizan clases de Tailwind ya presentes en otras partes del código.
+
+**Impacto:** `src/components/tasks/{KanbanView,TasksModule,TableView}.tsx`.
+Verificado: `tsc`/`eslint` limpios, Vitest 1158/1158, confirmado en Chrome
+(desktop, sin regresión visual en Kanban/Tabla). Ver `docs/CHANGELOG.md` §
+v1.149.1.
+
+---
+
 ## 2026-09-02 — Despliegue en IIS nativo de Windows
 
 **Contexto:** el usuario pidió dejar todo listo para instalar NEXO en un

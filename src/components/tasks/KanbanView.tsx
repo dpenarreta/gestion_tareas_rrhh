@@ -264,7 +264,7 @@ export default function KanbanView({
   return (
     <>
       <DndContext id="kanban-board" sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-        <div className="grid grid-cols-3 gap-4 h-full">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 h-full">
           {COLUMNS.map((col) => (
             <DroppableColumn
               key={col.id}
