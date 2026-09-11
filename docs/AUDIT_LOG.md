@@ -15,6 +15,57 @@
 
 ---
 
+## 2026-09-11 — "La página no pudo ser cargada": un error de sesión que rompía la pantalla en vez de explicarse
+
+**Reporte:** en producción, la pantalla de Usuarios no cargaba.
+
+**Lo que mostraban los logs del servidor:** Django respondiendo **403** a
+`/admin/users/`, `/dashboard/`, `/notifications/` y hasta
+`/users/1/view-preferences/` — pero **200** a `/auth/me/`. Ese contraste es
+el diagnóstico: el token autenticaba, pero no tenía los permisos. Y la
+petición de las preferencias del usuario **1** devolviendo 403 lo confirma:
+la sesión de Next.js decía "soy el usuario 1" mientras el token de Django
+pertenecía a otra cuenta. Las dos cookies estaban desincronizadas.
+
+Descartado primero lo obvio: en la base, `dpenarreta` es superusuario, activo
+y en el grupo ADMINISTRADOR, que tiene los 27 permisos del catálogo. Y
+`ROTATE_REFRESH_TOKENS` está en `False`, así que el arreglo del refresco de
+tokens de esta misma fecha no había invalidado nada.
+
+**Eso explica el 403, pero no la pantalla rota.** El fallo real de software
+es que un error perfectamente manejable se convertía en un crash:
+
+`UsersManager.loadUsers` hacía `setUsers(data)` **sin mirar `res.ok`**. Ante
+un error, `data` es `{error: "..."}` y no un array, así que el
+`users.filter(...)` de `filteredUsers` lanzaba un TypeError que tumbaba toda
+la pantalla. El usuario veía "la página no pudo ser cargada" en lugar de
+*"Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a
+iniciar sesión"*, que es la única frase accionable — y la que habría
+resuelto el problema sin intervención.
+
+**Lo notable: este bug ya se había corregido una vez.** El 2026-09-02, en
+`ConfigCenter`, con el mismo diagnóstico y hasta con un comentario que lo
+explica en el código. La corrección se aplicó al componente donde se
+reportó, no al patrón, y el gemelo quedó intacto en `UsersManager` esperando
+la próxima sesión vencida. Es la misma lección que el `2>&1` de los scripts
+de despliegue, el mismo día: arreglar la instancia y no el patrón deja el
+error listo para volver disfrazado de bug nuevo.
+
+**Segundo crash encontrado de paso**, repetido en los logs:
+`toNexoTargets` (`/api/settings/role-targets`) asumía que cada objetivo por
+cargo venía completo y lanzaba `Cannot read properties of null (reading
+'performance')`. El objetivo por cargo es **opcional**: un rol sin configurar
+llega como `null`. No era un error, era el caso normal sin contemplar.
+
+**Qué NO se cambió:** la desincronización de cookies en sí. Se resuelve
+cerrando sesión y volviendo a entrar, y su causa (dos identidades en dos
+cookies distintas) es un problema de diseño más grande que amerita su propia
+decisión, no un parche apurado en medio de un incidente. Lo que sí queda
+garantizado es que cuando vuelva a pasar, la aplicación lo diga en vez de
+romperse.
+
+---
+
 ## 2026-09-11 — El aviso de datos personales reaparecía: un refresco de token que no podía guardar su cookie
 
 **Reporte:** "al refrescar la página sigue saliendo el tratamiento de datos

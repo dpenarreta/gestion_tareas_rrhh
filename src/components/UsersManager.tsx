@@ -92,16 +92,32 @@ export default function UsersManager({ currentUserRole }: Props) {
     return true;
   }
 
+  // Mismo bug que ya se había corregido en ConfigCenter (ver
+  // docs/AUDIT_LOG.md § 2026-09-02) y que acá había quedado sin corregir:
+  // hacía `setUsers(data)` sin mirar `res.ok`. Ante cualquier error —sesión
+  // de Django vencida, permisos, timeout— `data` es `{error: "..."}`, no un
+  // array, y el `users.filter(...)` de `filteredUsers` revienta con un
+  // TypeError que tumba TODA la pantalla. El usuario ve "la página no pudo
+  // ser cargada" en vez del motivo real, que es lo único accionable
+  // (2026-09-11: pasó en producción con la sesión de Django desincronizada).
   const loadUsers = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch("/api/users");
-      const data = await res.json();
-      setUsers(data);
+      const data = await res.json().catch(() => null);
+      if (!res.ok) {
+        showToast(data?.error ?? "No se pudo cargar la lista de usuarios.", "error");
+        setUsers([]);
+        return;
+      }
+      setUsers(Array.isArray(data) ? data : []);
+    } catch {
+      showToast("Error de conexión al cargar usuarios.", "error");
+      setUsers([]);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [showToast]);
 
   useEffect(() => {
     queueMicrotask(loadUsers);

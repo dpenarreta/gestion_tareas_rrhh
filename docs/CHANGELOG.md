@@ -23,6 +23,42 @@
 
 ---
 
+## v1.154.4 — 2026-09-11
+
+**Tipo:** FIX
+**Módulo:** Usuarios y objetivos por cargo — dos fallos que convertían un
+error manejable en una pantalla rota (ver docs/AUDIT_LOG.md § 2026-09-11).
+
+- **Síntoma reportado:** en producción, la pantalla de Usuarios no cargaba
+  ("la página no pudo ser cargada").
+- **`src/components/UsersManager.tsx`** — `loadUsers` hacía `setUsers(data)`
+  **sin mirar `res.ok`**. Ante cualquier error (sesión de Django vencida,
+  permisos, timeout) `data` es `{error: "..."}` y no un array, así que el
+  `users.filter(...)` de `filteredUsers` lanzaba un TypeError que tumbaba
+  toda la pantalla. Es el mismo bug que ya se había corregido en
+  `ConfigCenter` el 2026-09-02 y que acá había quedado sin corregir: ahora
+  muestra el motivo real del backend —lo único accionable— y deja la tabla
+  vacía pero usable.
+- **`src/app/api/settings/role-targets/route.ts`** — `toNexoTargets` asumía
+  que cada objetivo por cargo venía completo y lanzaba
+  `Cannot read properties of null (reading 'performance')`, visto repetidas
+  veces en el log del servidor. El objetivo por cargo es **opcional**: un rol
+  sin configurar llega como `null`, que no es un error sino exactamente lo
+  que representa un target vacío.
+- **Causa de fondo del reporte, no del código:** las cookies de sesión de
+  Next.js y las de Django se habían desincronizado (la sesión decía usuario
+  1, el token de Django pertenecía a otra cuenta), de ahí los 403 de Django
+  en `/admin/users/`, `/dashboard/` y hasta `/users/1/view-preferences/`. Se
+  resuelve cerrando sesión y volviendo a entrar; lo que estos dos arreglos
+  garantizan es que cuando eso pase, la aplicación **explique el problema en
+  vez de romperse**.
+
+**Verificación:** 3 tests nuevos (el motivo del backend se muestra en vez de
+romper, una respuesta que no es un array no lanza, y un fetch que falla deja
+la pantalla usable). Comprobados por mutación: revirtiendo el arreglo, dos
+fallan reproduciendo el crash. **Vitest 1189/1189**, `tsc --noEmit` y
+`eslint` limpios.
+
 ## v1.154.3 — 2026-09-11
 
 **Tipo:** FIX

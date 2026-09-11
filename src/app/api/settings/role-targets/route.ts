@@ -11,11 +11,18 @@ type RoleTarget = { performance: number | null; riesgoMax: number | null; cumpli
 type DjangoRoleTarget = { performance: number | null; riesgo_max: number | null; cumplimiento: number | null };
 type DjangoRoleTargetsResponse = { targets: Record<string, DjangoRoleTarget> };
 
+const TARGET_VACIO: RoleTarget = { performance: null, riesgoMax: null, cumplimiento: null };
+
 function toNexoTargets(targets: Record<string, DjangoRoleTarget>): Record<string, RoleTarget> {
   return Object.fromEntries(
-    Object.entries(targets).map(([role, t]) => [
+    Object.entries(targets ?? {}).map(([role, t]) => [
       role,
-      { performance: t.performance, riesgoMax: t.riesgo_max, cumplimiento: t.cumplimiento },
+      // `t` puede venir null: el objetivo por cargo es OPCIONAL, así que un
+      // rol sin configurar llega como null y esto lanzaba
+      // "Cannot read properties of null (reading 'performance')" — visto en
+      // los logs de producción el 2026-09-11. Un objetivo sin definir no es
+      // un error: es exactamente lo que representa un target vacío.
+      t ? { performance: t.performance, riesgoMax: t.riesgo_max, cumplimiento: t.cumplimiento } : TARGET_VACIO,
     ])
   );
 }

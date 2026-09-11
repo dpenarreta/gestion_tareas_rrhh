@@ -241,3 +241,37 @@ describe("UsersManager — estado del usuario en la lista", () => {
     expect(await screen.findByText(motivo)).toBeInTheDocument();
   });
 });
+
+describe("UsersManager — la pantalla no se rompe cuando la lista falla", () => {
+  // Bug real en producción (ver docs/AUDIT_LOG.md § 2026-09-11): `loadUsers`
+  // hacía `setUsers(data)` sin mirar `res.ok`. Ante un error, `data` es
+  // `{error: "..."}` y no un array, así que el `users.filter(...)` de
+  // `filteredUsers` lanzaba un TypeError que tumbaba toda la pantalla: el
+  // usuario veía "la página no pudo ser cargada" en vez del motivo real.
+  it("muestra el motivo del backend en vez de romperse", async () => {
+    const motivo = "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
+    renderManager(
+      vi.fn(async () => ({ ok: false, status: 401, json: async () => ({ error: motivo }) }) as Response)
+    );
+
+    expect(await screen.findByText(motivo)).toBeInTheDocument();
+    // La tabla sigue en pie (vacía), no una pantalla en blanco.
+    expect(screen.getByText("Nombre")).toBeInTheDocument();
+  });
+
+  it("tolera una respuesta que no es un array sin lanzar", async () => {
+    // Caso patológico: 200 con un cuerpo inesperado. Antes llegaba igual a
+    // `users.filter` y rompía.
+    renderManager(vi.fn(async () => ({ ok: true, json: async () => ({ inesperado: true }) }) as Response));
+
+    expect(await screen.findByText("Nombre")).toBeInTheDocument();
+    expect(screen.queryByText(/no pudo/i)).not.toBeInTheDocument();
+  });
+
+  it("si el fetch lanza, avisa y deja la pantalla usable", async () => {
+    renderManager(vi.fn(async () => { throw new Error("red caída"); }));
+
+    expect(await screen.findByText(/Error de conexión al cargar usuarios/i)).toBeInTheDocument();
+    expect(screen.getByText("Nombre")).toBeInTheDocument();
+  });
+});
