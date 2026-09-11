@@ -9,6 +9,7 @@ import { ROLE_LABEL } from "@/lib/roles";
 import { formatDate } from "@/lib/utils";
 import TimeInput24 from "@/components/ui/TimeInput24";
 import { useToast } from "@/components/ui/Toast";
+import { copyToClipboard } from "@/lib/clipboard";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -324,10 +325,17 @@ function MeetingDetailModal({
     }
   }
 
-  function copyOtterEmail() {
-    navigator.clipboard.writeText("meet@otter.ai");
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+  async function copyOtterEmail() {
+    // `navigator.clipboard` no existe sirviendo por http (ver
+    // src/lib/clipboard.ts), y esto lo llamaba directo: en producción no
+    // copiaba nada y además lanzaba un TypeError sin capturar. El "Copiado"
+    // se muestra solo si de verdad se copió.
+    if (await copyToClipboard("meet@otter.ai")) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } else {
+      showToast("No se pudo copiar. El correo es meet@otter.ai", "error");
+    }
   }
 
   const STATUS_OPTIONS: MeetingStatus[] = ["PROGRAMADA", "EN_CURSO", "FINALIZADA"];

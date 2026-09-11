@@ -23,6 +23,38 @@
 
 ---
 
+## v1.154.5 — 2026-09-11
+
+**Tipo:** FIX
+**Módulo:** Copiar al portapapeles — no funcionaba sirviendo por http (ver
+docs/AUDIT_LOG.md § 2026-09-11).
+
+- **Síntoma:** el botón "Copiar" del enlace de recuperación no copiaba nada.
+- **La causa:** `navigator.clipboard` **solo existe en contextos seguros**
+  (https o localhost). Nexo se despliega por http en la red interna
+  (decisión explícita, ver `src/lib/httpsPolicy.ts`), así que en producción
+  esa API es `undefined` y llamarla lanza. El enlace se mostraba bien; lo
+  que no ocurría era el copiado.
+- **`src/lib/clipboard.ts`** (nuevo): `copyToClipboard` intenta la API
+  moderna y, cuando no está disponible o es rechazada (permiso denegado,
+  documento sin foco), cae a `document.execCommand("copy")` sobre un
+  textarea temporal. Ese método está deprecado, pero es el único que
+  funciona sin TLS. Nunca lanza: devuelve si pudo copiar, y limpia el DOM
+  incluso cuando falla.
+- **Se corrigieron los dos lugares que copiaban**, no solo el reportado:
+  `PasswordManagementSection` (el enlace de recuperación) y
+  `MeetingsModule` (el correo de Otter). El segundo llamaba a
+  `navigator.clipboard.writeText` **sin capturar el error**, así que en
+  producción además lanzaba un TypeError y mostraba "Copiado" sin haber
+  copiado nada.
+
+**Verificación:** 8 tests nuevos, centrados en el caso que realmente ocurre
+en producción (sin `navigator.clipboard`), más los de fallo: devuelve
+`false` en vez de lanzar, no deja el textarea temporal en el DOM ni siquiera
+al fallar, y la pantalla no dice "Copiado" si no copió. Comprobados por
+mutación: con el helper revertido al comportamiento anterior, los 7 fallan.
+**Vitest 1197/1197**, `tsc --noEmit` y `eslint` limpios.
+
 ## v1.154.4 — 2026-09-11
 
 **Tipo:** FIX

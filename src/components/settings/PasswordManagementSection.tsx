@@ -8,6 +8,7 @@ import { Table, TableHead, TableBody, TableRow, Th, Td } from "@/components/ui/T
 import { SkeletonRow } from "@/components/ui/Skeleton";
 import { useToast } from "@/components/ui/Toast";
 import { Button } from "@/components/ui/Button";
+import { copyToClipboard } from "@/lib/clipboard";
 
 type User = { id: string; name: string; role: Role };
 
@@ -48,12 +49,12 @@ export default function PasswordManagementSection({ users, loading }: { users: U
 
   async function copiarEnlace() {
     if (!enlace) return;
-    try {
-      await navigator.clipboard.writeText(enlace.url);
+    // `copyToClipboard` resuelve que en http no exista `navigator.clipboard`
+    // (ver src/lib/clipboard.ts). El enlace queda visible igual, así que si
+    // ni siquiera el camino alternativo funciona, se puede copiar a mano.
+    if (await copyToClipboard(enlace.url)) {
       setCopiado(true);
-    } catch {
-      // Sin permiso de portapapeles (pasa en http sin localhost): el enlace
-      // está a la vista igual y se puede seleccionar a mano.
+    } else {
       showToast("No se pudo copiar automáticamente. Seleccioná el enlace y copialo.", "error");
     }
   }

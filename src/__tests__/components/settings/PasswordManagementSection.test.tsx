@@ -92,3 +92,35 @@ describe("PasswordManagementSection", () => {
     await waitFor(() => expect(screen.queryByText(ENLACE)).not.toBeInTheDocument());
   });
 });
+
+describe("PasswordManagementSection — copiar sirviendo por http", () => {
+  // El caso real de producción: Nexo se sirve por http en la red interna, y
+  // ahí `navigator.clipboard` NO EXISTE (solo está en contextos seguros).
+  // El botón "Copiar" no copiaba nada (ver docs/AUDIT_LOG.md § 2026-09-11).
+  it("copia igual cuando navigator.clipboard no está disponible", async () => {
+    const execCommand = vi.fn(() => true);
+    (document as unknown as { execCommand: unknown }).execCommand = execCommand;
+    vi.stubGlobal("navigator", {});
+    renderSection(respuestaConEnlace());
+
+    fireEvent.click(screen.getByText(/Generar enlace de recuperación/));
+    fireEvent.click(await screen.findByRole("button", { name: "Copiar" }));
+
+    await waitFor(() => expect(execCommand).toHaveBeenCalledWith("copy"));
+    expect(await screen.findByRole("button", { name: "Copiado" })).toBeInTheDocument();
+  });
+
+  it("avisa si no se pudo copiar, sin decir 'Copiado'", async () => {
+    (document as unknown as { execCommand: unknown }).execCommand = vi.fn(() => false);
+    vi.stubGlobal("navigator", {});
+    renderSection(respuestaConEnlace());
+
+    fireEvent.click(screen.getByText(/Generar enlace de recuperación/));
+    fireEvent.click(await screen.findByRole("button", { name: "Copiar" }));
+
+    expect(await screen.findByText(/No se pudo copiar/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Copiado" })).not.toBeInTheDocument();
+    // El enlace sigue visible para copiarlo a mano.
+    expect(screen.getByText(ENLACE)).toBeInTheDocument();
+  });
+});

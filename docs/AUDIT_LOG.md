@@ -15,6 +15,88 @@
 
 ---
 
+## 2026-09-11 — Restablecer la contraseña de la propia cuenta deja al administrador bloqueado
+
+**Reporte encadenado:** "no me aparecen ninguno de los usuarios creados",
+justo después del arreglo anterior.
+
+**Qué pasó, con hora exacta:** a las 17:10:32, `dpenarreta` usó "Generar
+enlace de recuperación" **sobre su propia cuenta** (`objetivo_id=1` en la
+auditoría). Esa acción hace tres cosas, y una de ellas lo bloqueó: marcó
+`must_change_password = True`.
+
+`apps/authentication/authentication.py` tiene una regla que corre en *toda*
+petición autenticada: mientras esa marca esté activa, solo cuatro rutas
+siguen alcanzables (`/auth/password/change/`, `/auth/logout/`,
+`/auth/logout-all/`, `/auth/me/`); el resto responde **403
+`PasswordChangeRequired`**. De ahí el cuadro exacto que mostraban los logs:
+`/auth/me/` en 200 y `/admin/users/`, `/dashboard/`, `/notifications/` y
+`/users/1/view-preferences/` en 403.
+
+**Lo que lo vuelve un callejón sin salida:** el frontend **no maneja
+`must_change_password` en ningún lado** — el término aparece una sola vez en
+todo `src/`, como campo sin usar en el adaptador. Django devuelve el código
+`password_change_required` y la aplicación no lo interpreta: no lleva a
+cambiar la contraseña ni explica nada, solo muestra listas vacías. Y no hay
+escapatoria desde adentro, porque generar otro enlace también requiere
+entrar a Ajustes, que igualmente da 403.
+
+**Alcance:** no es un caso de borde del administrador. **Le pasa a cualquier
+persona a la que se le restablezca la contraseña** — le pasa ahora mismo a
+`ajacome@grupolaar.com`, con la marca activa desde las 15:48. El flujo de
+"cambio obligatorio" existe completo en Django y nunca se implementó del
+lado de Next.js.
+
+**Acción inmediata:** se quitó la marca de la cuenta de `dpenarreta` para
+desbloquearla, sin tocar su contraseña (el hash quedó intacto). Es revertir
+un clic accidental sobre la propia cuenta, no un cambio de credenciales.
+
+**Dos defectos identificados, pendientes de corregir:**
+
+1. **El restablecimiento admite hacerse sobre uno mismo.** Las otras dos
+   acciones de la pantalla de usuarios (dar de baja y eliminar) sí lo
+   impiden; esta no, y es la única de las tres que deja sin acceso a quien
+   la ejecuta.
+2. **El frontend ignora `password_change_required`.** Debería llevar a la
+   pantalla de cambio de contraseña en vez de dejar listas vacías sin
+   explicación.
+
+---
+
+## 2026-09-11 — El botón "Copiar" no copiaba: `navigator.clipboard` no existe sirviendo por http
+
+**Reporte:** "al mostrar el enlace de recuperación, pulso el botón que dice
+copiar y no se copia el enlace".
+
+**Causa:** `navigator.clipboard` **solo existe en contextos seguros** (https
+o localhost). Nexo se despliega por http en la red interna —decisión
+explícita, ver `src/lib/httpsPolicy.ts`—, así que en producción esa API es
+`undefined` y llamarla lanza. El enlace se mostraba bien; lo que nunca
+ocurría era el copiado.
+
+**Es un descuido propio, no un imprevisto:** al escribir esa pantalla el día
+anterior quedó un comentario que decía textualmente *"sin permiso de
+portapapeles (pasa en http sin localhost): el enlace está a la vista igual y
+se puede seleccionar a mano"*. Se anticipó el problema y se dejó anotado en
+vez de resolverlo, en un sistema que **siempre** corre por http. Anotar una
+limitación conocida no es lo mismo que manejarla.
+
+**La corrección: un helper compartido, no un parche local.** Al buscar el
+patrón aparecieron **dos** lugares que copian al portapapeles, y el otro
+—el correo de Otter en `MeetingsModule`— estaba peor: llamaba a
+`navigator.clipboard.writeText` **sin capturar el error**, así que en
+producción lanzaba un TypeError y mostraba "Copiado" sin haber copiado nada.
+`src/lib/clipboard.ts` centraliza los dos caminos (API moderna, y
+`document.execCommand` sobre un textarea temporal cuando no está
+disponible), nunca lanza, y limpia el DOM incluso al fallar.
+
+**Criterio de diseño:** copiar es una comodidad, no la funcionalidad. Por
+eso el helper devuelve si pudo en vez de lanzar, y el texto siempre queda
+visible para seleccionarlo a mano — la ruta manual tiene que seguir
+existiendo aunque el copiado automático falle.
+
+---
+
 ## 2026-09-11 — "La página no pudo ser cargada": un error de sesión que rompía la pantalla en vez de explicarse
 
 **Reporte:** en producción, la pantalla de Usuarios no cargaba.
