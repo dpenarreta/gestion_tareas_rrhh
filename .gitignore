@@ -62,9 +62,13 @@ backend/staticfiles
 backend/db.sqlite3
 backend/.pytest_cache
 
-# frontend (Vite/React, Fase 1 de la migracion de stack)
-frontend/node_modules
-frontend/dist
+# frontend (Vite/React, Fase 1 de la migracion de stack). El scaffold se
+# retiro del repositorio en el commit 051b105 (v1.145.0-v1.146.2) y la app
+# real es el Next.js de la raiz, asi que lo que queda en disco es residuo
+# local: node_modules, un .env y un .env.example huerfanos. Se ignora la
+# carpeta entera para que no ensucie `git status` en cada sesion — si alguna
+# vez se retoma ese scaffold, hay que quitar esta regla a proposito.
+frontend/
 
 # Script de creacion de la base de datos: lo genera `manage.py
 # sqlcreatedatabase` e incluye el hash Argon2 de la contrasena del
