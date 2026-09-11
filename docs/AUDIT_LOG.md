@@ -15,6 +15,54 @@
 
 ---
 
+## 2026-09-11 — La lista no se actualizaba tras crear o borrar: faltaba `Cache-Control` en toda la API
+
+**Reporte:** "tras borrar o crear un usuario no se actualiza la página y debo
+refrescar con F5". Siempre, en las dos acciones.
+
+**Dónde NO estaba el problema**, descartado antes de tocar nada:
+
+- **No era el código del módulo.** `handleCreate` y `handleDelete` llaman a
+  `loadUsers()`, que vuelve a pedir `/api/users` y hace `setUsers`.
+- **No era caché de red.** Las páginas de Next.js responden con
+  `Cache-Control: private, no-cache, no-store, max-age=0, must-revalidate`;
+  IIS no tiene ningún perfil de caché configurado para el sitio, y ARR no
+  tiene disk cache. Comprobado contra el servidor.
+
+**La causa:** las **Route Handlers de Next.js no emiten `Cache-Control`**.
+Verificado en producción pidiendo `/api/auth/login`: la respuesta trae `Vary`
+y `X-Powered-By`, y ningún encabezado de caché. Sin él, el navegador aplica
+su caché heurístico y puede reutilizar la respuesta anterior de un GET sin
+revalidar — así que el `fetch("/api/users")` posterior al borrado devolvía la
+lista de antes. F5 fuerza la revalidación, y por eso parecía un problema de
+la página.
+
+**Decisión: se corrige en `next.config.ts` para `/api/:path*`, no módulo por
+módulo.** El defecto no es de usuarios: son ~150 rutas y cualquiera
+consultada después de una mutación tiene exactamente el mismo problema.
+Arreglarlo en el módulo que se reportó habría dejado la misma trampa
+esperando en los otros, y la próxima vez el síntoma volvería a parecer un
+bug nuevo y aislado. La alternativa —agregar `cache: "no-store"` a cada
+`fetch` del cliente— exige acordarse en cada llamada nueva; el encabezado
+del servidor cubre a todos los consumidores, incluidos los que todavía no
+existen.
+
+**No es solo comodidad, es privacidad.** Esas respuestas llevan datos
+personales (nombres, correos, tareas, cargas laborales). Sin `no-store`
+quedan escritas en el caché en disco del navegador, donde **sobreviven al
+cierre de sesión** y quedan accesibles para quien use después ese equipo —
+algo que importa especialmente en los puestos compartidos. `no-store` es lo
+que corresponde para respuestas autenticadas con datos de personas.
+
+**Se agregó un test** (`src/__tests__/nextConfigHeaders.test.ts`) que
+verifica el encabezado y, además, que la regla nueva **no reemplace** a la de
+encabezados de seguridad: Next.js acumula las reglas que coinciden, pero
+alguien podría "simplificarlo" a una sola entrada y dejar el sitio sin CSP ni
+`X-Frame-Options` sin que nada más lo delate. Verificado por mutación:
+quitando el encabezado, el test falla.
+
+---
+
 ## 2026-09-11 — Restablecer contraseña no servía para el único caso que importa
 
 **Problema, reportado por el usuario:** "¿por qué yo como administrador no

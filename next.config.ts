@@ -68,6 +68,28 @@ const nextConfig: NextConfig = {
         source: "/:path*",
         headers: securityHeaders,
       },
+      {
+        // Bug real reportado en producción (ver docs/AUDIT_LOG.md
+        // § 2026-09-11): crear o borrar un usuario no cambiaba nada en la
+        // lista hasta refrescar con F5. La causa no estaba en el módulo de
+        // usuarios — `loadUsers()` sí volvía a pedir los datos — sino en que
+        // las Route Handlers de Next.js no emiten `Cache-Control` (las
+        // páginas sí: `private, no-cache, no-store`). Sin ese encabezado el
+        // navegador aplica su caché heurístico y reutiliza la respuesta
+        // anterior del GET, así que la lista "nueva" era la vieja.
+        //
+        // Va a nivel de `/api/*` y no módulo por módulo porque el problema
+        // es de toda la superficie: son ~150 rutas y cualquiera que se
+        // consulte después de una mutación tiene exactamente el mismo
+        // defecto.
+        //
+        // Además es una cuestión de privacidad: estas respuestas llevan
+        // datos personales (nombres, correos, tareas) y sin `no-store`
+        // quedan escritas en el caché en disco del navegador, donde
+        // sobreviven al cierre de sesión.
+        source: "/api/:path*",
+        headers: [{ key: "Cache-Control", value: "no-store, must-revalidate" }],
+      },
     ];
   },
 };

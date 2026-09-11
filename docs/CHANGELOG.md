@@ -23,6 +23,42 @@
 
 ---
 
+## v1.154.2 — 2026-09-11
+
+**Tipo:** FIX
+**Módulo:** Toda la API — las respuestas no declaraban `Cache-Control`, así
+que el navegador servía datos viejos tras cualquier cambio (ver
+docs/AUDIT_LOG.md § 2026-09-11).
+
+- **Síntoma reportado:** crear o borrar un usuario no cambiaba nada en la
+  lista hasta refrescar con F5. Siempre, en las dos acciones.
+- **Dónde no estaba:** el módulo de usuarios sí recarga (`loadUsers()` tras
+  cada mutación), y tampoco era caché de red — las páginas responden con
+  `no-store`, IIS no tiene perfiles de caché para el sitio y ARR no tiene
+  disk cache. Todo verificado contra el servidor antes de tocar código.
+- **La causa:** las **Route Handlers de Next.js no emiten
+  `Cache-Control`** (las páginas sí). Sin ese encabezado el navegador
+  aplica su caché heurístico y reutiliza la respuesta anterior del GET, así
+  que la lista "nueva" era la vieja. F5 fuerza la revalidación, y por eso
+  parecía un problema de la página.
+- **`next.config.ts`** — regla nueva: `Cache-Control: no-store,
+  must-revalidate` para `/api/:path*`. Se corrige a nivel de toda la API y
+  no en el módulo reportado, porque son ~150 rutas y cualquiera consultada
+  después de una mutación tiene el mismo defecto: arreglarlo en un solo
+  lugar habría dejado la misma trampa esperando en los demás.
+- **También es privacidad:** esas respuestas llevan datos personales
+  (nombres, correos, tareas, cargas laborales) y sin `no-store` quedan
+  escritas en el caché en disco del navegador, donde sobreviven al cierre de
+  sesión — relevante en equipos compartidos.
+
+**Verificación:** 3 tests nuevos (`src/__tests__/nextConfigHeaders.test.ts`)
+que fijan el encabezado y comprueban que la regla nueva **no reemplace** la
+de encabezados de seguridad — Next.js acumula las reglas que coinciden, pero
+una "simplificación" a una sola entrada dejaría el sitio sin CSP ni
+`X-Frame-Options` sin que nada lo delate. Comprobados por mutación: quitando
+el encabezado, fallan. **Vitest 1183/1183**, `tsc --noEmit` y `eslint`
+limpios.
+
 ## v1.154.1 — 2026-09-11
 
 **Tipo:** FIX
