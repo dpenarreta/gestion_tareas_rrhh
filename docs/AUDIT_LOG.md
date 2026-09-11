@@ -15,6 +15,66 @@
 
 ---
 
+## 2026-09-11 — Despliegue de v1.153.1: tres supuestos falsos de la guía y una caída del sitio
+
+**Contexto:** primer despliegue a SER-WEBAI desde la puesta en producción.
+El servidor estaba en v1.151.0 y había que llevarlo a v1.153.1. Salió mal
+varias veces antes de salir bien, y cada fallo destapó algo que la
+documentación daba por cierto sin serlo.
+
+**1. La guía asumía Git en el servidor, y no lo hay.** Todo el
+procedimiento de actualización (`git pull`, y el
+`update-deployment.ps1` escrito ese mismo día) parte de que `C:\nexo` es un
+repositorio clonado. No lo es: es una copia de archivos, y el servidor no
+tiene Git instalado. El síntoma fue `"git" no se reconoce como un comando
+interno o externo`, después de haberle pasado al usuario instrucciones que
+no podían funcionar. Se escribió `deploy-from-workstation.ps1`, que copia
+desde la máquina de desarrollo, y la guía ahora lo dice en la sección 1 y en
+Operación.
+
+**2. El `web.config` del repositorio habría roto el sitio.** El del
+servidor apunta al puerto interno **3080** y el del repositorio al **3000**,
+que en ese servidor es el backend de AsisVen. Copiar el repositorio entero
+habría mandado todo el tráfico de Nexo a otro sistema de la empresa. El
+archivo ya traía un comentario advirtiéndolo desde el despliegue anterior —
+y no alcanzó: la advertencia estaba, pero el valor peligroso seguía siendo
+el default. Se corrigió al revés de lo habitual: **el repositorio adopta el
+valor que usa el despliegue real** (3080, también en el `-FrontendPort` de
+`register-windows-services.ps1`), y el script de copia excluye el archivo
+explícitamente. Una advertencia en un comentario no protege de un `copy`.
+
+**3. `npm ci` con el servicio corriendo tiró el sitio.** `npm ci` borra
+`node_modules` entero antes de reinstalar, y el proceso de Next.js lo tiene
+abierto: falló con `EPERM` dejando `node_modules` a medias (72 paquetes de
+513, sin los binarios). El sitio siguió respondiendo unos minutos — servía
+el build anterior desde `.next` — pero ya no podía compilar ni reiniciarse,
+un estado peor que una caída limpia porque no se nota. Al repararlo hubo que
+detener el frontend, y ahí el sitio devolvió 502 hasta que terminó el build.
+Los dos scripts de despliegue detienen ahora el frontend **antes** de
+instalar, y si el build falla vuelven a levantarlo con la versión anterior
+en vez de dejar el sitio caído.
+
+**Un error propio que agravó el anterior:** se usó `2>&1` sobre `npm ci`
+dentro de un `Invoke-Command`. En PowerShell 5.1 eso envuelve cada línea de
+stderr en un `NativeCommandError`, así que los `npm warn deprecated`
+abortaron el script con `ErrorActionPreference = "Stop"` — justo después de
+haber detenido el frontend y en mitad de la reinstalación. El entorno lo
+documenta explícitamente. Los scripts ya no redirigen stderr de comandos
+nativos y evalúan `$LASTEXITCODE`.
+
+**Sobre el permiso `usuarios.eliminar`:** se aplicó a la base productiva
+antes que el código (las migraciones corrieron desde la máquina de
+desarrollo, que apunta a esa base). Quedó un permiso en el catálogo sin el
+código que lo usa durante unas horas — inofensivo, porque un permiso que
+nadie consulta no hace nada, pero conviene el orden inverso: primero el
+código, después las migraciones.
+
+**Estado final verificado:** v1.153.1 corriendo, `/login`, `/dashboard` y
+`/settings` en 200, los dos servicios en `Running`, y el código nuevo
+presente tanto en `src/` como en el build (`.next`).
+
+---
+
 ## 2026-09-11 — Borrado definitivo de usuarios: se revierte la decisión de Fase 2
 
 **Pedido explícito del usuario**, tras el diagnóstico del día anterior: "genera

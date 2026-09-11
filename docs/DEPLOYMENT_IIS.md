@@ -106,6 +106,17 @@ servidor de destino.
 Cloná o copiá el repositorio completo a una carpeta del servidor, ej.
 `C:\nexo`. El resto de esta guía asume esa ruta — ajustala si usás otra.
 
+En **SER-WEBAI (10.0.2.33)** se hizo por copia de archivos, sin Git: ese
+servidor no tiene Git instalado y `C:\nexo` no es un repositorio. Tenelo
+presente para las actualizaciones (ver § Operación): ahí `git pull` no
+existe como opción.
+
+**El puerto interno de Next.js en ese servidor es el 3080, no el 3000** —
+el 3000 lo ocupa el backend de AsisVen. Ese valor tiene que coincidir en
+dos lugares: las reglas de reescritura de `web.config` y el parámetro
+`-FrontendPort` de `register-windows-services.ps1` (ambos ya vienen con
+3080 por defecto desde el 2026-09-11).
+
 ## 2. Backend (Django)
 
 ```powershell
@@ -377,26 +388,48 @@ Al recibir el correo de prueba, revisá que **el enlace apunte al sitio real**
 - **Logs**: `backend\logs\NexoBackend.{out,err}.log` y
   `logs\NexoFrontend.{out,err}.log` (raíz del repo), rotados
   automáticamente por NSSM a los 10MB.
-- **Actualizar el despliegue con código nuevo** — `scripts\deploy\update-deployment.ps1`
-  hace la secuencia completa (traer el código, dependencias, build,
-  `check`, migraciones, estáticos y reinicio de los dos servicios), en el
-  orden que importa: **compila antes de tocar los servicios**, así un build
-  que falla deja el sistema corriendo con la versión anterior en vez de
-  dejarlo caído a medio actualizar.
+- **Actualizar el despliegue con código nuevo.** ⚠️ **SER-WEBAI (10.0.2.33)
+  NO tiene Git instalado ni el repositorio clonado** — `C:\nexo` es una
+  copia de archivos (verificado el 2026-09-11). Cualquier instrucción con
+  `git pull` falla ahí con *"git no se reconoce como un comando interno o
+  externo"*. Para ese servidor, el despliegue se hace **desde tu máquina**:
 
   ```powershell
-  cd C:\nexo\scripts\deploy
-  .\update-deployment.ps1 -RepoRoot "C:\nexo"
+  # 1. Una sola vez: credencial del administrador del dominio.
+  #    El usuario va como DOMINIO\usuario (COURIERUIO\administrador).
+  #    En formato UPN (usuario@dominio) la autenticación por IP FALLA.
+  Get-Credential | Export-CliXml "$env:TEMP\nexo-deploy.cred"
 
-  # El código se copia a mano y no cambiaron las dependencias (más rápido):
-  .\update-deployment.ps1 -RepoRoot "C:\nexo" -SkipGitPull -SkipInstall
+  # 2. Una sola vez, en PowerShell como administrador, para poder
+  #    conectarse por IP:
+  Start-Service WinRM
+  Set-Item WSMan:\localhost\Client\TrustedHosts -Value "10.0.2.33" -Force
+
+  # 3. El despliegue, desde la raíz del repo:
+  .\scripts\deploy\deploy-from-workstation.ps1 -CredentialPath "$env:TEMP\nexo-deploy.cred"
+
+  # Si no cambiaron las dependencias (mucho más rápido, y sin caída del sitio):
+  .\scripts\deploy\deploy-from-workstation.ps1 -CredentialPath "$env:TEMP\nexo-deploy.cred" -SkipInstall
   ```
 
-  No toca los `.env` (viven solo en el servidor, con las credenciales
-  reales) y verifica que existan antes de empezar. Si preferís hacerlo a
-  mano, son los mismos pasos: `git pull`, `npm ci`, `npm run build`,
-  `manage.py migrate`, `manage.py collectstatic --noinput` y
-  `Restart-Service NexoFrontend, NexoBackend`.
+  **Qué no copia, y por qué:** `web.config` (el del servidor apunta al
+  puerto interno 3080; ver la nota del propio archivo), `.env` y
+  `backend\.env` (credenciales reales, viven solo en el servidor), y todo
+  lo regenerable (`node_modules`, `.next`, `.venv`, `logs`).
+
+  **Sobre `-SkipInstall` y la caída del sitio:** sin ese parámetro el script
+  **detiene el frontend** antes de `npm ci`, porque ese comando borra
+  `node_modules` entero y el proceso de Next.js lo tiene bloqueado (falla
+  con `EPERM` y lo deja a medias — pasó el 2026-09-11 y costó una caída).
+  Eso implica que el sitio queda abajo durante la instalación y el build. Si
+  el commit no toca `package.json`, usá `-SkipInstall` y no hay
+  interrupción.
+
+  En un servidor que **sí** tenga el repositorio clonado, el equivalente es
+  `scripts\deploy\update-deployment.ps1 -RepoRoot "C:\nexo"`, que hace lo
+  mismo empezando por `git pull`. Los dos compilan **antes** de tocar los
+  servicios, y si el build falla levantan de nuevo el frontend con la
+  versión anterior en vez de dejar el sitio caído.
 - **Backups**: responsabilidad del servidor SQL Server (fuera de alcance
   de esta guía) — NEXO no persiste nada relevante fuera de la base de
   datos y `backend\staticfiles\` (regenerable con `collectstatic`).

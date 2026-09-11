@@ -34,7 +34,10 @@ param(
 
     [string]$BackendHost = "127.0.0.1",
     [int]$BackendPort = 8000,
-    [int]$FrontendPort = 3000
+    # 3080 y no el 3000 de Next.js: en SER-WEBAI el 3000 lo ocupa el backend
+    # de AsisVen. Tiene que coincidir con el puerto de las reglas de
+    # reescritura de web.config (ver docs/AUDIT_LOG.md 2026-09-08).
+    [int]$FrontendPort = 3080
 )
 
 $ErrorActionPreference = "Stop"

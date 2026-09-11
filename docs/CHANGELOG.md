@@ -23,6 +23,45 @@
 
 ---
 
+## v1.153.2 — 2026-09-11
+
+**Tipo:** FIX
+**Módulo:** Despliegue — tres supuestos falsos que rompieron el despliegue a
+producción (ver docs/AUDIT_LOG.md § 2026-09-11, "Despliegue de v1.153.1").
+
+- **`web.config`: el puerto interno pasa de 3000 a 3080.** El del servidor
+  usaba 3080 y el del repositorio 3000, que en SER-WEBAI es el backend de
+  AsisVen: copiar el repositorio sobre el servidor habría mandado el tráfico
+  de Nexo a otro sistema de la empresa. El archivo ya advertía del problema
+  en un comentario desde el despliegue anterior y no alcanzó — la
+  advertencia estaba, pero el valor peligroso seguía siendo el default.
+  `register-windows-services.ps1` adopta el mismo valor en `-FrontendPort`,
+  para que los dos no puedan desalinearse.
+- **`scripts/deploy/deploy-from-workstation.ps1`** (nuevo): despliega
+  copiando los archivos desde la máquina de desarrollo. SER-WEBAI **no tiene
+  Git instalado** ni el repositorio clonado (`C:\nexo` es una copia de
+  archivos), así que todo el procedimiento documentado, que empieza por
+  `git pull`, no podía funcionar ahí. Excluye `web.config`, los `.env` y
+  todo lo regenerable.
+- **Los dos scripts de despliegue detienen el frontend antes de `npm ci`.**
+  Ese comando borra `node_modules` entero y el proceso de Next.js lo tiene
+  abierto: falla con `EPERM` y lo deja a medias — el sitio sigue
+  respondiendo con el build anterior pero ya no puede compilar ni
+  reiniciarse, que es peor que una caída limpia porque no se nota. Pasó de
+  verdad en este despliegue y costó unos minutos de 502.
+- **Si el build falla, los scripts vuelven a levantar el frontend** con la
+  versión anterior en vez de dejar el sitio caído. Antes el mensaje de error
+  afirmaba que "el sistema sigue corriendo con la versión anterior", lo cual
+  era falso cuando se había detenido el servicio para instalar.
+- **Sin `2>&1` sobre comandos nativos.** En PowerShell 5.1 eso envuelve cada
+  línea de stderr en un `NativeCommandError`: los `npm warn deprecated`
+  abortaban el script aunque `npm` devolviera 0. Ahora se evalúa
+  `$LASTEXITCODE`.
+- **`docs/DEPLOYMENT_IIS.md`**: la sección 1 y la de Operación reescritas con
+  el procedimiento real para este servidor (sin Git), el puerto 3080, los
+  dos pasos previos de WinRM/credenciales, y cuándo usar `-SkipInstall` para
+  desplegar sin interrupción del servicio.
+
 ## v1.153.1 — 2026-09-11
 
 **Tipo:** DOCUMENTATION

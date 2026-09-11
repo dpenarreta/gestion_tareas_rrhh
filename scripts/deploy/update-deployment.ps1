@@ -9,6 +9,14 @@
   instalación desde cero, seguí la guía completa: este script no crea el
   venv, no registra los servicios ni configura IIS).
 
+  OJO — ESTE SCRIPT ASUME GIT EN EL SERVIDOR. SER-WEBAI (10.0.2.33), el
+  único servidor donde NEXO está desplegado hoy, NO tiene Git instalado ni
+  el repositorio clonado: `C:\nexo` es una copia de archivos (verificado el
+  2026-09-11). Para ese servidor usá
+  `deploy-from-workstation.ps1`, que copia los archivos desde tu máquina.
+  Este script sirve con `-SkipGitPull` si copiás el código por otro medio,
+  o tal cual en un servidor que sí tenga el repositorio clonado.
+
   El orden importa y no es arbitrario: se compila ANTES de tocar los
   servicios, así un build que falla deja el sistema corriendo con la versión
   anterior en vez de dejarlo caído a medio actualizar. Los servicios se
@@ -91,9 +99,20 @@ try {
     }
 
     if (-not $SkipInstall) {
+        # `npm ci` borra node_modules entero antes de reinstalarlo, y el
+        # proceso de Next.js lo tiene abierto: con el servicio corriendo
+        # falla con EPERM y deja node_modules a medias — el sitio queda vivo
+        # pero sin poder compilar ni reiniciarse. Pasó de verdad el
+        # 2026-09-11 y costó una caída. Desde acá el sitio queda abajo hasta
+        # el final del build: es el precio de reinstalar dependencias.
+        Write-Paso "Deteniendo $FrontendServiceName para liberar node_modules (el sitio queda abajo hasta el final)"
+        Stop-Service -Name $FrontendServiceName
+
         Write-Paso "Dependencias del frontend (npm ci)"
+        # Sin `2>&1`: en PowerShell 5.1 eso convierte cada `npm warn` en un
+        # NativeCommandError y aborta aunque npm haya devuelto 0.
         npm ci
-        if ($LASTEXITCODE -ne 0) { throw "npm ci falló." }
+        if ($LASTEXITCODE -ne 0) { throw "npm ci falló (código $LASTEXITCODE)." }
 
         Write-Paso "Dependencias del backend (pip install)"
         & $pythonExe -m pip install -r (Join-Path $backendDir "requirements\prod-windows.txt") --quiet
@@ -107,7 +126,23 @@ try {
     # corriendo con la versión anterior.
     Write-Paso "Compilando el frontend (npm run build)"
     npm run build
-    if ($LASTEXITCODE -ne 0) { throw "El build del frontend falló. No se reinició ningún servicio: el sistema sigue corriendo con la versión anterior." }
+    $codigoBuild = $LASTEXITCODE
+    if ($codigoBuild -ne 0) {
+        if (-not $SkipInstall) {
+            # Con -SkipInstall el sitio nunca se detuvo y sigue arriba. Sin
+            # él, se detuvo para instalar: está ABAJO y hay que levantarlo
+            # con el build anterior, que sigue en `.next`.
+            Write-Paso "El build falló y el sitio está abajo: levantando $FrontendServiceName con el build anterior"
+            try {
+                Start-Service -Name $FrontendServiceName
+                Write-Host "  Servicio levantado: el sitio vuelve con la versión anterior."
+            }
+            catch {
+                Write-Host "  NO se pudo levantar $FrontendServiceName. EL SITIO ESTA CAIDO y requiere atención manual."
+            }
+        }
+        throw "El build del frontend falló (código $codigoBuild). No se desplegó la versión nueva."
+    }
 
     Push-Location $backendDir
     try {
