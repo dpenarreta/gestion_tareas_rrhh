@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 
 // Cobertura directa del refresco de tokens de `djangoApiFetch` — hallazgo de
 // bug real (ver docs/AUDIT_LOG.md § 2026-09-02, "djangoApiFetch no
@@ -111,5 +111,73 @@ describe("setDjangoTokenCookies", () => {
     await setDjangoTokenCookies({ access: "a1", refresh: "r1" });
     expect(store.get("nexo-django-access")).toBe("a1");
     expect(store.get("nexo-django-refresh")).toBe("r1");
+  });
+});
+
+describe("djangoApiFetch — refresh desde un Server Component (cookies de solo lectura)", () => {
+  // Bug real (ver docs/AUDIT_LOG.md § 2026-09-11): Next.js no permite
+  // escribir cookies mientras se renderiza un Server Component, y ahí
+  // `cookieStore.set` LANZA. Ese throw se tragaba el refresco entero y
+  // `djangoApiFetch` devolvía null como si Django hubiera rechazado el
+  // token, cuando en realidad ya había entregado uno válido.
+  //
+  // Efecto visible: pasados los 15 minutos de vida del access token, el
+  // layout protegido no podía leer el consentimiento y le mostraba el aviso
+  // de tratamiento de datos a quien ya lo había aceptado.
+  // El `set` real se restaura despues de cada test: sin esto, el primer
+  // caso que simula un Server Component dejaria rota la escritura de
+  // cookies para todo lo que corra despues en este archivo.
+  const setOriginal = cookiesApi.set;
+  afterEach(() => {
+    cookiesApi.set = setOriginal;
+  });
+
+  function simularServerComponent() {
+    cookiesApi.set = () => {
+      throw new Error("Cookies can only be modified in a Server Action or Route Handler");
+    };
+  }
+
+  it("usa el token recién refrescado aunque no pueda guardarlo en la cookie", async () => {
+    store.set("nexo-django-refresh", "refresh-valido");
+    simularServerComponent();
+    fetchMock.mockImplementation(async (url: string, init?: RequestInit) => {
+      if (String(url).includes("/auth/token/refresh/")) {
+        return jsonResponse(200, { access: "access-nuevo" });
+      }
+      const auth = (init?.headers as Record<string, string>)?.Authorization;
+      return jsonResponse(auth === "Bearer access-nuevo" ? 200 : 401, { data_consent_accepted: true });
+    });
+
+    const res = await djangoApiFetch("/auth/me/");
+
+    // Lo que importa: la petición se hace y responde bien, en vez de null.
+    expect(res).not.toBeNull();
+    expect(res!.status).toBe(200);
+    expect(await res!.json()).toEqual({ data_consent_accepted: true });
+  });
+
+  it("no deja la cookie escrita cuando el contexto no lo permite", async () => {
+    store.set("nexo-django-refresh", "refresh-valido");
+    simularServerComponent();
+    fetchMock.mockImplementation(async (url: string) =>
+      String(url).includes("/auth/token/refresh/")
+        ? jsonResponse(200, { access: "access-nuevo" })
+        : jsonResponse(200, {})
+    );
+
+    await djangoApiFetch("/auth/me/");
+
+    // La cookie se persistirá en la próxima Route Handler, no acá.
+    expect(store.get("nexo-django-access")).toBeUndefined();
+  });
+
+  it("sigue devolviendo null si el refresh token de verdad ya no sirve", async () => {
+    // El arreglo no debe tapar un refresh rechazado por Django.
+    store.set("nexo-django-refresh", "refresh-vencido");
+    simularServerComponent();
+    fetchMock.mockImplementation(async () => jsonResponse(401, { detail: "Token inválido" }));
+
+    expect(await djangoApiFetch("/auth/me/")).toBeNull();
   });
 });

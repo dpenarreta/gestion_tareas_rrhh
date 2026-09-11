@@ -15,6 +15,62 @@
 
 ---
 
+## 2026-09-11 — El aviso de datos personales reaparecía: un refresco de token que no podía guardar su cookie
+
+**Reporte:** "al refrescar la página sigue saliendo el tratamiento de datos
+personales, si ya fue aceptado por mi usuario".
+
+**Primero, el dato duro:** en la base, `dpenarreta` tiene
+`data_consent_accepted = True` desde el 2026-09-09. O sea, la aceptación se
+guardó bien: el problema era de lectura, no de escritura.
+
+**La cadena completa:**
+
+1. El layout protegido (`src/app/(protected)/layout.tsx`) pide
+   `GET /auth/me/` en cada carga para leer el consentimiento — a propósito
+   fresco, nunca cacheado en el JWT.
+2. El access token de Django vive 15 minutos. Pasado ese tiempo el navegador
+   deja de mandarlo, y `djangoApiFetch` intenta refrescarlo con el refresh
+   token (7 días).
+3. El refresco funcionaba: Django devolvía un access token nuevo y válido.
+4. Pero al guardarlo, `cookieStore.set(...)` **lanza**: Next.js no permite
+   escribir cookies durante el renderizado de un Server Component, y un
+   layout lo es. Confirmado en la documentación de esta versión
+   (`node_modules/next/dist/docs/.../functions/cookies.md`: *"Setting
+   cookies is not supported during Server Component rendering"*).
+5. Ese throw caía en el `catch` general del refresco, que devolvía `null`
+   **como si Django hubiera rechazado el token**.
+6. El layout recibía `null`, y su fallback convertía "no pude verificar" en
+   `dataConsentAccepted = false`.
+7. Modal de consentimiento a quien ya había consentido.
+
+**Alcance real, mayor que el síntoma:** esto no era un problema del módulo de
+consentimiento. Pasados 15 minutos, **cualquier Server Component que use
+`djangoApiFetch` se quedaba sin sesión Django** hasta que una Route Handler
+volviera a escribir la cookie. El consentimiento fue simplemente el caso
+visible, porque su fallback tiene consecuencia inmediata en pantalla.
+
+**La corrección:** persistir la cookie pasa a ser explícitamente "best
+effort" — su `set` va en un `try/catch` propio y **el token se devuelve
+igual**, porque sirve para la petición en curso. La cookie se actualizará en
+la próxima Route Handler o Server Action, que sí pueden escribirla. Lo que
+no cambia: si Django rechaza de verdad el refresh token, se sigue
+devolviendo `null`; hay un test que lo fija para que el arreglo no tape un
+fallo real de autenticación.
+
+**Segundo defecto, corregido en el mismo cambio:** el fallback del layout era
+**silencioso**. Degradar a `false` significa volver a pedir el
+consentimiento, y para quien ya aceptó es indistinguible de "el sistema se
+olvidó de lo que acepté" — que es exactamente lo que se reportó, y lo que
+costó rastrear. Se conserva el `false` (es el lado conservador desde
+cumplimiento: ante la duda, pedir consentimiento antes que asumirlo) pero
+ahora deja rastro en el log, con si Django respondió y con qué estado.
+
+**Verificado por mutación:** revirtiendo el `try/catch`, el test nuevo falla
+reproduciendo el bug.
+
+---
+
 ## 2026-09-11 — La lista no se actualizaba tras crear o borrar: faltaba `Cache-Control` en toda la API
 
 **Reporte:** "tras borrar o crear un usuario no se actualiza la página y debo

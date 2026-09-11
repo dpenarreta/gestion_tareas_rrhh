@@ -8,7 +8,7 @@
 
 | Componente | Versión | Notas |
 |---|---|---|
-| **NEXO** (producto) | **v1.154.2** | Ver `docs/CHANGELOG.md` para el detalle de qué introdujo cada versión |
+| **NEXO** (producto) | **v1.154.3** | Ver `docs/CHANGELOG.md` para el detalle de qué introdujo cada versión |
 | **Analytics Engine** | v1.5.0 | `ANALYTICS_ENGINE_VERSION` en `src/lib/analytics.ts` — sin cambios (Validación de Fecha Fin es gobierno/trazabilidad sobre `Task.endDate`, no una fórmula de Analytics) |
 | **Formulas Set** | v4.4 | `FORMULA_SET_VERSION` en `src/lib/analytics.ts` — sin cambios desde Sprint Analytics 2.0 (2026-07-24, `FORMULA_VERSIONS.capacidadDisponible`/`equilibrioOperativo` → `"1.1"`) |
 | **Executive Reporting Engine** | v2.0 | `EXECUTIVE_REPORTING_ENGINE_VERSION` en `src/lib/executiveReporting/version.ts` — sin cambios |

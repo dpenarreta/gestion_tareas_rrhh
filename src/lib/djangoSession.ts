@@ -199,7 +199,32 @@ async function refreshDjangoAccessToken(): Promise<string | null> {
     if (!response.ok) return null;
 
     const data = (await response.json()) as { access: string };
-    cookieStore.set(ACCESS_COOKIE, data.access, cookieOptions(ACCESS_COOKIE_MAX_AGE_SECONDS));
+
+    // Persistir la cookie es "best effort" A PROPÓSITO: Next.js no permite
+    // escribir cookies mientras se renderiza un Server Component (ver
+    // node_modules/next/dist/docs/.../functions/cookies.md: "Setting cookies
+    // is not supported during Server Component rendering"), y este refresco
+    // se dispara justo desde ahí — por ejemplo el layout protegido, que pide
+    // `/auth/me/` en cada carga de página.
+    //
+    // Bug real que esto corrige (ver docs/AUDIT_LOG.md § 2026-09-11): el
+    // `set` lanzaba, el error caía en el catch de abajo y la función
+    // devolvía `null` COMO SI EL REFRESCO HUBIERA FALLADO, cuando en
+    // realidad Django ya había entregado un access token perfectamente
+    // válido. Pasados los 15 minutos de vida del token, toda página
+    // renderizada en el servidor quedaba sin sesión Django: al refrescar,
+    // el layout no podía leer el consentimiento y volvía a mostrar el aviso
+    // de tratamiento de datos a quien ya lo había aceptado.
+    //
+    // El token se devuelve igual: sirve para la petición en curso. La cookie
+    // se actualizará en la próxima Route Handler o Server Action, que sí
+    // pueden escribirla.
+    try {
+      cookieStore.set(ACCESS_COOKIE, data.access, cookieOptions(ACCESS_COOKIE_MAX_AGE_SECONDS));
+    } catch {
+      // Contexto de solo lectura (Server Component): no es un error.
+    }
+
     return data.access;
   } catch (err) {
     safeLog("warn", "No se pudo refrescar la sesión Django", err);

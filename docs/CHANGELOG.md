@@ -23,6 +23,48 @@
 
 ---
 
+## v1.154.3 — 2026-09-11
+
+**Tipo:** FIX
+**Módulo:** Sesión de Django en Server Components — el aviso de tratamiento
+de datos reaparecía tras 15 minutos (ver docs/AUDIT_LOG.md § 2026-09-11).
+
+- **Síntoma:** al refrescar la página volvía a salir el consentimiento de
+  datos personales, ya aceptado. En la base el dato estaba bien guardado
+  (`data_consent_accepted = True`): el problema era de lectura.
+- **La causa, en cadena:** el layout protegido pide `GET /auth/me/` en cada
+  carga; pasados los 15 minutos de vida del access token de Django,
+  `djangoApiFetch` lo refresca; el refresco **funcionaba** y Django devolvía
+  un token válido, pero al guardarlo `cookieStore.set(...)` **lanza** —
+  Next.js no permite escribir cookies durante el renderizado de un Server
+  Component, y un layout lo es (confirmado en la documentación de esta
+  versión de Next). Ese throw caía en el `catch` general y el refresco
+  devolvía `null` como si hubiera fallado. El layout interpretaba ese `null`
+  como "no aceptó" y mostraba el modal.
+- **Alcance real, mayor que el síntoma:** pasados 15 minutos, **cualquier
+  Server Component que use `djangoApiFetch` se quedaba sin sesión Django**
+  hasta que una Route Handler volviera a escribir la cookie. El
+  consentimiento era solo el caso visible.
+- **`src/lib/djangoSession.ts`** — persistir la cookie pasa a ser
+  explícitamente "best effort": su `set` va en un `try/catch` propio y **el
+  token se devuelve igual**, porque sirve para la petición en curso; la
+  cookie se actualiza en la próxima Route Handler o Server Action. Si Django
+  rechaza de verdad el refresh token, se sigue devolviendo `null` — hay un
+  test que lo fija para que el arreglo no tape un fallo real de
+  autenticación.
+- **`src/app/(protected)/layout.tsx`** — el fallback que degrada a `false`
+  era silencioso, y para quien ya aceptó es indistinguible de "el sistema se
+  olvidó de lo que acepté". Se conserva (es el lado conservador desde
+  cumplimiento) pero ahora deja rastro en el log, con si Django respondió y
+  con qué estado.
+
+**Verificación:** 3 tests nuevos en `src/__tests__/djangoSession.test.ts` que
+simulan el contexto de solo lectura de un Server Component: el token
+refrescado se usa igual, la cookie no queda escrita, y un refresh token
+rechazado sigue devolviendo `null`. Comprobado por mutación: revirtiendo el
+`try/catch`, el test falla reproduciendo el bug. **Vitest 1186/1186**,
+`tsc --noEmit` y `eslint` limpios.
+
 ## v1.154.2 — 2026-09-11
 
 **Tipo:** FIX
