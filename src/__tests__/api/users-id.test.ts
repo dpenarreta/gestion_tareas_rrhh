@@ -383,10 +383,28 @@ describe("POST /api/users/[id]/reset-password", () => {
     expect((await resetPasswordPOST(jsonRequest(), ctx())).status).toBe(403);
   });
 
+  it("impide restablecerse a uno mismo, que dejaría sin acceso a quien lo hace", async () => {
+    // Bug real en producción (ver docs/AUDIT_LOG.md § 2026-09-11): un
+    // administrador se restableció su propia contraseña y quedó bloqueado —
+    // `must_change_password` hace que Django responda 403 a todas las rutas
+    // salvo cuatro, y ni siquiera podía volver a Ajustes para generarse otro
+    // enlace. Las otras dos acciones de la pantalla ya lo impedían.
+    mockSession({ role: "JEFE_NACIONAL", djangoUserId: 1 });
+
+    const res = await resetPasswordPOST(jsonRequest(), ctx("1"));
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/tu propia contraseña/i);
+    // Ni siquiera se consulta a Django: el guard corta antes.
+    expect(djangoApiFetch).not.toHaveBeenCalled();
+  });
+
   it("responde 404 si el usuario no existe o está fuera de la jerarquía visible", async () => {
     mockSession({ role: "COORDINADOR_NACIONAL" });
     mockFetchUser({ roles: [{ id: 1, name: "JEFE_NACIONAL" }] });
-    const res = await resetPasswordPOST(jsonRequest(), ctx());
+    // `ctx("2")`: el objetivo tiene que ser OTRA persona, ahora que
+    // restablecerse a uno mismo se rechaza antes de llegar acá.
+    const res = await resetPasswordPOST(jsonRequest(), ctx("2"));
     expect(res.status).toBe(404);
   });
 
@@ -399,7 +417,7 @@ describe("POST /api/users/[id]/reset-password", () => {
     const enlace = "http://10.0.2.33:4080/reset-password?token=abc123";
     djangoApiFetch.mockImplementation(async (path: string, init?: RequestInit) => {
       if (init?.method === "POST") {
-        expect(path).toBe("/admin/users/1/password-reset/");
+        expect(path).toBe("/admin/users/2/password-reset/");
         expect(JSON.parse(init.body as string)).toEqual({
           return_link: true,
           force_change_on_next_login: true,
@@ -410,7 +428,7 @@ describe("POST /api/users/[id]/reset-password", () => {
       return djangoResponse(true, djangoUser({ first_name: "Ana" }));
     });
 
-    const res = await resetPasswordPOST(jsonRequest(), ctx());
+    const res = await resetPasswordPOST(jsonRequest(), ctx("2"));
 
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -427,7 +445,7 @@ describe("POST /api/users/[id]/reset-password", () => {
       return djangoResponse(true, djangoUser({ first_name: "Ana" }));
     });
 
-    const res = await resetPasswordPOST(jsonRequest(), ctx());
+    const res = await resetPasswordPOST(jsonRequest(), ctx("2"));
 
     expect(res.status).toBe(500);
     expect((await res.json()).error).toContain("cerraron las sesiones");

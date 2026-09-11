@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { canManageUsers, canManageTargetUser } from "@/lib/roles";
-import { djangoApiFetch } from "@/lib/djangoSession";
+import { djangoApiFetch, resolveDjangoUserId } from "@/lib/djangoSession";
 import { mapDjangoUserToNexoShape } from "@/lib/djangoUsersAdapter";
 
 // Fase 2 de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-07):
@@ -22,6 +22,25 @@ export async function POST(_req: NextRequest, ctx: { params: Promise<{ id: strin
   }
 
   const { id } = await ctx.params;
+
+  // Restablecerse a uno mismo desde acá deja a quien lo hace SIN ACCESO:
+  // activa `must_change_password`, y Django bloquea entonces todas las rutas
+  // salvo cuatro (ver apps/authentication/authentication.py). Quien
+  // administra queda mirando pantallas vacías y ni siquiera puede volver a
+  // Ajustes para generarse otro enlace. Pasó de verdad el 2026-09-11 (ver
+  // docs/AUDIT_LOG.md). Las otras dos acciones de la pantalla de usuarios
+  // —dar de baja y eliminar— ya lo impedían; esta no, y es la única de las
+  // tres que se vuelve contra quien la ejecuta.
+  const djangoUserId = await resolveDjangoUserId(session);
+  if (djangoUserId !== null && id === String(djangoUserId)) {
+    return NextResponse.json(
+      {
+        error:
+          "No puedes restablecer tu propia contraseña desde acá: te dejaría sin acceso. Usá «Cambiar contraseña» en tu perfil.",
+      },
+      { status: 400 }
+    );
+  }
 
   const userResponse = await djangoApiFetch(`/admin/users/${id}/`);
   if (!userResponse) {

@@ -23,6 +23,48 @@
 
 ---
 
+## v1.155.0 — 2026-09-11
+
+**Tipo:** FEATURE
+**Módulo:** Cambio obligatorio de contraseña — el estado existía en Django y
+el frontend lo ignoraba (ver docs/AUDIT_LOG.md § 2026-09-11).
+
+- **Problema:** mientras `must_change_password` esté activo, Django responde
+  **403 `password_change_required`** a toda ruta salvo cuatro
+  (`apps/authentication/authentication.py`). El frontend **no miraba ese
+  campo en ningún lado** — aparecía una sola vez en todo `src/`, como campo
+  sin usar en el adaptador. Resultado: a quien le restablecían la contraseña
+  entraba, veía el menú, y todas las pantallas quedaban vacías sin
+  explicación **y sin salida**, porque tampoco podía llegar a Ajustes para
+  generarse otro enlace.
+- **`src/components/PasswordChangeGate.tsx`** (nuevo): mismo patrón que
+  `ConsentGate`. Bloquea la aplicación, explica por qué, y ofrece cambiar la
+  contraseña ahí mismo contra el endpoint que ya existía. Incluye **cerrar
+  sesión**, única salida legítima para quien no recuerda su contraseña
+  actual — sin eso quedaría encerrado en el modal sin poder volver al login.
+- **`src/app/(protected)/layout.tsx`** — lee `must_change_password` de
+  `/auth/me/`, que **ya lo devolvía desde siempre**. El gate va **antes** que
+  `ConsentGate`: con el cambio pendiente, la llamada que trae el texto del
+  consentimiento también respondería 403 y quedaría un modal vacío. Degrada
+  a `false` si no se pudo consultar (al revés que el consentimiento):
+  bloquear la aplicación entera por un problema de red dejaría a la persona
+  sin salida, y si el cambio de verdad hace falta, Django lo sigue exigiendo.
+- **`src/app/api/users/[id]/reset-password/route.ts`** — se impide
+  restablecerse a **uno mismo**, que es exactamente lo que dejó bloqueado a
+  un administrador en producción. Las otras dos acciones de la pantalla
+  (dar de baja, eliminar) ya lo impedían; esta era la única que se volvía
+  contra quien la ejecutaba. El mensaje indica la alternativa: "Cambiar
+  contraseña" en el perfil.
+
+**Verificación:** 8 tests nuevos (7 del gate: bloquea sin renderizar el
+resto, explica el motivo, valida la confirmación sin enviar nada, libera y
+refresca al lograrlo, sigue bloqueando y muestra el motivo del backend si
+falla, y ofrece cerrar sesión; más el del guard de la ruta). **Al agregar el
+guard salieron a la luz tres tests que restablecían "a sí mismos" sin que
+nadie lo hubiera notado** —`mockSession` usa `djangoUserId: 1` y `ctx()` por
+defecto es `"1"`— corregidos al caso real de restablecer a otra persona.
+**Vitest 1205/1205**, `tsc --noEmit` y `eslint` limpios.
+
 ## v1.154.5 — 2026-09-11
 
 **Tipo:** FIX

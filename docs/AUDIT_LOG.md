@@ -51,15 +51,35 @@ lado de Next.js.
 desbloquearla, sin tocar su contraseña (el hash quedó intacto). Es revertir
 un clic accidental sobre la propia cuenta, no un cambio de credenciales.
 
-**Dos defectos identificados, pendientes de corregir:**
+**Dos defectos identificados, ambos corregidos en v1.155.0:**
 
-1. **El restablecimiento admite hacerse sobre uno mismo.** Las otras dos
-   acciones de la pantalla de usuarios (dar de baja y eliminar) sí lo
-   impiden; esta no, y es la única de las tres que deja sin acceso a quien
-   la ejecuta.
-2. **El frontend ignora `password_change_required`.** Debería llevar a la
-   pantalla de cambio de contraseña en vez de dejar listas vacías sin
-   explicación.
+1. **El restablecimiento admitía hacerse sobre uno mismo.** Las otras dos
+   acciones de la pantalla de usuarios (dar de baja y eliminar) ya lo
+   impedían; esta no, y era la única de las tres que dejaba sin acceso a
+   quien la ejecutaba. El mensaje de rechazo indica la alternativa
+   ("Cambiar contraseña" en el perfil), porque la necesidad detrás del clic
+   es legítima.
+2. **El frontend ignoraba `password_change_required`.** Se agregó
+   `PasswordChangeGate`, con el mismo patrón que `ConsentGate`: bloquea la
+   aplicación, explica por qué, y permite cambiar la contraseña ahí mismo.
+
+**Dos decisiones de diseño dentro de esa corrección:**
+
+- **El gate va ANTES que `ConsentGate`.** Con el cambio pendiente, la
+  llamada que trae el texto del consentimiento también respondería 403, así
+  que pedir el consentimiento primero dejaría un modal vacío.
+- **Incluye "Cerrar sesión".** Es la única salida legítima para quien no
+  recuerda su contraseña actual; sin eso el gate sería otra trampa, esta vez
+  construida a propósito. El mismo criterio explica que degrade a `false`
+  cuando no se puede consultar a Django: bloquear todo por un problema de
+  red dejaría a la persona sin salida, y si el cambio de verdad hace falta,
+  Django lo sigue exigiendo en cada petición.
+
+**Hallazgo al escribir el guard:** tres tests de `reset-password` estaban
+restableciendo "a sí mismos" sin que nadie lo hubiera notado — `mockSession`
+usa `djangoUserId: 1` y `ctx()` por defecto es `"1"`. Pasaban igual porque
+ese caso no estaba prohibido. Corregidos al escenario real de restablecer la
+contraseña de otra persona.
 
 ---
 
