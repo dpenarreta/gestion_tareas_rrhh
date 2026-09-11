@@ -15,6 +15,70 @@
 
 ---
 
+## 2026-09-11 — El refresco de tokens revocaba la sesión que intentaba renovar
+
+**Reporte:** el aviso de tratamiento de datos seguía apareciendo en cada
+recarga, pese al arreglo de esa misma mañana (v1.154.3). Con la regla de
+negocio explicitada por el usuario: *una vez aceptado, no debe volver a
+aparecer hasta que se cambie o se resetee*.
+
+**El dato estaba bien guardado** (aceptado el 2026-09-09). Lo que fallaba no
+era el consentimiento: era que **la sesión de Django se caía sola**, y el
+layout, sin poder consultarla, degradaba a "no aceptado".
+
+**La causa, visible en los logs:** `POST /auth/token/refresh/ → 401`,
+repetido. Django **rota el refresh token en cada refresco**: emite uno nuevo,
+invalida el anterior y, si después se le presenta el viejo, lo trata como
+reutilización y **revoca la sesión entera** como medida de contención ante un
+posible robo (`AuthenticationService.refresh_tokens`, código
+`refresh_reused`).
+
+Detalle que hizo difícil verlo: `SIMPLE_JWT["ROTATE_REFRESH_TOKENS"]` está en
+`False`. Leer esa línea invita a concluir que no hay rotación — y la hay, en
+implementación propia del proyecto. Se descartó la hipótesis correcta una vez
+por confiar en esa configuración en lugar de leer el servicio.
+
+**El frontend descartaba el refresh token nuevo.** `refreshDjangoAccessToken`
+tipaba la respuesta como `{ access: string }` e ignoraba `refresh`, así que
+guardaba solo el access y la cookie conservaba el token ya invalidado. El
+siguiente refresco presentaba el viejo y Django revocaba la sesión.
+
+**Este defecto es anterior, pero v1.154.3 lo volvió permanente.** Ese arreglo
+hizo que el layout pudiera refrescar desde un Server Component (sin poder
+guardar la cookie, "best effort"). El resultado no fue una degradación
+benigna: cada carga de página consumía la rotación, invalidaba el token del
+navegador y tiraba la sesión. Se corrigió un síntoma y se amplificó la causa.
+
+**Las tres partes de la corrección:**
+
+1. **Guardar ambos tokens.** El `refresh` de la respuesta es el único que
+   Django va a aceptar de ahí en adelante.
+2. **No refrescar donde no se puede persistir.** Refrescar en un Server
+   Component es *peor* que no hacerlo, porque consume la rotación y deja al
+   navegador con un token muerto. El contexto se detecta **antes** de llamar
+   a Django, reescribiendo la cookie de refresh con su mismo valor —inocuo— y
+   se devuelve `null` sin tocar nada. Esto revierte deliberadamente el
+   criterio de v1.154.3.
+3. **El refresco pasa al middleware** (`src/proxy.ts`), que es el único punto
+   del camino de una página que puede escribir cookies y corre antes del
+   render. Solo actúa si el access expiró y queda refresh, y nunca en rutas
+   `/api/`: esas las atiende una Route Handler que refresca por su cuenta, y
+   hacerlo en los dos lugares consumiría la rotación dos veces para la misma
+   navegación, invalidando una de las dos copias.
+
+**Por qué `djangoTokenCookies.ts`:** `djangoSession.ts` es `server-only` y el
+middleware no puede importarlo. Sin un módulo común, los dos escribirían la
+misma cookie con atributos propios y el navegador las trataría como cookies
+distintas — un bug silencioso y difícil de atribuir.
+
+**Criterio ante fallo:** si Django rechaza el refresco o no responde, la
+navegación continúa. Bloquear la página entera porque el backend está lento
+sería peor que renderizarla y dejar que cada consumidor degrade como ya sabe
+hacerlo. El timeout del middleware es más corto que el general (2,5 s)
+porque corre en el camino de cada navegación.
+
+---
+
 ## 2026-09-11 — Restablecer la contraseña de la propia cuenta deja al administrador bloqueado
 
 **Reporte encadenado:** "no me aparecen ninguno de los usuarios creados",

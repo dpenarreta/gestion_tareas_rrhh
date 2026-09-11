@@ -2,7 +2,13 @@ import "server-only";
 import { cookies } from "next/headers";
 import { safeLog } from "@/lib/logger";
 import type { SessionPayload } from "@/lib/session";
-import { requireHttps } from "@/lib/httpsPolicy";
+import {
+  DJANGO_ACCESS_COOKIE,
+  DJANGO_ACCESS_MAX_AGE_SECONDS,
+  DJANGO_REFRESH_COOKIE,
+  DJANGO_REFRESH_MAX_AGE_SECONDS,
+  djangoCookieOptions,
+} from "@/lib/djangoTokenCookies";
 
 /**
  * Puente de sesión hacia el backend Django. Desde la Fase 6a (ver
@@ -13,8 +19,8 @@ import { requireHttps } from "@/lib/httpsPolicy";
  */
 
 const DJANGO_API_URL = process.env.DJANGO_API_URL || "http://localhost:8000/api/v1";
-const ACCESS_COOKIE = "nexo-django-access";
-const REFRESH_COOKIE = "nexo-django-refresh";
+const ACCESS_COOKIE = DJANGO_ACCESS_COOKIE;
+const REFRESH_COOKIE = DJANGO_REFRESH_COOKIE;
 const REQUEST_TIMEOUT_MS = 3000;
 
 // `GET /analytics/<id>/` (`AnalyticsBundleView`, backend) no tiene caché con
@@ -50,22 +56,10 @@ export const PASSWORD_EMAIL_TIMEOUT_MS = 13000;
 
 // Deben coincidir con JWT_ACCESS_TOKEN_LIFETIME_MINUTES/JWT_REFRESH_TOKEN_LIFETIME_DAYS
 // de backend/.env — la cookie no debe sobrevivir más que el token que contiene.
-const ACCESS_COOKIE_MAX_AGE_SECONDS = 15 * 60;
-const REFRESH_COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
+const ACCESS_COOKIE_MAX_AGE_SECONDS = DJANGO_ACCESS_MAX_AGE_SECONDS;
+const REFRESH_COOKIE_MAX_AGE_SECONDS = DJANGO_REFRESH_MAX_AGE_SECONDS;
 
-function cookieOptions(maxAgeSeconds: number) {
-  return {
-    httpOnly: true,
-    // Mismo criterio que la cookie de sesión de Next.js: sin HTTPS el cliente
-    // no devuelve una cookie `secure`, y sin estos tokens toda llamada a
-    // Django en nombre del usuario falla con "Tu sesión no tiene aún acceso a
-    // este módulo" — verificado en el despliegue real (ver httpsPolicy.ts).
-    secure: process.env.NODE_ENV === "production" && requireHttps,
-    sameSite: "strict" as const,
-    path: "/",
-    maxAge: maxAgeSeconds,
-  };
-}
+const cookieOptions = djangoCookieOptions;
 
 export type DjangoTokens = {
   access: string;
@@ -189,6 +183,29 @@ async function refreshDjangoAccessToken(): Promise<string | null> {
   const refreshToken = cookieStore.get(REFRESH_COOKIE)?.value;
   if (!refreshToken) return null;
 
+  // Django ROTA el refresh token en cada refresco: emite uno nuevo e
+  // invalida el anterior, y si después se le presenta el viejo lo trata
+  // como reutilización y **revoca la sesión entera**
+  // (`AuthenticationService.refresh_tokens`, código `refresh_reused`).
+  // Que `SIMPLE_JWT["ROTATE_REFRESH_TOKENS"]` esté en `False` no dice nada:
+  // esa rotación es implementación propia del proyecto.
+  //
+  // Por eso, antes de consumir la rotación hay que asegurarse de poder
+  // GUARDAR el resultado. Next.js no permite escribir cookies mientras se
+  // renderiza un Server Component ("Setting cookies is not supported during
+  // Server Component rendering"), así que refrescar desde ahí dejaría al
+  // navegador con un refresh token ya muerto y la sesión se caería sola en
+  // la petición siguiente. Reescribir el refresh actual con su mismo valor
+  // es inocuo y sirve para detectar el contexto antes de tocar nada.
+  //
+  // El refresco de esos casos lo hace el middleware (`src/proxy.ts`), que
+  // corre antes del render y sí puede escribir cookies.
+  try {
+    cookieStore.set(REFRESH_COOKIE, refreshToken, cookieOptions(REFRESH_COOKIE_MAX_AGE_SECONDS));
+  } catch {
+    return null;
+  }
+
   try {
     const response = await fetch(`${DJANGO_API_URL}/auth/token/refresh/`, {
       method: "POST",
@@ -198,31 +215,16 @@ async function refreshDjangoAccessToken(): Promise<string | null> {
     });
     if (!response.ok) return null;
 
-    const data = (await response.json()) as { access: string };
-
-    // Persistir la cookie es "best effort" A PROPÓSITO: Next.js no permite
-    // escribir cookies mientras se renderiza un Server Component (ver
-    // node_modules/next/dist/docs/.../functions/cookies.md: "Setting cookies
-    // is not supported during Server Component rendering"), y este refresco
-    // se dispara justo desde ahí — por ejemplo el layout protegido, que pide
-    // `/auth/me/` en cada carga de página.
-    //
-    // Bug real que esto corrige (ver docs/AUDIT_LOG.md § 2026-09-11): el
-    // `set` lanzaba, el error caía en el catch de abajo y la función
-    // devolvía `null` COMO SI EL REFRESCO HUBIERA FALLADO, cuando en
-    // realidad Django ya había entregado un access token perfectamente
-    // válido. Pasados los 15 minutos de vida del token, toda página
-    // renderizada en el servidor quedaba sin sesión Django: al refrescar,
-    // el layout no podía leer el consentimiento y volvía a mostrar el aviso
-    // de tratamiento de datos a quien ya lo había aceptado.
-    //
-    // El token se devuelve igual: sirve para la petición en curso. La cookie
-    // se actualizará en la próxima Route Handler o Server Action, que sí
-    // pueden escribirla.
-    try {
-      cookieStore.set(ACCESS_COOKIE, data.access, cookieOptions(ACCESS_COOKIE_MAX_AGE_SECONDS));
-    } catch {
-      // Contexto de solo lectura (Server Component): no es un error.
+    // El `refresh` de la respuesta es OBLIGATORIO guardarlo: es el único que
+    // Django va a aceptar de acá en adelante. Descartarlo —como se hacía
+    // hasta el 2026-09-11— dejaba la cookie con el token ya invalidado, y el
+    // siguiente refresco revocaba la sesión por reutilización. Ese era el
+    // motivo real de que el aviso de tratamiento de datos reapareciera y de
+    // que hubiera que volver a iniciar sesión cada tanto.
+    const data = (await response.json()) as { access: string; refresh?: string };
+    cookieStore.set(ACCESS_COOKIE, data.access, cookieOptions(ACCESS_COOKIE_MAX_AGE_SECONDS));
+    if (data.refresh) {
+      cookieStore.set(REFRESH_COOKIE, data.refresh, cookieOptions(REFRESH_COOKIE_MAX_AGE_SECONDS));
     }
 
     return data.access;

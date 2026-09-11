@@ -23,6 +23,55 @@
 
 ---
 
+## v1.155.1 — 2026-09-11
+
+**Tipo:** FIX
+**Módulo:** Sesión de Django — el refresco de tokens revocaba la sesión que
+intentaba renovar (ver docs/AUDIT_LOG.md § 2026-09-11).
+
+- **Síntoma:** el aviso de tratamiento de datos volvía a aparecer en cada
+  recarga, pese al arreglo de v1.154.3, y con él la necesidad de iniciar
+  sesión otra vez. El dato en la base estaba bien (aceptado el 2026-09-09):
+  el problema era que la sesión de Django se caía sola.
+- **La causa, que estaba a la vista en los logs:** `POST /auth/token/refresh/
+  → 401`. **Django rota el refresh token en cada refresco**: emite uno nuevo,
+  invalida el anterior, y si después se le presenta el viejo lo trata como
+  reutilización y **revoca la sesión entera** (`refresh_reused`). Que
+  `SIMPLE_JWT["ROTATE_REFRESH_TOKENS"]` esté en `False` no dice nada: esa
+  rotación es implementación propia del proyecto
+  (`AuthenticationService.refresh_tokens`).
+- **`src/lib/djangoSession.ts`** — el frontend **descartaba el refresh token
+  nuevo** (`as { access: string }`, ignorando `refresh`), así que la cookie
+  quedaba con el token ya invalidado y el siguiente refresco tiraba la
+  sesión. Es un defecto anterior a esta semana, pero **v1.154.3 lo volvió
+  permanente**: al hacer que el layout refrescara en cada carga de página,
+  el ciclo se repetía sin parar. Ahora se guardan **ambos** tokens.
+- **No refrescar donde no se puede persistir.** Durante el render de un
+  Server Component Next.js no deja escribir cookies, y refrescar ahí es
+  peor que no hacerlo: consume la rotación y deja al navegador con un token
+  muerto. Se detecta el contexto **antes** de llamar a Django (reescribiendo
+  la cookie de refresh con su mismo valor, que es inocuo) y se devuelve
+  `null` sin tocar nada.
+- **`src/proxy.ts`** — el refresco pasa al **middleware**, que es el único
+  punto del camino de una página que sí puede escribir cookies, y corre
+  antes del render. Solo actúa si el access ya expiró y queda refresh, y
+  nunca en rutas `/api/` (esas las atiende una Route Handler que refresca
+  por su cuenta; hacerlo dos veces consumiría la rotación dos veces). Si
+  Django rechaza o no responde, la navegación sigue: bloquear la página
+  entera sería peor que dejar que cada consumidor degrade.
+- **`src/lib/djangoTokenCookies.ts`** (nuevo): nombres, vigencias y atributos
+  de las cookies, compartidos por el middleware y `djangoSession.ts`.
+  `djangoSession.ts` es `server-only` y el middleware no puede importarlo;
+  sin un lugar común, los dos escribirían la misma cookie con atributos
+  distintos y el navegador las trataría como cookies diferentes.
+
+**Verificación:** 9 tests nuevos — 7 del middleware (refresca y guarda ambos
+tokens, no llama a Django si el access sigue vivo, no toca las rutas de API,
+y deja pasar la navegación si Django falla) y 2 de la rotación. Comprobados
+por mutación: simulando los dos bugs por separado, falla el test que
+corresponde a cada uno. **Vitest 1213/1213**, `tsc --noEmit` y `eslint`
+limpios.
+
 ## v1.155.0 — 2026-09-11
 
 **Tipo:** FEATURE

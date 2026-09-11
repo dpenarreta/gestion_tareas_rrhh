@@ -331,6 +331,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-09-11: fix(sesion): el refresco de tokens revocaba la sesion que intentaba renovar (v1.155.1)
 - 2026-09-11: feat(auth): el cambio obligatorio de contrasena ya no deja a nadie encerrado (v1.155.0)
 - 2026-09-11: fix(ui): copiar al portapapeles ahora funciona sirviendo por http (v1.154.5)
 - 2026-09-11: fix(usuarios): un error de sesion ya no rompe la pantalla, la explica (v1.154.4)
