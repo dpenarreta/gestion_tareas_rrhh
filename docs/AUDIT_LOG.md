@@ -15,6 +15,61 @@
 
 ---
 
+## 2026-09-11 — Restablecer contraseña no servía para el único caso que importa
+
+**Problema, reportado por el usuario:** "¿por qué yo como administrador no
+puedo restablecer contraseñas?". El botón existía y respondía con éxito, así
+que no era un fallo: era que no hacía lo que hace falta.
+
+Hasta hoy, `POST /api/users/[id]/reset-password` le pedía a Django
+`force_change_on_next_login` y `revoke_sessions`. Es decir: marcaba que la
+persona debe cambiar su contraseña **la próxima vez que inicie sesión**, y
+le cerraba las sesiones abiertas. Nunca definía una contraseña nueva ni
+enviaba nada — por la decisión de Fase 2 de que un administrador no ve ni
+define la contraseña de otro, que sigue siendo correcta.
+
+**El hueco:** quien olvidó su contraseña no puede iniciar sesión, y era
+justamente al iniciar sesión cuando se le iba a pedir el cambio. La única
+vía prevista para ese caso era el enlace por correo (`send_link`), que la
+ruta de Next.js **nunca pedía** — y que hoy tampoco llegaría, porque falta
+el buzón de Zimbra. Entre las dos cosas, no había forma de que alguien que
+olvidó su contraseña volviera a entrar.
+
+**Alternativas presentadas al usuario**, que eligió la tercera:
+
+- **A. Conectar `send_link`.** Es lo que el diseño previó, pero depende del
+  correo, que hoy no funciona.
+- **B. Que el administrador defina una contraseña temporal y la vea.** Lo
+  más parecido al viejo `123456`. Funciona sin correo, pero revierte la
+  decisión de Fase 2 y hace que una persona conozca la contraseña de otra.
+- **C. Generar el enlace y mostrarlo en pantalla** para entregarlo por el
+  medio que haya a mano (teléfono, en persona, mensajería). No depende del
+  correo, no expone ninguna contraseña, el enlace es de un solo uso y vence
+  a los 60 minutos. A y C se pueden combinar cuando el correo exista.
+
+**Decisión de diseño dentro de C:** `send_link` y `return_link` comparten el
+mismo token cuando se piden juntos. Emitir un token invalida el anterior
+(`_issue_reset_token` marca como usados los previos), así que generar uno
+por opción haría que el correo llegara con un enlace ya muerto.
+
+**Qué se protegió explícitamente:** el enlace equivale a poder entrar a esa
+cuenta mientras esté vigente. Exige el permiso
+`usuarios.restablecer_password`; la auditoría registra que se generó
+(`return_link: true`) pero **nunca el token** — el registro de auditoría lo
+pueden leer más personas que las que pueden restablecer contraseñas —; y la
+pantalla advierte que es de un solo uso, que vence, y que las sesiones de esa
+cuenta ya se cerraron. Hay un test que falla si el token aparece en la
+auditoría.
+
+**Hallazgo de paso: la contraseña por defecto documentada estaba mal.**
+`CLAUDE.md` y `.claude/rules/security.md` decían `123456` desde antes de la
+migración a Django. El valor real es `NexoTemporal2026!`
+(`src/app/api/users/route.ts`): `123456` no pasa los validadores de Django
+(mínimo 10 caracteres, no solo numérica), así que un usuario creado con esa
+contraseña habría fallado. Corregido en los dos archivos.
+
+---
+
 ## 2026-09-11 — Despliegue de v1.153.1: tres supuestos falsos de la guía y una caída del sitio
 
 **Contexto:** primer despliegue a SER-WEBAI desde la puesta en producción.

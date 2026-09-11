@@ -390,21 +390,47 @@ describe("POST /api/users/[id]/reset-password", () => {
     expect(res.status).toBe(404);
   });
 
-  it("fuerza el cambio de contraseña en el próximo login y revoca sesiones, confirmando con el nombre", async () => {
+  it("pide el enlace de recuperación y lo devuelve, además de cerrar sesiones", async () => {
+    // Cambio deliberado (ver docs/AUDIT_LOG.md § 2026-09-11): antes solo se
+    // pedía `force_change_on_next_login`, que obliga a cambiar la contraseña
+    // DESPUÉS de iniciar sesión — inútil para quien la olvidó y no puede
+    // entrar. Ahora se pide también el enlace, que no depende del correo.
     mockSession({ role: "JEFE_NACIONAL" });
+    const enlace = "http://10.0.2.33:4080/reset-password?token=abc123";
     djangoApiFetch.mockImplementation(async (path: string, init?: RequestInit) => {
       if (init?.method === "POST") {
         expect(path).toBe("/admin/users/1/password-reset/");
-        expect(JSON.parse(init.body as string)).toEqual({ force_change_on_next_login: true, revoke_sessions: true });
-        return djangoResponse(true, {});
+        expect(JSON.parse(init.body as string)).toEqual({
+          return_link: true,
+          force_change_on_next_login: true,
+          revoke_sessions: true,
+        });
+        return djangoResponse(true, { reset_url: enlace });
       }
       return djangoResponse(true, djangoUser({ first_name: "Ana" }));
     });
 
     const res = await resetPasswordPOST(jsonRequest(), ctx());
+
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.message).toContain("Ana");
+    expect(body.resetUrl).toBe(enlace);
+    expect(body.userName).toBe("Ana");
+  });
+
+  it("avisa si Django acepta pero no devuelve el enlace, porque las sesiones ya se cerraron", async () => {
+    // No se puede responder "no pasó nada": la revocación de sesiones ya
+    // ocurrió del lado de Django.
+    mockSession({ role: "JEFE_NACIONAL" });
+    djangoApiFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (init?.method === "POST") return djangoResponse(true, {});
+      return djangoResponse(true, djangoUser({ first_name: "Ana" }));
+    });
+
+    const res = await resetPasswordPOST(jsonRequest(), ctx());
+
+    expect(res.status).toBe(500);
+    expect((await res.json()).error).toContain("cerraron las sesiones");
   });
 });
 

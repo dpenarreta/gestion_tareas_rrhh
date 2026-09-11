@@ -137,10 +137,21 @@ class ChangeOwnPasswordSerializer(serializers.Serializer):
 
 
 class AdminPasswordResetSerializer(serializers.Serializer):
-    """Las 3 opciones administrativas son independientes entre sí, pero al
-    menos una debe elegirse — de lo contrario la acción no haría nada."""
+    """Las opciones administrativas son independientes entre sí, pero al
+    menos una debe elegirse — de lo contrario la acción no haría nada.
+
+    `return_link` (2026-09-11) devuelve el enlace de recuperación en la
+    respuesta en vez de mandarlo por correo, para que quien administra se lo
+    haga llegar a la persona por el medio que tenga a mano. Existe porque
+    sin él no había forma de que alguien que olvidó su contraseña volviera a
+    entrar: `force_change_on_next_login` obliga a cambiarla *después* de
+    iniciar sesión, que es justo lo que esa persona no puede hacer, y
+    `send_link` depende de que el correo esté configurado. Ver
+    docs/AUDIT_LOG.md § 2026-09-11.
+    """
 
     send_link = serializers.BooleanField(default=False)
+    return_link = serializers.BooleanField(default=False)
     force_change_on_next_login = serializers.BooleanField(default=False)
     revoke_sessions = serializers.BooleanField(default=False)
 

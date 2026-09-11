@@ -21,6 +21,17 @@
   — ver `docs/CLAUDE.md`.
 - No introduzcas secretos reales (contraseñas, API keys) en tests — usá
   valores dummy (`"test-key"`, ya es el patrón en los mocks existentes).
-- Contraseña por defecto de usuarios nuevos: `123456` — es un valor de
-  desarrollo/prueba documentado, no un hallazgo de seguridad a "corregir"
-  sin que te lo pidan.
+- Contraseña por defecto al crear un usuario desde la app:
+  `NexoTemporal2026!` (`src/app/api/users/route.ts`) — valor fijo y
+  documentado, no un hallazgo de seguridad a "corregir" sin que te lo
+  pidan. El `123456` que esta regla decía hasta el 2026-09-11 es del seed
+  de desarrollo: no pasa los validadores de Django y con él la creación
+  falla.
+- El restablecimiento administrativo **nunca define ni revela una
+  contraseña**: genera un enlace de un solo uso con vencimiento
+  (`return_link`, `apps/authentication/services.py`) que quien administra
+  entrega por fuera del sistema. Ese enlace equivale a poder entrar a la
+  cuenta mientras esté vigente — exige el permiso
+  `usuarios.restablecer_password`, y el token no se registra en la
+  auditoría ni en los logs. No lo agregues a una respuesta, un log ni un
+  mensaje de error que pueda ver alguien más.

@@ -331,6 +331,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-09-11: feat(usuarios): restablecer contrasena entrega un enlace de recuperacion (v1.154.0)
 - 2026-09-11: fix(deploy): corrige los tres supuestos que rompieron el despliegue (v1.153.2)
 - 2026-09-11: feat: correo saliente por Zimbra, borrado de usuarios y script SQL de la base (v1.150.0-v1.153.0)
 - 2026-09-04: fix(ux): responsividad de Trabajo (Kanban/Tabla) en mobile/tablet (v1.149.1)

@@ -329,3 +329,115 @@ def test_forced_password_change_blocks_other_endpoints_until_completed(
     user.refresh_from_db()
     assert user.must_change_password is False
     assert user.check_password("N3w-Secr3t!!")
+
+
+# --- Enlace de recuperación entregado en mano (`return_link`) --------------
+# Existe desde 2026-09-11: sin esto, alguien que olvidaba su contraseña no
+# tenía forma de volver a entrar. `force_change_on_next_login` obliga a
+# cambiarla DESPUÉS de iniciar sesión — justo lo que esa persona no puede
+# hacer — y `send_link` depende de que el correo esté configurado.
+
+
+def test_admin_can_obtain_the_reset_link_without_sending_any_email(admin_client, user):
+    response = admin_client.post(
+        f"/api/v1/admin/users/{user.id}/password-reset/",
+        {"return_link": True},
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert "reset_url" in response.data
+    assert "/reset-password?token=" in response.data["reset_url"]
+    # El punto del modo: no depende del correo.
+    assert len(mail.outbox) == 0
+
+
+def test_the_returned_link_actually_works_to_set_a_new_password(admin_client, api_client, user):
+    response = admin_client.post(
+        f"/api/v1/admin/users/{user.id}/password-reset/",
+        {"return_link": True},
+        format="json",
+    )
+    raw_token = response.data["reset_url"].split("token=")[1]
+
+    confirmacion = api_client.post(
+        "/api/v1/auth/password-reset/confirm/",
+        {
+            "token": raw_token,
+            "new_password": "Nueva-Clave-2026!",
+            "new_password_confirm": "Nueva-Clave-2026!",
+        },
+        format="json",
+    )
+
+    # El endpoint de confirmación responde 204 (sin cuerpo), no 200.
+    assert confirmacion.status_code == 204
+    user.refresh_from_db()
+    assert user.check_password("Nueva-Clave-2026!")
+
+
+def test_the_returned_link_is_single_use(admin_client, api_client, user):
+    response = admin_client.post(
+        f"/api/v1/admin/users/{user.id}/password-reset/",
+        {"return_link": True},
+        format="json",
+    )
+    raw_token = response.data["reset_url"].split("token=")[1]
+    cuerpo = {
+        "token": raw_token,
+        "new_password": "Nueva-Clave-2026!",
+        "new_password_confirm": "Nueva-Clave-2026!",
+    }
+    primer_uso = api_client.post("/api/v1/auth/password-reset/confirm/", cuerpo, format="json")
+    assert primer_uso.status_code == 204
+
+    segundo_intento = api_client.post("/api/v1/auth/password-reset/confirm/", cuerpo, format="json")
+
+    assert segundo_intento.status_code == 400
+
+
+def test_the_audit_trail_records_the_link_was_issued_but_never_the_token(admin_client, user):
+    response = admin_client.post(
+        f"/api/v1/admin/users/{user.id}/password-reset/",
+        {"return_link": True, "revoke_sessions": True},
+        format="json",
+    )
+    raw_token = response.data["reset_url"].split("token=")[1]
+
+    entrada = AuditLog.objects.get(action="user.password_reset_admin_initiated")
+    assert entrada.new_values["return_link"] is True
+    # El registro de auditoría lo pueden leer más personas que las que
+    # pueden restablecer contraseñas: el token no puede estar ahí.
+    assert raw_token not in str(entrada.new_values)
+    assert "token" not in str(entrada.new_values).lower()
+
+
+def test_sending_and_returning_the_link_share_the_same_token(admin_client, user):
+    # Emitir un token invalida el anterior: si cada opción generase el suyo,
+    # el correo llegaría con un enlace ya muerto.
+    response = admin_client.post(
+        f"/api/v1/admin/users/{user.id}/password-reset/",
+        {"send_link": True, "return_link": True},
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert len(mail.outbox) == 1
+    token_devuelto = response.data["reset_url"].split("token=")[1]
+    assert token_devuelto in mail.outbox[0].body
+    assert PasswordResetToken.objects.filter(user=user, used_at__isnull=True).count() == 1
+
+
+def test_obtaining_the_link_requires_the_reset_permission(api_client, user):
+    otro = User.objects.create_user(
+        username="sin-permisos", email="sin@example.com", password="Sup3r-Secr3t!"
+    )
+    api_client.force_authenticate(user=otro)
+
+    response = api_client.post(
+        f"/api/v1/admin/users/{user.id}/password-reset/",
+        {"return_link": True},
+        format="json",
+    )
+
+    assert response.status_code == 403

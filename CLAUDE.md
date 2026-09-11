@@ -117,7 +117,16 @@ reimplementes ni la infieras de otro lado.
 - **Django es la única fuente de verdad de credenciales** — el login
   valida contra Django (`loginToDjango`), no contra Next.js (hashing real
   con `Argon2PasswordHasher`; `bcryptjs` ya no está ni en `package.json`).
-- Contraseña por defecto al crear usuarios: `123456`.
+- Contraseña por defecto al crear un usuario desde la app:
+  **`NexoTemporal2026!`** (`src/app/api/users/route.ts`). El `123456` que
+  este archivo documentó hasta el 2026-09-11 es dato del seed de
+  desarrollo, no del flujo real: no pasa los validadores de Django
+  (mínimo 10 caracteres y no puede ser solo numérica), así que crear un
+  usuario con esa contraseña falla.
+- Para que alguien que olvidó su contraseña vuelva a entrar, Ajustes →
+  Gestión de contraseñas genera un **enlace de recuperación de un solo
+  uso** que se le entrega por fuera del sistema. Un administrador nunca ve
+  ni define la contraseña de otra persona (decisión de Fase 2).
 - `src/proxy.ts` redirige a `/login` sin sesión válida, y a `/dashboard` si
   ya hay sesión y se visita una ruta pública.
 

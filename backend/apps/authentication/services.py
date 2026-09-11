@@ -27,7 +27,11 @@ from apps.core.models import AuditLog
 from apps.core.request_meta import parse_user_agent
 from apps.users.models import User
 
-from .emails import send_password_changed_notification, send_password_reset_email
+from .emails import (
+    build_password_reset_url,
+    send_password_changed_notification,
+    send_password_reset_email,
+)
 from .models import LoginAttempt, PasswordResetToken, Session
 from .tokens import issue_token_pair
 
@@ -386,17 +390,35 @@ class PasswordResetService:
         send_link: bool,
         force_change_on_next_login: bool,
         revoke_sessions: bool,
+        return_link: bool = False,
         context: dict | None = None,
-    ) -> None:
+    ) -> dict:
         """El administrador nunca ve ni define la nueva contraseña: solo
-        dispara el envío del enlace, activa el flag de cambio obligatorio
-        y/o revoca sesiones. Al menos una de las tres opciones debe venir en
-        `True` (validado en el serializer, no aquí)."""
-        revoked_count = 0
+        dispara el envío del enlace, lo obtiene para entregarlo por otro
+        medio, activa el flag de cambio obligatorio y/o revoca sesiones. Al
+        menos una opción debe venir en `True` (validado en el serializer, no
+        aquí).
 
-        if send_link:
+        `return_link` devuelve la URL en vez de enviarla por correo. Es un
+        enlace de un solo uso y con vencimiento
+        (`PASSWORD_RESET_TOKEN_EXPIRATION_MINUTES`), pero mientras esté
+        vigente equivale a poder entrar a esa cuenta: por eso exige el
+        permiso `usuarios.restablecer_password`, queda auditado, y el token
+        NO se registra en el log (solo el hecho de haberlo generado).
+
+        Cuando se piden las dos, `send_link` y `return_link` comparten el
+        mismo token: emitir uno nuevo invalidaría el anterior y el correo
+        llegaría con un enlace ya muerto.
+        """
+        revoked_count = 0
+        reset_url = None
+
+        if send_link or return_link:
             raw_token = PasswordResetService._issue_reset_token(user)
-            send_password_reset_email(user=user, raw_token=raw_token)
+            if send_link:
+                send_password_reset_email(user=user, raw_token=raw_token)
+            if return_link:
+                reset_url = build_password_reset_url(raw_token)
 
         if force_change_on_next_login:
             user.must_change_password = True
@@ -412,12 +434,18 @@ class PasswordResetService:
             module="usuarios",
             new_values={
                 "send_link": send_link,
+                # Se registra que se generó un enlace para entrega manual,
+                # nunca el enlace ni el token: el registro de auditoría lo
+                # pueden leer más personas que las que pueden restablecer.
+                "return_link": return_link,
                 "force_change_on_next_login": force_change_on_next_login,
                 "revoke_sessions": revoke_sessions,
                 "revoked_sessions_count": revoked_count,
             },
             context=context,
         )
+
+        return {"reset_url": reset_url}
 
     @staticmethod
     def change_own_password(

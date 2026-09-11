@@ -154,12 +154,17 @@ class UserAdminViewSet(viewsets.ModelViewSet):
     def reset_password(self, request, pk=None):
         serializer = AdminPasswordResetSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        PasswordResetService.admin_initiate_reset(
+        resultado = PasswordResetService.admin_initiate_reset(
             actor=request.user,
             user=self.get_object(),
             context=get_request_context(request),
             **serializer.validated_data,
         )
+        # Con `return_link` la respuesta trae el enlace de recuperación para
+        # entregarlo por fuera del correo; sin él se mantiene el 204 de
+        # siempre, sin cuerpo (ver docs/AUDIT_LOG.md § 2026-09-11).
+        if resultado.get("reset_url"):
+            return Response({"reset_url": resultado["reset_url"]})
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=["post"], url_path="reset-consent")

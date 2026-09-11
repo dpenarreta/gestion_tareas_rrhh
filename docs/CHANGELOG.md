@@ -23,6 +23,59 @@
 
 ---
 
+## v1.154.0 — 2026-09-11
+
+**Tipo:** FEATURE
+**Módulo:** Usuarios — restablecer contraseña entrega un enlace de
+recuperación en vez de solo marcar el cambio (ver docs/AUDIT_LOG.md
+§ 2026-09-11).
+
+- **Problema:** el botón "Resetear contraseña" pedía
+  `force_change_on_next_login` + `revoke_sessions`, o sea marcaba que la
+  persona debe cambiar su contraseña **la próxima vez que inicie sesión**.
+  Inútil justo en el caso que importa: quien la olvidó no puede iniciar
+  sesión. La única vía prevista era el enlace por correo (`send_link`), que
+  la ruta nunca pedía y que además hoy no llegaría porque falta el buzón de
+  Zimbra. Resultado: **nadie que olvidara su contraseña podía volver a
+  entrar.**
+- **`apps/authentication/serializers.py` + `services.py`** — nueva opción
+  `return_link`: devuelve el enlace de recuperación en la respuesta en vez
+  de enviarlo por correo. `admin_initiate_reset` pasa a devolver un dict con
+  `reset_url`. Cuando se piden `send_link` y `return_link` juntos
+  **comparten el mismo token**: emitir uno nuevo invalida el anterior, así
+  que generar uno por opción haría que el correo llegara con un enlace ya
+  muerto.
+- **`apps/users/views.py`** — la acción `password-reset` devuelve 200 con
+  `{reset_url}` cuando se pidió el enlace; sin él mantiene el 204 de
+  siempre.
+- **`src/components/settings/PasswordManagementSection.tsx`** — el enlace se
+  muestra en pantalla con un botón "Copiar", y una advertencia de lo que
+  implica: sirve **una sola vez**, vence en 60 minutos, mientras esté
+  vigente permite definir la contraseña de esa cuenta, y las sesiones
+  abiertas ya se cerraron. Se puede cerrar el aviso para que no quede a la
+  vista.
+- **Sin exponer de más:** el enlace exige el permiso
+  `usuarios.restablecer_password`; la auditoría registra que se generó
+  (`return_link: true`) pero **nunca el token** — el registro de auditoría
+  lo pueden leer más personas que las que pueden restablecer contraseñas.
+- **Se mantiene la decisión de Fase 2:** un administrador sigue sin ver ni
+  definir la contraseña de otra persona. Lo que entrega es un enlace
+  temporal para que la defina quien corresponde.
+- **`CLAUDE.md` y `.claude/rules/security.md`** — corregida la contraseña
+  por defecto al crear usuarios: es **`NexoTemporal2026!`**, no `123456`.
+  Ese valor venía de antes de la migración a Django y no pasa sus
+  validadores (mínimo 10 caracteres, no solo numérica), así que crear un
+  usuario con él habría fallado.
+
+**Verificación:** 6 tests nuevos en Django (devuelve el enlace sin enviar
+correo, el enlace efectivamente permite definir la contraseña, es de un solo
+uso, la auditoría no contiene el token, `send_link` y `return_link`
+comparten token, y exige el permiso) y 7 en el frontend (la ruta pide el
+enlace y lo propaga, avisa si Django no lo devuelve porque las sesiones ya
+se cerraron, y la pantalla lo muestra, lo copia, lo oculta y no inventa uno
+si el backend falla). **Vitest 1180/1180**, `tsc --noEmit`, `eslint` y
+`ruff` limpios.
+
 ## v1.153.2 — 2026-09-11
 
 **Tipo:** FIX
