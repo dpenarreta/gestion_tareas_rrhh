@@ -81,14 +81,27 @@ Los tres tipos de dato que introduce el módulo de ausencias/estado especial (`L
 | Google (API de Gemini) | Procesamiento de lenguaje natural en 4 puntos del sistema — ver desglose completo debajo de esta tabla | Ver desglose |
 | GitHub | Almacenamiento del repositorio privado de documentos de la base de conocimiento de RRHH | Documentos cargados a la base de conocimiento (pueden contener datos de personal) |
 | Zoom | Coordinación de reuniones (API Server-to-Server OAuth) | Título, fecha/hora y lista de invitados (nombre/correo) de las reuniones creadas |
+| Alphaside (hosting del dominio `laarcourierdocs.com`) | Envío del correo transaccional de autenticación — servidor SMTP `inboundlaarcouriernew.alphaside.com` | Nombre y dirección de correo del titular, y el enlace de recuperación de contraseña, en cada correo de restablecimiento o aviso de cambio de contraseña |
 
-> **El correo transaccional NO involucra un encargado externo (2026-09-09):**
-> los correos de recuperación y de cambio de contraseña (nombre y dirección
-> de correo del titular) se envían por el servidor Zimbra propio de la
-> empresa (`mail.grupolaar.com`, en su propia infraestructura), no por un
-> servicio de terceros. No hay transferencia a un proveedor externo ni
-> transferencia internacional por este canal. Ver
-> `docs/DEPLOYMENT_IIS.md` § 5c.
+> **Corrección del 2026-09-11 — el correo transaccional SÍ pasa por un
+> encargado externo.** Esta sección afirmaba lo contrario desde el
+> 2026-09-09, sobre el supuesto de que el correo saldría por el servidor
+> Zimbra propio de la empresa. Al configurarlo de verdad resultó que el
+> buzón que usa Nexo (`notificacioneslce@laarcourierdocs.com`) **no está en
+> esa infraestructura**: pertenece al dominio `laarcourierdocs.com`, alojado
+> en un proveedor externo, y el envío sale por sus servidores.
+>
+> Consecuencia para el registro: hay **transferencia a un tercero** —y
+> presumiblemente internacional, ya que el servidor de envío resuelve a
+> infraestructura fuera del país— de nombre y dirección de correo del
+> titular cada vez que se restablece una contraseña. No incluye datos
+> sensibles ni categorías especiales (Art. 26): el contenido de esos correos
+> se limita a identificación y al enlace de un solo uso.
+>
+> **Pendiente de cumplimiento:** confirmar con el proveedor la ubicación de
+> los servidores y si existe un acuerdo de tratamiento de datos vigente.
+> Anotado también en `docs/PENDIENTES_LEGALES.md`. Ver
+> `docs/DEPLOYMENT_IIS.md` § 5c para el detalle técnico.
 
 ### 6.1 Desglose de los 4 puntos de envío a Google/Gemini
 

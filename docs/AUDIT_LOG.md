@@ -15,6 +15,61 @@
 
 ---
 
+## 2026-09-11 — El correo no salía por donde creíamos: tres suposiciones equivocadas
+
+**Contexto:** con las credenciales del buzón en mano
+(`notificacioneslce@laarcourierdocs.com`), tocaba configurar el envío. Toda
+la documentación escrita el 2026-09-09 apuntaba al Zimbra interno. **Ninguna
+de las tres suposiciones sobre dónde estaba el servidor resultó cierta.**
+
+1. **No es el Zimbra de la empresa.** `mail.grupolaar.com` atiende el dominio
+   `grupolaar.com`, pero el buzón de Nexo pertenece a `laarcourierdocs.com`.
+   Probadas las credenciales contra el Zimbra, responde "authentication
+   failed". El error de origen fue razonar desde "la empresa tiene Zimbra"
+   en vez de desde "¿a qué dominio pertenece este buzón?".
+2. **No es el host que sugiere el dominio.** `mail.laarcourierdocs.com`
+   (`204.93.193.212`) no responde en **ningún** puerto desde la red de la
+   empresa: ni 25/465/587/2525, ni 80/443, ni ping. Y no es un bloqueo
+   general de SMTP saliente — `smtp.gmail.com:587` sí responde. El registro
+   MX tampoco ayudaba: apunta a esa misma IP muerta.
+3. **El puerto no es estándar.** Es el **2524**. Probar 25/465/587 daba la
+   impresión de "acá no hay servicio SMTP" cuando el servicio estaba en otro
+   puerto, en otro host y en otra infraestructura
+   (`inboundlaarcouriernew.alphaside.com`, `35.229.66.203`).
+
+**Lo que sí se pudo deducir solo, y lo que no.** El SPF del dominio reveló al
+proveedor (`include:_spf.alphaside.com`) y que las IPs de salida de la
+empresa ya estaban autorizadas a enviar — buena señal de que el camino
+existía. Pero **el host y el puerto de envío no son deducibles**: no
+aparecen en DNS, ni en el MX, ni en registros SRV. Hubo que pedírselos al
+proveedor. Vale como método: con un hosting externo, la configuración de
+envío se consulta, no se infiere.
+
+**Verificado de punta a punta**, no solo la conexión: autenticación aceptada,
+certificado TLS válido para ese nombre sin relajar nada, y un correo real
+recibido en una casilla de otro dominio (`@grupolaar.com`) — lo que además
+confirma que esa cuenta puede enviar fuera de su propio dominio, que es
+justo lo que hace falta para recuperar contraseñas de cualquier usuario.
+
+**Corrección de cumplimiento, la parte más importante de esta entrada.** El
+2026-09-09 se dejó escrito en `docs/RAT.md` que el correo transaccional **no
+involucraba un encargado externo**, porque saldría por el servidor propio de
+la empresa. Esa afirmación es **falsa**: el correo sale por un proveedor
+externo, con transferencia a un tercero —y presumiblemente internacional— de
+nombre y dirección del titular en cada restablecimiento de contraseña. Se
+agregó el proveedor a la tabla de encargados y a
+`docs/PENDIENTES_LEGALES.md`, con lo que queda por confirmar (ubicación de
+servidores y acuerdo de tratamiento).
+
+Lo anotable no es el error en sí, sino que era **una conclusión de
+cumplimiento derivada de un supuesto técnico sin verificar**. El supuesto se
+escribió con el mismo tono de certeza que los datos comprobados, y de ahí
+salió una afirmación tranquilizadora en un documento legal. Cuando algo
+todavía no está probado contra el sistema real, conviene que el documento lo
+diga.
+
+---
+
 ## 2026-09-11 — El refresco de tokens revocaba la sesión que intentaba renovar
 
 **Reporte:** el aviso de tratamiento de datos seguía apareciendo en cada

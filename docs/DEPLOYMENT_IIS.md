@@ -298,48 +298,56 @@ registradas (`apps/authentication/emails.py`). La contrapartida es que la
 configuración hay que verificarla activamente; para eso están el check de
 arranque y el comando de diagnóstico de más abajo.
 
-### El servidor de correo de la empresa (verificado el 2026-09-09)
+### El servidor de correo (verificado de punta a punta el 2026-09-11)
 
 | Dato | Valor |
 |---|---|
-| Servidor | Zimbra (Postfix) — `mail.grupolaar.com` / `10.0.2.53` |
-| Puerto 25 | **cerrado** — no hay relay sin autenticar |
-| Puerto 587 | abierto, STARTTLS, `AUTH LOGIN PLAIN` tras cifrar |
-| Puerto 465 | abierto, TLS implícito |
-| Certificado | GlobalSign (público y válido), cubre `mail.grupolaar.com` |
+| Servidor | Exim — se presenta como `master3.laarcourierdocs.com` |
+| Host de envío | **`inboundlaarcouriernew.alphaside.com`** (`35.229.66.203`) |
+| Puerto | **2524** — 25, 465 y 587 están **cerrados** ahí |
+| Cifrado | STARTTLS; certificado válido para ese nombre |
+| Autenticación | `AUTH PLAIN LOGIN` |
+| Buzón | `notificacioneslce@laarcourierdocs.com` |
+| IP pública de salida de la empresa | `200.93.229.146` (útil si el proveedor filtra por origen) |
 
-Dos consecuencias prácticas:
+**El correo NO sale por el Zimbra interno.** Esa fue la primera suposición y
+era equivocada: `mail.grupolaar.com` (`10.0.2.53`) atiende el dominio
+`grupolaar.com`, pero el buzón de Nexo pertenece a `laarcourierdocs.com`,
+alojado afuera. El Zimbra rechaza esas credenciales con "authentication
+failed".
 
-- **Hace falta un buzón real.** Con el 25 cerrado no existe la opción de
-  autorizar la IP del servidor de aplicaciones y enviar sin credenciales, así
-  que hay que crear una cuenta en Zimbra para Nexo (ej.
-  `nexo@grupolaar.com`) y ponerla en el `.env`.
-- **Usá el nombre, no la IP**, en `EMAIL_HOST`. Django valida el certificado
-  del servidor (cadena y nombre); el certificado cubre `mail.grupolaar.com`,
-  así que con el nombre funciona sin configuración extra.
+**Ni tampoco por el host que sugiere el dominio.** `mail.laarcourierdocs.com`
+(`204.93.193.212`) **no responde en ningún puerto** desde la red de la
+empresa —ni 25/465/587, ni siquiera 80/443 o ping— mientras que internet en
+general sí funciona. El host de envío es otra infraestructura por completo,
+y hay que pedirlo al proveedor: no se deduce del dominio ni del registro MX.
 
-Zimbra solo anuncia `AUTH` **después** de STARTTLS, así que `EMAIL_USE_TLS`
-no es opcional: sin cifrar, el envío falla con "SMTP AUTH extension not
-supported by server".
+**El puerto no es estándar (2524)**, así que un `Test-NetConnection` a los
+puertos habituales da la impresión de que no hay salida SMTP cuando en
+realidad el problema es estar probando el puerto equivocado.
+
+`EMAIL_USE_TLS=true` es obligatorio aunque este servidor anuncie `AUTH`
+también sin cifrar: sin él, las credenciales viajarían en claro por
+internet.
 
 ### Configuración
 
-En `backend\.env` (la plantilla ya trae todo menos las credenciales):
+En `backend\.env` (la plantilla ya trae todo menos la contraseña):
 
 ```ini
 EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
-EMAIL_HOST=mail.grupolaar.com
-EMAIL_PORT=587
+EMAIL_HOST=inboundlaarcouriernew.alphaside.com
+EMAIL_PORT=2524
 EMAIL_USE_TLS=true
 EMAIL_USE_SSL=false
-EMAIL_HOST_USER=nexo@grupolaar.com
+EMAIL_HOST_USER=notificacioneslce@laarcourierdocs.com
 EMAIL_HOST_PASSWORD=<la contraseña del buzón>
-DEFAULT_FROM_EMAIL=nexo@grupolaar.com
+DEFAULT_FROM_EMAIL=notificacioneslce@laarcourierdocs.com
 EMAIL_TIMEOUT=10
 ```
 
-`EMAIL_USE_TLS` y `EMAIL_USE_SSL` son mutuamente excluyentes: 587 con TLS, o
-465 con SSL, nunca los dos en `true`.
+`EMAIL_USE_TLS` y `EMAIL_USE_SSL` son mutuamente excluyentes: nunca los dos
+en `true`.
 
 ### Verificación
 

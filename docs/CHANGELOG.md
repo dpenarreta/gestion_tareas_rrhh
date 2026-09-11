@@ -23,6 +23,43 @@
 
 ---
 
+## v1.155.2 — 2026-09-11
+
+**Tipo:** DOCUMENTATION
+**Módulo:** Correo saliente — datos reales del servidor SMTP, verificados con
+un envío que llegó (ver docs/AUDIT_LOG.md § 2026-09-11).
+
+- **El correo NO sale por el Zimbra interno**, que era la suposición con la
+  que se documentó todo el 2026-09-09. El buzón que usa Nexo
+  (`notificacioneslce@laarcourierdocs.com`) pertenece a un dominio alojado
+  **fuera** de la empresa; el Zimbra rechaza esas credenciales con
+  "authentication failed".
+- **Tampoco sale por el host que sugiere el dominio.**
+  `mail.laarcourierdocs.com` (`204.93.193.212`) no responde en **ningún**
+  puerto desde la red de la empresa —ni SMTP, ni 80/443, ni ping— mientras
+  internet en general sí funciona. El host de envío real es
+  `inboundlaarcouriernew.alphaside.com`, otra infraestructura por completo,
+  dato que hubo que pedirle al proveedor: no se deduce del dominio ni del MX.
+- **El puerto es 2524**, no uno estándar: 25, 465 y 587 están cerrados ahí.
+  Probar los puertos habituales daba la impresión de que no había salida
+  SMTP cuando el problema era estar probando el puerto equivocado.
+- **`backend/.env.production.example` y `docs/DEPLOYMENT_IIS.md` § 5c**
+  corregidos con los valores reales: servidor Exim, STARTTLS, certificado
+  válido para ese nombre, `AUTH PLAIN LOGIN`. Se anota además la IP pública
+  de salida de la empresa (`200.93.229.146`), útil si el proveedor filtra
+  por origen.
+- **`docs/RAT.md` y `docs/PENDIENTES_LEGALES.md`** — corrección de
+  cumplimiento: la nota del 2026-09-09 afirmaba que el correo transaccional
+  **no** involucraba un encargado externo, sobre el supuesto del servidor
+  propio. Es falso: hay transferencia a un tercero (y presumiblemente
+  internacional) de nombre y dirección del titular en cada restablecimiento.
+  Se agrega el proveedor a la tabla de encargados y queda pendiente
+  confirmar ubicación de servidores y acuerdo de tratamiento.
+
+**Verificación:** conexión, autenticación y **envío real recibido** en
+`dpenarreta@grupolaar.com`, confirmado por el usuario. La contraseña no se
+versiona: va solo en el `.env` del servidor.
+
 ## v1.155.1 — 2026-09-11
 
 **Tipo:** FIX
