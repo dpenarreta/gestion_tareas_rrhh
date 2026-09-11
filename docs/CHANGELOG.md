@@ -23,6 +23,31 @@
 
 ---
 
+## v1.153.1 — 2026-09-11
+
+**Tipo:** DOCUMENTATION
+**Módulo:** Operación — script de actualización de un despliegue existente.
+
+- **`scripts/deploy/update-deployment.ps1`** (nuevo): hace la secuencia
+  completa de actualizar el servidor con código nuevo — traer el código,
+  dependencias, build, `manage.py check`, migraciones, estáticos y reinicio
+  de los dos servicios. Hasta ahora el procedimiento existía solo como una
+  viñeta con los comandos sueltos en `docs/DEPLOYMENT_IIS.md`.
+- **El orden no es arbitrario: compila ANTES de tocar los servicios.** Un
+  build que falla deja el sistema corriendo con la versión anterior, en vez
+  de dejarlo caído a medio actualizar. Cada paso verifica su código de
+  salida y aborta ahí mismo.
+- Verifica antes de empezar que existan el venv, los dos servicios y los
+  dos `.env` (que nunca toca: viven solo en el servidor, con las
+  credenciales reales). `manage.py check` se ejecuta y se muestra pero no
+  aborta, porque las advertencias de correo son advertencias a propósito.
+- Guardado en **UTF-8 con BOM**, como los otros dos scripts de deploy —
+  PowerShell 5.1 sin BOM lee el archivo con la codepage ANSI y los acentos
+  rompen el parser (lección de v1.151.1). Sintaxis validada con el parser
+  de PowerShell.
+- **`docs/DEPLOYMENT_IIS.md`** § Operación reescrita alrededor del script,
+  conservando los pasos manuales equivalentes.
+
 ## v1.153.0 — 2026-09-11
 
 **Tipo:** FEATURE

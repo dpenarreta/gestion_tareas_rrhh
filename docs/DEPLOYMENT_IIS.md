@@ -377,12 +377,26 @@ Al recibir el correo de prueba, revisá que **el enlace apunte al sitio real**
 - **Logs**: `backend\logs\NexoBackend.{out,err}.log` y
   `logs\NexoFrontend.{out,err}.log` (raíz del repo), rotados
   automáticamente por NSSM a los 10MB.
-- **Reiniciar tras un cambio de código**: `git pull` (o copiar los
-  archivos nuevos), `npm run build` (frontend) y/o
-  `python manage.py migrate` (si hay migraciones nuevas), después
+- **Actualizar el despliegue con código nuevo** — `scripts\deploy\update-deployment.ps1`
+  hace la secuencia completa (traer el código, dependencias, build,
+  `check`, migraciones, estáticos y reinicio de los dos servicios), en el
+  orden que importa: **compila antes de tocar los servicios**, así un build
+  que falla deja el sistema corriendo con la versión anterior en vez de
+  dejarlo caído a medio actualizar.
+
+  ```powershell
+  cd C:\nexo\scripts\deploy
+  .\update-deployment.ps1 -RepoRoot "C:\nexo"
+
+  # El código se copia a mano y no cambiaron las dependencias (más rápido):
+  .\update-deployment.ps1 -RepoRoot "C:\nexo" -SkipGitPull -SkipInstall
+  ```
+
+  No toca los `.env` (viven solo en el servidor, con las credenciales
+  reales) y verifica que existan antes de empezar. Si preferís hacerlo a
+  mano, son los mismos pasos: `git pull`, `npm ci`, `npm run build`,
+  `manage.py migrate`, `manage.py collectstatic --noinput` y
   `Restart-Service NexoFrontend, NexoBackend`.
-- **Actualizar dependencias**: `pip install -r requirements\prod-windows.txt`
-  / `npm install` antes de reiniciar los servicios.
 - **Backups**: responsabilidad del servidor SQL Server (fuera de alcance
   de esta guía) — NEXO no persiste nada relevante fuera de la base de
   datos y `backend\staticfiles\` (regenerable con `collectstatic`).
