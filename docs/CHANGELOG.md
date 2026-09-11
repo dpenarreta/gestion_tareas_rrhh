@@ -23,6 +23,43 @@
 
 ---
 
+## v1.154.1 — 2026-09-11
+
+**Tipo:** FIX
+**Módulo:** Despliegue — los scripts abortaban por la salida de error de
+comandos externos que en realidad habían funcionado.
+
+- **Problema:** desplegar v1.154.0 frenó el script en `manage.py check`. La
+  causa es la misma que ya se había corregido para `npm ci`, pero atacada
+  solo en ese punto: con `$ErrorActionPreference = "Stop"`, PowerShell 5.1
+  aborta en cuanto un ejecutable externo escribe **una línea en stderr**,
+  aunque termine con código 0 — la envuelve en un `NativeCommandError`
+  terminante. Las advertencias `nexo.email.*` de `manage.py check` existen a
+  propósito mientras el correo no esté configurado, así que **todo
+  despliegue iba a frenarse ahí** hasta que existiera el buzón de Zimbra.
+- **Los dos scripts pasan a `$ErrorActionPreference = "Continue"`** y
+  evalúan `$LASTEXITCODE` en cada comando externo, que es lo que de verdad
+  indica si algo falló. Los cmdlets que sí deben cortar el despliegue
+  (`Stop-Service`, `Restart-Service`, `New-PSDrive`, `Invoke-Command`,
+  `Copy-Item`) llevan ahora `-ErrorAction Stop` propio, para no perder esa
+  protección. Alcanza también a `robocopy`, que escribe en stderr de forma
+  rutinaria y devuelve códigos 0–7 en operaciones correctas.
+- **`manage.py check` ya no corta el despliegue:** sus advertencias se
+  muestran y, si devuelve un código distinto de cero, se avisa sin abortar.
+- **Salida explícita en 0** al final de ambos scripts: los ejecutables
+  externos dejaban el código de salida del proceso en 1 aunque el despliegue
+  hubiera terminado bien, lo que confundiría a cualquier automatización que
+  lo evalúe. Verificado de forma aislada: un script con salida a stderr y
+  `exit 0` devuelve 0.
+
+**Verificación:** el script corregido se ejecutó de punta a punta contra
+producción y completó la secuencia entera —copia, build, `check`, `migrate`,
+`collectstatic` y reinicio—, cosa que antes no lograba. Sitio en 200 en
+`/login`, `/dashboard`, `/settings`, `/tasks` y `/team`, ambos servicios
+`Running`, v1.154.0 desplegada. Los cuatro scripts de `scripts/deploy/`
+validados con el parser de PowerShell, en UTF-8 con BOM, y con su `Get-Help`
+legible.
+
 ## v1.154.0 — 2026-09-11
 
 **Tipo:** FEATURE

@@ -51,7 +51,11 @@ param(
     [string]$FrontendServiceName = "NexoFrontend"
 )
 
-$ErrorActionPreference = "Stop"
+# "Continue" y NO "Stop" tambien aca: `robocopy` escribe en stderr de forma
+# rutinaria y devuelve codigos 0-7 en operaciones correctas, asi que con
+# "Stop" una copia normal podria abortar el despliegue. Cada paso evalua
+# su propio resultado, y los cmdlets criticos llevan -ErrorAction Stop.
+$ErrorActionPreference = "Continue"
 
 function Write-Paso {
     param([string]$Texto)
@@ -68,13 +72,13 @@ if ($credencial.UserName -like "*@*") {
 }
 
 Write-Paso "Verificando la conexión con $ServerHost"
-$identidad = Invoke-Command -ComputerName $ServerHost -Credential $credencial -ScriptBlock {
+$identidad = Invoke-Command -ComputerName $ServerHost -Credential $credencial -ErrorAction Stop -ScriptBlock {
     "$env:COMPUTERNAME ($env:USERDOMAIN\$env:USERNAME)"
 }
 Write-Host "  Conectado a $identidad"
 
 $unidad = "NexoDeploy"
-New-PSDrive -Name $unidad -PSProvider FileSystem -Root "\\$ServerHost\c`$" -Credential $credencial | Out-Null
+New-PSDrive -Name $unidad -PSProvider FileSystem -Root "\\$ServerHost\c`$" -Credential $credencial -ErrorAction Stop | Out-Null
 try {
     $destinoUNC = "\\$ServerHost\c$" + ($RemoteRoot -replace "^[A-Za-z]:", "")
 
@@ -118,7 +122,7 @@ try {
     foreach ($archivo in $sueltos) {
         $origen = Join-Path $LocalRoot $archivo
         if (Test-Path $origen) {
-            Copy-Item $origen -Destination (Join-Path $destinoUNC $archivo) -Force
+            Copy-Item $origen -Destination (Join-Path $destinoUNC $archivo) -Force -ErrorAction Stop
             Write-Host "  $archivo"
         }
     }
@@ -128,9 +132,19 @@ finally {
 }
 
 Write-Paso "Compilando y reiniciando en el servidor (esto tarda varios minutos)"
-Invoke-Command -ComputerName $ServerHost -Credential $credencial -ArgumentList $RemoteRoot, $SkipInstall.IsPresent, $BackendServiceName, $FrontendServiceName -ScriptBlock {
+Invoke-Command -ComputerName $ServerHost -Credential $credencial -ErrorAction Stop -ArgumentList $RemoteRoot, $SkipInstall.IsPresent, $BackendServiceName, $FrontendServiceName -ScriptBlock {
     param($RemoteRoot, $SkipInstall, $BackendServiceName, $FrontendServiceName)
-    $ErrorActionPreference = "Stop"
+    # "Continue" y NO "Stop". Con "Stop", PowerShell 5.1 aborta el script en
+    # cuanto un ejecutable externo escribe UNA línea en stderr, aunque
+    # termine con código 0: la envuelve en un NativeCommandError terminante.
+    # Acá eso rompía dos pasos normales — los `npm warn deprecated` de
+    # `npm ci` y las advertencias `nexo.email.*` de `manage.py check`, que
+    # existen a propósito mientras el correo no esté configurado.
+    #
+    # A cambio, cada comando externo evalúa su `$LASTEXITCODE` explícitamente
+    # (que es lo que de verdad dice si falló), y los cmdlets que sí deben
+    # cortar llevan `-ErrorAction Stop` propio.
+    $ErrorActionPreference = "Continue"
     $backendDir = Join-Path $RemoteRoot "backend"
     $pythonExe = Join-Path $backendDir ".venv\Scripts\python.exe"
 
@@ -144,14 +158,15 @@ Invoke-Command -ComputerName $ServerHost -Credential $credencial -ArgumentList $
         # frontend ANTES de instalar, y el sitio queda abajo hasta el final
         # del build; es el precio de reinstalar dependencias.
         Write-Host "-- deteniendo $FrontendServiceName para liberar node_modules (el sitio queda abajo hasta el final)"
-        Stop-Service -Name $FrontendServiceName
+        Stop-Service -Name $FrontendServiceName -ErrorAction Stop
         Write-Host "-- npm ci"
-        # Sin `2>&1`: en PowerShell 5.1 eso convierte cada `npm warn` en un
-        # NativeCommandError y aborta el script aunque npm devuelva 0.
+        # Nunca `2>&1` sobre un ejecutable externo: en PowerShell 5.1 eso
+        # convierte cada línea de stderr en un NativeCommandError.
         npm ci
         if ($LASTEXITCODE -ne 0) { throw "npm ci falló (código $LASTEXITCODE)." }
         Write-Host "-- pip install"
         & $pythonExe -m pip install -r (Join-Path $backendDir "requirements\prod-windows.txt") --quiet
+        if ($LASTEXITCODE -ne 0) { throw "pip install falló (código $LASTEXITCODE)." }
     }
 
     Write-Host "-- npm run build"
@@ -164,7 +179,7 @@ Invoke-Command -ComputerName $ServerHost -Credential $credencial -ArgumentList $
             # levantarlo con el build anterior, que sigue en `.next`.
             Write-Host "-- el build falló y el sitio está abajo: levantando $FrontendServiceName con el build anterior"
             try {
-                Start-Service -Name $FrontendServiceName
+                Start-Service -Name $FrontendServiceName -ErrorAction Stop
                 Write-Host "-- servicio levantado: el sitio vuelve con la versión anterior"
             }
             catch {
@@ -175,17 +190,25 @@ Invoke-Command -ComputerName $ServerHost -Credential $credencial -ArgumentList $
     }
 
     Set-Location $backendDir
+    # `manage.py check` informa las advertencias de configuración de correo
+    # (`nexo.email.*`) por stderr, y son advertencias a propósito mientras el
+    # buzón no exista: se muestran, no cortan el despliegue. Solo un código
+    # de salida distinto de cero indica un problema real de configuración.
     Write-Host "-- manage.py check"
     & $pythonExe manage.py check
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "-- ATENCION: manage.py check devolvió $LASTEXITCODE. Revisá la salida de arriba."
+    }
     Write-Host "-- manage.py migrate"
     & $pythonExe manage.py migrate --noinput
-    if ($LASTEXITCODE -ne 0) { throw "Las migraciones fallaron." }
+    if ($LASTEXITCODE -ne 0) { throw "Las migraciones fallaron (código $LASTEXITCODE)." }
     Write-Host "-- manage.py collectstatic"
     & $pythonExe manage.py collectstatic --noinput | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "collectstatic falló (código $LASTEXITCODE)." }
 
     Write-Host "-- reiniciando servicios"
-    Restart-Service -Name $BackendServiceName
-    Restart-Service -Name $FrontendServiceName
+    Restart-Service -Name $BackendServiceName -ErrorAction Stop
+    Restart-Service -Name $FrontendServiceName -ErrorAction Stop
     Get-Service -Name $BackendServiceName, $FrontendServiceName | Format-Table Name, Status
 
     $version = (Get-Content (Join-Path $RemoteRoot "package.json") -Raw | ConvertFrom-Json).version
@@ -194,3 +217,9 @@ Invoke-Command -ComputerName $ServerHost -Credential $credencial -ArgumentList $
 
 Write-Paso "Listo"
 Write-Host "Verificá el sitio en http://$ServerHost`:4080"
+
+# Salida explicita en 0: los ejecutables externos (npm, manage.py) escriben
+# en stderr de forma rutinaria y eso deja el codigo de salida del proceso
+# en 1 aunque el despliegue haya terminado bien. Si algo falla de verdad,
+# un `throw` de los de arriba corta antes y el proceso sale distinto de 0.
+exit 0

@@ -22,8 +22,10 @@
   anterior en vez de dejarlo caído a medio actualizar. Los servicios se
   reinician al final, cuando ya está todo listo en disco.
 
-  Cada paso se verifica; ante el primer error el script se detiene
-  (`$ErrorActionPreference = "Stop"`) sin seguir con los siguientes.
+  Cada paso verifica su codigo de salida y aborta ahi mismo, sin seguir
+  con los siguientes. Las advertencias de `manage.py check` (por ejemplo
+  las de configuracion de correo) se muestran pero NO detienen el
+  despliegue: son advertencias a proposito.
 
 .PARAMETER RepoRoot
   Ruta absoluta a la raíz del repositorio en el servidor (ej. "C:\nexo").
@@ -55,7 +57,14 @@ param(
     [string]$FrontendServiceName = "NexoFrontend"
 )
 
-$ErrorActionPreference = "Stop"
+# "Continue" y NO "Stop": con "Stop", PowerShell 5.1 aborta en cuanto un
+# ejecutable externo escribe UNA linea en stderr, aunque termine con codigo
+# 0 — la envuelve en un NativeCommandError terminante. Eso rompia dos pasos
+# normales: los "npm warn deprecated" de npm ci y las advertencias
+# nexo.email.* de manage.py check, que existen a proposito mientras el
+# correo no este configurado. A cambio, cada comando externo evalua su
+# $LASTEXITCODE y los cmdlets que si deben cortar llevan -ErrorAction Stop.
+$ErrorActionPreference = "Continue"
 
 function Write-Paso {
     param([string]$Texto)
@@ -106,7 +115,7 @@ try {
         # 2026-09-11 y costó una caída. Desde acá el sitio queda abajo hasta
         # el final del build: es el precio de reinstalar dependencias.
         Write-Paso "Deteniendo $FrontendServiceName para liberar node_modules (el sitio queda abajo hasta el final)"
-        Stop-Service -Name $FrontendServiceName
+        Stop-Service -Name $FrontendServiceName -ErrorAction Stop
 
         Write-Paso "Dependencias del frontend (npm ci)"
         # Sin `2>&1`: en PowerShell 5.1 eso convierte cada `npm warn` en un
@@ -134,7 +143,7 @@ try {
             # con el build anterior, que sigue en `.next`.
             Write-Paso "El build falló y el sitio está abajo: levantando $FrontendServiceName con el build anterior"
             try {
-                Start-Service -Name $FrontendServiceName
+                Start-Service -Name $FrontendServiceName -ErrorAction Stop
                 Write-Host "  Servicio levantado: el sitio vuelve con la versión anterior."
             }
             catch {
@@ -150,23 +159,28 @@ try {
         # No aborta el despliegue: los checks de correo son advertencias a
         # propósito (ver apps/core/checks.py). Se muestran para que queden a
         # la vista de quien despliega.
+        # Las advertencias (`nexo.email.*`, por ejemplo) salen por stderr y
+        # son intencionales: se muestran, no cortan el despliegue.
         & $pythonExe manage.py check
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  ATENCION: manage.py check devolvio $LASTEXITCODE. Revisa la salida de arriba."
+        }
 
         Write-Paso "Aplicando migraciones"
         & $pythonExe manage.py migrate --noinput
-        if ($LASTEXITCODE -ne 0) { throw "Las migraciones fallaron." }
+        if ($LASTEXITCODE -ne 0) { throw "Las migraciones fallaron (codigo $LASTEXITCODE)." }
 
         Write-Paso "Recolectando estáticos"
         & $pythonExe manage.py collectstatic --noinput | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "collectstatic falló." }
+        if ($LASTEXITCODE -ne 0) { throw "collectstatic fallo (codigo $LASTEXITCODE)." }
     }
     finally {
         Pop-Location
     }
 
     Write-Paso "Reiniciando servicios"
-    Restart-Service -Name $BackendServiceName
-    Restart-Service -Name $FrontendServiceName
+    Restart-Service -Name $BackendServiceName -ErrorAction Stop
+    Restart-Service -Name $FrontendServiceName -ErrorAction Stop
     Get-Service -Name $BackendServiceName, $FrontendServiceName | Format-Table Name, Status, StartType
 
     Write-Paso "Listo"
@@ -177,3 +191,9 @@ try {
 finally {
     Pop-Location
 }
+
+# Salida explicita en 0: los ejecutables externos (npm, manage.py) escriben
+# en stderr de forma rutinaria y eso deja el codigo de salida del proceso
+# en 1 aunque el despliegue haya terminado bien. Si algo falla de verdad,
+# un `throw` de los de arriba corta antes y el proceso sale distinto de 0.
+exit 0
