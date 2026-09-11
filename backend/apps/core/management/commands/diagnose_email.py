@@ -20,11 +20,21 @@ import ssl
 
 from django.conf import settings
 from django.core.mail import get_connection
+from django.core.mail.backends.smtp import EmailBackend as SmtpEmailBackend
 from django.core.management.base import BaseCommand, CommandError
+from django.utils.module_loading import import_string
 
 from apps.authentication.emails import build_password_reset_url, send_password_reset_email
 
-_SMTP_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+
+def _es_backend_smtp() -> bool:
+    """Cualquier subclase del backend SMTP, no solo la clase exacta de Django:
+    el proyecto usa `apps.core.email_backend.CertifiSMTPEmailBackend`."""
+    try:
+        return issubclass(import_string(settings.EMAIL_BACKEND), SmtpEmailBackend)
+    except (ImportError, TypeError):
+        return False
+
 
 # Cada modo de falla real que puede dar un SMTP, con lo que hay que hacer al
 # respecto. Sin esto, el operador ve una traza de smtplib y no sabe si el
@@ -119,7 +129,7 @@ class Command(BaseCommand):
 
         self._mostrar_configuracion()
 
-        if settings.EMAIL_BACKEND != _SMTP_BACKEND:
+        if not _es_backend_smtp():
             self.stdout.write(
                 self.style.WARNING(
                     f"\nEMAIL_BACKEND no es el backend SMTP ({settings.EMAIL_BACKEND}).\n"
@@ -192,7 +202,7 @@ class Command(BaseCommand):
         # True lanza ValueError), y ese error también hay que explicarlo en
         # vez de dejarlo salir como traza.
         try:
-            connection = get_connection(backend=_SMTP_BACKEND, fail_silently=False)
+            connection = get_connection(fail_silently=False)
             connection.open()
         except Exception as exc:
             self._reportar_falla(exc)

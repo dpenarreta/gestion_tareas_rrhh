@@ -23,6 +23,8 @@ testemail`.
 from django.conf import settings
 from django.core.checks import Warning as CheckWarning
 from django.core.checks import register
+from django.core.mail.backends.smtp import EmailBackend as SmtpEmailBackend
+from django.utils.module_loading import import_string
 
 # Backends que no entregan el correo a ningún servidor real. `console` es el
 # default de desarrollo (imprime el mensaje en la salida estándar).
@@ -33,11 +35,16 @@ _NON_DELIVERING_BACKENDS = (
     "django.core.mail.backends.filebased.EmailBackend",
 )
 
-_SMTP_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
 
-
+# Cualquier SUBCLASE del backend SMTP cuenta, no solo la clase exacta de
+# Django: el proyecto usa `apps.core.email_backend.CertifiSMTPEmailBackend`
+# y compararlo por cadena dejaba los checks y el diagnóstico creyendo que el
+# correo no se enviaba por SMTP (ver docs/AUDIT_LOG.md § 2026-09-11).
 def _is_smtp() -> bool:
-    return settings.EMAIL_BACKEND == _SMTP_BACKEND
+    try:
+        return issubclass(import_string(settings.EMAIL_BACKEND), SmtpEmailBackend)
+    except (ImportError, TypeError):
+        return False
 
 
 @register()

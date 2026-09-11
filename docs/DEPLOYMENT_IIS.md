@@ -335,7 +335,7 @@ internet.
 En `backend\.env` (la plantilla ya trae todo menos la contraseña):
 
 ```ini
-EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+EMAIL_BACKEND=apps.core.email_backend.CertifiSMTPEmailBackend
 EMAIL_HOST=inboundlaarcouriernew.alphaside.com
 EMAIL_PORT=2524
 EMAIL_USE_TLS=true
@@ -348,6 +348,17 @@ EMAIL_TIMEOUT=10
 
 `EMAIL_USE_TLS` y `EMAIL_USE_SSL` son mutuamente excluyentes: nunca los dos
 en `true`.
+
+**El `EMAIL_BACKEND` no es el de Django, y no es un detalle.** Windows Server
+trae muy pocas CA raíz preinstaladas y las descarga **bajo demanda** solo
+cuando las necesita un componente del propio Windows; Python usa OpenSSL, que
+lee ese almacén pero no dispara esa descarga. Con el backend estándar, el
+envío falla con *"certificate verify failed: self-signed certificate in
+certificate chain"* pese a que el certificado del servidor es legítimo
+(`*.alphaside.com`, emitido por GlobalSign) — el mensaje despista, porque el
+problema no es el certificado sino la raíz que falta para validarlo.
+`apps.core.email_backend.CertifiSMTPEmailBackend` suma el almacén del sistema
+y las CA públicas de `certifi`, **sin** desactivar la verificación.
 
 ### Verificación
 

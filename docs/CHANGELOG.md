@@ -23,6 +23,49 @@
 
 ---
 
+## v1.156.0 — 2026-09-11
+
+**Tipo:** FIX
+**Módulo:** Correo saliente — el envío fallaba en el servidor por CA raíz
+faltantes, no por el certificado (ver docs/AUDIT_LOG.md § 2026-09-11).
+
+- **Síntoma:** con la configuración ya correcta en producción, el envío moría
+  con `SSLCertVerificationError: ... self-signed certificate in certificate
+  chain`. El mensaje despista: el certificado del servidor SMTP es impecable
+  (`*.alphaside.com`, emitido por GlobalSign) y valida sin problema desde un
+  equipo de escritorio de la misma red.
+- **La causa:** Windows Server trae muy pocas CA raíz preinstaladas y las
+  descarga **bajo demanda**, solo cuando las necesita un componente del
+  propio Windows. Python usa OpenSSL, que lee ese almacén pero no dispara esa
+  descarga. Faltando la raíz de GlobalSign, la cadena queda sin ancla y
+  OpenSSL reporta la raíz autofirmada que encontró — de ahí un mensaje que
+  parece acusar al servidor remoto.
+- **`backend/apps/core/email_backend.py`** (nuevo):
+  `CertifiSMTPEmailBackend`, subclase del backend SMTP que arma su contexto
+  TLS **sumando** el almacén del sistema y las CA públicas de `certifi`. Se
+  suman y no se reemplazan: el almacén del sistema puede tener CA internas de
+  la empresa (un firewall con inspección TLS), y usar solo `certifi`
+  funcionaría hoy para romperse el día que se active una.
+- **No se desactiva la verificación**, que era la salida rápida. El correo
+  lleva enlaces de recuperación de contraseña y viaja por internet hasta un
+  proveedor externo. Hay un test que falla si alguien pone `CERT_NONE` o
+  apaga `check_hostname`.
+- **`certifi` pasa a estar declarado** en `requirements/base.txt`: ya venía
+  instalado, pero como dependencia transitiva de `requests`, y el backend lo
+  importa directo.
+- **Dos defectos propios corregidos**, en herramientas del mismo día:
+  `apps/core/checks.py` y `diagnose_email` detectaban el backend SMTP
+  **comparando la cadena exacta** con la clase de Django, así que con el
+  backend propio dejaban de validar nada — ahora es por herencia. Y
+  `diagnose_email` **forzaba** el backend de Django en vez de usar el
+  configurado: el comando escrito para diagnosticar el envío real no probaba
+  el camino real, y habría seguido dando "OK" mientras producción fallaba.
+
+**Verificación:** conexión, autenticación y **envío real aceptado** con el
+backend nuevo contra el servidor de producción. 4 tests nuevos, incluido uno
+que impide desactivar la verificación del certificado y otro que comprueba
+que el almacén del sistema no se pierde. **pytest 1941/1941**.
+
 ## v1.155.2 — 2026-09-11
 
 **Tipo:** DOCUMENTATION

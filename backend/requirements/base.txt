@@ -17,3 +17,11 @@ requests==2.32.3
 # openpyxl: lectura/escritura de .xlsx para la plantilla e importador
 # masivo de Tareas (Fase 3e, ver docs plan de esa sub-fase).
 openpyxl==3.1.5
+# certifi: conjunto de CA públicas (Mozilla) que usa
+# apps.core.email_backend para validar el certificado del servidor SMTP.
+# Llegaba igual como dependencia de `requests`, pero acá NO es transitiva:
+# el backend de correo lo importa directo, y una futura baja de `requests`
+# rompería el envío sin ninguna señal previa. Ver docs/AUDIT_LOG.md
+# § 2026-09-11 (Windows Server no trae las CA raíz públicas y Python, a
+# diferencia de los componentes del propio Windows, no las descarga solo).
+certifi==2026.7.22

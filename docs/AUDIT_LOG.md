@@ -15,6 +15,70 @@
 
 ---
 
+## 2026-09-11 — "Certificado autofirmado" que no lo era: a Windows Server le faltaban las CA raíz
+
+**Síntoma:** con la configuración ya correcta en el servidor —host, puerto,
+usuario y contraseña bien—, `diagnose_email` fallaba con
+
+    SSLCertVerificationError: [SSL: CERTIFICATE_VERIFY_FAILED]
+    certificate verify failed: self-signed certificate in certificate chain
+
+**El mensaje despista.** Sugiere un certificado falso o hecho a mano, y el
+certificado del servidor SMTP es impecable: `*.alphaside.com`, emitido por
+**GlobalSign**, una CA pública. Verificado conectándose desde un equipo de
+escritorio de la misma red, donde valida sin ninguna queja.
+
+**La diferencia no está en el certificado sino en quién lo valida.** Windows
+Server trae muy pocas CA raíz preinstaladas y las descarga **bajo demanda**,
+cuando un componente del propio Windows las necesita. Python usa OpenSSL:
+lee ese almacén, pero no dispara esa descarga. En un servidor recién
+instalado la raíz de GlobalSign simplemente no está, la cadena queda sin
+ancla, y OpenSSL reporta el certificado más alto que encontró —que es
+autofirmado, como toda raíz— con un mensaje que parece acusar al servidor
+remoto. Un equipo de escritorio, en cambio, ya descargó esas raíces navegando.
+
+**La corrección: `apps/core/email_backend.py`**, una subclase del backend
+SMTP que construye su contexto TLS **sumando** los dos orígenes — el almacén
+del sistema y el conjunto de CA públicas de `certifi`.
+
+Se suman en vez de reemplazar por una razón concreta: el almacén del sistema
+puede contener CA internas de la empresa (un firewall con inspección TLS, por
+ejemplo). Usar solo `certifi` funcionaría hoy y rompería el envío el día que
+se active una inspección de ese tipo, con un error idéntico y tan confuso
+como este.
+
+**Lo que no se hizo, y es lo importante:** desactivar la verificación. Era la
+salida rápida y habría "funcionado". El correo lleva enlaces de recuperación
+de contraseña y viaja por internet hasta un proveedor externo: sin validar el
+certificado, cualquiera en el camino podría quedarse con esas credenciales.
+Hay un test que falla si alguien pone `CERT_NONE` o apaga `check_hostname`.
+
+**`certifi` pasa a ser dependencia declarada.** Ya estaba instalado, pero
+como dependencia transitiva de `requests`. El backend de correo lo importa
+directo, así que una futura baja de `requests` habría roto el envío sin
+ninguna señal previa.
+
+**Dos defectos propios que este fallo destapó**, ambos en herramientas
+escritas ese mismo día:
+
+- `apps/core/checks.py` y `diagnose_email` detectaban el backend SMTP
+  **comparando la cadena exacta** con la clase de Django. Con el backend
+  propio pasaron a creer que el correo no se enviaba por SMTP y dejaron de
+  validar nada. Ahora se comprueba por herencia (`issubclass`), que cubre
+  cualquier subclase futura.
+- `diagnose_email` **forzaba** el backend de Django
+  (`get_connection(backend=...)`) en lugar de usar el configurado. Es decir:
+  el comando escrito para diagnosticar el envío real no estaba probando el
+  camino real — con el backend propio configurado, habría seguido dando
+  "OK" mientras producción fallaba. Ahora usa `get_connection()` sin
+  argumentos, que respeta `settings.EMAIL_BACKEND`.
+
+Ese segundo punto es el más incómodo: una herramienta de diagnóstico que
+prueba un camino distinto al de producción da falsa tranquilidad, que es
+peor que no tener herramienta.
+
+---
+
 ## 2026-09-11 — El correo no salía por donde creíamos: tres suposiciones equivocadas
 
 **Contexto:** con las credenciales del buzón en mano

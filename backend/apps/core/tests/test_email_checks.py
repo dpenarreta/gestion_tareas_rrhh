@@ -264,3 +264,69 @@ def test_el_envio_de_produccion_sigue_silenciando_el_error():
                     raw_token="t",
                     fail_silently=False,
                 )
+
+
+# --- Backend SMTP con CA públicas (apps.core.email_backend) ---------------
+# Existe por un fallo real en producción (ver docs/AUDIT_LOG.md
+# § 2026-09-11): Windows Server no trae las CA raíz públicas y Python no las
+# descarga solo, así que el backend estándar de Django rechazaba el
+# certificado legítimo del servidor SMTP como "self-signed certificate in
+# certificate chain".
+
+
+def test_el_backend_propio_es_un_backend_smtp():
+    # Los checks y `diagnose_email` detectan el backend por herencia: si
+    # dejara de ser subclase, volverían a creer que el correo no se envía
+    # por SMTP y dejarían de avisar de cualquier problema de configuración.
+    from django.core.mail.backends.smtp import EmailBackend as SmtpEmailBackend
+
+    from apps.core.email_backend import CertifiSMTPEmailBackend
+
+    assert issubclass(CertifiSMTPEmailBackend, SmtpEmailBackend)
+
+
+def test_el_contexto_ssl_sigue_verificando_el_certificado():
+    # Lo que NUNCA debe hacer este backend es apagar la verificación: el
+    # correo lleva enlaces de recuperación y viaja por internet hasta un
+    # proveedor externo.
+    import ssl
+
+    from apps.core.email_backend import CertifiSMTPEmailBackend
+
+    contexto = CertifiSMTPEmailBackend().ssl_context
+
+    assert contexto.verify_mode == ssl.CERT_REQUIRED
+    assert contexto.check_hostname is True
+
+
+def test_el_contexto_suma_las_ca_publicas_a_las_del_sistema():
+    import ssl
+
+    import certifi
+
+    from apps.core.email_backend import CertifiSMTPEmailBackend
+
+    solo_sistema = len(ssl.create_default_context().get_ca_certs())
+    con_certifi = len(CertifiSMTPEmailBackend().ssl_context.get_ca_certs())
+
+    # No reemplaza el almacén del sistema: lo amplía. Si lo reemplazara,
+    # dejarían de funcionar las CA internas de la empresa (por ejemplo, un
+    # firewall con inspección TLS).
+    assert con_certifi >= solo_sistema
+    assert "GlobalSign" in certifi.contents()
+
+
+def test_con_certificado_de_cliente_no_se_toca_el_contexto_de_django():
+    # `ssl_certfile`/`ssl_keyfile` son para autenticarse ANTE el servidor con
+    # un certificado propio: otro caso de uso, que Django ya resuelve.
+    from apps.core.email_backend import CertifiSMTPEmailBackend
+
+    backend = CertifiSMTPEmailBackend()
+    backend.ssl_certfile = "/ruta/inventada/cliente.pem"
+
+    # Falla al cargar el archivo inexistente, que es justo la prueba de que
+    # delegó en el comportamiento de Django y no armó el suyo. El tipo de
+    # error importa: con `Exception` a secas, el test pasaría también si
+    # fallara por cualquier otro motivo.
+    with pytest.raises(FileNotFoundError):
+        _ = backend.ssl_context
