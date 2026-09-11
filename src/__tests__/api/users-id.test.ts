@@ -12,7 +12,12 @@ const getSession = vi.fn();
 vi.mock("@/lib/session", () => ({ getSession: (...args: unknown[]) => getSession(...args) }));
 
 const djangoApiFetch = vi.fn();
-vi.mock("@/lib/djangoSession", () => ({
+vi.mock("@/lib/djangoSession", async (importOriginal) => ({
+  // `extractDjangoFieldErrorMessage` se toma de la implementación REAL: las
+  // rutas la usan para propagar el motivo por el que Django rechaza una baja
+  // o un borrado, y una réplica en el mock podría divergir del formato de
+  // error que devuelve el backend, que es justo lo que estos tests verifican.
+  ...(await importOriginal<typeof import("@/lib/djangoSession")>()),
   djangoApiFetch: (...args: unknown[]) => djangoApiFetch(...args),
   // Réplica mínima de la real (Fase 40): usa `session.djangoUserId` si está,
   // si no cae a `djangoApiFetch("/auth/me/")` — mismo mock de `djangoApiFetch`
@@ -27,6 +32,7 @@ vi.mock("@/lib/djangoSession", () => ({
 }));
 
 const { GET: userGET, PATCH: userPATCH, DELETE: userDELETE } = await import("@/app/api/users/[id]/route");
+const { POST: userDisablePOST } = await import("@/app/api/users/[id]/disable/route");
 const { POST: resetPasswordPOST } = await import("@/app/api/users/[id]/reset-password/route");
 const { PATCH: resetConsentPATCH } = await import("@/app/api/users/[id]/reset-consent/route");
 const { PATCH: themePATCH } = await import("@/app/api/users/[id]/theme/route");
@@ -258,6 +264,83 @@ describe("DELETE /api/users/[id]", () => {
     expect(res.status).toBe(404);
   });
 
+  it("borra de verdad: manda DELETE a Django, no la baja lógica", async () => {
+    // Cambio de comportamiento deliberado (ver docs/AUDIT_LOG.md
+    // § 2026-09-11): hasta entonces este `DELETE` deshabilitaba, y por eso
+    // la cuenta seguía apareciendo en la lista después de "eliminarla".
+    mockSession({ role: "JEFE_NACIONAL" });
+    djangoApiFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (init?.method === "DELETE") {
+        expect(path).toBe("/admin/users/2/");
+        return djangoResponse(true, {});
+      }
+      return djangoResponse(true, djangoUser());
+    });
+
+    const res = await userDELETE(jsonRequest(), ctx("2"));
+
+    expect(res.status).toBe(200);
+    expect(
+      djangoApiFetch.mock.calls.some((c) => String(c[0]).includes("/disable/"))
+    ).toBe(false);
+  });
+
+  it("propaga el motivo concreto por el que Django rechaza el borrado", async () => {
+    // Django es quien sabe si la cuenta todavía está activa, si es el último
+    // administrador o si tiene trabajo asociado (`on_delete=PROTECT`). Ese
+    // texto es lo único accionable para quien lo intenta, así que no puede
+    // quedar aplastado por un "No se pudo eliminar" genérico.
+    mockSession({ role: "JEFE_NACIONAL" });
+    const motivo =
+      "No es posible eliminar a este usuario porque tiene información de trabajo asociada que se perdería (3 tareas).";
+    djangoApiFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (init?.method === "DELETE") {
+        return djangoResponse(false, { error: { details: { non_field_errors: [motivo] } } }, 400);
+      }
+      return djangoResponse(true, djangoUser());
+    });
+
+    const res = await userDELETE(jsonRequest(), ctx("2"));
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe(motivo);
+  });
+
+  it("responde 500 si Django falla por un motivo que no explica", async () => {
+    mockSession({ role: "JEFE_NACIONAL" });
+    djangoApiFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (init?.method === "DELETE") return djangoResponse(false, {}, 500);
+      return djangoResponse(true, djangoUser());
+    });
+    const res = await userDELETE(jsonRequest(), ctx("2"));
+    expect(res.status).toBe(500);
+  });
+});
+
+describe("POST /api/users/[id]/disable", () => {
+  beforeEach(resetAll);
+
+  it("responde 401/403 según sesión y permisos", async () => {
+    mockSession(null);
+    expect((await userDisablePOST(jsonRequest(), ctx())).status).toBe(401);
+    mockSession({ role: "ASISTENTE_GH" });
+    expect((await userDisablePOST(jsonRequest(), ctx())).status).toBe(403);
+  });
+
+  it("responde 400 al intentar deshabilitarse a sí mismo, sin consultar a Django", async () => {
+    mockSession({ role: "JEFE_NACIONAL", djangoUserId: 1 });
+    const res = await userDisablePOST(jsonRequest(), ctx("1"));
+    expect(res.status).toBe(400);
+    expect(djangoApiFetch).not.toHaveBeenCalled();
+  });
+
+  it("responde 404 si el objetivo está fuera de la jerarquía visible (IDOR)", async () => {
+    mockSession({ role: "COORDINADOR_NACIONAL" });
+    mockFetchUser({ roles: [{ id: 1, name: "JEFE_NACIONAL" }] });
+    const res = await userDisablePOST(jsonRequest(), ctx("2"));
+    expect(res.status).toBe(404);
+  });
+
   it("deshabilita (baja lógica) al usuario cuando está dentro de la jerarquía visible", async () => {
     mockSession({ role: "JEFE_NACIONAL" });
     djangoApiFetch.mockImplementation(async (path: string, init?: RequestInit) => {
@@ -267,18 +350,26 @@ describe("DELETE /api/users/[id]", () => {
       }
       return djangoResponse(true, djangoUser());
     });
-    const res = await userDELETE(jsonRequest(), ctx("2"));
+    const res = await userDisablePOST(jsonRequest(), ctx("2"));
     expect(res.status).toBe(200);
   });
 
-  it("responde 500 si Django no puede deshabilitar al usuario", async () => {
+  it("propaga el motivo de Django cuando rechaza la baja", async () => {
+    // Caso real: el único administrador activo del sistema.
     mockSession({ role: "JEFE_NACIONAL" });
+    const motivo =
+      "No es posible deshabilitar/bloquear a este usuario: es el único administrador activo del sistema.";
     djangoApiFetch.mockImplementation(async (path: string, init?: RequestInit) => {
-      if (init?.method === "POST") return djangoResponse(false, {}, 500);
+      if (init?.method === "POST") {
+        return djangoResponse(false, { error: { details: { non_field_errors: [motivo] } } }, 400);
+      }
       return djangoResponse(true, djangoUser());
     });
-    const res = await userDELETE(jsonRequest(), ctx("2"));
-    expect(res.status).toBe(500);
+
+    const res = await userDisablePOST(jsonRequest(), ctx("2"));
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe(motivo);
   });
 });
 

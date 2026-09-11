@@ -15,6 +15,7 @@ from .permissions import (
     IsAdministrator,
     UsuariosCreatePermission,
     UsuariosDeshabilitarPermission,
+    UsuariosEliminarPermission,
     UsuariosPermission,
     UsuariosRestablecerPasswordPermission,
 )
@@ -30,22 +31,28 @@ from .services import UserAdminService
 
 
 class UserAdminViewSet(viewsets.ModelViewSet):
-    """Módulo administrativo de usuarios. Sin `destroy`: la eliminación
-    física está deshabilitada a propósito — solo desactivación lógica vía
-    `disable`/`block` (AC: preferir baja lógica a eliminación física cuando
-    sea más seguro).
+    """Módulo administrativo de usuarios.
+
+    La baja lógica (`disable`/`block`) es el camino normal y preferido:
+    conserva el historial y se revierte. `destroy` existe desde 2026-09-11
+    por pedido explícito del usuario, para cuentas que no deberían haber
+    existido (creadas por error, con el correo mal escrito, duplicadas). No
+    reemplaza a la baja lógica: exige que la cuenta ya esté deshabilitada,
+    de modo que borrar sea siempre una decisión en dos pasos. Ver
+    `UserAdminService.delete_permanently` y docs/AUDIT_LOG.md § 2026-09-11.
 
     Cada acción exige un permiso distinto del catálogo (`usuarios.ver` /
     `usuarios.crear` / `usuarios.editar` / `usuarios.deshabilitar` /
-    `usuarios.restablecer_password`).
+    `usuarios.eliminar` / `usuarios.restablecer_password`).
     """
 
-    http_method_names = ["get", "post", "patch", "head", "options"]
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
     pagination_class = UserAdminPagination
     queryset = User.objects.all().order_by("-created_at")
 
     ACTION_PERMISSION_CLASSES = {
         "create": [IsAuthenticated, UsuariosCreatePermission],
+        "destroy": [IsAuthenticated, UsuariosEliminarPermission],
         "enable": [IsAuthenticated, UsuariosDeshabilitarPermission],
         "disable": [IsAuthenticated, UsuariosDeshabilitarPermission],
         "block": [IsAuthenticated, UsuariosDeshabilitarPermission],
@@ -92,6 +99,14 @@ class UserAdminViewSet(viewsets.ModelViewSet):
             **serializer.validated_data,
         )
         return Response(UserAdminDetailSerializer(user).data)
+
+    def destroy(self, request, *args, **kwargs):
+        UserAdminService.delete_permanently(
+            actor=request.user,
+            user=self.get_object(),
+            context=get_request_context(request),
+        )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=True, methods=["post"])
     def enable(self, request, pk=None):
@@ -169,7 +184,9 @@ class UserAdminViewSet(viewsets.ModelViewSet):
         (`IsAdministrator`, solo ADMINISTRADOR) en vez del catálogo de
         permisos — es una acción masiva irreversible sobre todos los
         usuarios del sistema."""
-        count = UserAdminService.reset_consent_all(actor=request.user, context=get_request_context(request))
+        count = UserAdminService.reset_consent_all(
+            actor=request.user, context=get_request_context(request)
+        )
         return Response({"ok": True, "count": count})
 
     @action(detail=True, methods=["post"])

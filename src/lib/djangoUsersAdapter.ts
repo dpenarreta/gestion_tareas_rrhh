@@ -31,6 +31,7 @@ export type NexoUserShape = {
   name: string;
   email: string;
   role: Role;
+  status: DjangoUser["status"];
   createdAt: string;
   dataConsentAccepted: boolean;
   dataConsentAcceptedAt: string | null;
@@ -44,6 +45,13 @@ export function mapDjangoUserToNexoShape(user: DjangoUser): NexoUserShape {
     // Invariante de 1 rol por usuario (ver apps/hierarchy/services.py del
     // backend) — el primer grupo asignado es "el rol" de Nexo.
     role: (user.roles[0]?.name ?? "") as Role,
+    // Nexo no elimina usuarios, los deshabilita (`UserAdminViewSet` ni
+    // siquiera acepta DELETE — ver docs/AUDIT_LOG.md § 2026-08-07). Django
+    // siempre mandó este campo, pero el adaptador lo descartaba: la lista
+    // de usuarios quedaba idéntica después de dar de baja a alguien, sin
+    // ninguna señal de que la operación había funcionado. Bug real
+    // reportado en producción (ver docs/AUDIT_LOG.md § 2026-09-10).
+    status: user.status,
     createdAt: user.created_at,
     dataConsentAccepted: user.data_consent_accepted,
     dataConsentAcceptedAt: user.data_consent_accepted_at,

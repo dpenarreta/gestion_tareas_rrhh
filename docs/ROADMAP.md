@@ -2058,6 +2058,52 @@
   install` (97 paquetes retirados) (v1.144.0, ver `docs/AUDIT_LOG.md` §
   2026-08-28).
 
+- Script SQL único de creación de la base de datos para producción
+  (`manage.py sqlcreatedatabase`, ver `backend/scripts/sql/README.md`): un
+  solo archivo que en un `sqlcmd` crea la base, las 59 tablas con todos sus
+  campos, índices, claves foráneas y constraints, la bitácora de migraciones
+  completa, el catálogo de roles y permisos, y el usuario ADMINISTRADOR
+  inicial con su contraseña hasheada — sin datos de negocio y sin necesidad
+  de correr `migrate` después. Se verifica a sí mismo al terminar y no se
+  versiona (lleva el hash de esa contraseña). Verificado ejecutándolo con
+  `sqlcmd` sobre una base nueva y comparándola contra una creada con
+  `CREATE DATABASE + migrate` — esquema y catálogo idénticos — y con un
+  login real que responde 200 (v1.150.0, ver `docs/AUDIT_LOG.md` §
+  2026-09-08).
+
+- Correo saliente de producción configurado contra el Zimbra propio de la
+  empresa (`mail.grupolaar.com`, puerto 587 con STARTTLS y cuenta real — el
+  25 está cerrado, no hay relay sin autenticar), que era el último de los
+  tres pendientes que dejó la puesta en producción. Con él se atacó el
+  problema de fondo: el envío está silenciado a propósito (para no revelar
+  qué cuentas existen), así que cualquier error de configuración se
+  manifestaba solo como un correo que nunca llega. Ahora hay siete system
+  checks que lo advierten en cada arranque del servicio
+  (`nexo.email.W001`–`W007`) y un `manage.py diagnose_email` que verifica
+  contra el servidor real y explica qué significa cada falla. De paso se
+  corrigieron dos defectos de `backend/.env.production.example` capaces de
+  romper esta misma función: `FRONTEND_URL` sin el puerto 4080 (de ahí sale
+  el enlace del correo) y `DB_DRIVER` en 17 cuando el servidor solo tiene el
+  18. Falta solo crear el buzón en Zimbra, que es del usuario (v1.152.0, ver
+  `docs/AUDIT_LOG.md` § 2026-09-09).
+
+- Borrado definitivo de usuarios desde la pantalla de Usuarios (pedido
+  explícito del usuario, revierte la decisión de Fase 2 de no permitir
+  eliminación física). Convive con la baja lógica, que sigue siendo el camino
+  normal: "Dar de baja" sobre una cuenta activa, "Eliminar" solo sobre una ya
+  dada de baja. Con permiso propio (`usuarios.eliminar`, solo ADMINISTRADOR),
+  tres guardas (nunca la propia cuenta, nunca el último administrador activo,
+  nunca una cuenta todavía activa) y auditoría escrita antes del borrado
+  dentro de la misma transacción, que sobrevive a la cuenta. Las 13 claves
+  foráneas `PROTECT` del modelo siguen impidiendo borrar a quien tenga
+  tareas, proyectos o reuniones, y ahora el error dice cuál es el motivo
+  (v1.153.0, ver `docs/AUDIT_LOG.md` § 2026-09-11).
+
+- El estado de cada cuenta (Activo/Deshabilitado/Bloqueado) se ve en la lista
+  de Usuarios: el adaptador descartaba el campo `status`, así que dar de baja
+  a alguien no cambiaba nada visible y parecía que el botón estaba roto
+  (v1.152.1, ver `docs/AUDIT_LOG.md` § 2026-09-10).
+
 ## En desarrollo
 
 - Escenarios predictivos DE EQUIPO (Esperado/Preventivo/Optimista, FPS

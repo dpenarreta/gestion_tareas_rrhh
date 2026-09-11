@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose";
 import { SESSION_SECRET } from "@/lib/session-secret";
+import { requireHttps } from "@/lib/httpsPolicy";
 
 const secret = new TextEncoder().encode(SESSION_SECRET);
 
@@ -25,7 +26,20 @@ function hasValidOrigin(request: NextRequest): boolean {
   const origin = request.headers.get("origin");
   if (!origin) return true; // clientes no-navegador (curl, server-to-server) no envían Origin
   try {
-    return new URL(origin).host === request.nextUrl.host;
+    const originHost = new URL(origin).host;
+    // Detrás de un reverse proxy (IIS + ARR), el Host que llega a Next.js es
+    // el del destino (127.0.0.1:3080), no el que usó el navegador
+    // (10.0.2.33:4080): ARR solo preserva el original si se activa
+    // `preserveHostHeader`, que es una opción GLOBAL del servidor de IIS — y
+    // el servidor de este despliegue aloja además otros sistemas de la
+    // empresa, así que no se toca. Por eso se acepta también el host que el
+    // proxy reenvía en X-Forwarded-Host (lo fija `web.config`); sin esto,
+    // toda ruta /api/ responde 403 detrás del proxy, incluido el login.
+    // Falsificar esa cabecera exigiría llegar al puerto de Next.js, que solo
+    // escucha en loopback, y la defensa real contra CSRF sigue siendo
+    // `sameSite: "strict"` en la cookie de sesión (src/lib/session.ts).
+    const forwardedHost = request.headers.get("x-forwarded-host");
+    return originHost === request.nextUrl.host || originHost === forwardedHost;
   } catch {
     return false;
   }
@@ -36,6 +50,7 @@ export async function proxy(request: NextRequest) {
 
   if (
     process.env.NODE_ENV === "production" &&
+    requireHttps &&
     request.headers.get("x-forwarded-proto") === "http"
   ) {
     const httpsUrl = new URL(request.url);

@@ -125,6 +125,24 @@ describe("GET /api/users", () => {
     expect(body[0].role).toBe(visible[0]);
   });
 
+  it("propaga el estado de cada usuario, no solo el de los activos", async () => {
+    // Regresión (ver docs/AUDIT_LOG.md § 2026-09-10): el adaptador
+    // descartaba `status`, así que la lista de usuarios se veía idéntica
+    // después de dar de baja a alguien y parecía que el botón no hacía
+    // nada. Nexo no elimina usuarios, los deshabilita: si el estado no
+    // llega al frontend, la baja es invisible.
+    mockSession({ role: "ADMINISTRADOR" });
+    mockUsersPage([
+      djangoUser({ id: 1, status: "active" }),
+      djangoUser({ id: 2, status: "disabled" }),
+      djangoUser({ id: 3, status: "blocked" }),
+    ]);
+
+    const res = await GET();
+    const body = await res.json();
+    expect(body.map((u: { status: string }) => u.status)).toEqual(["active", "disabled", "blocked"]);
+  });
+
   it("enmascara el email de cada usuario en la respuesta", async () => {
     mockSession({ role: "ADMINISTRADOR" });
     mockUsersPage([djangoUser({ email: "ana@example.com" })]);

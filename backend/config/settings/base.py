@@ -277,12 +277,29 @@ DEFAULT_PAGE_SIZE = env.int("DEFAULT_PAGE_SIZE", default=20)
 CORS_ALLOWED_ORIGINS = env.list("CORS_ALLOWED_ORIGINS", default=[FRONTEND_URL])
 
 # --- Correo ---
+# El envío es siempre "best effort": `apps.authentication.emails` captura
+# cualquier excepción y solo la registra, porque los endpoints públicos de
+# recuperación deben responder lo mismo exista o no la cuenta. Eso hace que
+# una configuración incorrecta NO se manifieste como un error — de ahí el
+# check de arranque de `apps.core.checks` y `manage.py testemail`, que sí
+# muestran la falla real.
 EMAIL_BACKEND = env.str("EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend")
 EMAIL_HOST = env.str("EMAIL_HOST", default="localhost")
 EMAIL_PORT = env.int("EMAIL_PORT", default=25)
 EMAIL_HOST_USER = env.str("EMAIL_HOST_USER", default="")
 EMAIL_HOST_PASSWORD = env.str("EMAIL_HOST_PASSWORD", default="")
+# STARTTLS (puerto 587) vs. TLS implícito (puerto 465). Son mutuamente
+# excluyentes: el backend SMTP de Django lanza `ValueError` si ambos están en
+# `True`, pero solo al instanciarse — es decir, en el primer envío y dentro
+# del `try` que lo silencia. `apps.core.checks` lo detecta al arrancar.
 EMAIL_USE_TLS = env.bool("EMAIL_USE_TLS", default=False)
+EMAIL_USE_SSL = env.bool("EMAIL_USE_SSL", default=False)
+# Sin timeout, `smtplib` hereda el del sistema operativo (sin límite
+# efectivo): un servidor SMTP que acepta la conexión TCP pero no responde
+# deja colgado el request de "¿Olvidaste tu contraseña?" indefinidamente, sin
+# error y sin que el `except` de emails.py llegue a ejecutarse nunca. Es una
+# ruta pública y sin autenticar, así que el timeout es obligatorio.
+EMAIL_TIMEOUT = env.int("EMAIL_TIMEOUT", default=10)
 DEFAULT_FROM_EMAIL = env.str(
     "DEFAULT_FROM_EMAIL", default=f"no-reply@{SYSTEM_NAME.lower().replace(' ', '-')}.local"
 )

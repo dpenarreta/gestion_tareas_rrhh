@@ -7,8 +7,11 @@ prueba con datos reales para validar el ensamblado HTTP/auth/
 visibilidad y la forma de la respuesta, no cada fórmula de negocio ya
 verificada por separado."""
 
+from datetime import datetime, timedelta
+
 import pytest
 from django.contrib.auth.models import Group
+from django.utils import timezone as django_timezone
 from rest_framework.test import APIClient
 
 from apps.ideas.models import ImprovementIdea
@@ -16,6 +19,20 @@ from apps.tasks.models import Task
 from apps.users.models import User
 
 pytestmark = pytest.mark.django_db
+
+
+def _first_of_current_month() -> datetime:
+    """Primer instante del mes en curso, en UTC.
+
+    Las fechas de este archivo son relativas al reloj y no literales: el
+    endpoint agrupa las tareas por `end_date` dentro del mes en curso
+    (`_month_bounds`, que trabaja en UTC igual que `django_timezone.now()`)
+    y, a diferencia de `build_executive_dashboard_payload`, no acepta un
+    `now` inyectado — es una vista HTTP. Con fechas fijas el test caducaba
+    al cambiar el mes: quedó rojo el 2026-09-01 porque usaba agosto.
+    """
+    now = django_timezone.now()
+    return now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
 
 
 def _client_for(user: User) -> APIClient:
@@ -48,7 +65,7 @@ def coordinador_zs():
 def _create_task(*, assigned_to: User, created_by: User, **overrides) -> Task:
     payload = dict(
         title="Tarea", priority=Task.Priority.MEDIA, frequency=Task.Frequency.PUNTUAL, type=Task.Type.FIJA,
-        start_date="2026-08-01T00:00:00Z", end_date="2026-08-10T00:00:00Z", estimated_hours=5,
+        start_date=_first_of_current_month(), end_date=django_timezone.now(), estimated_hours=5,
         assigned_to=assigned_to, created_by=created_by, status=Task.Status.PENDIENTE,
     )
     payload.update(overrides)
@@ -85,8 +102,7 @@ def test_empty_response_shape_without_real_subordinates(coordinador_nacional):
 
 def test_200_includes_subordinate_snapshot_and_ceo_block(coordinador_nacional, analista):
     _create_task(
-        assigned_to=analista, created_by=coordinador_nacional, status=Task.Status.COMPLETADA,
-        start_date="2026-08-01T00:00:00Z", end_date="2026-08-05T00:00:00Z",
+        assigned_to=analista, created_by=coordinador_nacional, status=Task.Status.COMPLETADA
     )
 
     response = _client_for(coordinador_nacional).get("/api/v1/kpis/executive/")
@@ -120,14 +136,25 @@ def test_pending_ideas_only_includes_proposed_and_in_review(coordinador_nacional
 
 
 def test_trend_and_ranking_reflect_month_over_month_change(coordinador_nacional, analista):
-    # Mes actual (agosto 2026, según reloj de sistema de la sesión) con
-    # una tarea completada a tiempo — cumplimiento 100%.
+    # Mes en curso: una tarea completada — cumplimiento 100%. Mes anterior
+    # (dentro de la ventana de 6 meses del snapshot): una pendiente — 0%.
     _create_task(
-        assigned_to=analista, created_by=coordinador_nacional, status=Task.Status.COMPLETADA,
-        start_date="2026-08-01T00:00:00Z", end_date="2026-08-05T00:00:00Z",
+        assigned_to=analista, created_by=coordinador_nacional, status=Task.Status.COMPLETADA
+    )
+    _create_task(
+        assigned_to=analista,
+        created_by=coordinador_nacional,
+        status=Task.Status.PENDIENTE,
+        end_date=_first_of_current_month() - timedelta(days=1),
     )
 
     response = _client_for(coordinador_nacional).get("/api/v1/kpis/executive/")
     assert response.status_code == 200
     assert response.data["overview"]["avg_cumplimiento"] == 100
     assert response.data["month"] != ""
+
+    # El mes en curso es el último punto de la tendencia, y el anterior
+    # entra con su propio valor — que es lo que el nombre del test promete.
+    trend = response.data["trend"]
+    assert [point["avg_cumplimiento"] for point in trend[-2:]] == [0, 100]
+    assert trend[-1]["month"] == response.data["month"]

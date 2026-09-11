@@ -82,6 +82,14 @@ Los tres tipos de dato que introduce el módulo de ausencias/estado especial (`L
 | GitHub | Almacenamiento del repositorio privado de documentos de la base de conocimiento de RRHH | Documentos cargados a la base de conocimiento (pueden contener datos de personal) |
 | Zoom | Coordinación de reuniones (API Server-to-Server OAuth) | Título, fecha/hora y lista de invitados (nombre/correo) de las reuniones creadas |
 
+> **El correo transaccional NO involucra un encargado externo (2026-09-09):**
+> los correos de recuperación y de cambio de contraseña (nombre y dirección
+> de correo del titular) se envían por el servidor Zimbra propio de la
+> empresa (`mail.grupolaar.com`, en su propia infraestructura), no por un
+> servicio de terceros. No hay transferencia a un proveedor externo ni
+> transferencia internacional por este canal. Ver
+> `docs/DEPLOYMENT_IIS.md` § 5c.
+
 ### 6.1 Desglose de los 4 puntos de envío a Google/Gemini
 
 La fila anterior resumía "contenido de las consultas al asistente" — verificado en código (2026-09-02) que en realidad son 4 llamadas distintas, con datos distintos en cada una. Las 4 usan `gemini-3.6-flash` vía `@google/genai`, gateadas por `GEMINI_API_KEY`.

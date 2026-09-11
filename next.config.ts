@@ -1,6 +1,9 @@
 import type { NextConfig } from "next";
 
 const isProd = process.env.NODE_ENV === "production";
+// Igual que `src/lib/httpsPolicy.ts` (no se importa para no acoplar el config
+// del build a `src/`): solo un REQUIRE_HTTPS=false explícito lo desactiva.
+const requireHttps = process.env.REQUIRE_HTTPS !== "false";
 
 // Hallazgo de la auditoría de seguridad (ver docs/AUDIT_LOG.md § 2026-09-01,
 // NEXO-02): `unsafe-eval` no tiene una necesidad real en producción — el
@@ -26,7 +29,7 @@ const securityHeaders = [
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "Content-Security-Policy", value: CSP },
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
-  ...(isProd
+  ...(isProd && requireHttps
     ? [{ key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" }]
     : []),
 ];

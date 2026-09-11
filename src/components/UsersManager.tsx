@@ -17,9 +17,21 @@ type User = {
   name: string;
   email: string;
   role: Role;
+  status: "active" | "disabled" | "blocked";
   createdAt: string;
   dataConsentAccepted: boolean;
   dataConsentAcceptedAt: string | null;
+};
+
+// Solo se muestra el estado de quienes NO están activos: en una lista donde
+// casi todos lo están, marcar la excepción se ve mucho más que repetir
+// "Activo" en cada fila. Sin esto, dar de baja a alguien no cambiaba nada
+// visible y parecía que el botón no funcionaba (ver docs/AUDIT_LOG.md
+// § 2026-09-10).
+const STATUS_BADGE: Record<User["status"], { label: string; className: string } | null> = {
+  active: null,
+  disabled: { label: "Deshabilitado", className: "bg-black/[.06] dark:bg-white/10 text-disabled" },
+  blocked: { label: "Bloqueado", className: "bg-danger/[.13] text-danger" },
 };
 
 function formatConsentDate(iso: string) {
@@ -62,6 +74,8 @@ export default function UsersManager({ currentUserRole }: Props) {
   const [pendingReveal, setPendingReveal] = useState<User | null>(null);
   const [pendingDeleteUser, setPendingDeleteUser] = useState<User | null>(null);
   const [deletingUser, setDeletingUser] = useState(false);
+  const [pendingDisableUser, setPendingDisableUser] = useState<User | null>(null);
+  const [disablingUser, setDisablingUser] = useState(false);
   const [pendingResetConsentUser, setPendingResetConsentUser] = useState<User | null>(null);
   const [resettingConsent, setResettingConsent] = useState(false);
 
@@ -213,15 +227,37 @@ export default function UsersManager({ currentUserRole }: Props) {
     }
   }
 
+  async function handleDisable(user: User) {
+    setDisablingUser(true);
+    try {
+      const res = await fetch(`/api/users/${user.id}/disable`, { method: "POST" });
+      const data = await res.json();
+      if (!res.ok) {
+        showToast(data.error ?? "No se pudo dar de baja al usuario", "error");
+      } else {
+        showToast(`${user.name} quedó deshabilitado.`, "success");
+        loadUsers();
+      }
+    } catch {
+      showToast("Error de conexión", "error");
+    } finally {
+      setDisablingUser(false);
+      setPendingDisableUser(null);
+    }
+  }
+
   async function handleDelete(user: User) {
     setDeletingUser(true);
     try {
       const res = await fetch(`/api/users/${user.id}`, { method: "DELETE" });
       const data = await res.json();
       if (!res.ok) {
+        // Django explica el motivo concreto (cuenta todavía activa, último
+        // administrador, o trabajo asociado que se perdería). Ese texto es
+        // lo único accionable, así que se muestra tal cual.
         showToast(data.error ?? "Error al eliminar", "error");
       } else {
-        showToast("Usuario eliminado.", "success");
+        showToast(`${user.name} fue eliminado definitivamente.`, "success");
         loadUsers();
       }
     } catch {
@@ -390,7 +426,16 @@ export default function UsersManager({ currentUserRole }: Props) {
             {!loading && filteredUsers.map((user) => (
                 <TableRow key={user.id}>
                   <Td className="font-medium text-title">
-                    {user.name}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span>{user.name}</span>
+                      {STATUS_BADGE[user.status] && (
+                        <span
+                          className={`px-2 py-0.5 rounded-full text-[11px] font-medium ${STATUS_BADGE[user.status]!.className}`}
+                        >
+                          {STATUS_BADGE[user.status]!.label}
+                        </span>
+                      )}
+                    </div>
                   </Td>
                   <Td className="hidden sm:table-cell">
                     <div className="flex items-center gap-2">
@@ -445,12 +490,25 @@ export default function UsersManager({ currentUserRole }: Props) {
                           Editar
                         </button>
                       )}
-                      <button
-                        onClick={() => setPendingDeleteUser(user)}
-                        className="text-xs text-danger hover:brightness-90 font-medium px-2 py-1 rounded hover:bg-danger/[.09] transition-colors"
-                      >
-                        Eliminar
-                      </button>
+                      {/* Dos acciones distintas, no una con nombre ambiguo.
+                          "Eliminar" solo aparece sobre una cuenta ya dada de
+                          baja: el borrado es irreversible y Django además lo
+                          exige así (ver docs/AUDIT_LOG.md § 2026-09-11). */}
+                      {user.status === "active" ? (
+                        <button
+                          onClick={() => setPendingDisableUser(user)}
+                          className="text-xs text-danger hover:brightness-90 font-medium px-2 py-1 rounded hover:bg-danger/[.09] transition-colors"
+                        >
+                          Dar de baja
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setPendingDeleteUser(user)}
+                          className="text-xs text-danger hover:brightness-90 font-medium px-2 py-1 rounded hover:bg-danger/[.09] transition-colors"
+                        >
+                          Eliminar
+                        </button>
+                      )}
                     </div>
                   </Td>
                 </TableRow>
@@ -559,10 +617,34 @@ export default function UsersManager({ currentUserRole }: Props) {
         onCancel={() => setPendingReveal(null)}
       />
 
+      {/* Dos diálogos, uno por acción. Cada uno dice exactamente lo que va a
+          pasar: el de baja aclara que es reversible, el de borrado que no.
+          Antes había uno solo, titulado "Eliminar usuario", que afirmaba
+          "Esta acción no se puede deshacer" y en realidad daba de baja —
+          las dos mitades de la frase eran falsas (ver docs/AUDIT_LOG.md
+          § 2026-09-10 y § 2026-09-11). */}
+      <ConfirmDialog
+        open={pendingDisableUser !== null}
+        title="Dar de baja al usuario"
+        message={
+          pendingDisableUser
+            ? `¿Dar de baja a ${pendingDisableUser.name}? La cuenta queda deshabilitada: no va a poder iniciar sesión, pero se conserva su historial y sigue apareciendo en esta lista marcada como "Deshabilitado". Se puede reactivar después.`
+            : ""
+        }
+        danger
+        loading={disablingUser}
+        onConfirm={() => pendingDisableUser && handleDisable(pendingDisableUser)}
+        onCancel={() => setPendingDisableUser(null)}
+      />
+
       <ConfirmDialog
         open={pendingDeleteUser !== null}
-        title="Eliminar usuario"
-        message={pendingDeleteUser ? `¿Eliminar a ${pendingDeleteUser.name}? Esta acción no se puede deshacer.` : ""}
+        title="Eliminar definitivamente"
+        message={
+          pendingDeleteUser
+            ? `¿Eliminar a ${pendingDeleteUser.name} de forma definitiva? Se borra la cuenta de la base de datos junto con sus notificaciones, notas y registros personales. Esto no se puede deshacer. Si la cuenta tiene tareas, proyectos o reuniones asociadas, el sistema no va a permitir borrarla.`
+            : ""
+        }
         danger
         loading={deletingUser}
         onConfirm={() => pendingDeleteUser && handleDelete(pendingDeleteUser)}

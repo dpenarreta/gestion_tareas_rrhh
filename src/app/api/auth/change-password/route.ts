@@ -1,7 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { fetchDjangoPasswordMinLength } from "@/lib/djangoPasswordPolicyConfig";
-import { djangoApiFetch, extractDjangoFieldErrorMessage } from "@/lib/djangoSession";
+import {
+  djangoApiFetch,
+  extractDjangoFieldErrorMessage,
+  PASSWORD_EMAIL_TIMEOUT_MS,
+} from "@/lib/djangoSession";
+import { safeLog } from "@/lib/logger";
 
 // Fase 6b de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-17):
 // esta ruta pasó de Prisma/bcrypt a Django (`POST /auth/password/change/`,
@@ -41,14 +46,31 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: `La contraseña debe tener al menos ${minLength} caracteres` }, { status: 400 });
   }
 
-  const response = await djangoApiFetch("/auth/password/change/", {
-    method: "POST",
-    body: JSON.stringify({
-      current_password: currentPassword,
-      new_password: newPassword,
-      new_password_confirm: newPassword,
-    }),
-  });
+  // `PASSWORD_EMAIL_TIMEOUT_MS` y no el default de 3s: Django cambia la
+  // contraseña y después envía el correo de notificación dentro de este
+  // mismo request. El `try/catch` evita que un `AbortError` se convierta en
+  // un 500 con body vacío (ver .claude/rules/frontend/api.md).
+  let response: Response | null;
+  try {
+    response = await djangoApiFetch(
+      "/auth/password/change/",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          current_password: currentPassword,
+          new_password: newPassword,
+          new_password_confirm: newPassword,
+        }),
+      },
+      PASSWORD_EMAIL_TIMEOUT_MS,
+    );
+  } catch (err) {
+    safeLog("warn", "No se pudo completar el cambio de contraseña contra Django", err);
+    return NextResponse.json(
+      { error: "No se pudo completar el cambio de contraseña. Intentá de nuevo." },
+      { status: 503 },
+    );
+  }
 
   if (!response) {
     return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });

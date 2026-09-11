@@ -33,6 +33,21 @@ class UsuariosDeshabilitarPermission(HasModulePermission):
     write_permission = "usuarios.deshabilitar"
 
 
+class UsuariosEliminarPermission(HasModulePermission):
+    """Usada solo en `destroy`: borrado definitivo de una cuenta.
+
+    Permiso propio y separado de `usuarios.deshabilitar` a propósito. Dar de
+    baja es reversible; esto no lo es, y además arrastra en cascada los datos
+    personales de la persona (licencias, estados especiales, notificaciones,
+    solicitudes LOPDP). No se asigna a ningún grupo en el seed: solo lo tiene
+    quien sea superusuario (ADMINISTRADOR) o a quien se le asigne
+    explícitamente.
+    """
+
+    view_permission = "usuarios.ver"
+    write_permission = "usuarios.eliminar"
+
+
 class UsuariosRestablecerPasswordPermission(HasModulePermission):
     """Usada en la acción `reset_password` del viewset de usuarios."""
 

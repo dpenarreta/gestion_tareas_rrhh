@@ -23,6 +23,695 @@
 
 ---
 
+## v1.153.0 — 2026-09-11
+
+**Tipo:** FEATURE
+**Módulo:** Usuarios — borrado definitivo de cuentas, con guardas (revierte
+la decisión de Fase 2; ver docs/AUDIT_LOG.md § 2026-09-11).
+
+- **Pedido explícito del usuario.** La Fase 2 había decidido que no hubiera
+  eliminación física de usuarios; se replanteó esa decisión con su
+  fundamento y el usuario la reafirmó.
+- **`apps/users/services.py`** — `UserAdminService.delete_permanently`, con
+  tres guardas: nadie borra su propia cuenta, solo se borra una cuenta **ya
+  deshabilitada** (borrado en dos pasos deliberado: un clic de más en la
+  lista no puede destruir una cuenta en uso) y nunca el último administrador
+  activo. El `ProtectedError` de Django se traduce a un mensaje que dice
+  **qué** lo impide ("3 tareas"), no un "no se pudo" genérico.
+- **Lo que ya protegía el modelo y no hizo falta reimplementar:** 13 de las
+  28 claves foráneas hacia `User` son `on_delete=PROTECT` (tareas,
+  proyectos, reuniones, ideas, anuncios, cierres de mes), así que Django
+  rechaza por sí solo el borrado de cualquier cuenta con trabajo asociado.
+- **Auditoría:** el evento `user.deleted` se escribe **dentro de la
+  transacción, antes del `delete()`**, con `username`/`email`/roles copiados
+  como texto. `AuditLog` referencia al objeto por `target_type`/`target_id`
+  y no por FK, así que el registro sobrevive a la desaparición de la cuenta;
+  y si el borrado falla por `PROTECT`, la transacción revierte también el
+  registro.
+- **Permiso nuevo `usuarios.eliminar`** (`apps/permissions/catalog.py` +
+  migraciones `0005`/`0006`), separado de `usuarios.deshabilitar` y asignado
+  **solo a ADMINISTRADOR** — deliberadamente no a `JEFE_NACIONAL` ni
+  `COORDINADOR_NACIONAL`, que sí tienen el resto de permisos de usuarios:
+  dar de baja es lo que necesitan para operar, y es reversible.
+- **`apps/users/views.py`** — `destroy` habilitado (`http_method_names`
+  ahora incluye `delete`), gateado por `UsuariosEliminarPermission`.
+- **Rutas separadas en el frontend**, que es lo que hacía ilegible la
+  pantalla: `DELETE /api/users/[id]` **borra de verdad**, y la baja lógica
+  pasó a `POST /api/users/[id]/disable` (nueva). Antes el botón decía
+  "Eliminar", el verbo HTTP decía `DELETE` y lo que ocurría era una baja.
+  Los guards comunes a ambas rutas se extrajeron a
+  **`src/lib/userAdminAccess.ts`** en vez de duplicarlos.
+- **`src/components/UsersManager.tsx`** — dos acciones distintas según el
+  estado: "Dar de baja" sobre una cuenta activa, "Eliminar" solo sobre una
+  ya dada de baja. Un diálogo por acción: el de baja aclara que es
+  reversible, el de borrado que no y qué se lleva consigo.
+- **Costo asumido, documentado:** el borrado arrastra en cascada
+  notificaciones, notas y recordatorios personales, registros de licencias y
+  estados especiales (datos de salud, Art. 26 LOPDP) y solicitudes de
+  derechos del titular. La baja lógica sigue siendo el camino normal y
+  recomendado; el borrado es para cuentas que no deberían haber existido.
+
+**Verificación:** 6 tests nuevos en Django (borra y conserva la auditoría,
+rechaza cuenta activa, rechaza la propia, rechaza al último administrador,
+rechaza con trabajo asociado diciendo qué lo impide y sin dejar el evento de
+auditoría, y rechaza sin el permiso) y 7 en el frontend (la ruta manda
+`DELETE` y no la baja, propaga el motivo de Django, y la pantalla ofrece la
+acción correcta según el estado). **pytest 1931/1931**, **Vitest 1174/1174**,
+`tsc --noEmit`, `eslint` y `ruff` limpios. Migraciones aplicadas y
+verificadas sobre la base local: el permiso queda solo en ADMINISTRADOR.
+
+## v1.152.1 — 2026-09-10
+
+**Tipo:** FIX
+**Módulo:** Usuarios — el estado de la cuenta no llegaba al frontend, así que
+dar de baja a alguien no se veía (ver docs/AUDIT_LOG.md § 2026-09-10).
+
+- **Problema, reportado desde producción:** al confirmar "Eliminar" sobre un
+  usuario, la pantalla volvía a la lista y el usuario seguía ahí, igual que
+  antes. Parecía un botón roto, o un problema de permisos o de conexión a la
+  base. No era ninguna de las tres: la baja se ejecutaba correctamente.
+- **`src/lib/djangoUsersAdapter.ts`** — `mapDjangoUserToNexoShape`
+  descartaba el campo `status` que Django siempre envió (`NexoUserShape` no
+  lo declaraba). Como Nexo hace baja **lógica** y nunca borra —
+  `UserAdminViewSet.http_method_names` ni siquiera acepta `delete`, así que
+  Django responde 405 a cualquier intento, sin importar los permisos ni si
+  quien lo pide es superusuario —, la fila quedaba idéntica después de la
+  baja y la operación resultaba invisible. Ahora el estado se propaga.
+- **`src/components/UsersManager.tsx`** — la lista marca las cuentas
+  `Deshabilitado` y `Bloqueado` con un distintivo junto al nombre. Se muestra
+  **por excepción**: las cuentas activas no llevan etiqueta, porque en una
+  lista donde casi todas lo están, marcar la excepción se ve más que repetir
+  "Activo" en cada fila. Va junto al nombre y no en una columna nueva para
+  que sobreviva en pantallas chicas, donde correo y consentimiento ya se
+  ocultan.
+- **Texto del diálogo de confirmación** — decía "Esta acción no se puede
+  deshacer", que era **falso** (la baja se revierte con la acción `enable`
+  de Django) y además prometía una eliminación que nunca ocurre. Ahora
+  explica lo que realmente pasa: la cuenta queda deshabilitada, no puede
+  iniciar sesión, conserva su historial, sigue en la lista marcada como tal,
+  y se puede reactivar.
+- **No se agregó borrado físico de usuarios**, que era la lectura literal
+  del pedido — la baja lógica es lo que sostiene la trazabilidad de
+  auditoría del módulo (ver el AUDIT_LOG para el razonamiento completo).
+
+**Verificación:** 4 tests nuevos — que la ruta `/api/users` propaga los tres
+estados, que la lista marca al deshabilitado sin ensuciar la fila del
+activo, que distingue bloqueado de deshabilitado, y que el diálogo ya no
+afirma lo que no es. El test del distintivo se comprobó por mutación
+(anulando el estado `disabled` en el componente, el test falla). **Vitest
+1165/1165**, `tsc --noEmit` y `eslint` limpios.
+
+## v1.152.0 — 2026-09-09
+
+**Tipo:** FEATURE
+**Módulo:** Correo saliente de producción — configuración de SMTP contra el
+Zimbra propio de la empresa, y detección de la mala configuración (ver
+docs/AUDIT_LOG.md § 2026-09-09).
+
+- **Problema:** `EMAIL_HOST` quedó vacío en la puesta en producción, así que
+  "¿Olvidaste tu contraseña?" no enviaba nada. El fondo del problema es que
+  el envío está silenciado a propósito (`apps/authentication/emails.py`
+  captura toda excepción, para que la respuesta pública sea idéntica exista
+  o no la cuenta), de modo que **cualquier** error de configuración de
+  correo se manifiesta solo como un correo que nunca llega: el usuario ve
+  "te enviamos un correo" y el token se crea igual.
+- **Servidor de correo identificado y verificado**: Zimbra/Postfix en
+  `mail.grupolaar.com` (`10.0.2.53`). El puerto 25 está cerrado (no hay
+  relay sin autenticar), el 587 ofrece STARTTLS con `AUTH LOGIN PLAIN` tras
+  cifrar, el 465 acepta TLS implícito, y su certificado de GlobalSign es
+  válido y cubre `mail.grupolaar.com`. Configuración elegida: 587 con
+  STARTTLS y una cuenta real, usando el nombre y no la IP porque Django
+  valida el certificado.
+- **`config/settings/base.py`**: se agregan `EMAIL_USE_SSL` (para el 465) y
+  `EMAIL_TIMEOUT` (default 10s). Lo segundo corrige un problema real: sin
+  timeout, un servidor SMTP que acepta la conexión TCP y no responde dejaba
+  colgado el request de recuperación indefinidamente — una ruta pública y
+  sin autenticar — y el `except` que silencia el envío no llegaba a
+  ejecutarse nunca.
+- **`apps/core/checks.py`** (nuevo): system checks `nexo.email.W001`–`W007`
+  para las siete formas conocidas de dejar el correo mal configurado (host
+  vacío con backend SMTP, `EMAIL_USE_TLS` y `EMAIL_USE_SSL` simultáneos,
+  backend de consola con `DEBUG=False`, credenciales a medias, remitente de
+  dominio ficticio, falta de timeout, y `FRONTEND_URL` en localhost).
+  Corren en cada arranque del servicio en producción, porque el
+  `collectstatic` y el `migrate` de `serve_production_windows.py` disparan
+  los checks de Django. Son advertencias y no errores a propósito: un error
+  haría fallar ese `migrate` y dejaría el sistema entero sin servicio por
+  una función secundaria.
+- **`manage.py diagnose_email`** (nuevo, `apps/core/management/commands/`):
+  verificación activa. Muestra la configuración efectiva sin revelar la
+  contraseña, muestra **el enlace que llevaría el correo** (depende de
+  `FRONTEND_URL`, que es lo que más veces queda mal), abre la conexión real
+  al servidor reutilizando el backend de Django — no un socket propio, así
+  se ejercita el mismo camino que producción, STARTTLS y validación de
+  certificado incluidos — y envía un correo de prueba con la plantilla
+  real. Cuando algo falla, dice qué significa el error y qué hacer
+  (credenciales, certificado, puerto cerrado, remitente o destinatario
+  rechazado, DNS, timeout) en vez de mostrar una traza de `smtplib`.
+  `--connection-only` verifica sin enviar. No reemplaza al `sendtestemail`
+  de Django, que quedó descartado por insuficiente para esto.
+- **`apps/authentication/emails.py`**: `send_password_reset_email` acepta
+  `fail_silently`, con el **default sin cambios** (`True`) — existe solo
+  para que el diagnóstico ejecute el camino real y vea el error. Se extrae
+  `build_password_reset_url` para no duplicar la construcción del enlace.
+- **`backend/.env.production.example`** — dos defectos corregidos, ambos
+  capaces de romper esta misma función: `FRONTEND_URL` estaba
+  **sin el puerto 4080** (el enlace del correo habría caído en el
+  `Default Web Site` de IIS, no en Nexo; ídem `CORS_ALLOWED_ORIGINS`/
+  `CSRF_TRUSTED_ORIGINS`, porque un origen incluye el puerto), y
+  `DB_DRIVER` seguía diciendo 17 cuando el 2026-09-08 ya se había
+  comprobado que el servidor solo tiene el 18.
+- **`src/lib/djangoSession.ts` + `src/app/api/auth/change-password/route.ts`**
+  — `PASSWORD_EMAIL_TIMEOUT_MS` (13s), nuevo, para los tres puntos que
+  envían correo dentro del request. Defecto que solo aparece al activar un
+  SMTP real: Django envía el correo **dentro** del request (no hay cola de
+  tareas), así que su duración incluye el handshake TLS, el AUTH y la
+  entrega — hasta los 10s de `EMAIL_TIMEOUT` —, contra los 3s del
+  `REQUEST_TIMEOUT_MS` genérico de Next.js. Con el backend de consola nunca
+  se notó porque el envío era instantáneo. El caso grave no es el correo
+  perdido: en el reset y en el cambio de contraseña el envío ocurre
+  **después** de haber cambiado la contraseña, así que el usuario habría
+  visto un error con su contraseña ya cambiada, y habría reintentado con un
+  token de un solo uso ya consumido. En `change-password` además el
+  `AbortError` daba un 500 con body vacío, por no estar la llamada envuelta
+  en `try/catch`. Mismo patrón y mismo razonamiento que el
+  `ANALYTICS_BUNDLE_TIMEOUT_MS` ya existente.
+- **`docs/DEPLOYMENT_IIS.md`**: § 5c nueva con los datos verificados del
+  servidor de correo, la configuración, el procedimiento de verificación y
+  por qué `EMAIL_USE_TLS` no es opcional con Zimbra. Checklist de seguridad
+  y verificación end-to-end actualizados. **`docs/RAT.md`**: nota de que el
+  correo transaccional sale por servidor propio y no agrega ningún
+  encargado de tratamiento externo.
+
+**Verificación:** conexión real comprobada contra `mail.grupolaar.com` desde
+Django, tanto por 587/STARTTLS como por 465/SSL — el certificado valida sin
+configuración extra. Traducción de errores comprobada contra el puerto 25
+cerrado (`ConnectionRefusedError` → explicación + qué hacer, exit code 1).
+El envío completo con la plantilla real verificado con el backend de
+consola. **23 tests nuevos** (`apps/core/tests/test_email_checks.py`),
+deliberadamente sin acceso a base de datos: uno de ellos aprovecha ese
+bloqueo de pytest-django para demostrar que el diagnóstico no deja rastro
+(ni usuario ni token), y otro fija que el envío de producción sigue
+silenciando el error, porque invertir ese default reabriría la enumeración
+de cuentas. Suite completa: **pytest 1925/1925** (contra la base local, no
+la productiva) y **Vitest 1161/1161**; `tsc --noEmit`, `eslint`, `ruff`,
+`black` e `isort` limpios en los archivos tocados.
+
+**Pendiente (del usuario):** crear el buzón en Zimbra (ej.
+`nexo@grupolaar.com`) y poner sus credenciales en el `backend\.env` del
+servidor. Hasta entonces el correo sigue sin enviarse, con la diferencia de
+que ahora el sistema lo advierte al arrancar.
+
+## v1.151.1 — 2026-09-08
+
+**Tipo:** FIX
+**Módulo:** Cuatro defectos que solo aparecieron al desplegar de verdad en el
+servidor de aplicaciones (ver docs/AUDIT_LOG.md § 2026-09-08, "Puesta en
+producción en SER-WEBAI").
+
+- **`src/lib/djangoSession.ts`** — mi propio error en v1.151.0: apliqué la
+  política `requireHttps` a la cookie de sesión de Next.js, al redirect y a
+  Django, pero **me faltó la cookie de los tokens de Django**
+  (`setDjangoTokenCookies`), que seguía saliendo con `secure: true`. Por http
+  el cliente no la devuelve, así que el login respondía 200 pero cualquier
+  llamada posterior a Django moría con "Tu sesión no tiene aún acceso a este
+  módulo. Cierra sesión y volvé a iniciar sesión." Ahora los cuatro puntos
+  usan la misma política, y no queda ningún `secure` sin ella.
+- **`src/proxy.ts`** — la validación de `Origin` de las rutas `/api/`
+  comparaba contra `request.nextUrl.host`, que detrás de IIS + ARR es el del
+  destino (`127.0.0.1:3080`) y no el que usó el navegador
+  (`10.0.2.33:4080`): **todo el login devolvía 403 "Origen no permitido"**.
+  Ahora acepta además el host que el proxy reenvía en `X-Forwarded-Host`. La
+  alternativa era activar `preserveHostHeader` de ARR, que es una opción
+  global del servidor IIS — y ese servidor aloja otros sistemas de la
+  empresa, así que se resolvió en nuestro código.
+- **`web.config`** — reescrito. `<allowedServerVariables>` y `<rewriteMaps>`
+  vienen con `overrideModeDefault="Deny"` en IIS, así que declararlas en el
+  `web.config` de un sitio da `500.52 URL Rewrite Module Error`
+  (`0x80070021`) y el sitio entero no responde. El `rewriteMap` que traducía
+  `{HTTPS}` se reemplaza por **dos reglas condicionales** (que además siguen
+  resolviendo `https`/`http` correctamente), y las server variables se
+  autorizan una sola vez a nivel de servidor — con el comando documentado en
+  el propio archivo.
+- **`scripts/deploy/*.ps1`** — guardados ahora en UTF-8 **con BOM**.
+  PowerShell 5.1 (el que trae Windows Server y el que usa WinRM) lee un
+  `.ps1` sin BOM con la codepage ANSI: los acentos se parten y el parser
+  falla con "Falta la llave de cierre" en una línea que no tiene nada malo.
+  Los dos scripts de despliegue del repo **no se podían ejecutar** en el
+  servidor.
+
+**Verificación:** el sistema quedó corriendo en `http://10.0.2.33:4080` y se
+comprobó de punta a punta contra la base productiva: login **200**
+(`{"id":1,"role":"ADMINISTRADOR"}`), `/api/auth/me` correcto, `/api/users`
+devolviendo el usuario real con el email enmascarado (Art. 26 LOPDP
+funcionando), y `/dashboard`, `/tasks`, `/team` y `/settings` en **200**.
+`tsc --noEmit` y `eslint` limpios en los archivos tocados, **Vitest
+1161/1161**. Los cinco sitios preexistentes del servidor
+(`Default Web Site`, `AsisVen`, `AsisVen-LSEG`, `AsisVen-Test`,
+`AsisVen-LSEG-Test`) siguen iniciados y respondiendo igual que antes.
+
+## v1.151.0 — 2026-09-08
+
+**Tipo:** FEATURE
+**Módulo:** Despliegue en un servidor de aplicaciones por http en red
+interna — `REQUIRE_HTTPS` (ver docs/DEPLOYMENT_IIS.md § 5b y
+`src/lib/httpsPolicy.ts`).
+
+- **Problema:** el modo producción exigía HTTPS en las tres capas sin forma
+  de desactivarlo — `src/proxy.ts` redirigía a `https://` (308),
+  `src/lib/session.ts` emitía la cookie con `secure: true` y
+  `config/settings/production.py` forzaba `SESSION_COOKIE_SECURE`,
+  `CSRF_COOKIE_SECURE`, `SECURE_SSL_REDIRECT` y HSTS. Servido por `http://`
+  eso no falla con un error claro: el navegador no devuelve la cookie de
+  sesión y el login queda en un bucle de redirección. El despliegue de este
+  sistema es en red interna, por IP y sin TLS (decisión explícita del
+  usuario).
+- **`src/lib/httpsPolicy.ts`** (nuevo): fuente de verdad única de la
+  política, consumida por `proxy.ts` y `session.ts`. **Seguro por defecto**:
+  solo un `REQUIRE_HTTPS=false` explícito la relaja; cualquier otro valor, o
+  su ausencia, mantiene la exigencia. El costo de desactivarla queda escrito
+  en el propio módulo.
+- **`next.config.ts`**: el header HSTS pasa a depender de la misma variable
+  — por http el navegador lo ignora, y dejarlo puesto clavaría el host a
+  https en los navegadores durante dos años.
+- **`config/settings/production.py`**: `REQUIRE_HTTPS` (por env, default
+  `True`) gobierna `SECURE_SSL_REDIRECT`, `SESSION_COOKIE_SECURE`,
+  `CSRF_COOKIE_SECURE` y HSTS. `DEBUG=False` y el resto del endurecimiento
+  no se tocan.
+- **`web.config`** (fix): reenviaba `X-Forwarded-Proto` con el valor crudo de
+  `{HTTPS}`, que en IIS vale `on`/`off` — nunca `http`/`https`. `proxy.ts`
+  compara ese header contra `"http"`, así que el redirect a https no se
+  disparaba jamás. Se agrega el `rewriteMap` canónico de Microsoft que
+  traduce `on`→`https` / `off`→`http`.
+- **Plantillas de entorno completadas** para el servidor:
+  `backend/.env.production.example` trae ya los datos verificados de la base
+  productiva (`DB_HOST=10.0.2.51`, `DB_NAME`/`DB_USER=ia_gestion_tareas`),
+  `REQUIRE_HTTPS=false`, y `ALLOWED_HOSTS`/`FRONTEND_URL`/
+  `CORS_ALLOWED_ORIGINS`/`CSRF_TRUSTED_ORIGINS` apuntando a
+  `http://10.0.2.33` (el servidor de aplicaciones); el
+  `.env.production.example` de la raíz agrega `REQUIRE_HTTPS=false`.
+- **`docs/DEPLOYMENT_IIS.md`**: bloque nuevo "El servidor de destino" con lo
+  comprobado sobre 10.0.2.33 — IIS 10 ya instalado, el puerto 80 ocupado hoy
+  por el Default Web Site (hay que liberarlo), el 443 acepta TCP pero no
+  completa TLS (no hay https usable), y 3000/8000 cerrados desde fuera, que
+  es lo correcto. Incluye los dos chequeos que solo se pueden hacer desde el
+  propio servidor: la ruta a `10.0.2.51:1433` y la presencia de ARR + URL
+  Rewrite.
+- **`docs/DEPLOYMENT_IIS.md`**: sección **5b** nueva con el escenario http
+  interno (qué desactiva la variable, qué endurecimiento sigue en pie y el
+  costo de seguridad), y el checklist final replanteado para que la decisión
+  http/https sea explícita en vez de asumir TLS.
+
+**Sin cambios de código para "dejar de ser localhost":** el inventario de
+`localhost`/`127.0.0.1` del repo mostró que todo lo relevante ya venía por
+variable de entorno (`DJANGO_API_URL`, `ALLOWED_HOSTS`, `FRONTEND_URL`,
+`PUBLIC_API_URL`, `DB_HOST`, `EMAIL_HOST`). Los `127.0.0.1` que quedan son
+deliberados: Next.js y Django escuchan solo en loopback e IIS hace el proxy
+(ver `docs/DECISIONS.md`, 2026-09-02).
+
+**Verificación:** `npx tsc --noEmit` limpio; `eslint` limpio en los cuatro
+archivos tocados; **Vitest 1158/1158** más 3 tests nuevos de
+`httpsPolicy.test.ts` (que el default exija https, que solo `"false"` lo
+desactive, y que ningún otro valor lo haga); `config/settings/production.py`
+cargado en los dos modos, comprobando los cinco valores resultantes
+(`REQUIRE_HTTPS=true` → todo seguro; `=false` → relajado, con `DEBUG=False`
+intacto); `ruff`/`black` limpios en `config/`; y `web.config` validado como
+XML bien formado. **No verificado:** el `rewriteMap` de IIS, que no se puede
+probar sin IIS — hay que confirmarlo en el servidor real.
+
+## v1.150.9 — 2026-09-08
+
+**Tipo:** DOCUMENTATION
+**Módulo:** Nombres de los scripts de creación de la base
+(`backend/scripts/sql/`).
+
+- **`nexo_create_database_sin_create.sql` → `nexo_solo_contenido_base_ya_creada.sql`.**
+  Los dos nombres se diferenciaban en un sufijo (`_sin_create`) y en la
+  práctica no alcanzaba: el usuario preguntó tres veces cuál de los dos
+  creaba la base, y confundirlos en producción significa ejecutar el
+  equivocado. El nombre nuevo dice en español lo que hace y lo que no.
+- `nexo_create_database.sql` (el que crea la base y todo su contenido)
+  mantiene su nombre, que es el valor por defecto de `--output` del comando.
+- `README.md` actualizado con el nombre nuevo y con "(NO crea la base)"
+  explícito en la tabla de archivos.
+
+**Verificación:** contado sobre los archivos generados —
+`nexo_create_database.sql` tiene **1** sentencia `CREATE DATABASE`
+ejecutable; `nexo_solo_contenido_base_ya_creada.sql` tiene **0** (su única
+mención del comando es el texto de un mensaje de error que indica cómo crear
+la base a mano). Sin referencias al nombre anterior en `docs/` ni en
+`backend/` fuera del historial del CHANGELOG.
+
+## v1.150.8 — 2026-09-08
+
+**Tipo:** FIX
+**Módulo:** El script completo fija las opciones ANSI y el modelo de
+recuperación de la base que crea
+(`apps/core/management/commands/sqlcreatedatabase.py`).
+
+- **Problema:** `nexo_create_database.sql` creaba la base con un
+  `CREATE DATABASE ... COLLATE ...` y nada más, así que las opciones ANSI se
+  **heredaban de `model`** — donde suelen estar en `OFF` (es el caso de la
+  base de desarrollo de este proyecto, verificado). El único archivo que las
+  fijaba era `crear_base_ia_gestion_tareas.sql` (el paso 1 del flujo de dos
+  pasos, v1.150.6), así que las dos rutas de instalación dejaban bases con
+  configuración distinta. Salió a la luz al revisar, a pedido del usuario, si
+  los tres hallazgos de su auditoría estaban aplicados en el archivo final:
+  dos lo estaban, el de las opciones ANSI solo en una de las dos rutas.
+- **Corrección:** el script generado ahora fija `ANSI_NULL_DEFAULT`,
+  `ANSI_NULLS`, `ANSI_PADDING`, `ANSI_WARNINGS`, `CONCAT_NULL_YIELDS_NULL` y
+  `QUOTED_IDENTIFIER` en `ON`, más `RECOVERY FULL` y `PAGE_VERIFY CHECKSUM`,
+  con la advertencia sobre los respaldos del log de transacciones escrita en
+  el propio archivo. Las dos rutas dejan ahora la misma configuración.
+- **Test nuevo** (10 en total): que el script contenga los seis
+  `ALTER DATABASE ... SET <opción> ON` y el `RECOVERY FULL`.
+
+**Verificación:** ejecutado con `sqlcmd`, la base creada por el script
+completo queda con las seis opciones en `1`, `RECOVERY FULL`,
+`PAGE_VERIFY CHECKSUM` y collation `SQL_Latin1_General_CP1_CI_AS`
+(consultado en `sys.databases`). La comparación contra
+`CREATE DATABASE + migrate` sigue dando esquema y catálogo idénticos (573
+columnas, 213 índices, 88 claves foráneas, 56 `CHECK`, 56 `IDENTITY`, las 7
+tablas de catálogo fila por fila) y login real **200**, 401 con la
+contraseña equivocada. Bases de prueba eliminadas.
+
+## v1.150.7 — 2026-09-08
+
+**Tipo:** FIX
+**Módulo:** Los guards del script generado detienen la ejecución también en
+SSMS (`apps/core/management/commands/sqlcreatedatabase.py`).
+
+- **Problema:** los 7 guards del script usaban `THROW`. Eso aborta con
+  `sqlcmd -b`, pero **SSMS sigue ejecutando los batches siguientes** cuando
+  uno falla. Con un `CREATE DATABASE` fallido, el resultado era el reporte
+  del usuario: un `Msg 911` seguido de una cascada de errores, y el contexto
+  de sesión quedando en `master` mientras el script intentaba crear ahí las
+  59 tablas.
+- **Corrección:** los guards pasan a `RAISERROR(..., 16, 1)` + `SET NOEXEC
+  ON`, el patrón que detiene las dos herramientas: `NOEXEC` salta el resto
+  del batch actual y todos los siguientes. Al final del script,
+  `SET NOEXEC OFF` devuelve la sesión a su estado normal — sin eso, en SSMS
+  la ventana quedaría muda hasta reconectar.
+- **Tests actualizados** (9 en total): que el script no contenga ningún
+  `THROW`, que tenga al menos 5 `RAISERROR` con su `SET NOEXEC ON`, y que
+  restaure con `SET NOEXEC OFF`.
+
+**Verificación:** el archivo regenerado, ejecutado **sin `-b`** (el modo en
+que se comporta SSMS) dos veces seguidas: la primera completa y crea la base;
+la segunda corta en el primer guard con **un solo mensaje y 3 líneas de
+salida**, en vez de la cascada anterior. Con el mismo archivo, la comparación
+completa contra `CREATE DATABASE + migrate` sigue dando esquema y catálogo
+idénticos (573 columnas, 213 índices, 88 claves foráneas, 56 `CHECK`, 56
+`IDENTITY`, las 7 tablas de catálogo fila por fila) y login real **200** con
+las credenciales reales, 401 con la contraseña equivocada. Se comprobó
+además, con un script aparte, que `SET NOEXEC OFF` sí se ejecuta cuando
+`NOEXEC` está activo (es la excepción documentada) y deja la sesión usable.
+Bases de prueba eliminadas.
+
+## v1.150.6 — 2026-09-08
+
+**Tipo:** DATABASE
+**Módulo:** Script de creación de la base vacía para el flujo en dos pasos
+(`backend/scripts/sql/crear_base_ia_gestion_tareas.sql`).
+
+- **`crear_base_ia_gestion_tareas.sql`** (nuevo, mantenido a mano): crea
+  `[ia_gestion_tareas]` vacía con sus opciones. Es el paso 1 del flujo de dos
+  pasos que se completa con `nexo_create_database_sin_create.sql` (v1.150.5),
+  para servidores donde la cuenta no puede crear bases.
+- **Nace de corregir un script que el usuario sacó con SSMS** (*Script
+  Database as → CREATE To*) de la base de desarrollo. Tres correcciones:
+  el nombre (`gestion_tareas` → `ia_gestion_tareas`); las rutas de archivo,
+  que venían escritas como `/var/opt/mssql/data/...` —del contenedor Linux de
+  desarrollo— y en un Windows Server fallan con `Msg 5133`, ahora omitidas
+  para que la instancia use su carpeta por defecto (con la variante
+  `ON PRIMARY`/`LOG ON` comentada para cuando el DBA exija una ubicación); y
+  la collation, que el original no declaraba.
+- **Las cinco opciones ANSI van en `ON`**, a diferencia de la base de
+  desarrollo, que las tiene todas en `OFF`. Microsoft las marca como
+  obsoletas. Se dejó anotado en el propio script el matiz que se midió: el
+  error 1934 no lo causa la opción de **base** sino la de **sesión**, que
+  tiene prioridad — la conexión de la aplicación (mssql-django/pyodbc) fija
+  las cinco en `ON` por su cuenta (verificado con `SESSIONPROPERTY`), y
+  desarrollo funciona desde meses con las cinco en `OFF`; el 1934 que se vio
+  venía de `sqlcmd`, que conecta con `QUOTED_IDENTIFIER OFF`.
+- **`RECOVERY FULL`** se mantiene (point-in-time recovery, que es lo que
+  corresponde a datos de RRHH) con una advertencia explícita en el archivo:
+  exige respaldos periódicos del log o el `.ldf` crece hasta llenar el disco;
+  `SIMPLE` queda como alternativa consciente.
+- Los guards usan `RAISERROR` + `SET NOEXEC ON` en vez de `THROW`: `THROW`
+  aborta con `sqlcmd -b` pero **no** detiene a SSMS, que sigue con los
+  batches siguientes.
+
+**Verificación:** las tres rutas ejecutadas con `sqlcmd`. Paso 1 → exit 0;
+paso 2 sobre esa base → exit 0; paso 1 repetido → exit 1 con el mensaje de
+"ya existe". La base resultante quedó con las cinco opciones ANSI en `1`,
+`RECOVERY FULL`, collation `SQL_Latin1_General_CP1_CI_AS`, 59 tablas, 95
+migraciones, 246 permisos, 12 grupos, 1 usuario, 0 permisos con mojibake, y
+`POST /api/v1/auth/login/` respondió **200**. Base de prueba eliminada.
+
+## v1.150.5 — 2026-09-08
+
+**Tipo:** FEATURE
+**Módulo:** El script de creación diagnostica el fallo del `CREATE DATABASE`
+y admite bases creadas por el DBA
+(`apps/core/management/commands/sqlcreatedatabase.py`).
+
+- **Problema (reportado al ejecutarlo en el servidor real):** el script
+  devolvía `Msg 911 La base de datos 'ia_gestion_tareas' no existe` en la
+  línea del `USE`. Ese mensaje es la consecuencia, no la causa: el `CREATE
+  DATABASE` de la línea anterior no había creado la base (lo más común, que
+  la cuenta no tenga permiso para crear bases) y el error útil quedaba
+  perdido más arriba en el log.
+- **Guard después del `CREATE DATABASE`**: si la base no quedó creada, el
+  script aborta con un mensaje que remite al error real y propone la
+  alternativa, en vez de dejar que el `USE` falle con un 911 opaco.
+- **Guard después del `USE`** (`IF DB_NAME() <> N'<base>'`): SSMS, a
+  diferencia de `sqlcmd -b`, sigue ejecutando los batches siguientes cuando
+  uno falla. Sin este guard, un `USE` fallido dejaba el contexto en
+  `master` y las 59 tablas se habrían creado ahí.
+- **`--skip-create-database`** (nueva): genera el script sin el `CREATE
+  DATABASE`, para cuando la base la crea el DBA. Verifica que exista antes
+  de empezar y, si no, aborta indicando el `CREATE DATABASE` exacto a
+  ejecutar. Cubre el caso de uso que el README ya contemplaba (la cuenta de
+  la aplicación sin permisos de DDL) y que hasta ahora no tenía soporte.
+- **`backend/scripts/sql/README.md`**: sección nueva "Si no tenés permiso
+  para crear bases", con la consulta `IS_SRVROLEMEMBER` para saberlo de
+  antemano, y la advertencia sobre SSMS continuando tras un error.
+
+**Verificación:** las tres rutas ejecutadas de verdad con `sqlcmd` sobre el
+SQL Server local. (1) Script completo sobre una base nueva: exit 0, y la
+comparación contra `CREATE DATABASE + migrate` sigue dando esquema y
+catálogo idénticos (573 columnas, 213 índices, 88 claves foráneas, 56
+`CHECK`, 56 `IDENTITY`, las 7 tablas de catálogo fila por fila) con login
+real 200 y 401 con la contraseña equivocada. (2) Variante
+`--skip-create-database` sin la base creada: aborta con exit 1 y el mensaje
+esperado. (3) La misma variante con la base creada vacía: exit 0, 59 tablas,
+95 migraciones, 246 permisos, 12 grupos, 1 usuario, 0 mojibake y el
+administrador en su grupo. Se descartó además que el error del servidor
+fuera por una herramienta que ignora los separadores `GO`: ese escenario,
+reproducido, agrega decenas de `Incorrect syntax near 'GO'` que el reporte
+no tenía. 9 tests en verde, `ruff`/`black` limpios.
+
+## v1.150.4 — 2026-09-08
+
+**Tipo:** FIX
+**Módulo:** El script de creación se escribe con BOM — sin él, `sqlcmd`
+insertaba los nombres de permisos acentuados con mojibake, en silencio
+(`apps/core/management/commands/sqlcreatedatabase.py`).
+
+- **Problema:** el archivo se generaba en UTF-8 **sin** BOM. `sqlcmd` no
+  tiene forma de detectar la codificación de un archivo sin BOM, así que lo
+  lee con la codepage ANSI del sistema: los 12 nombres de permisos con
+  acentos ("Ver roles y el catálogo de permisos", "Editar configuración del
+  sistema", "…forzar cambio de contraseña…") entraban como
+  "catÃ¡logo"/"configuraciÃ³n". El script terminaba con **exit 0 y sin
+  ningún error**, y esos textos son los que muestra la pantalla de Roles y
+  Permisos, así que el defecto solo se habría visto ya en producción.
+- **Corrección:** el archivo se escribe con `encoding="utf-8-sig"`. El BOM
+  es lo que le indica la codificación a `sqlcmd` y a SSMS, sin depender de
+  que quien lo ejecute recuerde pasar `-f 65001`.
+- **2 tests nuevos** (9 en total en `test_sqlcreatedatabase.py`): que el
+  archivo empiece con el BOM, y que los nombres acentuados del catálogo se
+  escriban como acentos reales y no como mojibake.
+- **`backend/scripts/sql/README.md`**: sección nueva explicando por qué el
+  BOM importa, que hay que conservarlo si el archivo se copia o se edita, y
+  el `-f 65001` como alternativa si alguna herramienta lo pierde.
+
+**Verificación:** se ejecutó el script con `sqlcmd` **sin flags de
+codificación** (el camino documentado) en las dos variantes, y se compararon
+los 246 permisos por `codename` contra el catálogo canónico leyendo la base
+con pyodbc (no por consola, cuya codepage confunde el diagnóstico):
+
+- sin BOM → **12 nombres corruptos**, exit 0;
+- con BOM → **242 codenames comparables, 0 diferencias, 0 mojibake**.
+
+Con el archivo corregido, la comparación completa contra una base creada con
+`CREATE DATABASE + migrate` sigue dando esquema y catálogo idénticos (573
+columnas, 213 índices, 88 claves foráneas, 56 `CHECK`, 56 `IDENTITY`, y las 7
+tablas de catálogo fila por fila), y `POST /api/v1/auth/login/` responde 200
+con las credenciales reales y 401 con la contraseña equivocada. Bases de
+prueba eliminadas.
+
+## v1.150.3 — 2026-09-08
+
+**Tipo:** DATABASE
+**Módulo:** Nombre de la base de datos de producción — `ia_gestion_tareas`
+(decisión del usuario).
+
+- **`apps/core/management/commands/sqlcreatedatabase.py`**: `DEFAULT_DATABASE`
+  pasa de `gestion_tareas` a `ia_gestion_tareas`. El comando genera el script
+  de despliegue, así que su valor por defecto es el productivo; `--database`
+  sigue permitiendo cualquier otro.
+- **`backend/.env.production.example`**: `DB_NAME` deja de estar vacío y
+  trae `ia_gestion_tareas`, para que coincida con la base que crea el script
+  sin que haya que recordarlo.
+- **`backend/scripts/sql/README.md`**: el nombre por defecto, el ejemplo de
+  `DROP DATABASE` y la aclaración de que la base de desarrollo sigue siendo
+  `gestion_tareas` y el script no la toca. De paso se corrigieron dos frases
+  que habían quedado desactualizadas con `--no-force-password-change`
+  (v1.150.2): el texto del `PRINT` final y el punto 5 de la lista.
+- **`backend/.env.example` (desarrollo) no se toca**: sigue apuntando a
+  `gestion_tareas`, la base local con datos de prueba.
+
+**Verificación:** se regeneró el script y se ejecutó **ese mismo archivo**
+con `sqlcmd` sobre una base nueva (con el nombre cambiado solo para la
+prueba, para no dejar en el servidor local una base parecida a la
+productiva). Esquema y catálogo siguen idénticos a `CREATE DATABASE +
+migrate` (573 columnas, 213 índices, 88 claves foráneas, 56 `CHECK`, 56
+`IDENTITY`, y las 7 tablas de catálogo fila por fila), con las dos filas del
+administrador como único contenido de más, y `POST /api/v1/auth/login/`
+responde 200 con las credenciales reales y 401 con la contraseña
+equivocada. Las bases de prueba quedaron eliminadas y la de desarrollo
+intacta (sus 3 usuarios). 7 tests de `test_sqlcreatedatabase.py` en verde,
+`ruff`/`black` limpios.
+
+## v1.150.2 — 2026-09-08
+
+**Tipo:** FEATURE
+**Módulo:** `manage.py sqlcreatedatabase` — opción para no exigir el cambio
+de contraseña en el primer login
+(`apps/core/management/commands/sqlcreatedatabase.py`).
+
+- **`--no-force-password-change`** (nueva): deja `must_change_password` en
+  `0` en el `INSERT` del administrador. El comportamiento por defecto sigue
+  siendo forzar el cambio, que es lo correcto cuando la contraseña la elige
+  quien despliega; esta opción cubre el caso inverso — la contraseña la
+  eligió el propio titular de la cuenta, así que pedirle cambiarla al entrar
+  no aporta nada. El comentario que el script escribe sobre esa columna
+  cambia según el modo, así que el archivo generado explica cuál de los dos
+  aplica.
+- **`must_change_password` deja de estar hardcodeado** en
+  `_admin_statements`, y el docstring documenta por qué el usuario queda con
+  `is_superuser=True` además del grupo `ADMINISTRADOR`: según
+  `apps/roles/migrations/0001_initial.py`, en este sistema "administrador
+  real se define por `is_superuser=True` y no por la sola pertenencia a un
+  rol".
+
+**Verificación:** se generó el script con un correo y una contraseña reales y
+se ejecutó **ese mismo archivo** con `sqlcmd` sobre una base nueva:
+`POST /api/v1/auth/login/` responde 200 con tokens `access`/`refresh` y 401
+con la contraseña equivocada; el usuario queda `is_superuser`, en el grupo
+`ADMINISTRADOR`, con hash Argon2 y `must_change_password` en `False`.
+Esquema y catálogo siguen idénticos a una base creada con
+`CREATE DATABASE + migrate` (573 columnas, 213 índices, 88 claves foráneas,
+56 `CHECK`, 56 `IDENTITY`, y las 7 tablas de catálogo fila por fila), con las
+dos filas del administrador como único contenido de más. 7 tests de
+`test_sqlcreatedatabase.py` en verde, `ruff`/`black` limpios.
+
+## v1.150.1 — 2026-09-08
+
+**Tipo:** FIX
+**Módulo:** Tests del dashboard ejecutivo — fechas fijas que caducaban al
+cambiar el mes (`apps/analytics/tests/test_executive_dashboard_view.py`).
+
+- **Problema:** 2 de los 6 tests del archivo estaban rojos desde el
+  2026-09-01. Creaban tareas con `end_date` en agosto de 2026 (literales,
+  con el comentario "mes actual según reloj de sistema de la sesión") y
+  `GET /api/v1/kpis/executive/` arma su ranking y su overview con el **mes
+  en curso**: en septiembre esas tareas ya no entraban y las aserciones
+  daban 0 donde esperaban 1 y 100. No era un defecto del endpoint.
+- **Corrección:** las fechas ahora son relativas al reloj —
+  `_first_of_current_month()` y `django_timezone.now()` como defaults del
+  helper `_create_task`. `_month_bounds` (producción) trabaja en UTC igual
+  que `django_timezone.now()`, así que ambos instantes caen siempre dentro
+  del mes en curso, sin desfase de zona horaria. No se pudo inyectar un
+  `now` como hacen los tests del servicio: la vista HTTP no lo acepta.
+- **`test_trend_and_ranking_reflect_month_over_month_change`** verificaba
+  solo el mes en curso, pese a su nombre. Ahora crea también una tarea
+  pendiente en el mes anterior y comprueba que la tendencia cierre con
+  `[0, 100]` y que su último punto sea el mes que reporta el payload.
+
+**Verificación:** los 6 tests del archivo pasan y `pytest apps/` queda en
+**1899 passed, 0 failed** (antes: 1897 passed, 2 failed). La aritmética de
+fechas se comprobó aparte contra los límites de mes reales de producción con
+472 "hoy" distintos (2 años × 5 días del mes × 4 horas, incluidos el día 1 a
+las 00:00 y los últimos días de cada mes): 0 fallas, así que el test no
+vuelve a caducar. Se revisaron los demás tests con fechas literales que
+pegan a endpoints HTTP (`test_team_kpi_views.py`, `test_team_report.py`,
+`test_team_subutilization_view.py`): no tienen el mismo defecto — o pasan
+`?month=`/`now=`/`as_of` explícito, o esperan cero a propósito.
+
+## v1.150.0 — 2026-09-08
+
+**Tipo:** DATABASE
+**Módulo:** Script SQL único de creación de la base de datos para el
+servidor de producción (ver docs/AUDIT_LOG.md § 2026-09-08, "Script SQL de
+creación de la base de datos" — guía de uso en
+`backend/scripts/sql/README.md`).
+
+- **`backend/apps/core/management/commands/sqlcreatedatabase.py`** (nuevo):
+  genera **un único archivo SQL** que deja la base lista para entrar, en un
+  solo `sqlcmd`: `CREATE DATABASE` con la collation del proyecto, las 59
+  tablas con todos sus campos vigentes (142 índices, 88 claves foráneas, 56
+  constraints `CHECK`), las 95 filas de `django_migrations`, las 475 filas
+  del catálogo de roles y permisos, y el usuario ADMINISTRADOR inicial con
+  su contraseña ya hasheada con Argon2. No hay que correr `migrate` después.
+- **No contiene datos de negocio**: ni tareas, ni proyectos, ni más
+  usuarios. Los demás usuarios se crean desde la aplicación.
+- **El esquema** sale de `schema_editor.create_model()` sobre el estado
+  final del grafo de migraciones, no de concatenar las 95 migraciones (eso
+  crearía columnas para borrarlas después, como `legacy_postgres_id`).
+- **El catálogo** sale de una base temporal que el comando crea, migra, lee
+  y borra — la única fuente canónica, porque la base de desarrollo divergió
+  del seed. `--catalog-source current` lee la base configurada (lo usan los
+  tests, donde la base de pytest sí se crea con `migrate`).
+- **El usuario** se serializa desde el modelo `User` campo por campo con sus
+  valores por defecto, en vez de una lista de columnas escrita a mano: un
+  campo nuevo en el modelo entra solo en el script.
+- **El script se verifica a sí mismo** al final (cantidad de tablas,
+  catálogo no vacío, administrador en su grupo) y se niega a correr sobre
+  una base que ya existe, en vez de dejar una instalación a medias.
+- **`backend/scripts/sql/README.md`** (nuevo): cómo generarlo, cómo
+  ejecutarlo, qué hacer si falla a mitad y por qué está hecho así.
+- **`.gitignore`**: `backend/scripts/sql/*.sql` — el script generado
+  contiene el hash Argon2 de la contraseña del administrador, así que es de
+  un solo uso y no se versiona. La contraseña en claro no aparece nunca en
+  el archivo.
+- **`docs/DEPLOYMENT_IIS.md`**: el paso 2 asumía una base ya creada sin
+  decir cómo crearla — ahora ofrece este script como alternativa a
+  `migrate` para cuando la base la crea el DBA o la cuenta de la aplicación
+  no tiene `CREATE TABLE`.
+
+**Verificación:** se ejecutó el script generado con `sqlcmd` sobre una base
+nueva y se comparó contra otra creada con `CREATE DATABASE + migrate`:
+**esquema idéntico** (573 columnas con tipo, longitud, precisión,
+nulabilidad y default; 213 índices con unicidad y columnas; 88 claves
+foráneas con su acción de borrado; 56 `CHECK`; 56 `IDENTITY`) y **catálogo
+idéntico fila por fila** en sus 7 tablas; el único contenido de más son las
+dos filas del administrador (`users_user`, `users_user_groups`). **Login
+real**: `POST /api/v1/auth/login/` responde 200 con tokens `access`/
+`refresh` y 401 con la contraseña equivocada; el usuario queda
+`is_superuser`, en el grupo `ADMINISTRADOR`, con hash Argon2 y
+`must_change_password`. 7 tests nuevos
+(`apps/core/tests/test_sqlcreatedatabase.py`), `ruff`/`black`/`isort`
+limpios.
+
+Dos defectos que solo aparecieron al ejecutar el script de verdad, ambos
+corregidos y reverificados: `sqlcmd` conecta con `QUOTED_IDENTIFIER` en
+`OFF` y los índices filtrados del esquema lo exigen en `ON` (error 1934), y
+el JSONField `view_preferences` se serializaba con el `repr` de Python
+—comillas simples— que no pasa el `CHECK` de `ISJSON` (error 547).
+
 ## v1.149.1 — 2026-09-03
 
 **Tipo:** UX

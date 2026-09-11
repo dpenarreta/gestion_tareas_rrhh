@@ -25,6 +25,11 @@ const extractDjangoFieldErrorMessage = vi.fn();
 const requestDjangoPasswordReset = vi.fn();
 const confirmDjangoPasswordReset = vi.fn();
 
+// Tiene que coincidir con el `PASSWORD_EMAIL_TIMEOUT_MS` real de
+// `src/lib/djangoSession.ts`: los endpoints de contraseña envían el correo
+// dentro del request, así que no usan el timeout genérico de 3s.
+const PASSWORD_EMAIL_TIMEOUT_MS = 13000;
+
 vi.mock("@/lib/djangoSession", () => ({
   loginToDjango: (...args: unknown[]) => loginToDjango(...args),
   setDjangoTokenCookies: (...args: unknown[]) => setDjangoTokenCookies(...args),
@@ -33,6 +38,7 @@ vi.mock("@/lib/djangoSession", () => ({
   extractDjangoFieldErrorMessage: (...args: unknown[]) => extractDjangoFieldErrorMessage(...args),
   requestDjangoPasswordReset: (...args: unknown[]) => requestDjangoPasswordReset(...args),
   confirmDjangoPasswordReset: (...args: unknown[]) => confirmDjangoPasswordReset(...args),
+  PASSWORD_EMAIL_TIMEOUT_MS,
 }));
 
 const { POST: loginPOST } = await import("@/app/api/auth/login/route");
@@ -373,7 +379,14 @@ describe("POST /api/auth/change-password", () => {
     const res = await changePasswordPOST(jsonRequest({ currentPassword: "actual1", newPassword: "abc" }));
     expect(res.status).toBe(400);
     expect(djangoApiFetch).toHaveBeenCalledWith("/settings/seguridad-config/");
-    expect(djangoApiFetch).not.toHaveBeenCalledWith("/auth/password/change/", expect.anything());
+    // Tres argumentos, como los pasa la ruta desde que usa el timeout
+    // extendido — con dos, esta aserción negativa pasaría siempre sin
+    // verificar nada.
+    expect(djangoApiFetch).not.toHaveBeenCalledWith(
+      "/auth/password/change/",
+      expect.anything(),
+      expect.anything(),
+    );
   });
 
   it("responde 401 si no hay sesión Django disponible", async () => {
@@ -404,14 +417,20 @@ describe("POST /api/auth/change-password", () => {
     const res = await changePasswordPOST(jsonRequest({ currentPassword: "correcta", newPassword: "nueva123" }));
 
     expect(res.status).toBe(200);
-    expect(djangoApiFetch).toHaveBeenCalledWith("/auth/password/change/", {
-      method: "POST",
-      body: JSON.stringify({
-        current_password: "correcta",
-        new_password: "nueva123",
-        new_password_confirm: "nueva123",
-      }),
-    });
+    // El 3er argumento es el timeout extendido: Django envía el correo de
+    // notificación dentro de este request, después de cambiar la contraseña.
+    expect(djangoApiFetch).toHaveBeenCalledWith(
+      "/auth/password/change/",
+      {
+        method: "POST",
+        body: JSON.stringify({
+          current_password: "correcta",
+          new_password: "nueva123",
+          new_password_confirm: "nueva123",
+        }),
+      },
+      PASSWORD_EMAIL_TIMEOUT_MS,
+    );
     expect(await res.json()).toEqual({ ok: true });
   });
 });

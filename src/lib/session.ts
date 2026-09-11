@@ -3,6 +3,7 @@ import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
 import type { Role } from "@/lib/roles";
 import { SESSION_SECRET } from "@/lib/session-secret";
+import { requireHttps } from "@/lib/httpsPolicy";
 
 // Mismos defaults que Django (`DEFAULT_SESSION_DURATION_DEFAULT_HOURS`/
 // `DEFAULT_SESSION_DURATION_REMEMBER_HOURS`,
@@ -90,7 +91,9 @@ export async function createSession(
   const cookieStore = await cookies();
   cookieStore.set(COOKIE_NAME, token, {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    // Sin HTTPS el navegador no enviaría una cookie `secure`, así que el
+    // despliegue por http interno la necesita en false (ver httpsPolicy.ts).
+    secure: process.env.NODE_ENV === "production" && requireHttps,
     expires: expiresAt,
     sameSite: "strict",
     path: "/",

@@ -43,6 +43,10 @@ PERMISSION_CATALOG = {
             "usuarios.crear": "Crear usuarios",
             "usuarios.editar": "Editar usuarios y su asignación de roles/permisos",
             "usuarios.deshabilitar": "Habilitar, deshabilitar, bloquear y desbloquear usuarios",
+            "usuarios.eliminar": (
+                "Eliminar definitivamente una cuenta ya deshabilitada, borrándola de la "
+                "base de datos (irreversible)"
+            ),
             "usuarios.restablecer_password": (
                 "Enviar enlace de restablecimiento, forzar cambio de contraseña en el "
                 "próximo inicio o cerrar sesiones activas de un usuario"

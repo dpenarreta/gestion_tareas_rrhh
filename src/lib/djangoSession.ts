@@ -2,6 +2,7 @@ import "server-only";
 import { cookies } from "next/headers";
 import { safeLog } from "@/lib/logger";
 import type { SessionPayload } from "@/lib/session";
+import { requireHttps } from "@/lib/httpsPolicy";
 
 /**
  * Puente de sesión hacia el backend Django. Desde la Fase 6a (ver
@@ -30,6 +31,23 @@ const REQUEST_TIMEOUT_MS = 3000;
 // de 3s, que sí debe fallar rápido.
 export const ANALYTICS_BUNDLE_TIMEOUT_MS = 12000;
 
+// Mismo problema que el de arriba, por otro motivo: los endpoints de
+// contraseña de Django envían el correo transaccional DENTRO del request
+// (no hay cola de tareas en el proyecto), así que su duración incluye la
+// conexión SMTP completa — handshake TLS, AUTH y entrega del mensaje contra
+// el servidor de correo. `EMAIL_TIMEOUT` de Django acota eso en 10s
+// (`config/settings/base.py`), muy por encima del `REQUEST_TIMEOUT_MS`
+// genérico de 3s.
+//
+// Este timeout tiene que ser MAYOR que el `EMAIL_TIMEOUT` del backend, para
+// que un servidor de correo lento lo resuelva Django —que trata la falla de
+// envío como no fatal y responde igual— en vez de abortarse acá. Si se
+// abortara, el efecto sería peor que un correo no enviado: en el reset y en
+// el cambio de contraseña el envío ocurre DESPUÉS de haber cambiado la
+// contraseña, así que el usuario vería un error mientras su contraseña ya
+// cambió, y reintentaría con un token de un solo uso ya consumido.
+export const PASSWORD_EMAIL_TIMEOUT_MS = 13000;
+
 // Deben coincidir con JWT_ACCESS_TOKEN_LIFETIME_MINUTES/JWT_REFRESH_TOKEN_LIFETIME_DAYS
 // de backend/.env — la cookie no debe sobrevivir más que el token que contiene.
 const ACCESS_COOKIE_MAX_AGE_SECONDS = 15 * 60;
@@ -38,7 +56,11 @@ const REFRESH_COOKIE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60;
 function cookieOptions(maxAgeSeconds: number) {
   return {
     httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
+    // Mismo criterio que la cookie de sesión de Next.js: sin HTTPS el cliente
+    // no devuelve una cookie `secure`, y sin estos tokens toda llamada a
+    // Django en nombre del usuario falla con "Tu sesión no tiene aún acceso a
+    // este módulo" — verificado en el despliegue real (ver httpsPolicy.ts).
+    secure: process.env.NODE_ENV === "production" && requireHttps,
     sameSite: "strict" as const,
     path: "/",
     maxAge: maxAgeSeconds,
@@ -104,7 +126,8 @@ export async function requestDjangoPasswordReset(identifier: string): Promise<{ 
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ identifier }),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      // Este request incluye el envío del correo (ver PASSWORD_EMAIL_TIMEOUT_MS).
+      signal: AbortSignal.timeout(PASSWORD_EMAIL_TIMEOUT_MS),
     });
     const data = await response.json().catch(() => null);
     const message = typeof data?.detail === "string" ? data.detail : PASSWORD_RESET_GENERIC_MESSAGE;
@@ -129,7 +152,10 @@ export async function confirmDjangoPasswordReset(token: string, newPassword: str
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token, new_password: newPassword, new_password_confirm: newPassword }),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      // Django cambia la contraseña y recién después envía la notificación,
+      // dentro de este mismo request (ver PASSWORD_EMAIL_TIMEOUT_MS): abortar
+      // antes reportaría un error sobre un cambio que ya se aplicó.
+      signal: AbortSignal.timeout(PASSWORD_EMAIL_TIMEOUT_MS),
     });
   } catch (err) {
     safeLog("warn", "No se pudo conectar con el servicio de recuperación de contraseña", err);

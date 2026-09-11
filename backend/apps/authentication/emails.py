@@ -2,7 +2,11 @@
 (restablecimiento de contraseña). Una falla de envío nunca debe propagar
 una excepción: rompería la respuesta genérica de los endpoints públicos de
 recuperación (ver `apps.authentication.services.PasswordResetService`), que
-debe ser idéntica exista o no la cuenta."""
+debe ser idéntica exista o no la cuenta.
+
+`fail_silently` existe solo para que `manage.py diagnose_email` pueda
+ejecutar este mismo camino y ver el error real en vez de una línea de log:
+todos los llamadores de producción usan el default (`True`)."""
 
 import logging
 
@@ -13,8 +17,25 @@ from django.template.loader import render_to_string
 logger = logging.getLogger("apps.authentication")
 
 
+def build_password_reset_url(raw_token: str) -> str:
+    """URL del enlace del correo de recuperación.
+
+    Depende de `FRONTEND_URL`, que tiene que ser la URL por la que el
+    usuario llega al sistema **incluido el puerto** si no es el 80/443 — si
+    apunta a otro lado, el correo sale igual y el enlace no lleva a ninguna
+    parte (ver el check `nexo.email.W007`).
+    """
+    return f"{settings.FRONTEND_URL.rstrip('/')}/reset-password?token={raw_token}"
+
+
 def _send_transactional_email(
-    *, subject: str, template_name: str, context: dict, to: str, plain_message: str
+    *,
+    subject: str,
+    template_name: str,
+    context: dict,
+    to: str,
+    plain_message: str,
+    fail_silently: bool = True,
 ) -> None:
     context = {**context, "system_name": settings.SYSTEM_NAME}
     try:
@@ -28,10 +49,12 @@ def _send_transactional_email(
         )
     except Exception:  # noqa: BLE001
         logger.exception("No se pudo enviar el correo %r a %s", template_name, to)
+        if not fail_silently:
+            raise
 
 
-def send_password_reset_email(*, user, raw_token: str) -> None:
-    reset_url = f"{settings.FRONTEND_URL.rstrip('/')}/reset-password?token={raw_token}"
+def send_password_reset_email(*, user, raw_token: str, fail_silently: bool = True) -> None:
+    reset_url = build_password_reset_url(raw_token)
     _send_transactional_email(
         subject=f"Recuperación de contraseña — {settings.SYSTEM_NAME}",
         template_name="emails/password_reset.html",
@@ -45,6 +68,7 @@ def send_password_reset_email(*, user, raw_token: str) -> None:
             f"Para restablecer tu contraseña en {settings.SYSTEM_NAME}, visita: {reset_url} "
             f"(válido por {settings.PASSWORD_RESET_TOKEN_EXPIRATION_MINUTES} minutos)."
         ),
+        fail_silently=fail_silently,
     )
 
 

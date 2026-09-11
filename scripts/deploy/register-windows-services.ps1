@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Registra el backend (Django/waitress) y el frontend (Next.js) como
   Windows Services usando NSSM, para que arranquen solos con el servidor y

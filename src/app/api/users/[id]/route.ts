@@ -1,13 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
 import { canManageUsers, canManageTargetUser, ROLE_LEVEL } from "@/lib/roles";
-import { djangoApiFetch, resolveDjangoUserId } from "@/lib/djangoSession";
+import { djangoApiFetch, extractDjangoFieldErrorMessage } from "@/lib/djangoSession";
 import { mapDjangoUserToNexoShape, resolveRoleGroupId, type DjangoUser } from "@/lib/djangoUsersAdapter";
+import { resolveUserAdminAccess } from "@/lib/userAdminAccess";
 import type { Role } from "@/lib/roles";
 
 // Fase 2 de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-07):
-// esta ruta pasó de Prisma a Django — ver plan de Fase 2 para las
-// decisiones explícitas (DELETE ya no es eliminación física).
+// esta ruta pasó de Prisma a Django. El `DELETE` volvió a ser eliminación
+// física el 2026-09-11, por pedido explícito del usuario (ver el comentario
+// sobre el handler).
 const DJANGO_SESSION_REQUIRED_MESSAGE =
   "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
@@ -134,45 +136,37 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   return NextResponse.json(mapDjangoUserToNexoShape(updated));
 }
 
+// Borrado DEFINITIVO de un usuario. Hasta 2026-09-11 este `DELETE` hacía
+// una baja lógica (la eliminación física no existía en el sistema), lo que
+// volvía imposible de entender la pantalla: el botón decía "Eliminar", la
+// cuenta seguía en la lista, y no había forma de saber que sí había pasado
+// algo. Por pedido explícito del usuario el borrado real ahora existe, y
+// cada operación quedó con su ruta: la baja lógica es
+// `POST /api/users/[id]/disable` (ver docs/AUDIT_LOG.md § 2026-09-11).
+//
+// Las reglas de qué se puede borrar las aplica Django, no esta ruta —
+// cuenta ya deshabilitada, nunca el último administrador activo, y nunca
+// una con trabajo asociado (`on_delete=PROTECT`). Acá solo se propaga el
+// motivo concreto que devuelve, porque es lo único accionable para quien lo
+// está intentando.
 export async function DELETE(_req: NextRequest, ctx: Ctx) {
-  const session = await getSession();
-  if (!session) {
-    return NextResponse.json({ error: "No autenticado" }, { status: 401 });
-  }
-  if (!canManageUsers(session.role)) {
-    return NextResponse.json({ error: "Sin permisos" }, { status: 403 });
-  }
-
   const { id } = await ctx.params;
 
-  // `id` es el id numérico de Django (viene de la lista de administración de
-  // usuarios) — se compara contra `djangoUserId` resuelto de la sesión, no
-  // contra un valor pendiente de resolver. Si no se pudo resolver, el guard
-  // no bloquea acá: `fetchDjangoUser` más abajo es quien determina el 401.
-  const djangoUserId = await resolveDjangoUserId(session);
-  if (djangoUserId !== null && id === String(djangoUserId)) {
-    return NextResponse.json({ error: "No puedes eliminarte a ti mismo" }, { status: 400 });
-  }
+  const access = await resolveUserAdminAccess(id, {
+    selfActionError: "No puedes eliminarte a ti mismo",
+  });
+  if (!access.ok) return access.response;
 
-  const existing = await fetchDjangoUser(id);
-  if (existing === "no_session") {
-    return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
-  }
-  if (!existing) {
-    return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
-  }
-  if (!canManageTargetUser(session, mapDjangoUserToNexoShape(existing).role)) {
-    return NextResponse.json({ error: "Usuario no encontrado" }, { status: 404 });
-  }
-
-  // Decisión explícita de Fase 2: skelleton_base no permite eliminación
-  // física de usuarios (solo baja lógica) — ver plan de Fase 2.
-  const response = await djangoApiFetch(`/admin/users/${id}/disable/`, { method: "POST" });
+  const response = await djangoApiFetch(`/admin/users/${id}/`, { method: "DELETE" });
   if (!response) {
     return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
   }
   if (!response.ok) {
-    return NextResponse.json({ error: "No se pudo deshabilitar el usuario" }, { status: 500 });
+    const message = await extractDjangoFieldErrorMessage(response);
+    return NextResponse.json(
+      { error: message ?? "No se pudo eliminar el usuario" },
+      { status: response.status === 400 || response.status === 403 ? response.status : 500 }
+    );
   }
 
   return NextResponse.json({ ok: true });

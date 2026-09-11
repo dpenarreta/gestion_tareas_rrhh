@@ -15,6 +15,7 @@ const USERS = [
     name: "Ana Aceptó",
     email: "ana@example.com",
     role: "ASISTENTE_GH" as const,
+    status: "active" as const,
     createdAt: "2026-01-01T00:00:00Z",
     dataConsentAccepted: true,
     dataConsentAcceptedAt: "2026-09-02T12:27:00Z",
@@ -24,6 +25,7 @@ const USERS = [
     name: "Beto Pendiente",
     email: "beto@example.com",
     role: "ASISTENTE_GH" as const,
+    status: "active" as const,
     createdAt: "2026-01-01T00:00:00Z",
     dataConsentAccepted: false,
     dataConsentAcceptedAt: null,
@@ -109,5 +111,133 @@ describe("UsersManager — eliminar consentimiento", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Confirmar" }));
 
     expect(await screen.findByText("Sin permisos")).toBeInTheDocument();
+  });
+});
+
+describe("UsersManager — estado del usuario en la lista", () => {
+  // Bug real reportado en producción (ver docs/AUDIT_LOG.md § 2026-09-10):
+  // el botón "Eliminar" de un usuario hace una baja LÓGICA (Django ni
+  // siquiera acepta DELETE sobre usuarios), pero el adaptador descartaba el
+  // campo `status`, así que la fila quedaba idéntica después de confirmar.
+  // Desde fuera era indistinguible de un botón roto.
+  // Sin consentimiento aceptado a propósito: así su fila tiene un solo botón
+  // "Eliminar" (el de la cuenta) y no también el del consentimiento, que
+  // haría ambigua cada consulta por texto.
+  const USUARIO_DE_BAJA = {
+    ...USERS[0],
+    id: "3",
+    name: "Caro DeBaja",
+    email: "caro@example.com",
+    status: "disabled" as const,
+    dataConsentAccepted: false,
+    dataConsentAcceptedAt: null,
+  };
+
+  it("marca a los usuarios deshabilitados y no ensucia la fila de los activos", async () => {
+    renderManager(
+      vi.fn(async () => ({ ok: true, json: async () => [USERS[0], USUARIO_DE_BAJA] }) as Response)
+    );
+
+    const filaDeBaja = (await screen.findByText("Caro DeBaja")).closest("tr")!;
+    expect(within(filaDeBaja).getByText("Deshabilitado")).toBeInTheDocument();
+
+    const filaActiva = screen.getByText("Ana Aceptó").closest("tr")!;
+    expect(within(filaActiva).queryByText("Deshabilitado")).not.toBeInTheDocument();
+    expect(within(filaActiva).queryByText("Activo")).not.toBeInTheDocument();
+  });
+
+  it("distingue una cuenta bloqueada de una deshabilitada", async () => {
+    renderManager(
+      vi.fn(
+        async () =>
+          ({
+            ok: true,
+            json: async () => [{ ...USUARIO_DE_BAJA, name: "Dani Bloqueada", status: "blocked" }],
+          }) as Response
+      )
+    );
+
+    const fila = (await screen.findByText("Dani Bloqueada")).closest("tr")!;
+    expect(within(fila).getByText("Bloqueado")).toBeInTheDocument();
+  });
+
+  it("una cuenta activa ofrece 'Dar de baja', no 'Eliminar'", async () => {
+    // Las dos operaciones existen desde 2026-09-11 y son distintas: la baja
+    // es reversible, el borrado no. Eliminar solo tiene sentido sobre una
+    // cuenta ya dada de baja, que es además lo que Django exige.
+    renderManager(
+      vi.fn(async () => ({ ok: true, json: async () => [USERS[0], USUARIO_DE_BAJA] }) as Response)
+    );
+
+    await screen.findByText("Ana Aceptó");
+    const filaActiva = screen.getByText("Ana Aceptó").closest("tr")!;
+    expect(within(filaActiva).getByText("Dar de baja")).toBeInTheDocument();
+
+    const filaDeBaja = screen.getByText("Caro DeBaja").closest("tr")!;
+    expect(within(filaDeBaja).getByText("Eliminar")).toBeInTheDocument();
+    expect(within(filaDeBaja).queryByText("Dar de baja")).not.toBeInTheDocument();
+  });
+
+  it("el diálogo de baja explica que se puede revertir", async () => {
+    renderManager(vi.fn(async () => ({ ok: true, json: async () => USERS }) as Response));
+
+    await screen.findByText("Ana Aceptó");
+    const fila = screen.getByText("Ana Aceptó").closest("tr")!;
+    fireEvent.click(within(fila).getByText("Dar de baja"));
+
+    // El texto viejo ("no se puede deshacer") era falso para una baja.
+    const dialogo = await screen.findByText(/queda deshabilitada/i);
+    expect(dialogo).toHaveTextContent(/se puede reactivar/i);
+    expect(screen.queryByText(/no se puede deshacer/i)).not.toBeInTheDocument();
+  });
+
+  it("el diálogo de borrado avisa que es irreversible, y llama a DELETE al confirmar", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/users" && !init) {
+        return { ok: true, json: async () => [USUARIO_DE_BAJA] } as Response;
+      }
+      if (url === "/api/users/3" && init?.method === "DELETE") {
+        return { ok: true, json: async () => ({ ok: true }) } as Response;
+      }
+      throw new Error(`fetch no mockeado: ${url} ${init?.method ?? ""}`);
+    });
+    renderManager(fetchMock);
+
+    await screen.findByText("Caro DeBaja");
+    const fila = screen.getByText("Caro DeBaja").closest("tr")!;
+    fireEvent.click(within(fila).getByText("Eliminar"));
+
+    expect(await screen.findByText(/no se puede deshacer/i)).toBeInTheDocument();
+    // Nada se borra antes de confirmar.
+    expect(fetchMock.mock.calls.some((c) => (c[1] as RequestInit)?.method === "DELETE")).toBe(false);
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar" }));
+
+    await waitFor(() =>
+      expect(
+        fetchMock.mock.calls.some(
+          (c) => c[0] === "/api/users/3" && (c[1] as RequestInit)?.method === "DELETE"
+        )
+      ).toBe(true)
+    );
+  });
+
+  it("muestra el motivo por el que el backend rechaza el borrado", async () => {
+    const motivo =
+      "No es posible eliminar a este usuario porque tiene información de trabajo asociada que se perdería (3 tareas).";
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/api/users" && !init) {
+        return { ok: true, json: async () => [USUARIO_DE_BAJA] } as Response;
+      }
+      return { ok: false, json: async () => ({ error: motivo }) } as Response;
+    });
+    renderManager(fetchMock);
+
+    await screen.findByText("Caro DeBaja");
+    const fila = screen.getByText("Caro DeBaja").closest("tr")!;
+    fireEvent.click(within(fila).getByText("Eliminar"));
+    fireEvent.click(await screen.findByRole("button", { name: "Confirmar" }));
+
+    expect(await screen.findByText(motivo)).toBeInTheDocument();
   });
 });

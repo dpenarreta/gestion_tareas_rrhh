@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Crea el usuario ADMINISTRADOR inicial en la base de datos de producción
   (vacía) — envoltorio de `python manage.py seed_superadmin`. Ver

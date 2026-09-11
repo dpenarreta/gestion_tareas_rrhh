@@ -1,11 +1,12 @@
 """Cobertura de tests/qa/features/users.feature."""
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from datetime import timezone as dt_timezone
 
 import pytest
 from django.contrib.auth.models import Permission
 from django.contrib.contenttypes.models import ContentType
+from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.authentication.models import Session
@@ -243,7 +244,9 @@ def test_reset_consent_clears_previously_accepted_consent(admin_client, plain_us
     plain_user.refresh_from_db()
     assert plain_user.data_consent_accepted is False
     assert plain_user.data_consent_accepted_at is None
-    assert AuditLog.objects.filter(action="user.consent_reset", target_id=str(plain_user.id)).exists()
+    assert AuditLog.objects.filter(
+        action="user.consent_reset", target_id=str(plain_user.id)
+    ).exists()
 
 
 def test_reset_consent_all_rejects_catalog_permissions_alone(admin_client):
@@ -268,3 +271,117 @@ def test_reset_consent_all_allows_superuser(admin_client, admin_user, plain_user
     plain_user.refresh_from_db()
     assert plain_user.data_consent_accepted is False
     assert AuditLog.objects.filter(action="user.consent_reset_all").exists()
+
+
+# --- Borrado definitivo ----------------------------------------------------
+# Existe desde 2026-09-11 por pedido explícito del usuario y convive con la
+# baja lógica, que sigue siendo el camino normal. Lo que se verifica acá son
+# las tres guardas que impiden que un borrado irreversible se haga por
+# accidente, y que el registro de auditoría sobreviva al borrado.
+
+
+def test_deleting_user_removes_it_and_keeps_the_audit_trail(admin_client, admin_user, plain_user):
+    plain_user.status = User.Status.DISABLED
+    plain_user.save(update_fields=["status", "is_active"])
+    deleted_id = plain_user.id
+
+    response = admin_client.delete(f"/api/v1/admin/users/{deleted_id}/")
+
+    assert response.status_code == 204
+    assert not User.objects.filter(pk=deleted_id).exists()
+
+    # `AuditLog` identifica al objeto por texto, no por FK: el registro de
+    # quién borró a quién tiene que quedar aunque la cuenta ya no exista.
+    evento = AuditLog.objects.filter(action="user.deleted").latest("created_at")
+    assert evento.actor == admin_user
+    assert evento.target_id == str(deleted_id)
+    assert evento.previous_values["username"] == "plain"
+    assert evento.previous_values["email"] == "plain@example.com"
+
+
+def test_cannot_delete_a_user_that_is_still_active(admin_client, plain_user):
+    # Borrado en dos pasos: alguien tuvo que darla de baja antes. Así un clic
+    # de más en la lista no puede destruir una cuenta en uso.
+    assert plain_user.status == User.Status.ACTIVE
+
+    response = admin_client.delete(f"/api/v1/admin/users/{plain_user.id}/")
+
+    assert response.status_code == 400
+    assert "deshabilitada" in str(response.data).lower()
+    assert User.objects.filter(pk=plain_user.id).exists()
+
+
+def test_cannot_delete_your_own_account(admin_client, admin_user):
+    # La cuenta que ejecuta la acción se deja ACTIVA a propósito: si se la
+    # deshabilita, Django le niega el permiso (403) y el test nunca llegaría
+    # a la guarda que quiere verificar. El guard de "sobre uno mismo" es el
+    # primero del servicio, antes del de "tiene que estar deshabilitada".
+    response = admin_client.delete(f"/api/v1/admin/users/{admin_user.id}/")
+
+    assert response.status_code == 400
+    assert User.objects.filter(pk=admin_user.id).exists()
+
+
+def test_cannot_delete_the_last_active_superuser(admin_client, admin_user):
+    otro_admin = User.objects.create_user(
+        username="otro-admin", email="otro@example.com", password="Sup3r-Secr3t!"
+    )
+    otro_admin.is_superuser = True
+    otro_admin.status = User.Status.DISABLED
+    otro_admin.save(update_fields=["is_superuser", "status", "is_active"])
+    admin_user.is_superuser = True
+    admin_user.status = User.Status.DISABLED
+    admin_user.save(update_fields=["is_superuser", "status", "is_active"])
+
+    # `otro_admin` es superusuario y está deshabilitado; como no queda ningún
+    # otro superusuario ACTIVO, es el último y no se puede borrar.
+    response = admin_client.delete(f"/api/v1/admin/users/{otro_admin.id}/")
+
+    assert response.status_code == 400
+    assert "administrador activo" in str(response.data).lower()
+    assert User.objects.filter(pk=otro_admin.id).exists()
+
+
+def test_cannot_delete_a_user_with_protected_work_and_the_error_says_what(
+    admin_client, admin_user, plain_user
+):
+    # Las FK con `on_delete=PROTECT` (tareas, proyectos, reuniones...) son
+    # las que impiden perder trabajo real. El mensaje tiene que decir QUÉ lo
+    # impide, no un "no se pudo" genérico.
+    from apps.tasks.models import Task
+
+    plain_user.status = User.Status.DISABLED
+    plain_user.save(update_fields=["status", "is_active"])
+    ahora = timezone.now()
+    Task.objects.create(
+        title="Tarea que bloquea el borrado",
+        assigned_to=plain_user,
+        created_by=admin_user,
+        priority=Task.Priority.MEDIA,
+        frequency=Task.Frequency.PUNTUAL,
+        start_date=ahora,
+        end_date=ahora + timedelta(days=1),
+        estimated_hours=2,
+    )
+
+    response = admin_client.delete(f"/api/v1/admin/users/{plain_user.id}/")
+
+    assert response.status_code == 400
+    assert "tareas" in str(response.data).lower()
+    assert User.objects.filter(pk=plain_user.id).exists()
+    # El registro de auditoría se escribe dentro de la transacción: si el
+    # borrado no ocurrió, tampoco debe quedar el evento.
+    assert not AuditLog.objects.filter(action="user.deleted").exists()
+
+
+def test_deleting_a_user_without_the_permission_is_rejected(plain_client, plain_user):
+    otro = User.objects.create_user(
+        username="victima", email="victima@example.com", password="Sup3r-Secr3t!"
+    )
+    otro.status = User.Status.DISABLED
+    otro.save(update_fields=["status", "is_active"])
+
+    response = plain_client.delete(f"/api/v1/admin/users/{otro.id}/")
+
+    assert response.status_code == 403
+    assert User.objects.filter(pk=otro.id).exists()
