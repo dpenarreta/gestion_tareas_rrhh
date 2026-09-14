@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { djangoApiFetch } from "@/lib/djangoSession";
-
-type DjangoAssignableUser = { id: number; name: string; email: string; role: string };
+import { fetchDjangoAssignableUsers } from "@/lib/djangoUsersAdapter";
 
 // Cutover de stack (ver docs/AUDIT_LOG.md § 2026-08-21): esta lista alimenta
 // selectores cuyo destino final YA espera ids numéricos de Django
@@ -17,14 +15,13 @@ export async function GET() {
     return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   }
 
-  const response = await djangoApiFetch("/users/assignable/");
-  if (!response || !response.ok) {
+  const users = await fetchDjangoAssignableUsers();
+  if (users === null) {
     return NextResponse.json(
       { error: "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión." },
       { status: 401 }
     );
   }
 
-  const users: DjangoAssignableUser[] = await response.json();
-  return NextResponse.json(users.map((u) => ({ id: String(u.id), name: u.name, email: u.email, role: u.role })));
+  return NextResponse.json(users);
 }

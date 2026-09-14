@@ -9,6 +9,14 @@ import { djangoApiFetch } from "@/lib/djangoSession";
  * módulo porque lo consumen tanto `/api/users` como `/api/users/[id]`.
  */
 
+/** Forma que devuelve `GET /users/assignable/` (`AssignableUsersView`) —
+ * mucho más chica que `DjangoUser`: solo lo que necesita un selector. */
+export type DjangoAssignableUser = { id: number; name: string; email: string; role: string };
+
+/** La misma forma ya esperada por los selectores del frontend
+ * (`components/tasks/types.ts`), con el id como cadena. */
+export type AssignableUser = { id: string; name: string; email: string; role: Role };
+
 export type DjangoUser = {
   id: number;
   username: string;
@@ -75,6 +83,25 @@ export async function fetchAllDjangoUsers(): Promise<DjangoUser[] | null> {
   }
 
   return results;
+}
+
+/** Usuarios a los que el actor puede asignarle una tarea — incluye al
+ * propio actor, que es quien más se autoasigna trabajo.
+ *
+ * Es `GET /users/assignable/` (auto-servicio) y NO `fetchAllDjangoUsers`,
+ * que va contra `/admin/users/` y exige permiso administrativo: pedirle esa
+ * lista a un asistente devuelve 403, y el selector "Asignado a" se queda sin
+ * una sola opción — ni siquiera él mismo—, con lo que no puede crear ninguna
+ * tarea. Pasó en producción el 2026-09-14 (ver docs/AUDIT_LOG.md).
+ *
+ * Quién es visible para quién lo decide Django (`get_visible_groups`), no el
+ * frontend: `VISIBLE_ROLES` de `roles.ts` es solo para UI. */
+export async function fetchDjangoAssignableUsers(): Promise<AssignableUser[] | null> {
+  const response = await djangoApiFetch("/users/assignable/");
+  if (!response || !response.ok) return null;
+
+  const users = (await response.json()) as DjangoAssignableUser[];
+  return users.map((u) => ({ id: String(u.id), name: u.name, email: u.email, role: u.role as Role }));
 }
 
 /** Resuelve el nombre de rol de Nexo (ej. "JEFE_NACIONAL") al id del
