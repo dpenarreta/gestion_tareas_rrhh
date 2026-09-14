@@ -90,3 +90,24 @@ def test_la_revocacion_por_reutilizacion_sigue_existiendo():
     fuente = inspect.getsource(AuthenticationService.refresh_tokens)
     assert "refresh_reused" in fuente
     assert "session.revoke()" in fuente
+
+
+def test_el_refresco_bloquea_la_fila_de_la_sesion():
+    # Sin `select_for_update`, varias peticiones simultáneas leen la sesión
+    # antes de que ninguna escriba y todas rotan: en producción, de 6
+    # refrescos en paralelo rotaron 3, dejando refresh huérfanos que
+    # revocarían más tarde. El bloqueo es parte del arreglo, no un detalle.
+    import inspect
+
+    fuente = inspect.getsource(AuthenticationService.refresh_tokens)
+    assert "select_for_update" in fuente
+
+
+def test_el_refresco_corre_dentro_de_una_transaccion():
+    # `select_for_update` fuera de una transacción lanza
+    # TransactionManagementError en cuanto se use de verdad: el bloqueo y el
+    # atomic van juntos, y quitar uno rompe el otro en producción, no acá.
+    import inspect
+
+    fuente = inspect.getsource(AuthenticationService.__dict__["refresh_tokens"].__func__)
+    assert "@transaction.atomic" in fuente

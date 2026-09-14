@@ -45,6 +45,12 @@ legítimas (ver docs/AUDIT_LOG.md § 2026-09-14, sesiones).
   inmediatamente anterior se acepta como reintento concurrente y se devuelve
   **solo un access token nuevo**, sin rotar otra vez — emitir un segundo
   refresh dejaría dos válidos en circulación y el perdedor revocaría igual.
+- **Bloqueo de fila (`select_for_update` dentro de `transaction.atomic`)**:
+  la ventana de gracia sola no bastaba. Verificado en producción con 6
+  refrescos simultáneos — **3 rotaron**, porque todos leían la sesión antes de
+  que ninguno escribiera. No revocaban (eso ya estaba arreglado), pero dejaban
+  refresh huérfanos que revocarían más tarde. Con el bloqueo, las perdedoras
+  entran cuando la rotación ya está escrita y caen en la rama del reintento.
 - **La detección de robo no se toca**: fuera de la ventana, un refresh ya
   rotado sigue revocando la sesión completa. Hay un test que falla si alguien
   quita ese bloque.
@@ -56,7 +62,7 @@ legítimas (ver docs/AUDIT_LOG.md § 2026-09-14, sesiones).
 - **`src/app/login/page.tsx`**: aviso propio para la sesión vencida, distinto
   del rechazo de consentimiento — quien llega por expiración no hizo nada mal.
 
-**Verificación:** 12 tests nuevos de la ventana de gracia, ejecutados (no
+**Verificación:** 14 tests nuevos de la ventana de gracia y del bloqueo, ejecutados (no
 tocan base de datos), incluidos los del límite exacto y el que impide quitar
 la revocación por robo. 1216/1216 en Vitest, `tsc` limpio,
 ruff/black/isort limpios.

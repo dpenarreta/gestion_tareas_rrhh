@@ -10,6 +10,7 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.auth.hashers import check_password, make_password
+from django.db import transaction
 from django.db.models import Q
 from django.utils import timezone
 from rest_framework import serializers
@@ -233,6 +234,7 @@ class AuthenticationService:
         return tokens
 
     @staticmethod
+    @transaction.atomic
     def refresh_tokens(*, refresh_token_str: str, ip_address: str | None = None) -> dict:
         try:
             refresh = RefreshToken(refresh_token_str)
@@ -241,7 +243,19 @@ class AuthenticationService:
                 "El token de actualización es inválido o expiró.", code="invalid_refresh"
             ) from None
 
-        session = Session.objects.filter(id=refresh.get("sid")).select_related("user").first()
+        # `select_for_update` y no un `filter` suelto: sin el bloqueo de fila,
+        # varias peticiones simultáneas leen la sesión ANTES de que ninguna
+        # escriba, todas ven el jti vigente y todas rotan. Se verificó en
+        # producción: de 6 refrescos en paralelo, 3 rotaron. La ventana de
+        # gracia evitaba la revocación, pero quedaban refresh huérfanos —
+        # válidos para nadie— que revocarían más tarde. Con el bloqueo, las
+        # perdedoras entran cuando la rotación ya está escrita y caen en la
+        # rama del reintento concurrente, que es lo correcto.
+        #
+        # No se usa `select_related("user")` acá: combinar el bloqueo con un
+        # JOIN no es portable entre motores, y el usuario se resuelve después
+        # con una consulta más.
+        session = Session.objects.select_for_update().filter(id=refresh.get("sid")).first()
 
         if session is None:
             raise AuthenticationFailed(
