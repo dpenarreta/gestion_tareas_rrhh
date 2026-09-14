@@ -707,6 +707,7 @@ export default function ProfilePage() {
             <input
               type="password"
               required
+              autoComplete="current-password"
               value={currentPassword}
               onChange={(e) => setCurrentPassword(e.target.value)}
               className="w-full px-3 py-2 rounded-xl border border-border text-title bg-surface text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
@@ -720,6 +721,7 @@ export default function ProfilePage() {
               <input
                 type="password"
                 required
+                autoComplete="new-password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 className="w-full px-3 py-2 rounded-xl border border-border text-title bg-surface text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"
@@ -732,6 +734,7 @@ export default function ProfilePage() {
               <input
                 type="password"
                 required
+                autoComplete="new-password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 className="w-full px-3 py-2 rounded-xl border border-border text-title bg-surface text-sm focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary"

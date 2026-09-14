@@ -77,7 +77,25 @@ export async function POST(request: NextRequest) {
   }
   if (!response.ok) {
     const message = await extractDjangoFieldErrorMessage(response);
-    return NextResponse.json({ error: message ?? "Contraseña actual incorrecta" }, { status: 400 });
+    // El fallback NO puede culpar a la contraseña actual. Django manda el
+    // motivo real por campo (`current_password`, `new_password`) y se
+    // muestra tal cual; pero cuando el error no trae `details` —un 403, un
+    // 500, un throttle— dar por sentado que la contraseña estaba mal manda
+    // a quien lo sufre a probar la misma contraseña una y otra vez. Costó
+    // un diagnóstico entero en producción el 2026-09-14: el flujo estaba
+    // bien y el mensaje decía lo contrario.
+    if (!message) {
+      safeLog("warn", "Django rechazó el cambio de contraseña sin detalle de campo", {
+        status: response.status,
+      });
+    }
+    return NextResponse.json(
+      {
+        error:
+          message ?? "No se pudo cambiar la contraseña. Volvé a intentarlo en unos minutos.",
+      },
+      { status: 400 },
+    );
   }
 
   return NextResponse.json({ ok: true });
