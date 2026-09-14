@@ -107,7 +107,14 @@ describe("middleware — refresco de los tokens de Django", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("deja pasar la navegación si Django rechaza el refresco", async () => {
+  it("manda al login y limpia la sesión si Django rechaza el refresco", async () => {
+    // Antes dejaba pasar la navegación. El resultado era peor que un
+    // redirect: el layout no podía leer nada de Django, no sabía si el
+    // consentimiento estaba aceptado, y mostraba el aviso de tratamiento de
+    // datos — la persona quedaba atrapada aceptando algo que ya había
+    // aceptado, con una sesión muerta detrás (ver docs/AUDIT_LOG.md §
+    // 2026-09-14). Un refresh rechazado es una sesión terminada, y eso se
+    // dice claro.
     fetchMock.mockResolvedValue(respuestaDeRefresh({ detail: "inválido" }, false));
 
     const res = await pedir("/dashboard", {
@@ -115,8 +122,21 @@ describe("middleware — refresco de los tokens de Django", () => {
       "nexo-django-refresh": "refresh-muerto",
     });
 
-    expect(res.status).toBe(200);
-    expect(res.cookies.get("nexo-django-access")).toBeUndefined();
+    expect(res.status).toBe(307);
+    expect(res.headers.get("location")).toContain("/login?sesionExpirada=1");
+  });
+
+  it("borra la cookie de sesión al expulsar, para no rebotar en bucle", async () => {
+    // `nexo-session` sigue siendo un JWT válido: si no se borrara, este mismo
+    // proxy devolvería /login a /dashboard y la navegación quedaría girando.
+    fetchMock.mockResolvedValue(respuestaDeRefresh({ detail: "inválido" }, false));
+
+    const res = await pedir("/dashboard", {
+      "nexo-session": await sesionValida(),
+      "nexo-django-refresh": "refresh-muerto",
+    });
+
+    expect(res.cookies.get("nexo-session")?.value).toBe("");
   });
 
   it("deja pasar la navegación si Django no responde", async () => {

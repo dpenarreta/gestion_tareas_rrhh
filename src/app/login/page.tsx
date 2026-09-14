@@ -14,10 +14,16 @@ export default function LoginPage() {
 function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  // Dos motivos distintos para llegar acá expulsado, y conviene no
+  // confundirlos: rechazar el consentimiento es una decisión de la persona;
+  // la sesión vencida no lo es, y el mensaje tiene que dejar claro que no
+  // hizo nada mal (ver docs/AUDIT_LOG.md § 2026-09-14).
   const rejectedNotice =
     searchParams.get("consentRejected") === "1"
       ? "Has rechazado el tratamiento de datos. No puedes acceder al sistema."
-      : null;
+      : searchParams.get("sesionExpirada") === "1"
+        ? "Tu sesión expiró por inactividad. Volvé a iniciar sesión para continuar."
+        : null;
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");

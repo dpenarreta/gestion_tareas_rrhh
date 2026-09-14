@@ -258,6 +258,16 @@ SIMPLE_JWT = {
     "USER_ID_CLAIM": "user_id",
 }
 
+# --- Rotación de refresh tokens ---
+# Segundos durante los que el refresh token inmediatamente anterior sigue
+# siendo aceptable después de rotar. Al caducar el access token, el navegador
+# dispara varias peticiones a la vez y todas presentan la misma cookie: sin
+# esta ventana la primera rota y las demás se toman por reutilización,
+# revocando la sesión de alguien que no hizo nada (ver docs/AUDIT_LOG.md §
+# 2026-09-14). Se mide en segundos a propósito — cubre una ráfaga de la misma
+# carga de página, no un token robado que se usa más tarde.
+REFRESH_ROTATION_GRACE_SECONDS = env.int("REFRESH_ROTATION_GRACE_SECONDS", default=60)
+
 # --- Protección contra fuerza bruta en el login ---
 LOGIN_MAX_FAILED_ATTEMPTS = env.int("LOGIN_MAX_FAILED_ATTEMPTS", default=5)
 LOGIN_LOCKOUT_MINUTES = env.int("LOGIN_LOCKOUT_MINUTES", default=15)

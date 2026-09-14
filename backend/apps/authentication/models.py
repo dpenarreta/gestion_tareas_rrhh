@@ -21,6 +21,16 @@ class Session(BaseModel):
         settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="sessions"
     )
     refresh_token_jti = models.CharField(max_length=255, unique=True)
+    # El jti inmediatamente anterior y el instante en que se rotó. Sirven
+    # para tolerar el reintento concurrente: al caducar el access token, el
+    # navegador dispara varias peticiones a la vez y todas presentan el mismo
+    # refresh. Sin esta ventana, la primera rota y las demás se toman por
+    # reutilización, revocando la sesión de alguien que no hizo nada malo —
+    # pasó 18 veces en un solo día en producción (ver docs/AUDIT_LOG.md §
+    # 2026-09-14). No debilita la detección de robo: un token viejo de hace
+    # horas sigue revocando.
+    previous_refresh_token_jti = models.CharField(max_length=255, blank=True, default="")
+    rotated_at = models.DateTimeField(null=True, blank=True)
     device = models.CharField(max_length=100, blank=True)
     user_agent = models.CharField(max_length=255, blank=True)
     ip_address = models.GenericIPAddressField(null=True, blank=True)

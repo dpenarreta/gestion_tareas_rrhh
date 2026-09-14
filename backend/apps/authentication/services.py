@@ -33,7 +33,7 @@ from .emails import (
     send_password_reset_email,
 )
 from .models import LoginAttempt, PasswordResetToken, Session
-from .tokens import issue_token_pair
+from .tokens import issue_access_token, issue_token_pair
 
 logger = logging.getLogger("apps.authentication")
 
@@ -251,10 +251,32 @@ class AuthenticationService:
         if not session.is_active:
             raise AuthenticationFailed("La sesión ya no es válida.", code="session_revoked")
 
-        if session.refresh_token_jti != refresh.get("jti"):
-            # El jti presentado no coincide con el vigente: es un refresh
-            # token ya rotado que se está reutilizando. Se revoca la sesión
-            # completa como medida de contención ante un posible robo.
+        jti = refresh.get("jti")
+
+        if session.refresh_token_jti != jti:
+            if AuthenticationService._es_reintento_concurrente(session, jti):
+                # No es un robo: es el mismo refresh presentado dos veces en
+                # segundos. Al caducar el access token el navegador dispara
+                # varias peticiones a la vez y todas llevan la misma cookie;
+                # la primera rota y las siguientes llegan con el jti ya
+                # anterior. Revocar acá dejaba sin sesión a gente que no hizo
+                # nada (18 veces en un día, ver docs/AUDIT_LOG.md § 2026-09-14).
+                #
+                # Se devuelve SOLO un access token nuevo, sin rotar otra vez:
+                # emitir un segundo refresh dejaría dos válidos en circulación
+                # y el siguiente uso del perdedor revocaría igual.
+                if not session.user.is_active:
+                    session.revoke()
+                    raise AuthenticationFailed("La sesión ya no es válida.", code="session_revoked")
+                logger.info(
+                    "Refresh concurrente dentro de la ventana de gracia para sesión=%s",
+                    session.id,
+                )
+                return issue_access_token(session.user, session)
+
+            # Fuera de la ventana el criterio no cambia: un refresh ya rotado
+            # es un token robado hasta que se demuestre lo contrario, y se
+            # revoca la sesión entera como contención.
             session.revoke()
             logger.error("Reutilización de refresh token detectada para sesión=%s", session.id)
             raise AuthenticationFailed(
@@ -266,11 +288,35 @@ class AuthenticationService:
             raise AuthenticationFailed("La sesión ya no es válida.", code="session_revoked")
 
         tokens = issue_token_pair(session.user, session)
+        session.previous_refresh_token_jti = session.refresh_token_jti
+        session.rotated_at = timezone.now()
         session.refresh_token_jti = tokens.pop("refresh_jti")
         if ip_address:
             session.ip_address = ip_address
-        session.save(update_fields=["refresh_token_jti", "ip_address", "last_used_at"])
+        session.save(
+            update_fields=[
+                "refresh_token_jti",
+                "previous_refresh_token_jti",
+                "rotated_at",
+                "ip_address",
+                "last_used_at",
+            ]
+        )
         return tokens
+
+    @staticmethod
+    def _es_reintento_concurrente(session: Session, jti: str | None) -> bool:
+        """El jti presentado es el inmediatamente anterior y la rotación fue
+        hace muy poco. La ventana se mide en segundos a propósito: cubre una
+        ráfaga de peticiones paralelas de la misma carga de página, no un
+        token robado que se usa más tarde."""
+        if not jti or not session.previous_refresh_token_jti or not session.rotated_at:
+            return False
+        if session.previous_refresh_token_jti != jti:
+            return False
+        return timezone.now() - session.rotated_at <= timedelta(
+            seconds=settings.REFRESH_ROTATION_GRACE_SECONDS
+        )
 
 
 PASSWORD_RESET_GENERIC_MESSAGE = (

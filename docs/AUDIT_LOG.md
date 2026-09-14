@@ -15,6 +15,68 @@
 
 ---
 
+## 2026-09-14 — Las sesiones se revocaban solas: la rotación del refresh token contra la concurrencia normal
+
+**Cómo apareció:** un usuario reportó que el aviso de tratamiento de datos le
+reaparecía pese a haberlo aceptado. La primera explicación —un reseteo
+administrativo de ese mismo día— era cierta pero incompleta: el modal volvió a
+salir después, en una cuenta recién creada con el consentimiento ya aceptado.
+
+**Lo que había detrás:** la sesión estaba revocada. La de pruebas se creó a las
+22:01:58 y quedó revocada a las 22:34:24 sin ningún cierre de sesión. El log de
+Django lo nombra al segundo: `Reutilización de refresh token detectada para
+sesión=4a19fb1c…`, a las 17:34:24 hora local.
+
+**La magnitud:** 22 de 68 sesiones creadas ese día terminaron revocadas, y el
+log registra 18 detecciones de reutilización. No era un caso raro: a una misma
+persona le pasó 10 veces en una jornada.
+
+**La causa es una carrera, no un ataque.** Django rota el refresh token en cada
+refresco e invalida el anterior; si le llega el viejo, lo trata como robo y
+revoca la sesión entera. Correcto ante un atacante. El problema es que el
+escenario se da solo: al caducar el access token (15 minutos), una sola carga de
+página dispara varias peticiones a `/api/` en paralelo y **todas** llevan la
+misma cookie de refresh. La primera rota; las demás llegan con el jti ya
+anterior. Contención pensada para un robo, disparada por el uso normal.
+
+**Alternativas consideradas:**
+
+- *Serializar el refresco en Next.js.* No cierra el agujero: las peticiones
+  paralelas salen del navegador con la cookie vieja antes de que ninguna
+  respuesta llegue. Cualquier candado del lado servidor llega tarde.
+- *Dejar de rotar el refresh token.* Elimina la carrera y también la detección
+  de robo. Se descarta: el token vive 7 días.
+- *Ventana de gracia* (elegida). Es la solución estándar para esta carrera:
+  el jti inmediatamente anterior sigue siendo aceptable unos segundos después
+  de rotar.
+
+**Un detalle que decide si el arreglo funciona: el reintento devuelve SOLO un
+access token.** La tentación es emitir un par completo, pero eso dejaría dos
+refresh válidos en circulación y el siguiente uso del perdedor revocaría la
+sesión igual — el problema movido de lugar. Devolviendo solo el access, el
+cliente conserva el refresh que ya tiene y la cookie converge al que rotó
+primero (`djangoSession.ts` y `proxy.ts` solo reescriben esa cookie si la
+respuesta trae una).
+
+**La ventana se mide en segundos** (60 por defecto, `REFRESH_ROTATION_GRACE_SECONDS`).
+Cubre una ráfaga de la misma carga de página; un token robado que se usa más
+tarde sigue revocando. Hay un test que falla si alguien quita ese bloque.
+
+**El segundo defecto, encima del primero:** con la sesión muerta, la persona no
+era enviada al login. El layout no podía leer el consentimiento, degradaba a
+`false` y mostraba el modal. Quedaba atrapada aceptando algo ya aceptado — y si
+aceptaba, **sobrescribía la fecha original de su consentimiento**, que es
+justo el registro que hay que conservar. Ahora un refresco rechazado manda al
+login con la sesión limpia. Un fallo de red no expulsa a nadie: echar a todo el
+mundo por un corte pasajero sería peor que esperar.
+
+**Impacto:** ninguna regla de negocio cambia. Las sesiones dejan de caerse por
+usar la aplicación con normalidad.
+
+**Aprobado por:** Anthony Jácome.
+
+---
+
 ## 2026-09-14 — Editar una tarea sin descripción era imposible, y el error culpaba al permiso
 
 **Síntoma:** tras importar tareas en masa, al abrir una para editar y pulsar

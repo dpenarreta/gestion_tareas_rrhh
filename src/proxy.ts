@@ -145,7 +145,19 @@ async function withRefreshedDjangoTokens(request: NextRequest): Promise<NextResp
       body: JSON.stringify({ refresh: refreshToken }),
       signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS),
     });
-    if (!djangoResponse.ok) return response;
+    if (!djangoResponse.ok) {
+      // El refresh ya no sirve (expiró, o la sesión fue revocada). Seguir
+      // adelante dejaba al layout sin poder leer nada de Django y, como no
+      // podía saber si el consentimiento estaba aceptado, mostraba el aviso
+      // de tratamiento de datos: la persona quedaba atrapada aceptando algo
+      // que ya había aceptado, con una sesión muerta detrás. Lo correcto es
+      // mandarla a iniciar sesión (ver docs/AUDIT_LOG.md § 2026-09-14).
+      //
+      // El middleware es el único punto que puede BORRAR la cookie de
+      // sesión, y hay que borrarla: si se dejara, este mismo proxy rebotaría
+      // /login de vuelta a /dashboard y quedaría un bucle.
+      return redirigirALoginPorSesionVencida(request);
+    }
 
     const data = (await djangoResponse.json()) as { access: string; refresh?: string };
     response.cookies.set(
@@ -163,10 +175,22 @@ async function withRefreshedDjangoTokens(request: NextRequest): Promise<NextResp
   } catch {
     // Django caído o lento: se sigue sin tokens nuevos. La página se
     // renderiza igual y cada consumidor degrada como ya sabe hacerlo —
-    // bloquear la navegación entera por esto sería peor.
+    // bloquear la navegación entera por esto sería peor. NO se cierra la
+    // sesión acá: un corte de red no es una sesión vencida, y echar a todo
+    // el mundo por un fallo pasajero sería peor que esperar.
   }
 
   return response;
+}
+
+function redirigirALoginPorSesionVencida(request: NextRequest): NextResponse {
+  const destino = new URL("/login", request.url);
+  destino.searchParams.set("sesionExpirada", "1");
+  const redireccion = NextResponse.redirect(destino);
+  redireccion.cookies.delete("nexo-session");
+  redireccion.cookies.delete(DJANGO_ACCESS_COOKIE);
+  redireccion.cookies.delete(DJANGO_REFRESH_COOKIE);
+  return redireccion;
 }
 
 export const config = {

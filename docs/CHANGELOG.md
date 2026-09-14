@@ -23,6 +23,44 @@
 
 ---
 
+## v1.157.0 — 2026-09-14
+
+**Tipo:** SECURITY
+**Módulo:** Sesiones — la rotación del refresh token revocaba sesiones
+legítimas (ver docs/AUDIT_LOG.md § 2026-09-14, sesiones).
+
+- **Síntoma:** el aviso de tratamiento de datos reaparecía a gente que ya lo
+  había aceptado. Era la punta del problema: **la sesión estaba muerta**.
+- **Medida en producción:** 22 de las 68 sesiones creadas el 2026-09-14
+  terminaron revocadas sin que nadie cerrara sesión. El log de Django registra
+  **18 detecciones de "reutilización de refresh token"** en un solo día, una
+  de ellas sobre la sesión de pruebas, al segundo exacto de su revocación.
+- **La causa:** Django rota el refresh token en cada refresco y trata el
+  anterior como robo. Al caducar el access token (15 min), el navegador
+  dispara varias peticiones a la vez y **todas** presentan la misma cookie: la
+  primera rota y las siguientes se toman por reutilización, revocando la
+  sesión entera.
+- **`Session.previous_refresh_token_jti` / `Session.rotated_at`** (migración
+  `0003`): dentro de `REFRESH_ROTATION_GRACE_SECONDS` (60 por defecto), el jti
+  inmediatamente anterior se acepta como reintento concurrente y se devuelve
+  **solo un access token nuevo**, sin rotar otra vez — emitir un segundo
+  refresh dejaría dos válidos en circulación y el perdedor revocaría igual.
+- **La detección de robo no se toca**: fuera de la ventana, un refresh ya
+  rotado sigue revocando la sesión completa. Hay un test que falla si alguien
+  quita ese bloque.
+- **`src/proxy.ts`**: si Django rechaza el refresco, se va al login con la
+  sesión limpia (`/login?sesionExpirada=1`) en vez de seguir navegando sin
+  sesión. Se borra `nexo-session` a propósito: sin eso, el propio proxy
+  rebotaría /login a /dashboard en bucle. Un fallo de red **no** expulsa a
+  nadie — solo un rechazo explícito.
+- **`src/app/login/page.tsx`**: aviso propio para la sesión vencida, distinto
+  del rechazo de consentimiento — quien llega por expiración no hizo nada mal.
+
+**Verificación:** 12 tests nuevos de la ventana de gracia, ejecutados (no
+tocan base de datos), incluidos los del límite exacto y el que impide quitar
+la revocación por robo. 1216/1216 en Vitest, `tsc` limpio,
+ruff/black/isort limpios.
+
 ## v1.156.5 — 2026-09-14
 
 **Tipo:** FIX
