@@ -331,6 +331,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-09-14: fix(lopdp): audita la aceptacion del consentimiento y evita tareas duplicadas (v1.156.4)
 - 2026-09-14: fix(trabajo): el selector "Asignado a" llegaba vacio y bloqueaba crear tareas (v1.156.3)
 - 2026-09-14: fix(actividades): carga inicial de motivos y mensaje de error honesto (v1.156.2)
 - 2026-09-14: fix(correo): avisa si la contrasena SMTP tiene caracteres no-ASCII (v1.156.1)

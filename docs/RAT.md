@@ -46,7 +46,7 @@ Personas colaboradoras de la organización con cuenta de usuario en Nexo (todos 
 | Credencial de acceso (contraseña, hasheada con Argon2) | Alta de usuario / cambio de contraseña | `User` |
 | Cargo/rol dentro de la organización | Alta de usuario | `User` |
 | Historial de sesión (último inicio de sesión) | Uso del sistema | `User` |
-| Registro de consentimiento de tratamiento de datos (aceptación y fecha) | Aceptación explícita en el primer inicio de sesión | `User.data_consent_accepted`, `User.data_consent_accepted_at` |
+| Registro de consentimiento de tratamiento de datos (aceptación y fecha) | Aceptación explícita en el primer inicio de sesión | `User.data_consent_accepted`, `User.data_consent_accepted_at` y el evento de auditoría `user.consent_accepted` (`AuditLog`). Los dos campos del usuario reflejan **el estado actual** y un reseteo administrativo los vuelve a `False`/`None`; la prueba histórica de que la persona consintió, y cuándo, es el evento de auditoría, que no se borra (ver `docs/AUDIT_LOG.md` § 2026-09-14) |
 | Actividad laboral (tareas, horas registradas, comentarios) | Uso diario del sistema | `Task`, `TaskActivity`, `Comment` |
 | Participación en reuniones (invitados, asistencia) | Programación de reuniones | `Meeting`, `MeetingInvitee` |
 | Contenido conversacional con el asistente de IA | Interacción con Nova | Procesado por el proveedor de IA (Google, API de Gemini) en tiempo de respuesta; el contexto de tareas del usuario se construye desde la base de datos para la consulta |

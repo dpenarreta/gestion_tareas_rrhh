@@ -5,6 +5,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
+from apps.core.audit import record_audit_event
 from apps.core.request_meta import get_client_ip, get_request_context, get_user_agent
 from apps.permissions.authorization import get_user_permission_codenames
 from apps.users.serializers import UserPublicSerializer
@@ -156,7 +157,27 @@ class AcceptConsentView(APIView):
     def patch(self, request):
         request.user.data_consent_accepted = True
         request.user.data_consent_accepted_at = timezone.now()
-        request.user.save(update_fields=["data_consent_accepted", "data_consent_accepted_at", "updated_at"])
+        request.user.save(
+            update_fields=["data_consent_accepted", "data_consent_accepted_at", "updated_at"]
+        )
+        # La aceptación se audita, y no solo se marca en el usuario: el campo
+        # `data_consent_accepted_at` es un único valor, y `reset_consent` lo
+        # pone en None. Sin este registro, un reseteo administrativo borra la
+        # ÚNICA prueba de que la persona había consentido, y con ella la fecha
+        # — que es justo lo que hay que poder demostrar (LOPDP, ver
+        # docs/RAT.md). Pasó de verdad el 2026-09-14: un reseteo masivo dejó
+        # sin rastro consentimientos dados días antes.
+        record_audit_event(
+            actor=request.user,
+            action="user.consent_accepted",
+            target=request.user,
+            module="usuarios",
+            new_values={
+                "data_consent_accepted": True,
+                "data_consent_accepted_at": request.user.data_consent_accepted_at.isoformat(),
+            },
+            context=get_request_context(request),
+        )
         return Response(
             {
                 "data_consent_accepted": request.user.data_consent_accepted,

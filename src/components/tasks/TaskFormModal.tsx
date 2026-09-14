@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { Task, AssignableUser, TaskType } from "./types";
 import { hoursToDisplay, displayToHours, validateDisplayHours, INVALID_HOURS_MESSAGE } from "@/lib/timeFormat";
 import { TARGET_TIME_TOOLTIP } from "@/lib/targetTime";
@@ -58,6 +58,12 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
   const [assignedToId, setAssignedToId] = useState(initialAssignedToId ?? currentUserId);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  // `disabled={saving}` no alcanza: ese atributo recién existe cuando React
+  // vuelve a renderizar, y unos clics seguidos le ganan a ese render. Pasó
+  // en producción el 2026-09-14 — se crearon 20 tareas duplicadas, algunas
+  // separadas por 140 ms, que no es el ritmo de alguien decidiendo. Un ref
+  // se actualiza en el acto, en el mismo turno del evento.
+  const enviando = useRef(false);
 
   useEffect(() => {
     queueMicrotask(() => {
@@ -82,7 +88,9 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
     if (!startDate || !endDate) { setError("Las fechas son requeridas"); return; }
     if (!estimatedHours) { setError("El tiempo objetivo es requerido"); return; }
     if (!validateDisplayHours(estimatedHours)) { setError(INVALID_HOURS_MESSAGE); return; }
+    if (enviando.current) return;
 
+    enviando.current = true;
     setSaving(true);
     setError("");
 
@@ -118,6 +126,7 @@ export default function TaskFormModal({ task, initialStatus, initialAssignedToId
       showToast(task ? "Tarea actualizada." : "Tarea creada.", "success");
       onSave();
     } finally {
+      enviando.current = false;
       setSaving(false);
     }
   }
