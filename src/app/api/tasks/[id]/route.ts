@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { djangoApiFetch } from "@/lib/djangoSession";
+import { djangoApiFetch, extractDjangoFieldErrorMessage } from "@/lib/djangoSession";
 import { fetchDjangoTask, mapDjangoTaskToNexoShape } from "@/lib/djangoTasksAdapter";
 
 // Fase 3a de la migración de stack (ver docs/AUDIT_LOG.md § 2026-08-07):
@@ -52,8 +52,17 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
   const djangoBody: Record<string, unknown> = {};
   for (const [nexoField, djangoField] of Object.entries(FIELD_MAP)) {
     if (nexoField in body) {
-      djangoBody[djangoField] =
-        djangoField === "assigned_to" ? Number(body[nexoField]) : body[nexoField];
+      if (djangoField === "assigned_to") {
+        djangoBody[djangoField] = Number(body[nexoField]);
+      } else if (djangoField === "description" || djangoField === "color") {
+        // Mismo criterio que el POST (`../route.ts`: `body.description ?? ""`).
+        // El formulario manda `null` cuando el campo queda en blanco, y el
+        // modelo no admite nulos — sin esto, ninguna tarea sin descripción se
+        // podía guardar (ver docs/AUDIT_LOG.md § 2026-09-14).
+        djangoBody[djangoField] = body[nexoField] ?? "";
+      } else {
+        djangoBody[djangoField] = body[nexoField];
+      }
     }
   }
 
@@ -69,8 +78,13 @@ export async function PATCH(request: NextRequest, ctx: Ctx) {
     return NextResponse.json({ error: "Sin permisos para editar esta tarea" }, { status: 403 });
   }
   if (!response.ok) {
+    // El mensaje real de Django primero. El texto fijo de antes culpaba al
+    // permiso ante CUALQUIER error: con un fallo de validación en un campo,
+    // quien editaba leía que no era el responsable de su propia tarea y no
+    // tenía forma de entender qué corregir.
+    const message = await extractDjangoFieldErrorMessage(response);
     return NextResponse.json(
-      { error: "Solo el responsable de la tarea puede editar ese campo" },
+      { error: message ?? "No se pudo guardar la tarea. Revisá los datos e intentá de nuevo." },
       { status: 400 }
     );
   }

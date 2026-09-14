@@ -19,6 +19,21 @@ vi.mock("@/lib/session", () => ({
 const djangoApiFetch = vi.fn();
 vi.mock("@/lib/djangoSession", () => ({
   djangoApiFetch: (...args: unknown[]) => djangoApiFetch(...args),
+  // Implementación real (no un stub): lo que se quiere comprobar es que la
+  // ruta muestre el mensaje que Django manda por campo, así que falsearla
+  // dejaría el caso sin cubrir.
+  extractDjangoFieldErrorMessage: async (response: Response) => {
+    const data = await response.json().catch(() => null);
+    const details = (data as { error?: { details?: Record<string, unknown> } } | null)?.error
+      ?.details;
+    if (details && typeof details === "object") {
+      const fieldError = Object.values(details).find(
+        (v): v is string[] => Array.isArray(v) && typeof v[0] === "string"
+      );
+      if (fieldError) return fieldError[0];
+    }
+    return undefined;
+  },
 }));
 
 const { GET: tasksGET, POST: tasksPOST } = await import("@/app/api/tasks/route");
@@ -236,6 +251,37 @@ describe("PATCH /api/tasks/[id]", () => {
 
     const res = await taskPATCH(jsonRequest({ realHours: 5 }), ctx());
     expect(res.status).toBe(400);
+  });
+
+  it("muestra el mensaje de campo que manda Django, no uno inventado", async () => {
+    // El texto fijo anterior culpaba al permiso ante cualquier error: quien
+    // editaba su propia tarea leía que no era su responsable (caso real del
+    // 2026-09-14, ver docs/AUDIT_LOG.md).
+    mockSession({});
+    djangoApiFetch.mockResolvedValueOnce(djangoResponse(true, djangoTask()));
+    djangoApiFetch.mockResolvedValueOnce(
+      djangoResponse(false, { error: { details: { description: ["Este campo no puede ser nulo."] } } }, 400)
+    );
+
+    const res = await taskPATCH(jsonRequest({ description: null }), ctx());
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("Este campo no puede ser nulo.");
+  });
+
+  it("normaliza description nula a cadena vacía antes de mandarla a Django", async () => {
+    // Misma regla que el POST (`body.description ?? ""`): el modelo es
+    // TextField(blank=True, default=""), nunca nulo.
+    mockSession({});
+    djangoApiFetch.mockResolvedValueOnce(djangoResponse(true, djangoTask()));
+    djangoApiFetch.mockResolvedValueOnce(djangoResponse(true, djangoTask({ id: 1 })));
+
+    await taskPATCH(jsonRequest({ description: null }), ctx("1"));
+
+    expect(djangoApiFetch).toHaveBeenLastCalledWith(
+      "/tasks/1/",
+      expect.objectContaining({ body: JSON.stringify({ description: "" }) })
+    );
   });
 
   it("solo reenvía a Django los campos presentes en el body, mapeados a snake_case", async () => {

@@ -23,6 +23,40 @@
 
 ---
 
+## v1.156.5 — 2026-09-14
+
+**Tipo:** FIX
+**Módulo:** Trabajo — ninguna tarea sin descripción se podía editar (ver
+docs/AUDIT_LOG.md § 2026-09-14, edición de tareas).
+
+- **Síntoma reportado:** tras importar tareas en masa, al abrir una para
+  editar y pulsar "Actualizar" no ocurría nada útil.
+- **La causa:** el formulario manda `description: null` cuando el campo queda
+  en blanco, y `TaskUpdateSerializer` no aceptaba nulos —
+  `{"description": ["Este campo no puede ser nulo."]}`. Crear sí funcionaba
+  porque la ruta POST ya normalizaba (`body.description ?? ""`); la ruta
+  PATCH pasaba el valor tal cual. El modelo es
+  `TextField(blank=True, default="")`: el vacío canónico es `""`, nunca nulo.
+- **Lo que lo volvió indescifrable:** `src/app/api/tasks/[id]/route.ts`
+  respondía `"Solo el responsable de la tarea puede editar ese campo"` ante
+  **cualquier** error de Django. Quien editaba su propia tarea leía que no era
+  su responsable. Es el segundo caso del mismo patrón en esta versión (ver
+  v1.156.2, cambio de contraseña): un fallback que adivina la causa en vez de
+  mostrar la que Django ya informó.
+- **`backend/apps/tasks/serializers.py`**: `description` y `color` aceptan
+  `null` y se normalizan a `""` en `validate` — no en `validate_<campo>`,
+  porque DRF no lo invoca cuando el valor es `None`. La normalización solo
+  toca campos presentes: agregar uno ausente haría que editar el título
+  borrara la descripción existente.
+- **`src/app/api/tasks/[id]/route.ts`**: normaliza igual que su gemela de
+  creación, y muestra el mensaje real de Django.
+
+**Verificación:** 6 tests nuevos del serializador (nulo, vacío, texto,
+`color`, campos ausentes, título vacío) que **sí se ejecutan** — no tocan
+base de datos a propósito. ruff/black/isort limpios en los archivos tocados;
+los 2 avisos `B904` de `apps/tasks/` son preexistentes (verificado con el
+cambio guardado aparte).
+
 ## v1.156.4 — 2026-09-14
 
 **Tipo:** SECURITY

@@ -42,11 +42,27 @@ class TaskListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Task
         fields = [
-            "id", "title", "description", "type", "status", "priority", "frequency",
-            "start_date", "end_date", "estimated_hours", "real_hours",
-            "target_time_validated", "progress", "color", "corrected",
-            "assigned_to", "created_by", "comment_count", "has_unread_comments",
-            "created_at", "updated_at",
+            "id",
+            "title",
+            "description",
+            "type",
+            "status",
+            "priority",
+            "frequency",
+            "start_date",
+            "end_date",
+            "estimated_hours",
+            "real_hours",
+            "target_time_validated",
+            "progress",
+            "color",
+            "corrected",
+            "assigned_to",
+            "created_by",
+            "comment_count",
+            "has_unread_comments",
+            "created_at",
+            "updated_at",
         ]
         read_only_fields = fields
 
@@ -72,20 +88,31 @@ class TaskCreateSerializer(serializers.Serializer):
     description = serializers.CharField(required=False, allow_blank=True, default="")
     priority = serializers.ChoiceField(choices=Task.Priority.choices)
     frequency = serializers.ChoiceField(choices=Task.Frequency.choices)
-    type = serializers.ChoiceField(choices=Task.Type.choices, required=False, default=Task.Type.FIJA)
+    type = serializers.ChoiceField(
+        choices=Task.Type.choices, required=False, default=Task.Type.FIJA
+    )
     start_date = serializers.DateTimeField()
     end_date = serializers.DateTimeField()
     estimated_hours = serializers.FloatField(min_value=0)
     assigned_to = serializers.PrimaryKeyRelatedField(queryset=User.objects.all())
-    status = serializers.ChoiceField(choices=Task.Status.choices, required=False, default=Task.Status.PENDIENTE)
+    status = serializers.ChoiceField(
+        choices=Task.Status.choices, required=False, default=Task.Status.PENDIENTE
+    )
 
 
 class TaskUpdateSerializer(serializers.Serializer):
     """Todos los campos opcionales — el servicio decide cuáles de los
-    presentes puede tocar el actor (ver `services.py::update_task`)."""
+    presentes puede tocar el actor (ver `services.py::update_task`).
+
+    `description` y `color` aceptan `null` además de vacío: el formulario de
+    edición manda `null` cuando el campo quedó en blanco, y rechazarlo hacía
+    imposible guardar cualquier tarea sin descripción — que son casi todas
+    las importadas en masa. Se normaliza a cadena vacía en `validate`, que es
+    lo que espera el modelo (`TextField(blank=True, default="")`, nunca
+    nulo). Ver docs/AUDIT_LOG.md § 2026-09-14."""
 
     title = serializers.CharField(max_length=255, required=False)
-    description = serializers.CharField(required=False, allow_blank=True)
+    description = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     type = serializers.ChoiceField(choices=Task.Type.choices, required=False)
     priority = serializers.ChoiceField(choices=Task.Priority.choices, required=False)
     frequency = serializers.ChoiceField(choices=Task.Frequency.choices, required=False)
@@ -94,8 +121,16 @@ class TaskUpdateSerializer(serializers.Serializer):
     estimated_hours = serializers.FloatField(min_value=0, required=False)
     assigned_to = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), required=False)
     real_hours = serializers.FloatField(min_value=0, required=False)
-    color = serializers.CharField(required=False, allow_blank=True)
+    color = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     status = serializers.ChoiceField(choices=Task.Status.choices, required=False)
+
+    def validate(self, attrs):
+        # `validate_<campo>` no se ejecuta cuando el valor es None (DRF corta
+        # antes, en `validate_empty_values`), así que la normalización va acá.
+        for campo in ("description", "color"):
+            if attrs.get(campo) is None and campo in attrs:
+                attrs[campo] = ""
+        return attrs
 
 
 class CommentSerializer(serializers.ModelSerializer):
@@ -118,9 +153,21 @@ class ActivitySerializer(serializers.ModelSerializer):
     class Meta:
         model = TaskActivity
         fields = [
-            "id", "task", "author", "reason", "start_time", "end_time", "duration",
-            "description", "is_retroactive", "activity_date", "admin_comment",
-            "modified_by_admin", "modified_at", "comment_count", "created_at",
+            "id",
+            "task",
+            "author",
+            "reason",
+            "start_time",
+            "end_time",
+            "duration",
+            "description",
+            "is_retroactive",
+            "activity_date",
+            "admin_comment",
+            "modified_by_admin",
+            "modified_at",
+            "comment_count",
+            "created_at",
         ]
         read_only_fields = fields
 
@@ -174,8 +221,16 @@ class ActivityReasonSerializer(serializers.ModelSerializer):
     class Meta:
         model = ActivityReason
         fields = [
-            "id", "key", "label", "description", "is_active", "is_archived",
-            "archived_at", "assigned_roles", "created_at", "updated_at",
+            "id",
+            "key",
+            "label",
+            "description",
+            "is_active",
+            "is_archived",
+            "archived_at",
+            "assigned_roles",
+            "created_at",
+            "updated_at",
         ]
         read_only_fields = fields
 
@@ -213,8 +268,14 @@ class TargetTimeAuditLogSerializer(serializers.ModelSerializer):
     class Meta:
         model = TargetTimeAuditLog
         fields = [
-            "id", "user", "user_role", "previous_value", "new_value",
-            "reason", "reason_detail", "created_at",
+            "id",
+            "user",
+            "user_role",
+            "previous_value",
+            "new_value",
+            "reason",
+            "reason_detail",
+            "created_at",
         ]
         read_only_fields = fields
 
@@ -222,12 +283,14 @@ class TargetTimeAuditLogSerializer(serializers.ModelSerializer):
 class TargetTimeValidateSerializer(serializers.Serializer):
     new_value = serializers.FloatField(min_value=0.01)
     reason = serializers.ChoiceField(choices=TargetTimeAuditLog.Reason.choices)
-    reason_detail = serializers.CharField(required=False, allow_null=True, allow_blank=True, default=None)
+    reason_detail = serializers.CharField(
+        required=False, allow_null=True, allow_blank=True, default=None
+    )
 
     def validate(self, attrs):
         if attrs["reason"] == TargetTimeAuditLog.Reason.OTRO and not attrs.get("reason_detail"):
             raise serializers.ValidationError(
-                {"reason_detail": ["Debes indicar el detalle cuando el motivo es \"Otro\"."]}
+                {"reason_detail": ['Debes indicar el detalle cuando el motivo es "Otro".']}
             )
         return attrs
 
@@ -240,12 +303,14 @@ class TargetTimeBulkValidateSerializer(serializers.Serializer):
     task_ids = serializers.ListField(child=serializers.IntegerField(), allow_empty=False)
     new_value = serializers.FloatField(min_value=0.01)
     reason = serializers.ChoiceField(choices=TargetTimeAuditLog.Reason.choices)
-    reason_detail = serializers.CharField(required=False, allow_null=True, allow_blank=True, default=None)
+    reason_detail = serializers.CharField(
+        required=False, allow_null=True, allow_blank=True, default=None
+    )
 
     def validate(self, attrs):
         if attrs["reason"] == TargetTimeAuditLog.Reason.OTRO and not attrs.get("reason_detail"):
             raise serializers.ValidationError(
-                {"reason_detail": ["Debes indicar el detalle cuando el motivo es \"Otro\"."]}
+                {"reason_detail": ['Debes indicar el detalle cuando el motivo es "Otro".']}
             )
         return attrs
 
@@ -255,7 +320,16 @@ class EndDateAuditLogSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = EndDateAuditLog
-        fields = ["id", "user", "user_role", "action", "previous_value", "new_value", "observaciones", "created_at"]
+        fields = [
+            "id",
+            "user",
+            "user_role",
+            "action",
+            "previous_value",
+            "new_value",
+            "observaciones",
+            "created_at",
+        ]
         read_only_fields = fields
 
 
@@ -272,12 +346,14 @@ END_DATE_DECISION_CHOICES = (
 class EndDateActionSerializer(serializers.Serializer):
     action = serializers.ChoiceField(choices=END_DATE_DECISION_CHOICES)
     new_end_date = serializers.DateTimeField(required=False, allow_null=True, default=None)
-    observaciones = serializers.CharField(required=False, allow_null=True, allow_blank=True, default=None)
+    observaciones = serializers.CharField(
+        required=False, allow_null=True, allow_blank=True, default=None
+    )
 
     def validate(self, attrs):
         if attrs["action"] == "MODIFICAR" and not attrs.get("new_end_date"):
             raise serializers.ValidationError(
-                {"new_end_date": ["Requerido cuando la acción es \"MODIFICAR\"."]}
+                {"new_end_date": ['Requerido cuando la acción es "MODIFICAR".']}
             )
         return attrs
 
@@ -293,7 +369,9 @@ class EndDateBulkApproveItemSerializer(serializers.Serializer):
 
 class EndDateBulkApproveSerializer(serializers.Serializer):
     items = EndDateBulkApproveItemSerializer(many=True, allow_empty=False)
-    observaciones = serializers.CharField(required=False, allow_null=True, allow_blank=True, default=None)
+    observaciones = serializers.CharField(
+        required=False, allow_null=True, allow_blank=True, default=None
+    )
 
 
 class CorrectTaskSerializer(serializers.Serializer):
@@ -303,7 +381,9 @@ class CorrectTaskSerializer(serializers.Serializer):
     `MonthClosureService.correct_archived_task`)."""
 
     real_hours = serializers.FloatField(min_value=0, required=False, default=None, allow_null=True)
-    status = serializers.ChoiceField(choices=Task.Status.choices, required=False, default=None, allow_null=True)
+    status = serializers.ChoiceField(
+        choices=Task.Status.choices, required=False, default=None, allow_null=True
+    )
 
     def validate(self, attrs):
         if attrs.get("real_hours") is None and attrs.get("status") is None:
@@ -320,8 +400,18 @@ class PendingTaskSerializer(serializers.ModelSerializer):
     class Meta:
         model = Task
         fields = [
-            "id", "title", "status", "type", "priority", "start_date",
-            "estimated_hours", "real_hours", "target_time_validated",
-            "end_date", "end_date_approval_status", "archived_month", "assigned_to",
+            "id",
+            "title",
+            "status",
+            "type",
+            "priority",
+            "start_date",
+            "estimated_hours",
+            "real_hours",
+            "target_time_validated",
+            "end_date",
+            "end_date_approval_status",
+            "archived_month",
+            "assigned_to",
         ]
         read_only_fields = fields
