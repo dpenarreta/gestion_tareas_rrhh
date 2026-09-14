@@ -234,8 +234,16 @@ class AuthenticationService:
         return tokens
 
     @staticmethod
-    @transaction.atomic
     def refresh_tokens(*, refresh_token_str: str, ip_address: str | None = None) -> dict:
+        """Rota el par de tokens, tolerando el reintento concurrente.
+
+        La revocación por robo se ejecuta FUERA de la transacción a
+        propósito: `session.revoke()` seguido de un `raise` dentro de un
+        `atomic` revierte la propia revocación al propagarse la excepción, y
+        la detección de robo queda en nada. Pasó de verdad al introducir el
+        bloqueo de fila, y se detectó porque la prueba de robo en producción
+        mostró la sesión todavía viva (ver docs/AUDIT_LOG.md § 2026-09-14).
+        """
         try:
             refresh = RefreshToken(refresh_token_str)
         except TokenError:
@@ -243,6 +251,31 @@ class AuthenticationService:
                 "El token de actualización es inválido o expiró.", code="invalid_refresh"
             ) from None
 
+        resultado = AuthenticationService._rotar_con_bloqueo(refresh, ip_address)
+
+        a_revocar, motivo = resultado.get("revocar", (None, None))
+        if a_revocar is not None:
+            a_revocar.revoke()
+            if motivo == "refresh_reused":
+                logger.error(
+                    "Reutilización de refresh token detectada para sesión=%s", a_revocar.id
+                )
+                raise AuthenticationFailed(
+                    "El token de actualización ya no es válido.", code="refresh_reused"
+                )
+            raise AuthenticationFailed("La sesión ya no es válida.", code="session_revoked")
+
+        return resultado["tokens"]
+
+    @staticmethod
+    @transaction.atomic
+    def _rotar_con_bloqueo(refresh, ip_address: str | None) -> dict:
+        """Todo lo que toca la fila de la sesión, bajo bloqueo.
+
+        Devuelve `{"tokens": ...}` o `{"revocar": (sesión, motivo)}` en vez de
+        revocar acá: lo segundo tiene que sobrevivir a la excepción que sale
+        de este método, y dentro del `atomic` no sobreviviría.
+        """
         # `select_for_update` y no un `filter` suelto: sin el bloqueo de fila,
         # varias peticiones simultáneas leen la sesión ANTES de que ninguna
         # escriba, todas ven el jti vigente y todas rotan. Se verificó en
@@ -280,26 +313,20 @@ class AuthenticationService:
                 # emitir un segundo refresh dejaría dos válidos en circulación
                 # y el siguiente uso del perdedor revocaría igual.
                 if not session.user.is_active:
-                    session.revoke()
-                    raise AuthenticationFailed("La sesión ya no es válida.", code="session_revoked")
+                    return {"revocar": (session, "session_revoked")}
                 logger.info(
                     "Refresh concurrente dentro de la ventana de gracia para sesión=%s",
                     session.id,
                 )
-                return issue_access_token(session.user, session)
+                return {"tokens": issue_access_token(session.user, session)}
 
             # Fuera de la ventana el criterio no cambia: un refresh ya rotado
             # es un token robado hasta que se demuestre lo contrario, y se
             # revoca la sesión entera como contención.
-            session.revoke()
-            logger.error("Reutilización de refresh token detectada para sesión=%s", session.id)
-            raise AuthenticationFailed(
-                "El token de actualización ya no es válido.", code="refresh_reused"
-            )
+            return {"revocar": (session, "refresh_reused")}
 
         if not session.user.is_active:
-            session.revoke()
-            raise AuthenticationFailed("La sesión ya no es válida.", code="session_revoked")
+            return {"revocar": (session, "session_revoked")}
 
         tokens = issue_token_pair(session.user, session)
         session.previous_refresh_token_jti = session.refresh_token_jti
@@ -316,7 +343,7 @@ class AuthenticationService:
                 "last_used_at",
             ]
         )
-        return tokens
+        return {"tokens": tokens}
 
     @staticmethod
     def _es_reintento_concurrente(session: Session, jti: str | None) -> bool:

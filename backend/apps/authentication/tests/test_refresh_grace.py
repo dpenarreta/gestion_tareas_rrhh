@@ -87,9 +87,27 @@ def test_la_revocacion_por_reutilizacion_sigue_existiendo():
     # detección de robo al hacerlo.
     import inspect
 
-    fuente = inspect.getsource(AuthenticationService.refresh_tokens)
+    fuente = inspect.getsource(AuthenticationService.__dict__["refresh_tokens"].__func__)
     assert "refresh_reused" in fuente
-    assert "session.revoke()" in fuente
+    assert ".revoke()" in fuente
+
+
+def test_la_revocacion_ocurre_fuera_de_la_transaccion():
+    # `session.revoke()` seguido de un `raise` DENTRO de un `atomic` revierte
+    # la propia revocación al propagarse la excepción, y la detección de robo
+    # queda en nada. Pasó al introducir el bloqueo de fila y se detectó
+    # probando el robo contra producción: la sesión seguía viva.
+    import inspect
+
+    publica = inspect.getsource(AuthenticationService.__dict__["refresh_tokens"].__func__)
+    interna = inspect.getsource(AuthenticationService.__dict__["_rotar_con_bloqueo"].__func__)
+
+    # Quien revoca es el método SIN transacción.
+    assert ".revoke()" in publica
+    assert "@transaction.atomic" not in publica
+    # Y el que la tiene no revoca: solo informa qué habría que revocar.
+    assert "@transaction.atomic" in interna
+    assert ".revoke()" not in interna
 
 
 def test_el_refresco_bloquea_la_fila_de_la_sesion():
@@ -99,7 +117,7 @@ def test_el_refresco_bloquea_la_fila_de_la_sesion():
     # revocarían más tarde. El bloqueo es parte del arreglo, no un detalle.
     import inspect
 
-    fuente = inspect.getsource(AuthenticationService.refresh_tokens)
+    fuente = inspect.getsource(AuthenticationService.__dict__["_rotar_con_bloqueo"].__func__)
     assert "select_for_update" in fuente
 
 
@@ -109,5 +127,5 @@ def test_el_refresco_corre_dentro_de_una_transaccion():
     # atomic van juntos, y quitar uno rompe el otro en producción, no acá.
     import inspect
 
-    fuente = inspect.getsource(AuthenticationService.__dict__["refresh_tokens"].__func__)
+    fuente = inspect.getsource(AuthenticationService.__dict__["_rotar_con_bloqueo"].__func__)
     assert "@transaction.atomic" in fuente

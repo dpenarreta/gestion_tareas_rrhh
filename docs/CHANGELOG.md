@@ -51,6 +51,13 @@ legítimas (ver docs/AUDIT_LOG.md § 2026-09-14, sesiones).
   que ninguno escribiera. No revocaban (eso ya estaba arreglado), pero dejaban
   refresh huérfanos que revocarían más tarde. Con el bloqueo, las perdedoras
   entran cuando la rotación ya está escrita y caen en la rama del reintento.
+- **La revocación por robo se ejecuta FUERA de la transacción.**
+  `session.revoke()` seguido de un `raise` dentro de un `atomic` revierte la
+  propia revocación al propagarse la excepción — la detección de robo quedaba
+  anulada. Lo introdujo el bloqueo de fila de este mismo cambio y lo delató la
+  prueba de robo contra producción, que mostró la sesión todavía viva. El
+  método público decide y revoca; el interno, bajo transacción, solo informa
+  qué habría que revocar.
 - **La detección de robo no se toca**: fuera de la ventana, un refresh ya
   rotado sigue revocando la sesión completa. Hay un test que falla si alguien
   quita ese bloque.
@@ -62,7 +69,7 @@ legítimas (ver docs/AUDIT_LOG.md § 2026-09-14, sesiones).
 - **`src/app/login/page.tsx`**: aviso propio para la sesión vencida, distinto
   del rechazo de consentimiento — quien llega por expiración no hizo nada mal.
 
-**Verificación:** 14 tests nuevos de la ventana de gracia y del bloqueo, ejecutados (no
+**Verificación:** 15 tests nuevos de la ventana de gracia, el bloqueo y la revocación, ejecutados (no
 tocan base de datos), incluidos los del límite exacto y el que impide quitar
 la revocación por robo. 1216/1216 en Vitest, `tsc` limpio,
 ruff/black/isort limpios.
