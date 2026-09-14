@@ -112,6 +112,48 @@ def test_frontend_url_en_localhost_con_smtp_real_advierte():
     assert "nexo.email.W007" in _ids(configuracion)
 
 
+def test_password_con_enie_advierte():
+    # La autenticación SMTP se codifica en ASCII: una ñ en la contraseña
+    # lanza UnicodeEncodeError dentro del try que silencia el envío, así que
+    # el correo no sale aunque el servidor y el certificado estén bien
+    # (caso real del 2026-09-14, ver docs/AUDIT_LOG.md).
+    configuracion = {**CONFIGURACION_VALIDA, "EMAIL_HOST_PASSWORD": "clave-con-ñ"}
+    assert "nexo.email.W008" in _ids(configuracion)
+
+
+def test_usuario_con_tilde_advierte():
+    configuracion = {**CONFIGURACION_VALIDA, "EMAIL_HOST_USER": "josé@empresa.test"}
+    assert "nexo.email.W008" in _ids(configuracion)
+
+
+def test_la_advertencia_no_revela_la_contraseña():
+    # El texto del check termina en la salida de `manage.py check`, que en
+    # producción se registra en los logs del servicio: nombrar la variable
+    # sí, mostrar su valor nunca.
+    secreto = "clave-con-ñ"
+    with override_settings(**{**CONFIGURACION_VALIDA, "EMAIL_HOST_PASSWORD": secreto}):
+        advertencias = check_email_settings(app_configs=None)
+    texto = " ".join(f"{a.msg} {a.hint}" for a in advertencias)
+    assert secreto not in texto
+    assert "EMAIL_HOST_PASSWORD" in texto
+
+
+def test_credenciales_ascii_no_advierten():
+    # Los símbolos ASCII poco habituales son válidos y no deben advertir.
+    configuracion = {**CONFIGURACION_VALIDA, "EMAIL_HOST_PASSWORD": "q3=y266Pp!#$%&*+-?@^_"}
+    assert "nexo.email.W008" not in _ids(configuracion)
+
+
+def test_password_no_ascii_sin_backend_smtp_no_advierte():
+    # Con el backend de consola no hay autenticación SMTP: nada que romper.
+    configuracion = {
+        **CONFIGURACION_VALIDA,
+        "EMAIL_BACKEND": CONSOLE_BACKEND,
+        "EMAIL_HOST_PASSWORD": "clave-con-ñ",
+    }
+    assert "nexo.email.W008" not in _ids(configuracion)
+
+
 def test_el_check_esta_registrado_en_django():
     from django.core.checks import registry
 

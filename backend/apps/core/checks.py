@@ -151,4 +151,37 @@ def check_email_settings(app_configs, **kwargs):
             )
         )
 
+    # SMTP autentica en ASCII estricto: `smtplib` arma la cadena
+    # "usuario\0contraseña" y la codifica con .encode("ascii"), así que un
+    # solo carácter fuera de ASCII (una ñ, una vocal con tilde) lanza
+    # UnicodeEncodeError DENTRO del try que silencia el envío. El síntoma es
+    # el peor posible: la conexión y el certificado están bien, el servidor
+    # responde, y aun así no sale ningún correo. Pasó de verdad el
+    # 2026-09-14 al rotar la contraseña del buzón (ver docs/AUDIT_LOG.md).
+    if _is_smtp():
+        credenciales_no_ascii = [
+            nombre
+            for nombre, valor in (
+                ("EMAIL_HOST_USER", settings.EMAIL_HOST_USER),
+                ("EMAIL_HOST_PASSWORD", settings.EMAIL_HOST_PASSWORD),
+            )
+            if valor and not valor.isascii()
+        ]
+        if credenciales_no_ascii:
+            verbo = "contienen" if len(credenciales_no_ascii) > 1 else "contiene"
+            errors.append(
+                CheckWarning(
+                    f"{' y '.join(credenciales_no_ascii)} {verbo} caracteres fuera de ASCII.",
+                    hint=(
+                        "La autenticación SMTP no los admite: el envío falla con "
+                        "UnicodeEncodeError y, como el error se silencia, nadie "
+                        "recibe el correo aunque el servidor esté bien configurado. "
+                        "Cambiá la contraseña del buzón por una de letras sin tilde, "
+                        "dígitos y símbolos ASCII (! # $ % & * + - = ? @ ^ _), y "
+                        "verificá con: manage.py diagnose_email <destinatario>"
+                    ),
+                    id="nexo.email.W008",
+                )
+            )
+
     return errors
