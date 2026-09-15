@@ -230,30 +230,36 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
 
       {/* Tab bar */}
       <div className="flex items-center justify-between gap-2 mb-5 relative">
-        <div className="flex items-center gap-0.5 bg-surface2 rounded-[10px] p-1 overflow-x-auto min-w-0">
-          {activeViews.map((view) => (
-            <button
-              key={view}
-              onClick={() => { setCurrentView(view); setShowRepository(false); }}
-              className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-[8px] text-[13px] transition-all ${
-                !showRepository && currentView === view
-                  ? "bg-surface text-title font-semibold shadow-[var(--shadow)]"
-                  : "text-secondary hover:text-title font-medium"
-              }`}
-            >
-              {VIEW_LABELS[view]}
-              {activeViews.length > 1 && (
-                <span
-                  onClick={(e) => removeView(view, e)}
-                  className="ml-0.5 w-4 h-4 flex items-center justify-center rounded-full text-[11px] leading-none hover:bg-surface2 hover:text-title text-disabled transition-colors"
-                  role="button"
-                  aria-label={`Cerrar ${VIEW_LABELS[view]}`}
-                >
-                  ×
-                </span>
-              )}
-            </button>
-          ))}
+        {/* El scroll horizontal vive solo en las pestañas: `overflow-x-auto` recorta
+            también en vertical (el eje Y deja de ser `visible` por regla de CSS), y
+            con el panel de "+ Vista" dentro quedaba inalcanzable — cerrar una vista
+            era irreversible desde la interfaz. */}
+        <div className="flex items-center gap-0.5 bg-surface2 rounded-[10px] p-1 min-w-0">
+          <div className="flex items-center gap-0.5 overflow-x-auto min-w-0">
+            {activeViews.map((view) => (
+              <button
+                key={view}
+                onClick={() => { setCurrentView(view); setShowRepository(false); }}
+                className={`flex items-center gap-1.5 px-3.5 py-1.5 rounded-[8px] text-[13px] transition-all ${
+                  !showRepository && currentView === view
+                    ? "bg-surface text-title font-semibold shadow-[var(--shadow)]"
+                    : "text-secondary hover:text-title font-medium"
+                }`}
+              >
+                {VIEW_LABELS[view]}
+                {activeViews.length > 1 && (
+                  <span
+                    onClick={(e) => removeView(view, e)}
+                    className="ml-0.5 w-4 h-4 flex items-center justify-center rounded-full text-[11px] leading-none hover:bg-surface2 hover:text-title text-disabled transition-colors"
+                    role="button"
+                    aria-label={`Cerrar ${VIEW_LABELS[view]}`}
+                  >
+                    ×
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
 
           {availableViews.length > 0 && (
             <div className="relative">

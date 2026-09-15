@@ -15,6 +15,58 @@
 
 ---
 
+## 2026-09-15 — Cerrar una vista de Trabajo era irreversible: el panel para reabrirla quedaba recortado
+
+**Cómo apareció:** durante una prueba integral de la interfaz en producción se
+pulsó la "×" de la pestaña "Kanban" creyendo que abría un desplegable de
+configuración. La vista desapareció, y tras recargar la página seguía sin
+estar: `removeView()` persiste con `PATCH /api/users/{id}/view-preferences`, así
+que el cambio ya estaba guardado en el servidor.
+
+**Lo que había detrás:** el camino de vuelta no existía. El panel de "+ Vista"
+—único lugar donde se reabre una vista cerrada— se renderiza como
+`absolute top-full` dentro del contenedor de las pestañas, que llevaba
+`overflow-x-auto`. Al declarar un eje de `overflow` distinto de `visible`, CSS
+computa el otro como `auto`: el contenedor recorta también en vertical, y el
+panel, dibujado debajo de sus 55 px de alto, quedaba fuera. El `z-50` no
+cambia nada, porque el recorte por overflow no depende del apilamiento.
+
+**Verificado de tres formas** antes de tocar el código: el botón "Kanban" del
+panel existe en el DOM en `y=224` mientras el contenedor termina en `y=195`;
+un clic en esa posición real solo cierra el panel; y al desplazarse dentro del
+contenedor asoma una franja del panel, nunca lo suficiente para pulsar una
+opción.
+
+**Alternativas consideradas:**
+
+- *Quitar `overflow-x-auto` del contenedor.* Arregla el recorte y rompe otra
+  cosa: con tres vistas abiertas más "Repositorio", la barra desborda en
+  pantallas angostas. El scroll horizontal está ahí por una razón.
+- *Mover el panel a un portal o a `position: fixed`.* Funciona, pero obliga a
+  calcular y sincronizar la posición del botón a mano (scroll, resize), y no
+  hay ningún otro panel del proyecto que lo necesite. Complejidad sin caso.
+- *Acotar el scroll a las pestañas* (elegida). El `overflow-x-auto` pasa a un
+  contenedor interno que envuelve solo el `map` de pestañas, que son las que
+  crecen. "+ Vista" y "Repositorio" quedan fuera del recorte, en el mismo
+  orden visual y con el mismo fondo. Una capa de más en el DOM, nada de
+  lógica nueva.
+
+**Sobre la "×" que dispara todo esto:** se deja como está. Es un `<span
+role="button">` de 16 px dentro del `<button>` de la pestaña, fácil de pulsar
+sin querer, y `removeView()` no pide confirmación. Con el panel accesible la
+acción vuelve a ser reversible en dos clics, que era el problema real; endurecer
+el control (confirmación, o sacarlo del botón) es una decisión de UX aparte, no
+parte de este arreglo.
+
+**Impacto:** ninguna regla de negocio cambia. Nadie vuelve a perder una vista
+de forma permanente. La preferencia guardada durante el incidente no se
+revierte sola: la cuenta afectada queda con "Kanban" cerrada hasta que se
+despliegue este arreglo y se la reabra desde "+ Vista".
+
+**Aprobado por:** Anthony Jácome.
+
+---
+
 ## 2026-09-14 — Las sesiones se revocaban solas: la rotación del refresh token contra la concurrencia normal
 
 **Cómo apareció:** un usuario reportó que el aviso de tratamiento de datos le

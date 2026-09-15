@@ -23,6 +23,36 @@
 
 ---
 
+## v1.157.1 — 2026-09-15
+
+**Tipo:** FIX
+**Módulo:** Trabajo — cerrar una vista era irreversible (ver
+docs/AUDIT_LOG.md § 2026-09-15).
+
+- **Síntoma:** al pulsar la "×" de una pestaña de vista, la vista desaparecía
+  y no había forma de volver a abrirla. Sobrevive a la recarga porque
+  `removeView()` persiste con `PATCH /api/users/{id}/view-preferences`.
+- **La causa:** el panel de "+ Vista" es `absolute top-full` dentro del
+  contenedor de pestañas, que tenía `overflow-x-auto`. Declarar un eje de
+  `overflow` distinto de `visible` hace que CSS compute el otro como `auto`,
+  así que el contenedor recortaba también en vertical y el panel —dibujado
+  bajo sus 55 px de alto— quedaba fuera. El `z-50` no interviene: el recorte
+  por overflow no depende del apilamiento.
+- **`src/components/tasks/TasksModule.tsx`**: el `overflow-x-auto` baja a un
+  contenedor interno que envuelve solo el `map` de pestañas. "+ Vista" y
+  "Repositorio" quedan fuera del recorte, sin cambio visual ni de orden. Se
+  descartó quitar el scroll (la barra desborda en pantallas angostas con tres
+  vistas y "Repositorio") y mover el panel a un portal (obliga a sincronizar
+  posición a mano, sin otro caso en el proyecto que lo justifique).
+- **La "×" no se toca**: sigue sin confirmación y dentro del botón de la
+  pestaña. Con el panel accesible la acción es reversible en dos clics;
+  endurecer ese control es una decisión de UX aparte.
+
+**Verificación:** 3 tests nuevos (`TasksModuleViewTabs.test.tsx`) sobre los
+ancestros que recortan, la conservación del scroll horizontal y la presencia
+de los controles de cierre. Se comprobó que fallan al reintroducir el
+`overflow-x-auto` original. 1219/1219 en Vitest, `tsc` y ESLint limpios.
+
 ## v1.157.0 — 2026-09-14
 
 **Tipo:** SECURITY
