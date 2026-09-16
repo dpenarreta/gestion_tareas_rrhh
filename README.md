@@ -331,6 +331,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-09-16: fix(tests): la deteccion de robo de refresh token no tenia cobertura real (v1.158.1)
 - 2026-09-16: feat(sesiones): cierre por inactividad a las 8h y "recordarme" pasa al correo (v1.158.0)
 - 2026-09-15: fix(trabajo): cerrar una vista era irreversible desde la interfaz (v1.157.1)
 - 2026-09-14: fix(sesiones): la revocacion por robo se revertia con la transaccion

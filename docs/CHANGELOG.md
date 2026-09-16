@@ -23,6 +23,36 @@
 
 ---
 
+## v1.158.1 — 2026-09-16
+
+**Tipo:** FIX
+**Módulo:** Tests de autenticación — la detección de robo de refresh token
+había quedado sin cobertura real de comportamiento.
+
+- **Síntoma:** `test_reusing_a_rotated_refresh_token_revokes_the_session_and_is_rejected`
+  fallaba desde v1.157.0. No es un bug de producto: el test reutilizaba el
+  refresh **de inmediato**, y desde la ventana de gracia eso es, por diseño,
+  un reintento concurrente y no un robo.
+- **Lo que el fallo tapaba:** el test que v1.157.0 dejó como guardián
+  (`test_la_revocacion_por_reutilizacion_sigue_existiendo`) no ejercita nada
+  — hace `inspect.getsource` y comprueba que en el código aparezcan los
+  textos `"refresh_reused"` y `".revoke()"`. Pasa aunque la lógica esté rota.
+  Con el otro test en rojo, **no quedaba ninguna prueba de comportamiento**
+  de que un refresh robado revoque la sesión.
+- **Verificado antes de tocar el test:** con la rotación envejecida más allá
+  de la ventana, la reutilización revoca la sesión y registra "Reutilización
+  de refresh token detectada". La protección estaba intacta; lo que faltaba
+  era la prueba.
+- **`test_auth_security.py`**: el test ahora envejece `rotated_at` para
+  ejercitar el robo real, y se agrega su contracara
+  (`..._within_the_grace_window_is_a_retry`), que verifica que dentro de la
+  ventana no se revoca y que el reintento devuelve **solo** un access token.
+  Sin esa segunda mitad, "arreglar" el primero ampliando la ventana pasaría
+  inadvertido.
+
+**Verificación:** 82 passed en `apps/authentication` — la suite queda verde
+por primera vez desde v1.157.0. ruff y black limpios.
+
 ## v1.158.0 — 2026-09-16
 
 **Tipo:** SECURITY

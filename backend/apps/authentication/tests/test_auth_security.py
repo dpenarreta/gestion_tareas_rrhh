@@ -4,6 +4,7 @@ from datetime import timedelta
 
 import pytest
 from django.conf import settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import AccessToken
 
@@ -158,6 +159,15 @@ def test_refresh_with_valid_token_issues_new_access_and_keeps_session(user):
 
 
 def test_reusing_a_rotated_refresh_token_revokes_the_session_and_is_rejected():
+    """Reutilización pasada la ventana de gracia: robo, y se revoca la sesión.
+
+    El test comprobaba la reutilización INMEDIATA, que desde v1.157.0 es otra
+    cosa: al caducar el access token el navegador dispara varias peticiones a
+    la vez con la misma cookie, y dentro de `REFRESH_ROTATION_GRACE_SECONDS`
+    eso se acepta como reintento concurrente (ver docs/AUDIT_LOG.md §
+    2026-09-14). El escenario de robo es el mismo refresh usado MÁS TARDE, y
+    es el que se ejercita acá.
+    """
     user = User.objects.create_user(
         username="lin", email="lin@example.com", password="Sup3r-Secr3t!"
     )
@@ -169,13 +179,43 @@ def test_reusing_a_rotated_refresh_token_revokes_the_session_and_is_rejected():
     # Rotación legítima: el refresh original queda obsoleto.
     AuthenticationService.refresh_tokens(refresh_token_str=tokens["refresh"])
 
-    # Reutilización del refresh original ya rotado.
+    # Envejecer la rotación es lo que separa "ráfaga de la misma carga de
+    # página" de "alguien guardó este token y lo usó después".
+    Session.objects.filter(pk=session.pk).update(
+        rotated_at=timezone.now() - timedelta(seconds=settings.REFRESH_ROTATION_GRACE_SECONDS + 60)
+    )
+
     with pytest.raises(Exception) as exc_info:
         AuthenticationService.refresh_tokens(refresh_token_str=tokens["refresh"])
     assert exc_info.value.status_code == 401
 
     session.refresh_from_db()
     assert not session.is_active
+
+
+def test_reusing_a_rotated_refresh_token_within_the_grace_window_is_a_retry():
+    """La contracara: dentro de la ventana no se revoca nada.
+
+    Sin esta mitad, "arreglar" el test de arriba ampliando la ventana pasaría
+    inadvertido. Acá se verifica además que el reintento devuelve SOLO un
+    access token: emitir un segundo refresh dejaría dos válidos en
+    circulación y el perdedor revocaría la sesión más tarde.
+    """
+    user = User.objects.create_user(
+        username="rem", email="rem@example.com", password="Sup3r-Secr3t!"
+    )
+    tokens = AuthenticationService.authenticate_and_issue_tokens(
+        identifier="rem", password="Sup3r-Secr3t!"
+    )
+    session = Session.objects.get(user=user)
+
+    AuthenticationService.refresh_tokens(refresh_token_str=tokens["refresh"])
+    reintento = AuthenticationService.refresh_tokens(refresh_token_str=tokens["refresh"])
+
+    assert "access" in reintento
+    assert "refresh" not in reintento
+    session.refresh_from_db()
+    assert session.is_active
 
 
 # --- Protección contra fuerza bruta --------------------------------------------
