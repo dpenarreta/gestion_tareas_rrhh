@@ -107,9 +107,16 @@ type Props = {
   onClose: () => void;
   readOnly?: boolean;
   activityFormat?: ActivityFormat;
+  /**
+   * Registrar, editar o borrar una actividad cambia `realHours` y `progress`
+   * de la tarea, que la lista de atrás ya está mostrando (la columna
+   * "H. Reales" de la vista Tabla, por ejemplo). Sin este aviso, el panel se
+   * actualizaba solo y el número de la lista quedaba viejo hasta recargar.
+   */
+  onActivitiesChanged?: () => void;
 };
 
-export default function ActivityPanel({ task, currentUserId, currentUserRole, onClose, readOnly = false, activityFormat = "duration" }: Props) {
+export default function ActivityPanel({ task, currentUserId, currentUserRole, onClose, readOnly = false, activityFormat = "duration", onActivitiesChanged }: Props) {
   const [activities, setActivities] = useState<TaskActivity[]>([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -279,6 +286,7 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
         setEndTime("");
         setDescription("");
         setReason(selectable[0]?.key ?? "");
+        onActivitiesChanged?.();
       } else {
         let msg = "Error al registrar";
         try {
@@ -294,10 +302,12 @@ export default function ActivityPanel({ task, currentUserId, currentUserRole, on
 
   function handleActivityDeleted(activityId: string) {
     setActivities((prev) => prev.filter((a) => a.id !== activityId));
+    onActivitiesChanged?.();
   }
 
   function handleActivityUpdated(updated: TaskActivity) {
     setActivities((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+    onActivitiesChanged?.();
   }
 
   return (

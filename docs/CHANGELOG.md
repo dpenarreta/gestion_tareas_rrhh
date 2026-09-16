@@ -23,6 +23,32 @@
 
 ---
 
+## v1.158.2 — 2026-09-16
+
+**Tipo:** FIX
+**Módulo:** Trabajo — registrar una actividad no actualizaba la lista de tareas.
+
+- **Síntoma:** al registrar (o editar/borrar) una actividad desde el panel, el
+  panel se actualizaba solo, pero la lista de atrás seguía mostrando el valor
+  viejo. Se ve claro en la columna **"H. Reales"** de la vista Tabla
+  (`TableView.tsx:239`, `task.realHours`), que cambia con cada actividad.
+- **La causa:** `ActivityPanel` no tenía forma de avisar al padre — su única
+  prop de salida era `onClose`. Actualizaba su propio estado con
+  `setActivities` y ahí terminaba.
+- **`ActivityPanel`** recibe `onActivitiesChanged?` y lo llama al crear,
+  editar y borrar. `KanbanView` y `TableView` lo conectan al `onRefresh` que
+  **ya recibían** de `TasksModule` (`refreshTasks`): no hizo falta una prop
+  nueva en las vistas ni tocar `TasksModule`.
+- **Revisadas las 50 creaciones (`POST`) de los componentes**: las demás ya
+  refrescaban su propia vista (crear tarea desde Trabajo, Inicio y Equipo;
+  crear usuario; feriados; permisos; comunicados). Este era el único caso en
+  que la escritura afectaba datos mostrados por **otro** componente.
+
+**Verificación:** 1226/1226 en Vitest, `tsc` y ESLint limpios. El arreglo en
+sí quedó sin test unitario: montar `ActivityPanel` exige simular las cinco
+llamadas que hace al abrirse, y el costo no se justificaba para un cambio de
+cuatro líneas — se verifica en la aplicación real.
+
 ## v1.158.1 — 2026-09-16
 
 **Tipo:** FIX

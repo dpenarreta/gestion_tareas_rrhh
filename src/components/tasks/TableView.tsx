@@ -689,6 +689,7 @@ export default function TableView({
           currentUserRole={currentUserRole}
           activityFormat={activityFormat}
           onClose={() => setActivityTask(null)}
+          onActivitiesChanged={onRefresh}
         />
       )}
 

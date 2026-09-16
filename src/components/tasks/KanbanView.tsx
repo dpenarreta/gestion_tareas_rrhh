@@ -316,6 +316,7 @@ export default function KanbanView({
           currentUserRole={currentUserRole}
           activityFormat={activityFormat}
           onClose={() => setActivityTask(null)}
+          onActivitiesChanged={onRefresh}
         />
       )}
 
