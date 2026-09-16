@@ -23,6 +23,49 @@
 
 ---
 
+## v1.158.0 — 2026-09-16
+
+**Tipo:** SECURITY
+**Módulo:** Sesiones y login — cierre por inactividad y "recordarme" (ver
+docs/AUDIT_LOG.md § 2026-09-16).
+
+- **Cierre por inactividad a las 8 horas** (`SESSION_IDLE_TIMEOUT_HOURS`,
+  configurable por entorno). Se mide contra `Session.last_used_at`, que ya
+  existía: **sin migración**. `SessionAuthentication` corta y revoca en
+  cualquier petición autenticada, y el refresh hace lo mismo devolviendo la
+  revocación para ejecutarla fuera del `atomic` (dentro se revertiría sola,
+  ver § 2026-09-14).
+- **El sondeo automático no cuenta como actividad.** La campana late cada 30s
+  y el Escritorio Digital sondea en el `Sidebar`: si contaran, una pestaña
+  abierta y olvidada mantendría la sesión viva para siempre y nada se
+  cerraría nunca. Viajan con `X-Nexo-Background: 1`, que `djangoApiFetch`
+  propaga solo —una vez, no ruta por ruta— y Django ignora para el contador.
+  Sí se lo sigue evaluando: una petición de fondo sobre una sesión ya vencida
+  la cierra igual.
+- **`Session.touch()` con throttle de 60s** (`SESSION_ACTIVITY_THROTTLE_SECONDS`):
+  sin él, cada request sería un UPDATE contra SQL Server para una ventana
+  medida en horas.
+- **`SessionIdleTimeout`**: subclase propia porque `api_exception_handler` lee
+  `default_code` de la clase y el `code=` del constructor nunca llega al
+  frontend — misma trampa ya documentada en `PasswordChangeRequired`.
+- **"Recordarme por 30 días" pasa a ser "Recordar mi correo por 30 días"**:
+  guarda el correo en `localStorage` con vencimiento propio y precarga el
+  formulario. **La contraseña no se almacena**: los campos llevan
+  `autocomplete="username"`/`"current-password"` para que la complete el
+  gestor del navegador. La casilla deja de alargar la sesión, así que ahora
+  hay una sola política de duración para todos los roles.
+
+**Verificación:** 8 tests nuevos en Django (la ventana, el límite exacto, qué
+cuenta como actividad, el throttle y la revocación en el refresh) y 7 en
+Vitest (incluido uno que falla si la contraseña llegara a guardarse).
+80 passed en `apps/authentication`, 1219/1219 en Vitest, `tsc` y ESLint
+limpios, ruff/black/isort limpios.
+
+**Pendiente, no introducido por este cambio:**
+`test_reusing_a_rotated_refresh_token_revokes_the_session_and_is_rejected`
+falla desde v1.157.0 — la ventana de gracia lo trata como reintento
+concurrente. Verificado con `git stash`: ya fallaba antes de tocar nada.
+
 ## v1.157.1 — 2026-09-15
 
 **Tipo:** FIX

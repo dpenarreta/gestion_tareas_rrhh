@@ -35,7 +35,12 @@ export default function NotificationBell({ currentUserId }: Props) {
   const router = useRouter();
 
   async function load() {
-    const res = await fetch("/api/notifications");
+    // Late sola cada 30s: se marca como de fondo para que no cuente como
+    // actividad y no mantenga viva una sesión que nadie está usando (ver
+    // `SESSION_IDLE_TIMEOUT_HOURS` en el backend).
+    const res = await fetch("/api/notifications", {
+      headers: { "X-Nexo-Background": "1" },
+    });
     if (res.ok) {
       const data = await res.json();
       setUnread(data.unreadCount);

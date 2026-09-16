@@ -1,4 +1,5 @@
 import uuid
+from datetime import timedelta
 
 from django.conf import settings
 from django.db import models
@@ -49,6 +50,34 @@ class Session(BaseModel):
         if self.revoked_at is None:
             self.revoked_at = timezone.now()
             self.save(update_fields=["revoked_at"])
+
+    def is_idle(self, as_of=None) -> bool:
+        """La persona lleva `SESSION_IDLE_TIMEOUT_HOURS` sin dar señales de vida.
+
+        Se mide contra `last_used_at`, que solo avanza con actividad real: el
+        sondeo automático del frontend viaja marcado y no lo toca (ver
+        `SessionAuthentication`). Sin esa distinción una pestaña olvidada
+        abierta nunca caducaría, porque la campana de notificaciones sola ya
+        alcanza para mantener la sesión viva indefinidamente.
+        """
+        as_of = as_of or timezone.now()
+        limite = timedelta(hours=settings.SESSION_IDLE_TIMEOUT_HOURS)
+        return (as_of - self.last_used_at) >= limite
+
+    def touch(self, as_of=None) -> bool:
+        """Registra actividad real. Devuelve si llegó a escribir en la base.
+
+        Con throttle porque `last_used_at` no necesita precisión de segundos
+        para una ventana de horas, y sin él cada request sería un UPDATE.
+        """
+        as_of = as_of or timezone.now()
+        transcurrido = (as_of - self.last_used_at).total_seconds()
+        if transcurrido < settings.SESSION_ACTIVITY_THROTTLE_SECONDS:
+            return False
+        # `last_used_at` es `auto_now`: nombrarlo en `update_fields` basta
+        # para que Django lo ponga al instante actual.
+        self.save(update_fields=["last_used_at", "updated_at"])
+        return True
 
 
 class PasswordResetToken(BaseModel):

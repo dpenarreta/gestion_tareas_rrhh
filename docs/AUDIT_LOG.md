@@ -15,6 +15,69 @@
 
 ---
 
+## 2026-09-16 — Las sesiones se cierran a las 8h de inactividad, y "recordarme" pasa a recordar el correo
+
+**Qué se pidió:** que la sesión se cierre sola tras 8 horas de inactividad, y
+que la casilla "Recordarme por 30 días" deje precargadas las credenciales
+para no volver a tipearlas.
+
+**Por qué los dos cambios van juntos:** hasta ahora esa casilla no
+autocompletaba nada — alargaba la sesión de 7 a 30 días
+(`session_duration_remember_hours`). Con un cierre a las 8 horas, alargar la
+sesión pierde sentido; lo que se necesita es volver a entrar rápido. Los dos
+pedidos son las dos mitades de la misma idea.
+
+**La contraseña no se guarda.** Autocompletarla obliga a dejarla recuperable
+en el navegador, al alcance de cualquier XSS y en el disco del equipo, contra
+`.claude/rules/security.md`. Se recuerda solo el correo (30 días, con
+vencimiento propio porque `localStorage` no expira solo) y el campo de
+contraseña lleva `autocomplete="current-password"`: la completa el gestor del
+navegador. Misma comodidad —un clic— sin que Nexo almacene el secreto.
+Decisión tomada por el usuario tras plantearle el riesgo.
+
+**El detalle que decide si la función sirve: qué cuenta como actividad.** La
+campana de notificaciones sondea cada 30 segundos (`NotificationBell.tsx`) y
+el contador del Escritorio Digital hace lo suyo en el `Sidebar`. Medir la
+inactividad por "hubo peticiones" habría hecho que **una sesión no caducara
+jamás** mientras la pestaña siguiera abierta — exactamente el caso que esto
+viene a cerrar. El sondeo viaja marcado con `X-Nexo-Background: 1` y no
+reinicia el contador; sí se lo sigue evaluando, así que una petición de fondo
+sobre una sesión ya vencida la cierra igual.
+
+**Alternativas consideradas:**
+
+- *Medir la inactividad en el cliente* (temporizador sobre eventos de mouse y
+  teclado). Más fiel a "la persona no está", pero se elude cerrando el
+  temporizador y deja la decisión del lado que no manda. Django es la fuente
+  de verdad de autenticación.
+- *Un tope absoluto desde el login* ("8h y afuera, use o no use"). Es lo que
+  decía literalmente el pedido, pero echa a alguien en mitad de su jornada.
+  Se optó por inactividad real, confirmado con el usuario.
+- *Propagar la marca de fondo ruta por ruta.* Habría que acordarse en cada
+  `route.ts` nuevo. Se hace una sola vez en `djangoApiFetch`, que ya lee las
+  cookies del request entrante y ahora también esta cabecera.
+
+**Dónde vive:** `SessionAuthentication` corta y revoca en cualquier petición
+autenticada; el refresh hace lo mismo, devolviendo la revocación para
+ejecutarla FUERA del `atomic` (dentro se revertiría sola, ver § 2026-09-14).
+`Session.last_used_at` ya existía, así que **no hubo migración**. La escritura
+va con throttle de 60s: sin él, cada request sería un UPDATE contra SQL Server
+para una ventana que se mide en horas.
+
+**Una trampa que el repo ya había documentado:** pasar `code=` al constructor
+de `AuthenticationFailed` no llega al frontend — `api_exception_handler` lee
+`default_code` de la clase. Hay una subclase `SessionIdleTimeout`, igual que
+`PasswordChangeRequired` en su momento. Sin eso, el cierre por inactividad
+habría sido indistinguible de cualquier otro fallo de autenticación.
+
+**Impacto:** la casilla deja de alargar la sesión, así que ahora hay una sola
+política de duración para todos los roles. Quien deje una pestaña abierta y se
+vaya, al volver encuentra el login con su correo ya puesto.
+
+**Aprobado por:** Anthony Jácome.
+
+---
+
 ## 2026-09-15 — Cerrar una vista de Trabajo era irreversible: el panel para reabrirla quedaba recortado
 
 **Cómo apareció:** durante una prueba integral de la interfaz en producción se

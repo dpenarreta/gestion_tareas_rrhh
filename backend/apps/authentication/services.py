@@ -28,6 +28,7 @@ from apps.core.models import AuditLog
 from apps.core.request_meta import parse_user_agent
 from apps.users.models import User
 
+from .authentication import SessionIdleTimeout
 from .emails import (
     build_password_reset_url,
     send_password_changed_notification,
@@ -263,6 +264,9 @@ class AuthenticationService:
                 raise AuthenticationFailed(
                     "El token de actualización ya no es válido.", code="refresh_reused"
                 )
+            if motivo == "session_idle_timeout":
+                logger.info("Sesión cerrada por inactividad: sesión=%s", a_revocar.id)
+                raise SessionIdleTimeout()
             raise AuthenticationFailed("La sesión ya no es válida.", code="session_revoked")
 
         return resultado["tokens"]
@@ -297,6 +301,12 @@ class AuthenticationService:
 
         if not session.is_active:
             raise AuthenticationFailed("La sesión ya no es válida.", code="session_revoked")
+
+        # Igual que la revocación por robo, se devuelve para revocar FUERA
+        # del `atomic`: hacerlo acá dentro y propagar la excepción revertiría
+        # la propia revocación (ver docs/AUDIT_LOG.md § 2026-09-14).
+        if session.is_idle():
+            return {"revocar": (session, "session_idle_timeout")}
 
         jti = refresh.get("jti")
 

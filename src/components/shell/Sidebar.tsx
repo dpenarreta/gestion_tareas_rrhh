@@ -31,7 +31,8 @@ export default function Sidebar({ role, collapsed, onToggleCollapsed, mobileOpen
   useEffect(() => {
     if (!hasDeskLink) return;
     function load() {
-      fetch("/api/desk-notes/unread-count")
+      // De fondo, igual que la campana: no debe contar como actividad.
+      fetch("/api/desk-notes/unread-count", { headers: { "X-Nexo-Background": "1" } })
         .then((r) => (r.ok ? r.json() : { unread: 0 }))
         .then((d) => setDeskUnread(d.unread ?? 0))
         .catch(() => {});

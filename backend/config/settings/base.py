@@ -268,6 +268,20 @@ SIMPLE_JWT = {
 # carga de página, no un token robado que se usa más tarde.
 REFRESH_ROTATION_GRACE_SECONDS = env.int("REFRESH_ROTATION_GRACE_SECONDS", default=60)
 
+# --- Cierre de sesión por inactividad ---
+# Una sesión sin actividad real de la persona durante estas horas se revoca
+# sola. "Actividad real" excluye a propósito el sondeo automático del
+# frontend (la campana de notificaciones cada 30s, el contador del
+# Escritorio Digital): contarlo mantendría viva para siempre la sesión de
+# cualquier pestaña olvidada abierta, que es justo el caso que esto cierra.
+# Esas peticiones se marcan con la cabecera `X-Nexo-Background` y no
+# refrescan `Session.last_used_at`.
+SESSION_IDLE_TIMEOUT_HOURS = env.int("SESSION_IDLE_TIMEOUT_HOURS", default=8)
+# `last_used_at` no se reescribe en cada request: con el sondeo y la
+# navegación normal serían cientos de UPDATE por persona y hora contra SQL
+# Server, para una ventana que se mide en horas.
+SESSION_ACTIVITY_THROTTLE_SECONDS = env.int("SESSION_ACTIVITY_THROTTLE_SECONDS", default=60)
+
 # --- Protección contra fuerza bruta en el login ---
 LOGIN_MAX_FAILED_ATTEMPTS = env.int("LOGIN_MAX_FAILED_ATTEMPTS", default=5)
 LOGIN_LOCKOUT_MINUTES = env.int("LOGIN_LOCKOUT_MINUTES", default=15)

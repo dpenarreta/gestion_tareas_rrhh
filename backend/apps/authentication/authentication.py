@@ -26,6 +26,28 @@ _ALLOWED_PATHS_WHEN_PASSWORD_CHANGE_REQUIRED = {
 }
 
 
+# Cabecera con la que el frontend marca sus peticiones automáticas (sondeo
+# de notificaciones y del Escritorio Digital). No es un permiso ni cambia
+# qué devuelve la API: solo dice "esto no lo pidió una persona", para que no
+# cuente como actividad. Que alguien la falsifique no gana nada — a lo sumo
+# adelanta el cierre de su propia sesión.
+BACKGROUND_REQUEST_HEADER = "X-Nexo-Background"
+
+
+def es_peticion_de_fondo(request) -> bool:
+    return request.headers.get(BACKGROUND_REQUEST_HEADER) == "1"
+
+
+class SessionIdleTimeout(AuthenticationFailed):
+    """Misma trampa que `PasswordChangeRequired`: `api_exception_handler` lee
+    `default_code` de la clase, así que pasar `code=` al constructor deja el
+    `authentication_failed` genérico y el frontend no puede distinguir una
+    sesión cerrada por inactividad de cualquier otro fallo de autenticación."""
+
+    default_code = "session_idle_timeout"
+    default_detail = "La sesión se cerró por inactividad."
+
+
 class PasswordChangeRequired(PermissionDenied):
     """Subclase concreta: pasar `code=` al constructor de `PermissionDenied`
     no sobreescribe `default_code` (que es lo que lee
@@ -52,6 +74,13 @@ class SessionAuthentication(JWTAuthentication):
         if not session.is_active:
             raise AuthenticationFailed("La sesión ya no es válida.", code="session_revoked")
 
+        # Se revoca en el acto, no solo se rechaza la petición: una sesión
+        # abandonada tiene que dejar de existir también para el refresh
+        # token, que sigue siendo válido durante días.
+        if session.is_idle():
+            session.revoke()
+            raise SessionIdleTimeout()
+
         validated_token.session = session
         return user
 
@@ -60,10 +89,18 @@ class SessionAuthentication(JWTAuthentication):
         if result is None:
             return None
 
-        user, _validated_token = result
+        user, validated_token = result
         if (
             user.must_change_password
             and request.path not in _ALLOWED_PATHS_WHEN_PASSWORD_CHANGE_REQUIRED
         ):
             raise PasswordChangeRequired()
+
+        # El reloj de inactividad solo lo mueve la persona. El sondeo
+        # automático del frontend se identifica con `X-Nexo-Background` y se
+        # ignora acá: si contara, bastaría una pestaña abierta y olvidada
+        # para que la sesión no caducara nunca.
+        session = getattr(validated_token, "session", None)
+        if session is not None and not es_peticion_de_fondo(request):
+            session.touch()
         return result

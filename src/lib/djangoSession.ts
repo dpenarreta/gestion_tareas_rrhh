@@ -1,5 +1,5 @@
 import "server-only";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { safeLog } from "@/lib/logger";
 import type { SessionPayload } from "@/lib/session";
 import {
@@ -240,9 +240,31 @@ async function refreshDjangoAccessToken(): Promise<string | null> {
 // Content-Type manual. Todos los llamadores existentes (que nunca pasan
 // `FormData`) siguen recibiendo exactamente `application/json`, sin
 // cambio de comportamiento.
+/**
+ * Marca de "esto no lo pidió una persona", puesta por el sondeo automático
+ * del cliente (campana de notificaciones, contador del Escritorio Digital).
+ * Django la usa para no reiniciar el reloj de inactividad de la sesión: si
+ * contara, una pestaña abierta y olvidada no caducaría nunca. Se propaga acá
+ * y no en cada `route.ts` para que ninguna ruta nueva tenga que acordarse.
+ */
+const BACKGROUND_HEADER = "x-nexo-background";
+
+async function esPeticionDeFondo(): Promise<boolean> {
+  try {
+    return (await headers()).get(BACKGROUND_HEADER) === "1";
+  } catch {
+    // Fuera de un ciclo de request (tareas server-side sueltas) no hay
+    // cabeceras que leer, y tampoco hay persona detrás que contar.
+    return false;
+  }
+}
+
 async function callDjango(path: string, init: RequestInit, accessToken: string, timeoutMs: number): Promise<Response> {
   const headers: Record<string, string> = { ...(init.headers as Record<string, string> | undefined) };
   headers.Authorization = `Bearer ${accessToken}`;
+  if (await esPeticionDeFondo()) {
+    headers["X-Nexo-Background"] = "1";
+  }
   if (!(init.body instanceof FormData)) {
     headers["Content-Type"] = "application/json";
   }

@@ -1,7 +1,47 @@
 "use client";
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+
+const CORREO_RECORDADO_KEY = "nexo-correo-recordado";
+const RECUERDO_DIAS = 30;
+
+/** Solo el correo, y con su propio vencimiento: `localStorage` no expira solo. */
+function leerCorreoRecordado(): string | null {
+  try {
+    const crudo = localStorage.getItem(CORREO_RECORDADO_KEY);
+    if (!crudo) return null;
+    const { email, expira } = JSON.parse(crudo) as { email?: string; expira?: number };
+    if (!email || typeof expira !== "number" || Date.now() > expira) {
+      localStorage.removeItem(CORREO_RECORDADO_KEY);
+      return null;
+    }
+    return email;
+  } catch {
+    // Modo privado, almacenamiento bloqueado o JSON corrupto: no recordar
+    // nunca puede impedir iniciar sesión.
+    return null;
+  }
+}
+
+function recordarCorreo(email: string): void {
+  try {
+    localStorage.setItem(
+      CORREO_RECORDADO_KEY,
+      JSON.stringify({ email, expira: Date.now() + RECUERDO_DIAS * 24 * 60 * 60 * 1000 })
+    );
+  } catch {
+    /* ver leerCorreoRecordado */
+  }
+}
+
+function olvidarCorreo(): void {
+  try {
+    localStorage.removeItem(CORREO_RECORDADO_KEY);
+  } catch {
+    /* ver leerCorreoRecordado */
+  }
+}
 
 export default function LoginPage() {
   return (
@@ -32,20 +72,39 @@ function LoginForm() {
   const [forgotMode, setForgotMode] = useState(false);
   const [forgotMsg, setForgotMsg] = useState("");
 
+  // Se recuerda el correo, nunca la contraseña: guardarla para autocompletarla
+  // obliga a dejarla recuperable en el navegador, al alcance de cualquier XSS.
+  // El campo lleva `autocomplete="current-password"`, así que el gestor del
+  // navegador la completa él — misma comodidad, sin que Nexo la almacene.
+  useEffect(() => {
+    queueMicrotask(() => {
+      const guardado = leerCorreoRecordado();
+      if (guardado) {
+        setEmail(guardado);
+        setRememberMe(true);
+      }
+    });
+  }, []);
+
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     setError("");
     try {
+      // `rememberMe` ya no viaja: desde que la sesión se cierra a las 8h de
+      // inactividad, la casilla dejó de alargarla y pasó a recordar el correo.
+      // Una sola política de duración para todo el mundo.
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password, rememberMe }),
+        body: JSON.stringify({ email, password }),
       });
       const data = await res.json();
       if (!res.ok) {
         setError(data.error ?? "Error al iniciar sesión");
       } else {
+        if (rememberMe) recordarCorreo(email);
+        else olvidarCorreo();
         router.push("/dashboard");
         router.refresh();
       }
@@ -109,6 +168,8 @@ function LoginForm() {
                   <input
                     type="email"
                     required
+                    name="email"
+                    autoComplete="username"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
                     className="w-full px-3 py-2 rounded-[10px] border border-border2 bg-surface2 text-title placeholder-disabled focus:outline-none focus:border-primary focus:ring-[3px] focus:ring-primary-surface text-sm transition-colors"
@@ -119,9 +180,14 @@ function LoginForm() {
                   <label className="block text-sm font-medium text-main mb-1">
                     Contraseña
                   </label>
+                  {/* `current-password` es lo que hace que el gestor del
+                      navegador ofrezca completarla: la contraseña no la
+                      guarda Nexo en ningún lado. */}
                   <input
                     type="password"
                     required
+                    name="password"
+                    autoComplete="current-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     className="w-full px-3 py-2 rounded-[10px] border border-border2 bg-surface2 text-title placeholder-disabled focus:outline-none focus:border-primary focus:ring-[3px] focus:ring-primary-surface text-sm transition-colors"
@@ -136,7 +202,7 @@ function LoginForm() {
                     onChange={(e) => setRememberMe(e.target.checked)}
                     className="w-4 h-4 rounded border-border text-primary accent-primary"
                   />
-                  <span className="text-sm text-main">Recordarme por 30 días</span>
+                  <span className="text-sm text-main">Recordar mi correo por 30 días</span>
                 </label>
 
                 {error && (
