@@ -132,7 +132,22 @@ finally {
 }
 
 Write-Paso "Compilando y reiniciando en el servidor (esto tarda varios minutos)"
-Invoke-Command -ComputerName $ServerHost -Credential $credencial -ErrorAction Stop -ArgumentList $RemoteRoot, $SkipInstall.IsPresent, $BackendServiceName, $FrontendServiceName -ScriptBlock {
+# `-ErrorAction Continue` y NO `Stop`, al revés de lo que parece prudente.
+# `manage.py check` informa por stderr las advertencias `nexo.email.*`, que
+# son normales mientras el buzón no esté configurado. Ese stderr vuelve del
+# equipo remoto convertido en un ErrorRecord (`RemoteException`), y con
+# `Stop` se vuelve TERMINANTE: abortaba este script acá mismo, después de
+# que el despliegue remoto ya había terminado bien. El `exit 0` del final
+# nunca llegaba a ejecutarse, así que el proceso salía con 1 y cualquier
+# automatización leía un despliegue correcto como fallido. Verificado en
+# los tres despliegues del 2026-09-16/17: ninguno llegó a imprimir "Listo".
+#
+# El éxito ya no se deduce de la ausencia de errores —imposible, con stderr
+# rutinario de por medio— sino del marcador que el bloque emite al final.
+# Un `throw` remoto corta antes de emitirlo, así que un fallo real sigue
+# detectándose.
+$MARCADOR_OK = "NEXO_DESPLIEGUE_OK"
+$salidaRemota = Invoke-Command -ComputerName $ServerHost -Credential $credencial -ErrorAction Continue -ArgumentList $RemoteRoot, $SkipInstall.IsPresent, $BackendServiceName, $FrontendServiceName -ScriptBlock {
     param($RemoteRoot, $SkipInstall, $BackendServiceName, $FrontendServiceName)
     # "Continue" y NO "Stop". Con "Stop", PowerShell 5.1 aborta el script en
     # cuanto un ejecutable externo escribe UNA línea en stderr, aunque
@@ -213,6 +228,14 @@ Invoke-Command -ComputerName $ServerHost -Credential $credencial -ErrorAction St
 
     $version = (Get-Content (Join-Path $RemoteRoot "package.json") -Raw | ConvertFrom-Json).version
     Write-Host "-- version desplegada: $version"
+
+    # Única cosa que este bloque manda al pipeline (todo lo demás va por
+    # Write-Host): es la señal de que se llegó hasta acá sin `throw`.
+    "NEXO_DESPLIEGUE_OK"
+}
+
+if ($salidaRemota -notcontains $MARCADOR_OK) {
+    throw "El despliegue remoto no llegó a terminar. Revisá la salida de arriba: el sitio puede haber quedado a medias."
 }
 
 Write-Paso "Listo"

@@ -23,6 +23,37 @@
 
 ---
 
+## v1.158.4 — 2026-09-17
+
+**Tipo:** FIX
+**Módulo:** Despliegue — el script abortaba al final y devolvía 1 pese a
+desplegar bien.
+
+- **Síntoma:** `deploy-from-workstation.ps1` terminaba con código 1 en cada
+  corrida, aunque el despliegue se completara. Verificado en los tres
+  despliegues del 2026-09-16/17: **ninguno llegó a imprimir "Listo"**, así que
+  el `exit 0` del final nunca se ejecutaba.
+- **La causa:** `Invoke-Command ... -ErrorAction Stop` (línea 135). El stderr
+  rutinario de `manage.py check` —las advertencias `nexo.email.*`, normales
+  mientras el buzón no esté configurado— vuelve del equipo remoto convertido
+  en un `ErrorRecord` (`RemoteException`), y con `Stop` se vuelve
+  **terminante**: abortaba el script local justo después de que el despliegue
+  remoto ya había terminado bien.
+- **El éxito pasa a ser explícito.** El bloque remoto emite
+  `NEXO_DESPLIEGUE_OK` como última instrucción (lo único que manda al
+  pipeline; el resto va por `Write-Host`) y el cliente lo verifica. Deducirlo
+  de la ausencia de errores era imposible con stderr rutinario de por medio.
+  Un `throw` remoto corta antes de emitirlo, así que un fallo real se sigue
+  detectando.
+- Se descartó `2>&1` sobre los ejecutables: el propio script ya advertía que
+  en PowerShell 5.1 eso convierte cada línea de stderr en un
+  `NativeCommandError`.
+
+**Verificación:** el patrón se probó aislado contra el servidor en los dos
+escenarios (stderr rutinario → marcador presente; `throw` remoto → corta sin
+marcador) y después con un despliegue real completo: `== Listo` y **exit code
+0**. Producción verificada: `/login` 200 y las 70 rutas protegidas en 307.
+
 ## v1.158.3 — 2026-09-17
 
 **Tipo:** FIX
