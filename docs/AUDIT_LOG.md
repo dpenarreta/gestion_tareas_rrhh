@@ -15,6 +15,65 @@
 
 ---
 
+## 2026-09-17 — Crear una tarea respondía 201, no se veía nada, y la gente creaba duplicados
+
+**Cómo apareció:** probando en producción que la lista se refrescara tras
+crear. Se pulsó "Crear tarea" y el modal siguió abierto con el formulario
+lleno, así que se volvió a pulsar. La red mostró **dos `POST /api/tasks` →
+201**: las dos tareas se habían creado. La lista, detrás, seguía diciendo
+"No hay tareas".
+
+**La causa está a una línea del éxito.** `TaskFormModal` hace, en este orden:
+`fetch` → `showToast("Tarea creada.")` → `onSave()`. Y `showToast` generaba el
+id del toast con `crypto.randomUUID()`, que **solo existe en contextos
+seguros** (https o localhost). Nexo se sirve por http en la red interna
+—decisión explícita, ver `src/lib/httpsPolicy.ts`—, así que ahí es `undefined`
+y la llamada lanzaba `TypeError: crypto.randomUUID is not a function`. La
+consola del navegador lo registró cuatro veces, una por cada clic.
+
+El daño no era el toast ausente sino **todo lo que quedaba detrás sin
+ejecutar**: `onSave()` es quien cierra el modal y refresca la lista. El
+`handleSubmit` tiene `try/finally` sin `catch`, así que la excepción se
+propagaba y el formulario quedaba intacto, invitando a pulsar de nuevo.
+
+**Esto explica los duplicados que ya había en producción.** En Tiempo Objetivo
+se ven 13 copias idénticas de "REVISION Y ANALISIS DE REPORTE DE ASISTENCIAS"
+(mismo tiempo objetivo, misma fecha), 5 de "REVISION BIOMETRICO" y 4 de
+"INFORMES SOCIALES". No era gente creando tareas de más por descuido: la
+aplicación les decía que no había pasado nada.
+
+**El alcance es mucho mayor que crear tareas.** `showToast` se usa en **41
+componentes**, casi siempre con el mismo patrón —avisar y después cerrar,
+refrescar o navegar—. Cualquiera de esos flujos se cortaba a la mitad.
+
+**Es la segunda vez que una API de contexto seguro rompe este despliegue.** La
+primera fue `navigator.clipboard` con el botón "Copiar" del enlace de
+recuperación (§ 2026-09-11), que se resolvió en `src/lib/clipboard.ts` con
+detección y camino alternativo.
+
+**Alternativas consideradas:**
+
+- *Envolver cada `showToast` en `try/catch`.* Serían 41 parches para un
+  defecto que está en un solo lugar, y el siguiente que agregue un toast
+  volvería a tropezar.
+- *Servir el sitio por https.* Cierra esta clase de bug de raíz, pero es una
+  decisión de infraestructura mayor —certificados, IIS compartido con
+  AsisVen— que excede el arreglo y no puede ser el requisito para que crear
+  una tarea funcione.
+- *Un id que no dependa del navegador* (elegida). El id solo sirve como `key`
+  de React y para descartar el toast; un contador con marca de tiempo alcanza.
+
+**Impacto:** ninguna regla de negocio cambia. Crear una tarea cierra el
+formulario y actualiza la lista, y lo mismo vale para los otros 40
+componentes que muestran un aviso antes de seguir.
+
+**Pendiente, no resuelto acá:** limpiar las tareas ya duplicadas en
+producción. Son datos reales de otras personas y la decisión es del usuario.
+
+**Aprobado por:** Anthony Jácome.
+
+---
+
 ## 2026-09-16 — Las sesiones se cierran a las 8h de inactividad, y "recordarme" pasa a recordar el correo
 
 **Qué se pidió:** que la sesión se cierre sola tras 8 horas de inactividad, y

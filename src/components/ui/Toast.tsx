@@ -43,6 +43,33 @@ const VARIANT_ACCENT: Record<ToastVariant, string> = {
   warning: "border-l-warning text-warning",
 };
 
+let contadorToast = 0;
+
+/**
+ * Id para la lista de toasts, sin `crypto.randomUUID`.
+ *
+ * Esa API **solo existe en contextos seguros** (https o localhost), y Nexo se
+ * despliega por http en la red interna —decisión explícita, ver
+ * `src/lib/httpsPolicy.ts`—, así que en producción era `undefined` y llamarla
+ * lanzaba un TypeError *dentro de `showToast`*. El daño no era el toast
+ * ausente sino lo que quedaba sin ejecutar detrás: quien llama hace
+ * `showToast(...)` y **después** cierra el modal y refresca la lista, y esa
+ * parte nunca llegaba a correr. Crear una tarea respondía 201, el formulario
+ * seguía abierto y la lista vacía, así que la gente volvía a pulsar y creaba
+ * duplicados (ver docs/AUDIT_LOG.md § 2026-09-17).
+ *
+ * Mismo problema que `navigator.clipboard` en `src/lib/clipboard.ts`, y la
+ * segunda vez que una API de contexto seguro rompe algo en este despliegue.
+ *
+ * El id solo sirve como `key` de React y para descartar el toast, así que un
+ * contador con marca de tiempo alcanza y no depende de ninguna API del
+ * navegador.
+ */
+function nuevoToastId(): string {
+  contadorToast += 1;
+  return `toast-${Date.now()}-${contadorToast}`;
+}
+
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<ToastItem[]>([]);
 
@@ -52,7 +79,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
 
   const showToast = useCallback(
     (message: string, variant: ToastVariant = "success", action?: ToastAction) => {
-      const id = crypto.randomUUID();
+      const id = nuevoToastId();
       setToasts((prev) => [...prev, { id, variant, message, action }]);
       // Con acción (ej. "Reintentar") se deja más tiempo para que el usuario
       // pueda leerla y decidir antes de que desaparezca.

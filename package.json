@@ -1,6 +1,6 @@
 {
   "name": "gestion_tareas_rrhh",
-  "version": "1.158.2",
+  "version": "1.158.3",
   "private": true,
   "scripts": {
     "dev": "next dev",

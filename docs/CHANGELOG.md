@@ -23,6 +23,38 @@
 
 ---
 
+## v1.158.3 — 2026-09-17
+
+**Tipo:** FIX
+**Módulo:** Transversal (toasts) — crear una tarea no cerraba el formulario ni
+actualizaba la lista (ver docs/AUDIT_LOG.md § 2026-09-17).
+
+- **Síntoma:** "Crear tarea" respondía **201**, pero el modal seguía abierto y
+  la lista seguía vacía. Al volver a pulsar se creaba la tarea otra vez.
+- **La causa:** `showToast` generaba el id con `crypto.randomUUID()`, que solo
+  existe en contextos seguros. Nexo se sirve por **http** en la red interna,
+  así que lanzaba `TypeError` *dentro* de `showToast`, y `onSave()` —que
+  cierra el modal y refresca— nunca se ejecutaba. `handleSubmit` tiene
+  `try/finally` sin `catch`, así que el formulario quedaba intacto.
+- **Alcance:** `showToast` se usa en **41 componentes**, casi siempre con el
+  patrón "avisar y después cerrar/refrescar/navegar". Todos se cortaban.
+- **Explica los duplicados ya existentes en producción**: 13 copias idénticas
+  de "REVISION Y ANALISIS DE REPORTE DE ASISTENCIAS", 5 de "REVISION
+  BIOMETRICO", 4 de "INFORMES SOCIALES". La aplicación les decía que no había
+  pasado nada.
+- **`src/components/ui/Toast.tsx`**: el id pasa a ser un contador con marca de
+  tiempo — solo se usa como `key` de React y para descartar el toast. Se
+  descartó parchear los 41 llamadores con `try/catch` (41 parches para un
+  defecto de un solo lugar) y servir por https (decisión de infraestructura,
+  no puede ser requisito para que crear una tarea funcione).
+- Segunda vez que una API de contexto seguro rompe este despliegue, tras
+  `navigator.clipboard` (§ 2026-09-11, `src/lib/clipboard.ts`).
+
+**Verificación:** 2 tests nuevos que reproducen el entorno real (`crypto` sin
+`randomUUID`) y comprueban que el flujo del llamador no se corta; se verificó
+que fallan con `TypeError: crypto.randomUUID is not a function` al
+reintroducir la línea original. 1228/1228 en Vitest, `tsc` y ESLint limpios.
+
 ## v1.158.2 — 2026-09-16
 
 **Tipo:** FIX
