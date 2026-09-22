@@ -13,6 +13,8 @@ export type DjangoTeamMember = {
   email: string;
   role: string;
   tasks: { total: number; completed: number; in_progress: number; pending: number };
+  /** ISO del último uso real del sistema; `null` si nunca ingresó. */
+  last_activity_at: string | null;
 };
 
 export function mapDjangoTeamMemberToNexoShape(m: DjangoTeamMember) {
@@ -27,6 +29,7 @@ export function mapDjangoTeamMemberToNexoShape(m: DjangoTeamMember) {
       inProgress: m.tasks.in_progress,
       pending: m.tasks.pending,
     },
+    lastActivityAt: m.last_activity_at,
   };
 }
 

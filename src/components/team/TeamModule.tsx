@@ -9,7 +9,7 @@ import type { Task, TaskStatus } from "@/components/tasks/types";
 import CommentPanel from "@/components/tasks/CommentPanel";
 import ActivityPanel from "@/components/tasks/ActivityPanel";
 import TaskFormModal from "@/components/tasks/TaskFormModal";
-import { formatDate, isTaskOverdue } from "@/lib/utils";
+import { formatDate, formatRelative, isTaskOverdue } from "@/lib/utils";
 import { hoursToDisplay } from "@/lib/timeFormat";
 import { getOfficialTargetTime, isTargetTimeValidated } from "@/lib/targetTime";
 import { Button } from "@/components/ui/Button";
@@ -31,7 +31,26 @@ type TeamMember = {
   email: string;
   role: Role;
   tasks: TaskSummary;
+  /** Último uso real del sistema; `null` si nunca ingresó. */
+  lastActivityAt: string | null;
 };
+
+/**
+ * Hace cuánto que la persona no usa Nexo. El sondeo automático de la
+ * aplicación no cuenta como actividad (ver `X-Nexo-Background` en el backend),
+ * así que una pestaña abierta y olvidada no falsea este dato.
+ *
+ * Solo se ve de quien ya se podía ver el resto de la tarjeta: la lista llega
+ * filtrada por jerarquía desde Django (`get_subordinate_groups`), así que un
+ * asistente no ve jefes ni coordinadores.
+ */
+function inactividad(iso: string | null): { texto: string; alerta: boolean } {
+  if (!iso) return { texto: "Nunca ingresó", alerta: true };
+  const horas = (Date.now() - new Date(iso).getTime()) / 3_600_000;
+  // Un día entero sin entrar es lo que merece destacarse; menos que eso entra
+  // en la variación normal de cualquier jornada.
+  return { texto: formatRelative(iso), alerta: horas >= 24 };
+}
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
 
@@ -63,6 +82,7 @@ function MemberCard({ member, onClick }: { member: TeamMember; onClick: () => vo
   const pct = member.tasks.total > 0
     ? Math.round((member.tasks.completed / member.tasks.total) * 100)
     : 0;
+  const inact = inactividad(member.lastActivityAt);
 
   return (
     <button
@@ -80,6 +100,14 @@ function MemberCard({ member, onClick }: { member: TeamMember; onClick: () => vo
           <p className="text-[11px] text-secondary truncate">{ROLE_LABEL[member.role]}</p>
           <p className="text-[11px] text-disabled truncate">{member.email}</p>
         </div>
+      </div>
+
+      <div className="flex items-center gap-1.5 mb-3" title="Última vez que usó Nexo">
+        <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${inact.alerta ? "bg-warning" : "bg-success"}`} />
+        <span className="text-[11px] text-secondary">Última actividad:</span>
+        <span className={`text-[11px] font-medium ${inact.alerta ? "text-warning" : "text-main"}`}>
+          {inact.texto}
+        </span>
       </div>
 
       <div className="grid grid-cols-3 gap-2 mb-3">

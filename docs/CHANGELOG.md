@@ -23,6 +23,42 @@
 
 ---
 
+## v1.160.0 — 2026-09-22
+
+**Tipo:** FEATURE
+**Módulo:** Equipo — última actividad de cada integrante.
+
+- Cada tarjeta de Equipo muestra **"Última actividad: hace N min/h/d"**, con
+  un punto verde o ámbar. Ámbar a partir de 24 h sin entrar: menos que eso
+  entra en la variación normal de cualquier jornada. Quien nunca ingresó
+  aparece como "Nunca ingresó".
+- **La jerarquía se respeta sola, sin código nuevo.** El dato viaja dentro de
+  `GET /api/v1/team/`, cuya lista ya viene acotada por
+  `get_subordinate_groups`. Un asistente recibe 403 en ese endpoint, así que
+  no ve jefes ni coordinadores — ni sus tareas ni su actividad. No se abre
+  ninguna vía nueva de consulta.
+- **`last_activity_at`**: el `last_used_at` más reciente entre **todas** las
+  sesiones de la persona, no solo las activas — una sesión revocada por
+  inactividad conserva el instante del último uso real, que es justo el dato
+  que interesa. `null` si nunca ingresó.
+- El sondeo automático de la aplicación **no cuenta** como actividad (ver
+  `X-Nexo-Background`, v1.158.0), así que una pestaña abierta y olvidada no
+  falsea el indicador: es el mismo criterio con el que se cierran las
+  sesiones.
+- Se reutiliza `formatRelative` (`src/lib/utils.ts`) en vez de escribir otro
+  formateador de tiempo relativo.
+
+**Verificación:** 4 tests nuevos en `apps/team` (incluye la última actividad,
+`null` sin ingresos, que toma la sesión más reciente aunque haya viejas o
+revocadas, y que un asistente no alcanza la actividad de un jefe). 1995 passed
+en el backend, 1228/1228 en Vitest, `tsc`, ESLint, ruff, black e isort limpios.
+
+**Nota de cumplimiento:** el dato es visibilidad de uso del sistema dentro de
+la línea jerárquica que ya ve el resto de la información de esa persona. No
+agrega proveedores ni categorías especiales de datos (no es Art. 26 LOPDP),
+pero sí es un tratamiento nuevo con finalidad de supervisión — conviene
+revisarlo en `docs/RAT.md` antes de considerarlo cerrado.
+
 ## v1.159.0 — 2026-09-22
 
 **Tipo:** FEATURE

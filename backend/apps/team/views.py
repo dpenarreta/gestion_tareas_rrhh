@@ -5,11 +5,12 @@ nuevo desde Notificaciones (Fase 15) — sin dependencia del motor de
 Analytics, solo `apps.hierarchy`/`apps.tasks`. Sin cutover de
 `route.ts` todavía."""
 
-from django.db.models import Count
+from django.db.models import Count, Max
 from django.shortcuts import get_object_or_404
 from rest_framework import generics
 from rest_framework.response import Response
 
+from apps.authentication.models import Session
 from apps.core.mask_email import mask_email
 from apps.hierarchy.services import get_role_group, get_subordinate_groups
 from apps.tasks.models import Task
@@ -41,8 +42,12 @@ class TeamListView(generics.GenericAPIView):
         member_ids = [m.id for m in members]
 
         counts: dict[int, dict[str, int]] = {}
-        for row in Task.objects.filter(assigned_to_id__in=member_ids).values("assigned_to_id", "status"):
-            entry = counts.setdefault(row["assigned_to_id"], {"total": 0, "completed": 0, "in_progress": 0, "pending": 0})
+        for row in Task.objects.filter(assigned_to_id__in=member_ids).values(
+            "assigned_to_id", "status"
+        ):
+            entry = counts.setdefault(
+                row["assigned_to_id"], {"total": 0, "completed": 0, "in_progress": 0, "pending": 0}
+            )
             entry["total"] += 1
             if row["status"] == Task.Status.COMPLETADA:
                 entry["completed"] += 1
@@ -50,6 +55,21 @@ class TeamListView(generics.GenericAPIView):
                 entry["in_progress"] += 1
             elif row["status"] == Task.Status.PENDIENTE:
                 entry["pending"] += 1
+
+        # Última señal de vida de cada persona: el `last_used_at` más reciente
+        # de sus sesiones. Se miran TODAS, no solo las activas — una sesión
+        # revocada por inactividad conserva el instante del último uso real, que
+        # es justamente el dato que interesa. `null` para quien nunca ingresó.
+        #
+        # No hace falta filtrar por jerarquía acá: `members` ya viene acotado
+        # por `get_subordinate_groups`, así que nadie puede ver a quien no le
+        # corresponde (un asistente no ve jefes ni coordinadores).
+        ultima_actividad = {
+            row["user_id"]: row["ultima"]
+            for row in Session.objects.filter(user_id__in=member_ids)
+            .values("user_id")
+            .annotate(ultima=Max("last_used_at"))
+        }
 
         empty_counts = {"total": 0, "completed": 0, "in_progress": 0, "pending": 0}
         payload = [
@@ -59,6 +79,9 @@ class TeamListView(generics.GenericAPIView):
                 "email": mask_email(m.email),
                 "role": _role_name(m),
                 "tasks": counts.get(m.id, empty_counts),
+                "last_activity_at": (
+                    ultima_actividad[m.id].isoformat() if ultima_actividad.get(m.id) else None
+                ),
             }
             for m in members
         ]
@@ -91,7 +114,10 @@ def _serialize_team_member_task(task: Task, assigned_to_role: str) -> dict:
             "email": task.assigned_to.email,
             "role": assigned_to_role,
         },
-        "created_by": {"id": task.created_by_id, "name": task.created_by.first_name or task.created_by.username},
+        "created_by": {
+            "id": task.created_by_id,
+            "name": task.created_by.first_name or task.created_by.username,
+        },
         "comment_count": task.comment_count,
         "created_at": task.created_at.isoformat(),
         "updated_at": task.updated_at.isoformat(),
