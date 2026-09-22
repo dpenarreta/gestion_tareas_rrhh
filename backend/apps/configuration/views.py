@@ -78,6 +78,7 @@ from .services import (
     CONFIG_KEY_RETROACTIVE_WINDOW_DAYS,
     CONFIG_KEY_SESSION_DURATION_DEFAULT_HOURS,
     CONFIG_KEY_SESSION_DURATION_REMEMBER_HOURS,
+    CONFIG_KEY_SESSION_IDLE_TIMEOUT_HOURS,
     CONFIG_KEY_WELCOME_MESSAGE,
     CONFIG_KEY_WELCOME_MESSAGE_ACTIVE,
     CONFIG_KEY_WORKDAY_END_HOUR,
@@ -100,6 +101,7 @@ from .services import (
     get_effective_retroactive_window_days,
     get_effective_session_duration_default_hours,
     get_effective_session_duration_remember_hours,
+    get_effective_session_idle_timeout_hours,
     get_effective_snooze_presets_minutes,
     get_effective_welcome_message,
     get_effective_welcome_message_active,
@@ -1156,6 +1158,7 @@ class SeguridadConfigView(generics.GenericAPIView):
             "password_min_length": get_effective_password_min_length(now),
             "session_duration_default_hours": get_effective_session_duration_default_hours(now),
             "session_duration_remember_hours": get_effective_session_duration_remember_hours(now),
+            "session_idle_timeout_hours": get_effective_session_idle_timeout_hours(now),
             "retention_login_attempts_days": get_effective_retention_login_attempts(now),
         }
 
@@ -1185,6 +1188,12 @@ class SeguridadConfigView(generics.GenericAPIView):
             set_config_value(
                 CONFIG_KEY_SESSION_DURATION_REMEMBER_HOURS,
                 str(data["session_duration_remember_hours"]),
+                request.user,
+            )
+        if "session_idle_timeout_hours" in data:
+            set_config_value(
+                CONFIG_KEY_SESSION_IDLE_TIMEOUT_HOURS,
+                str(data["session_idle_timeout_hours"]),
                 request.user,
             )
         if "retention_login_attempts_days" in data:

@@ -58,6 +58,13 @@ DEFAULT_SESSION_DURATION_DEFAULT_HOURS = 168  # 7 días
 CONFIG_KEY_SESSION_DURATION_REMEMBER_HOURS = "session_duration_remember_hours"
 DEFAULT_SESSION_DURATION_REMEMBER_HOURS = 720  # 30 días
 
+# Cierre por inactividad (ver docs/AUDIT_LOG.md § 2026-09-16). Distinto de las
+# dos claves de arriba: aquellas son la duración máxima de la sesión desde el
+# login, esta es cuánto puede estar quieta antes de cerrarse sola. Manda la más
+# corta de las dos, que en la práctica es siempre esta.
+CONFIG_KEY_SESSION_IDLE_TIMEOUT_HOURS = "session_idle_timeout_hours"
+DEFAULT_SESSION_IDLE_TIMEOUT_HOURS = 8
+
 # Fase 7a (ver docs/AUDIT_LOG.md § 2026-08-17): límite de respuestas cortas
 # por Nota Rápida de Escritorio Digital — mismas clave/default que
 # `src/lib/systemConfig.ts`.
@@ -146,6 +153,16 @@ def get_effective_session_duration_remember_hours(as_of: datetime) -> int:
             CONFIG_KEY_SESSION_DURATION_REMEMBER_HOURS,
             as_of,
             DEFAULT_SESSION_DURATION_REMEMBER_HOURS,
+        )
+    )
+
+
+def get_effective_session_idle_timeout_hours(as_of: datetime) -> int:
+    return int(
+        get_effective_config_value(
+            CONFIG_KEY_SESSION_IDLE_TIMEOUT_HOURS,
+            as_of,
+            DEFAULT_SESSION_IDLE_TIMEOUT_HOURS,
         )
     )
 

@@ -11,6 +11,7 @@ type DjangoSeguridadConfig = {
   password_min_length: number;
   session_duration_default_hours: number;
   session_duration_remember_hours: number;
+  session_idle_timeout_hours: number;
   retention_login_attempts_days: string;
 };
 
@@ -42,6 +43,7 @@ export async function GET() {
     passwordMinLength: data.password_min_length,
     sessionDurationDefaultHours: data.session_duration_default_hours,
     sessionDurationRememberHours: data.session_duration_remember_hours,
+    sessionIdleTimeoutHours: data.session_idle_timeout_hours,
     retentionLoginAttemptsDays: data.retention_login_attempts_days,
   });
 }
@@ -57,6 +59,7 @@ export async function PUT(request: NextRequest) {
     passwordMinLength?: number;
     sessionDurationDefaultHours?: number;
     sessionDurationRememberHours?: number;
+    sessionIdleTimeoutHours?: number;
     retentionLoginAttemptsDays?: string;
   };
   try {
@@ -65,7 +68,7 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "Cuerpo inválido" }, { status: 400 });
   }
 
-  const { passwordMinLength, sessionDurationDefaultHours, sessionDurationRememberHours, retentionLoginAttemptsDays } = body;
+  const { passwordMinLength, sessionDurationDefaultHours, sessionDurationRememberHours, sessionIdleTimeoutHours, retentionLoginAttemptsDays } = body;
 
   if (passwordMinLength !== undefined) {
     if (!Number.isInteger(passwordMinLength) || passwordMinLength < 10 || passwordMinLength > 128) {
@@ -82,6 +85,14 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "La duración de sesión (recordarme) debe ser un entero entre 1 y 8760 horas (1 año)" }, { status: 400 });
     }
   }
+  // Mismo rango que Django (`SeguridadConfigUpdateSerializer`): por debajo de
+  // 1 hora la sesión se cerraría en mitad de cualquier tarea normal, y más de
+  // 720 (30 días) equivale a no cerrar nunca por inactividad.
+  if (sessionIdleTimeoutHours !== undefined) {
+    if (!Number.isInteger(sessionIdleTimeoutHours) || sessionIdleTimeoutHours < 1 || sessionIdleTimeoutHours > 720) {
+      return NextResponse.json({ error: "El cierre por inactividad debe ser un entero entre 1 y 720 horas (30 días)" }, { status: 400 });
+    }
+  }
   if (retentionLoginAttemptsDays !== undefined && !RETENTION_LOGIN_ATTEMPTS_OPTIONS.includes(retentionLoginAttemptsDays)) {
     return NextResponse.json({ error: "Retención de intentos de login inválida" }, { status: 400 });
   }
@@ -90,6 +101,7 @@ export async function PUT(request: NextRequest) {
   if (passwordMinLength !== undefined) djangoPayload.password_min_length = passwordMinLength;
   if (sessionDurationDefaultHours !== undefined) djangoPayload.session_duration_default_hours = sessionDurationDefaultHours;
   if (sessionDurationRememberHours !== undefined) djangoPayload.session_duration_remember_hours = sessionDurationRememberHours;
+  if (sessionIdleTimeoutHours !== undefined) djangoPayload.session_idle_timeout_hours = sessionIdleTimeoutHours;
   if (retentionLoginAttemptsDays !== undefined) djangoPayload.retention_login_attempts_days = retentionLoginAttemptsDays;
 
   const response =

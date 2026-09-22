@@ -12,6 +12,7 @@ type Config = {
   passwordMinLength: number;
   sessionDurationDefaultHours: number;
   sessionDurationRememberHours: number;
+  sessionIdleTimeoutHours: number;
   retentionLoginAttemptsDays: string;
 };
 
@@ -22,6 +23,7 @@ export default function SeguridadConfigSection() {
   const [pwdInput, setPwdInput] = useState("10");
   const [defaultHoursInput, setDefaultHoursInput] = useState("168");
   const [rememberHoursInput, setRememberHoursInput] = useState("720");
+  const [idleHoursInput, setIdleHoursInput] = useState("8");
   const [retentionInput, setRetentionInput] = useState("30");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -36,6 +38,7 @@ export default function SeguridadConfigSection() {
         setPwdInput(String(data.passwordMinLength));
         setDefaultHoursInput(String(data.sessionDurationDefaultHours));
         setRememberHoursInput(String(data.sessionDurationRememberHours));
+        setIdleHoursInput(String(data.sessionIdleTimeoutHours));
         setRetentionInput(data.retentionLoginAttemptsDays);
       }
     } finally {
@@ -51,6 +54,7 @@ export default function SeguridadConfigSection() {
     const pwd = parseInt(pwdInput, 10);
     const defaultHours = parseInt(defaultHoursInput, 10);
     const rememberHours = parseInt(rememberHoursInput, 10);
+    const idleHours = parseInt(idleHoursInput, 10);
 
     if (!Number.isInteger(pwd) || pwd < 10 || pwd > 128) {
       showToast("La longitud mínima de contraseña debe ser un entero entre 10 y 128", "error");
@@ -64,6 +68,10 @@ export default function SeguridadConfigSection() {
       showToast("La duración de sesión (recordarme) debe ser un entero entre 1 y 8760 horas", "error");
       return;
     }
+    if (!Number.isInteger(idleHours) || idleHours < 1 || idleHours > 720) {
+      showToast("El cierre por inactividad debe ser un entero entre 1 y 720 horas", "error");
+      return;
+    }
 
     setSaving(true);
     try {
@@ -74,6 +82,7 @@ export default function SeguridadConfigSection() {
           passwordMinLength: pwd,
           sessionDurationDefaultHours: defaultHours,
           sessionDurationRememberHours: rememberHours,
+          sessionIdleTimeoutHours: idleHours,
           retentionLoginAttemptsDays: retentionInput,
         }),
       });
@@ -134,6 +143,22 @@ export default function SeguridadConfigSection() {
                 onChange={(e) => setRememberHoursInput(e.target.value)}
                 className="w-full border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
               />
+            </div>
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-title">Cerrar sesión tras inactividad (horas)</label>
+              <input
+                type="number"
+                min={1}
+                max={720}
+                value={idleHoursInput}
+                onChange={(e) => setIdleHoursInput(e.target.value)}
+                className="w-full border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+              />
+              <p className="text-xs text-secondary">
+                Tiempo sin actividad de la persona antes de cerrar su sesión. El sondeo automático de la
+                aplicación no cuenta como actividad, así que una pestaña abierta y olvidada también caduca.
+                Aplica a todos los roles y manda sobre las duraciones de arriba, que son el tope desde el ingreso.
+              </p>
             </div>
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-title">Retener intentos de login por</label>

@@ -35,6 +35,9 @@ def test_get_returns_defaults():
         "password_min_length": 10,
         "session_duration_default_hours": 168,
         "session_duration_remember_hours": 720,
+        # Cierre por inactividad: la ventana que de verdad manda, porque es la
+        # más corta de las tres (ver docs/AUDIT_LOG.md § 2026-09-22).
+        "session_idle_timeout_hours": 8,
         "retention_login_attempts_days": "30",
     }
 

@@ -23,6 +23,40 @@
 
 ---
 
+## v1.159.0 — 2026-09-22
+
+**Tipo:** FEATURE
+**Módulo:** Ajustes → Seguridad — el cierre por inactividad pasa a ser
+parametrizable desde la interfaz.
+
+- Hasta ahora `SESSION_IDLE_TIMEOUT_HOURS` era una variable de entorno: para
+  cambiar las 8 horas había que editar `settings/base.py` y desplegar. Es una
+  decisión de negocio, y quien la toma no despliega.
+- **`session_idle_timeout_hours`** se suma a las claves de
+  `apps.configuration` (default 8), con su `get_effective_*` como las demás.
+  `Session.is_idle()` la lee **en cada comprobación**, así que un cambio en
+  Ajustes tiene efecto en la siguiente petición, sin reiniciar el servicio.
+- Se **retira** la variable de entorno para no dejar dos fuentes de verdad.
+  `SESSION_ACTIVITY_THROTTLE_SECONDS` se queda en `settings`: es un detalle
+  técnico de escritura en base, no una política.
+- **Ajustes → Seguridad** gana el campo "Cerrar sesión tras inactividad
+  (horas)", con el texto que aclara lo que no es obvio: que el sondeo
+  automático no cuenta como actividad, que aplica a todos los roles y que
+  manda sobre las duraciones de arriba (que son el tope desde el ingreso).
+- Rango **1–720 h**, validado igual en Django y en el `route.ts`: por debajo
+  de 1 hora la sesión se cerraría en mitad de cualquier tarea, y más de 30
+  días equivale a no cerrar nunca por inactividad.
+- Registrado en `src/components/settings/registry.ts` (búsqueda, favoritos e
+  historial del Centro de Configuración), con "inactividad", "cierre
+  automático" y "timeout" como palabras clave.
+
+**Verificación:** 4 tests nuevos (la ventana se lee de la configuración,
+ampliarla mantiene viva una sesión que caducaba, el default cuando no está
+configurada, y que el cambio se aplica sin reiniciar) y los 8 anteriores
+adaptados para usar el valor efectivo. 334 passed en `apps/authentication` +
+`apps/configuration`, 1228/1228 en Vitest, `tsc`, ESLint, ruff, black e isort
+limpios.
+
 ## v1.158.4 — 2026-09-17
 
 **Tipo:** FIX

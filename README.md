@@ -331,6 +331,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-09-22: feat(seguridad): el cierre por inactividad se configura desde Ajustes (v1.159.0)
 - 2026-09-17: fix(deploy): el script abortaba al final y devolvia 1 pese a desplegar bien (v1.158.4)
 - 2026-09-17: fix(ui): crear una tarea no cerraba el formulario ni refrescaba la lista (v1.158.3)
 - 2026-09-16: fix(trabajo): registrar una actividad no actualizaba la lista de tareas (v1.158.2)

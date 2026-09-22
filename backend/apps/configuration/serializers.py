@@ -226,6 +226,12 @@ class SeguridadConfigUpdateSerializer(serializers.Serializer):
     session_duration_remember_hours = serializers.IntegerField(
         required=False, min_value=1, max_value=8760
     )
+    # Piso de 1 hora: por debajo, la sesión se cerraría en mitad de cualquier
+    # tarea normal. Techo de 720 (30 días) por coherencia con las duraciones de
+    # arriba — más que eso equivale a no cerrar nunca por inactividad.
+    session_idle_timeout_hours = serializers.IntegerField(
+        required=False, min_value=1, max_value=720
+    )
     retention_login_attempts_days = serializers.ChoiceField(
         choices=RETENTION_LOGIN_ATTEMPTS_OPTIONS, required=False
     )

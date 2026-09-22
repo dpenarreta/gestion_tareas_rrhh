@@ -52,7 +52,11 @@ class Session(BaseModel):
             self.save(update_fields=["revoked_at"])
 
     def is_idle(self, as_of=None) -> bool:
-        """La persona lleva `SESSION_IDLE_TIMEOUT_HOURS` sin dar señales de vida.
+        """La persona lleva demasiado tiempo sin dar señales de vida.
+
+        Cuánto es "demasiado" se configura desde Ajustes → Seguridad
+        (`session_idle_timeout_hours`), no por variable de entorno: es una
+        decisión de negocio y quien la toma no despliega.
 
         Se mide contra `last_used_at`, que solo avanza con actividad real: el
         sondeo automático del frontend viaja marcado y no lo toca (ver
@@ -60,8 +64,12 @@ class Session(BaseModel):
         abierta nunca caducaría, porque la campana de notificaciones sola ya
         alcanza para mantener la sesión viva indefinidamente.
         """
+        # Import perezoso: `apps.configuration.services` arrastra modelos de
+        # varias apps y esto corre en cada request autenticada.
+        from apps.configuration.services import get_effective_session_idle_timeout_hours
+
         as_of = as_of or timezone.now()
-        limite = timedelta(hours=settings.SESSION_IDLE_TIMEOUT_HOURS)
+        limite = timedelta(hours=get_effective_session_idle_timeout_hours(as_of))
         return (as_of - self.last_used_at) >= limite
 
     def touch(self, as_of=None) -> bool:

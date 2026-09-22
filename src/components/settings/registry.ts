@@ -26,6 +26,10 @@ const DEFAULT_NOVA_CACHE_TTL_MINUTES = 240;
 const DEFAULT_PASSWORD_MIN_LENGTH = 10;
 const DEFAULT_SESSION_DURATION_DEFAULT_HOURS = 168;
 const DEFAULT_SESSION_DURATION_REMEMBER_HOURS = 720;
+// Cierre por inactividad. Distinto de las dos de arriba: aquellas son el tope
+// desde el ingreso, esta es cuánto puede estar quieta la sesión. Manda la más
+// corta, que en la práctica es siempre esta.
+const DEFAULT_SESSION_IDLE_TIMEOUT_HOURS = 8;
 const DEFAULT_RETENTION_LOGIN_ATTEMPTS = "30";
 
 export type SettingDescriptor = {
@@ -232,19 +236,21 @@ export const SETTINGS_REGISTRY: SettingDescriptor[] = [
   {
     id: "seguridad-config",
     label: "Política de contraseña y sesión",
-    description: "Longitud mínima de contraseña, duración de sesión y retención de intentos de login.",
-    keywords: ["contraseña", "sesión", "login", "intentos"],
+    description: "Longitud mínima de contraseña, duración de sesión, cierre por inactividad y retención de intentos de login.",
+    keywords: ["contraseña", "sesión", "login", "intentos", "inactividad", "cierre automático", "timeout"],
     category: "seguridad",
     configKeys: [
       "password_min_length",
       "session_duration_default_hours",
       "session_duration_remember_hours",
+      "session_idle_timeout_hours",
       "retention_login_attempts",
     ],
     defaults: {
       password_min_length: String(DEFAULT_PASSWORD_MIN_LENGTH),
       session_duration_default_hours: String(DEFAULT_SESSION_DURATION_DEFAULT_HOURS),
       session_duration_remember_hours: String(DEFAULT_SESSION_DURATION_REMEMBER_HOURS),
+      session_idle_timeout_hours: String(DEFAULT_SESSION_IDLE_TIMEOUT_HOURS),
       retention_login_attempts: DEFAULT_RETENTION_LOGIN_ATTEMPTS,
     },
     isHighImpact: true,
