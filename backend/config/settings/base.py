@@ -226,6 +226,15 @@ REST_FRAMEWORK = {
         "user": env.str("DEFAULT_THROTTLE_RATE_USER", default="1000/hour"),
         "login": env.str("LOGIN_THROTTLE_RATE", default="10/min"),
         "password_reset": env.str("PASSWORD_RESET_THROTTLE_RATE", default="5/hour"),
+        # Renovación de tokens. Alto a propósito: todas las llamadas a Django
+        # llegan desde el servidor de Next.js, así que este contador es de
+        # TODA la organización junta, no de una persona. Cada sesión necesita
+        # 4 refrescos/hora solo por el vencimiento del access (15 min), más los
+        # que dispare el sondeo del frontend. Con el `anon` heredado (100/hora)
+        # el techo se superaba todas las horas del día —incluso de madrugada,
+        # con las pestañas olvidadas abiertas— y la gente quedaba fuera a los
+        # ~15 minutos (ver docs/AUDIT_LOG.md § 2026-09-23).
+        "token_refresh": env.str("TOKEN_REFRESH_THROTTLE_RATE", default="2000/hour"),
     },
 }
 

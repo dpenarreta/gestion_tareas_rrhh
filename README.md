@@ -331,6 +331,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-09-23: fix(sesiones): se cerraban a los 15 min por el limite anonimo del refresco (v1.161.0)
 - 2026-09-22: feat(equipo): muestra el tiempo de inactividad de cada integrante (v1.160.0)
 - 2026-09-22: feat(seguridad): el cierre por inactividad se configura desde Ajustes (v1.159.0)
 - 2026-09-17: fix(deploy): el script abortaba al final y devolvia 1 pese a desplegar bien (v1.158.4)

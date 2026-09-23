@@ -23,6 +23,35 @@
 
 ---
 
+## v1.161.0 — 2026-09-23
+
+**Tipo:** FIX
+**Módulo:** Sesiones — se cerraban a los 15 minutos, no a las 8 horas
+configuradas (ver docs/AUDIT_LOG.md § 2026-09-23).
+
+- **Síntoma:** había que volver a escribir la contraseña mucho antes de la
+  ventana de inactividad configurada.
+- **No era el cierre por inactividad:** el log registra **0 cierres por
+  inactividad**. Eran **1782 respuestas 401 del refresco** contra 17
+  exitosos, con **429** intercalados.
+- **La causa:** `RefreshView` no declaraba `throttle_scope`, así que heredaba
+  `AnonRateThrottle` (**100/hora por IP**). Como todas las llamadas a Django
+  salen del servidor de Next.js, esas 100 eran de **toda la organización
+  junta**. Medido: 120 refrescos/hora de madrugada (pestañas sondeando), 174
+  a las 08:00 y **227 a las 09:00**, contra un techo de 100. Pasado el
+  refresco 101, todos recibían 429 y la sesión moría ~15 minutos después del
+  último uso — la vida del access token.
+- **`token_refresh`**: scope propio, `2000/hour` configurable por
+  `TOKEN_REFRESH_THROTTLE_RATE`. Dimensionado para una IP compartida: 4
+  refrescos/hora por sesión solo por el vencimiento del access, más el
+  sondeo. Se descartó subir el `anon` global (aflojaría todos los endpoints
+  públicos) y quitar el límite (se pierde la defensa sin necesidad).
+
+**Verificación:** 3 tests nuevos (que el scope existe, que el límite soporta a
+toda la organización y que un token inválido responde 401 y no 429); se
+comprobó que fallan al quitar el scope. 89 passed en `apps/authentication`,
+ruff y black limpios.
+
 ## v1.160.0 — 2026-09-22
 
 **Tipo:** FEATURE

@@ -77,9 +77,29 @@ class LoginView(APIView):
 
 class RefreshView(APIView):
     """Renueva el access token validando que la sesión siga activa y que el
-    refresh token presentado sea el vigente (no uno ya rotado)."""
+    refresh token presentado sea el vigente (no uno ya rotado).
+
+    **Scope propio de throttling, y no el `anon` heredado.** Al no declarar
+    uno, esta vista caía en `AnonRateThrottle` (100/hora **por IP**), y como
+    todas las llamadas a Django salen del servidor de Next.js, esas 100 se
+    repartían entre TODA la organización a la vez. Medido en producción: 120
+    refrescos/hora de madrugada —solo pestañas abiertas sondeando— y 227 en
+    horario laboral, contra un techo de 100. A partir del refresco 101 de cada
+    hora todo el mundo recibía 429, el access token vencido no se podía
+    renovar y la sesión moría ~15 minutos después del último uso, sin importar
+    la ventana de inactividad configurada (ver docs/AUDIT_LOG.md § 2026-09-23).
+
+    El límite sigue existiendo como defensa en profundidad, pero dimensionado
+    para una IP compartida por todo el mundo: cada persona necesita 4
+    refrescos/hora solo por el vencimiento del access, más los que provoque el
+    sondeo del frontend. Este endpoint no es un vector de fuerza bruta —exige
+    un refresh token válido y vigente— y ya tiene sus propias defensas: la
+    rotación, la detección de reutilización y la sesión en base.
+    """
 
     permission_classes = [AllowAny]
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "token_refresh"
 
     def post(self, request):
         serializer = RefreshSerializer(data=request.data)

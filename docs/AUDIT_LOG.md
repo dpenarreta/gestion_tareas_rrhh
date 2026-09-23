@@ -15,6 +15,66 @@
 
 ---
 
+## 2026-09-23 — La sesión se cerraba a los 15 minutos: el refresco caía en el límite anónimo por IP
+
+**Cómo apareció:** se reportó que la sesión se cerraba mucho antes de las 8
+horas de inactividad configuradas, obligando a volver a escribir la
+contraseña.
+
+**Lo primero fue descartar la causa obvia.** El cierre por inactividad no
+tenía nada que ver: el log registra **0 cierres por inactividad**. Lo que
+expulsaba a la gente eran **1782 respuestas 401 del refresco** contra apenas
+**17 exitosos**, muchas en `0.0ms` —el token ni llegaba a validarse— y con
+**429** intercalados.
+
+**El ciclo de vida de las sesiones lo dijo todo.** Se revocaban **exactamente
+15 minutos después del último uso**: 14:16:52 → 14:31:52, 19:55:52 → 20:10:52,
+22:13:52 → 22:28:52. Quince minutos es la vida del access token. Vida mediana
+de una sesión: 15,8 minutos.
+
+**La causa:** `RefreshView` declaraba `permission_classes = [AllowAny]` pero
+no un `throttle_scope` propio, así que heredaba `AnonRateThrottle`: **100 por
+hora, contadas por IP**. Y todas las llamadas a Django salen del servidor de
+Next.js, de modo que esas 100 no eran por persona sino **de toda la
+organización junta**.
+
+**Medido en producción, el techo se superaba todas las horas del día:**
+
+| Franja | Refrescos/hora | Límite |
+|---|---|---|
+| 03:00–07:00 (nadie trabajando) | 120 | 100 |
+| 08:00 | 174 | 100 |
+| 09:00 | **227** | 100 |
+
+Ni siquiera de madrugada bajaba del límite: las pestañas abiertas siguen
+sondeando. A partir del refresco 101 de cada hora, todo el mundo recibía 429,
+el access vencido no se podía renovar y la sesión moría a los ~15 minutos.
+
+**Por qué un límite por IP no sirve acá:** el frontend llama a Django
+server-side, así que Django ve siempre la misma IP. Un contador "por IP" es,
+en esta arquitectura, un contador global — no protege a nadie de nadie, solo
+reparte una cuota común.
+
+**Alternativas consideradas:**
+
+- *Subir el `anon` global.* Aflojaría el límite de todos los endpoints
+  públicos, incluidos los que sí conviene tener cortos.
+- *Quitar el throttle del refresco.* Elimina el problema y la defensa. El
+  endpoint exige un refresh token válido, pero un límite alto no cuesta nada.
+- *Reenviar la IP real del cliente* (`X-Forwarded-For` + `NUM_PROXIES`). No
+  aplica: la llamada la origina el servidor de Next.js, no el navegador.
+- *Scope propio dimensionado para una IP compartida* (elegida). Cada sesión
+  gasta 4 refrescos/hora solo por el vencimiento del access, más los del
+  sondeo; `2000/hour` soporta unas 100 personas simultáneas con margen.
+
+**Impacto:** ninguna regla de negocio cambia. La ventana de inactividad
+configurada en Ajustes pasa a ser la que realmente manda, que es lo que se
+esperaba desde v1.158.0.
+
+**Aprobado por:** Anthony Jácome.
+
+---
+
 ## 2026-09-17 — Crear una tarea respondía 201, no se veía nada, y la gente creaba duplicados
 
 **Cómo apareció:** probando en producción que la lista se refrescara tras
