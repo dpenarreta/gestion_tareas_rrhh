@@ -302,11 +302,25 @@ class AuthenticationService:
         session = Session.objects.select_for_update().filter(id=refresh.get("sid")).first()
 
         if session is None:
+            # Estos dos rechazos quedaron fuera de la instrumentación del
+            # 2026-09-24 y eran justamente los que más se disparaban: 8 de 8
+            # rechazos sin un solo motivo registrado.
+            logger.info(
+                "Refresco rechazado: no existe la sesión del token (sid=%s)", refresh.get("sid")
+            )
             raise AuthenticationFailed(
                 "El token de actualización es inválido.", code="invalid_refresh"
             )
 
         if not session.is_active:
+            estado = "revocada" if session.revoked_at else "vencida"
+            logger.info(
+                "Refresco rechazado: sesión %s (sesión=%s, revocada=%s, expira=%s)",
+                estado,
+                session.id,
+                session.revoked_at.isoformat() if session.revoked_at else "-",
+                session.expires_at.isoformat(),
+            )
             raise AuthenticationFailed("La sesión ya no es válida.", code="session_revoked")
 
         # Igual que la revocación por robo, se devuelve para revocar FUERA
