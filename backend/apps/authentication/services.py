@@ -247,7 +247,13 @@ class AuthenticationService:
         """
         try:
             refresh = RefreshToken(refresh_token_str)
-        except TokenError:
+        except TokenError as err:
+            # Sin esta línea, un 401 acá es indistinguible de los otros tres
+            # motivos en el log de acceso, y no se puede diagnosticar por qué
+            # se cae una sesión. NUNCA se registra el token, solo el motivo.
+            logger.warning(
+                "Refresco rechazado: el token no es válido o expiró (%s)", type(err).__name__
+            )
             raise AuthenticationFailed(
                 "El token de actualización es inválido o expiró.", code="invalid_refresh"
             ) from None
@@ -267,6 +273,7 @@ class AuthenticationService:
             if motivo == "session_idle_timeout":
                 logger.info("Sesión cerrada por inactividad: sesión=%s", a_revocar.id)
                 raise SessionIdleTimeout()
+            logger.info("Refresco rechazado: la sesión ya no está activa (sesión=%s)", a_revocar.id)
             raise AuthenticationFailed("La sesión ya no es válida.", code="session_revoked")
 
         return resultado["tokens"]

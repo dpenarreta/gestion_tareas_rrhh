@@ -114,7 +114,9 @@ def test_patch_me_updates_first_name_and_email(api_client):
     api_client.force_authenticate(user=user)
 
     response = api_client.patch(
-        "/api/v1/auth/me/", {"first_name": "Ana Editada", "email": "ana-nueva@example.com"}, format="json"
+        "/api/v1/auth/me/",
+        {"first_name": "Ana Editada", "email": "ana-nueva@example.com"},
+        format="json",
     )
 
     assert response.status_code == 200
@@ -132,7 +134,9 @@ def test_patch_me_requires_authentication(api_client):
 
 def test_patch_me_rejects_email_already_used_by_another_user(api_client):
     User.objects.create_user(username="otro", email="otro@example.com", password="Sup3r-Secr3t!")
-    user = User.objects.create_user(username="ana", email="ana@example.com", password="Sup3r-Secr3t!")
+    user = User.objects.create_user(
+        username="ana", email="ana@example.com", password="Sup3r-Secr3t!"
+    )
     api_client.force_authenticate(user=user)
 
     response = api_client.patch("/api/v1/auth/me/", {"email": "otro@example.com"}, format="json")
@@ -143,7 +147,9 @@ def test_patch_me_rejects_email_already_used_by_another_user(api_client):
 
 
 def test_patch_me_allows_keeping_own_email_unchanged(api_client):
-    user = User.objects.create_user(username="ana", email="ana@example.com", password="Sup3r-Secr3t!")
+    user = User.objects.create_user(
+        username="ana", email="ana@example.com", password="Sup3r-Secr3t!"
+    )
     api_client.force_authenticate(user=user)
 
     response = api_client.patch(
@@ -162,7 +168,9 @@ def test_me_endpoint_includes_roles_and_no_legacy_postgres_id(api_client):
     from django.contrib.auth.models import Group
 
     user = User.objects.create_user(
-        username="imported", email="imported@example.com", password="Sup3r-Secr3t!",
+        username="imported",
+        email="imported@example.com",
+        password="Sup3r-Secr3t!",
     )
     user.groups.add(Group.objects.get_or_create(name="ANALISTA_CC")[0])
     api_client.force_authenticate(user=user)

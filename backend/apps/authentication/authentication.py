@@ -8,11 +8,15 @@ access token en la siguiente petición, sin esperar a que expire por sí
 solo.
 """
 
+import logging
+
 from django.core.exceptions import ValidationError
 from rest_framework.exceptions import AuthenticationFailed, PermissionDenied
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from .models import Session
+
+logger = logging.getLogger("apps.authentication")
 
 # Únicos endpoints alcanzables mientras `must_change_password` esté activo:
 # el propio cambio de contraseña y las vías para terminar la sesión sin
@@ -79,6 +83,14 @@ class SessionAuthentication(JWTAuthentication):
         # token, que sigue siendo válido durante días.
         if session.is_idle():
             session.revoke()
+            # Este cierre no dejaba rastro: el único log de inactividad estaba
+            # en el refresco, así que las sesiones cerradas acá desaparecían
+            # sin explicación y falseaban cualquier conteo por motivo.
+            logger.info(
+                "Sesión cerrada por inactividad en una petición (sesión=%s, última actividad=%s)",
+                session.id,
+                session.last_used_at.isoformat(),
+            )
             raise SessionIdleTimeout()
 
         validated_token.session = session

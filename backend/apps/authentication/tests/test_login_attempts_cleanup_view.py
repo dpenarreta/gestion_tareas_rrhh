@@ -24,14 +24,18 @@ def _client_for(user: User) -> APIClient:
 
 
 def _user_with_group(username: str, group_name: str) -> User:
-    user = User.objects.create_user(username=username, email=f"{username}@example.com", password="Sup3r-Secr3t!")
+    user = User.objects.create_user(
+        username=username, email=f"{username}@example.com", password="Sup3r-Secr3t!"
+    )
     user.groups.set([Group.objects.get(name=group_name)])
     return user
 
 
 def _attempt_aged(days_old: int) -> LoginAttempt:
     attempt = LoginAttempt.objects.create(identifier="alguien@example.com", successful=False)
-    LoginAttempt.objects.filter(pk=attempt.pk).update(created_at=timezone.now() - timedelta(days=days_old))
+    LoginAttempt.objects.filter(pk=attempt.pk).update(
+        created_at=timezone.now() - timedelta(days=days_old)
+    )
     return attempt
 
 
