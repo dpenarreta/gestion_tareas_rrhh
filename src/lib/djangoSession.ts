@@ -22,6 +22,10 @@ const DJANGO_API_URL = process.env.DJANGO_API_URL || "http://localhost:8000/api/
 const ACCESS_COOKIE = DJANGO_ACCESS_COOKIE;
 const REFRESH_COOKIE = DJANGO_REFRESH_COOKIE;
 const REQUEST_TIMEOUT_MS = 3000;
+// Cookie de usar y tirar (`maxAge: 0`) para comprobar si este contexto puede
+// escribir cookies antes de consumir la rotación del refresh. No guarda nada:
+// existe solo para que el `set` lance donde no está permitido.
+const WRITE_PROBE_COOKIE = "nexo-write-probe";
 
 // `GET /analytics/<id>/` (`AnalyticsBundleView`, backend) no tiene caché con
 // TTL — se recalcula en vivo en cada request (gap documentado en el propio
@@ -195,13 +199,22 @@ async function refreshDjangoAccessToken(): Promise<string | null> {
   // renderiza un Server Component ("Setting cookies is not supported during
   // Server Component rendering"), así que refrescar desde ahí dejaría al
   // navegador con un refresh token ya muerto y la sesión se caería sola en
-  // la petición siguiente. Reescribir el refresh actual con su mismo valor
-  // es inocuo y sirve para detectar el contexto antes de tocar nada.
+  // la petición siguiente.
   //
   // El refresco de esos casos lo hace el middleware (`src/proxy.ts`), que
   // corre antes del render y sí puede escribir cookies.
+  //
+  // La prueba se hace con una cookie propia y efímera, NO reescribiendo el
+  // refresh con su valor viejo: eso parecía inocuo y era una carrera. Con el
+  // sondeo del frontend (campana y Escritorio Digital, cada 30s) dos
+  // peticiones salen casi juntas cuando vence el access; una rota y devuelve
+  // el token nuevo, la otra cae en la ventana de gracia y recibe SOLO un
+  // access, así que su respuesta se quedaba con el `Set-Cookie` de la prueba
+  // —el token viejo— y pisaba el recién rotado si llegaba después. Pasada la
+  // ventana, ese token viejo se presenta como reutilización y Django revoca
+  // la sesión entera (ver docs/AUDIT_LOG.md § 2026-09-24).
   try {
-    cookieStore.set(REFRESH_COOKIE, refreshToken, cookieOptions(REFRESH_COOKIE_MAX_AGE_SECONDS));
+    cookieStore.set(WRITE_PROBE_COOKIE, "1", { ...cookieOptions(0), maxAge: 0 });
   } catch {
     return null;
   }

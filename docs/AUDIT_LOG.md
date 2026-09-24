@@ -15,6 +15,61 @@
 
 ---
 
+## 2026-09-24 — La sesión se caía sola: la prueba de escritura pisaba el refresh recién rotado
+
+**Cómo apareció:** tras arreglar el límite de peticiones (§ 2026-09-23) los
+429 desaparecieron, pero la gente seguía reportando cierres constantes. Los
+datos del día siguiente: **122 refrescos rechazados contra 4 exitosos**, y
+sesiones muriendo con el mismo patrón de siempre —15,2 / 15,3 / 15,6 / 15,2 /
+15,5 minutos—, exactamente la vida del access token.
+
+**Lo que costó encontrarlo:** el log registraba `-> 401` sin distinguir los
+cuatro motivos posibles, así que primero hubo que instrumentar el backend para
+poder diagnosticar en vez de suponer. Se descartaron con datos la ventana de
+inactividad (1 cierre), el límite por IP (0 respuestas 429), la clave de firma
+(huella estable), la vida del refresh (7 días, renovada en cada rotación) y la
+blacklist de tokens (no instalada).
+
+**La causa estaba en el cliente, no en Django.** Antes de consumir la
+rotación, `refreshDjangoAccessToken` reescribía la cookie del refresh **con su
+valor viejo** para comprobar que el contexto permitía escribir cookies (Next.js
+no lo permite durante el render de un Server Component). Parecía inocuo —el
+mismo valor— y era una carrera:
+
+1. Vence el access. El sondeo del frontend (campana y Escritorio Digital, cada
+   30s) dispara dos peticiones casi simultáneas; ambas leen `R1`.
+2. La primera rota: recibe `R2` y su respuesta lleva `Set-Cookie: refresh=R2`.
+3. La segunda cae en la ventana de gracia de Django y recibe **solo un
+   access**, sin refresh — así que su respuesta conserva el `Set-Cookie` de la
+   prueba: `refresh=R1`.
+4. Si esa segunda respuesta llega después, el navegador se queda con **R1**, un
+   token ya rotado.
+5. Pasados los 60 segundos de gracia, ese `R1` se presenta como reutilización y
+   Django **revoca la sesión entera**.
+
+**Por qué los arreglos anteriores no bastaron:** la ventana de gracia
+(§ 2026-09-14) y el bloqueo de fila corrigieron el lado del servidor, que era
+un problema real; el límite por IP (§ 2026-09-23) era otro. Pero ninguno tocaba
+el punto donde el cliente se quedaba con el token viejo, así que el síntoma
+—volver a iniciar sesión cada rato— sobrevivía a los tres.
+
+**Alternativas consideradas:**
+
+- *Serializar los refrescos en el cliente.* Las peticiones salen del navegador
+  casi a la vez; cualquier candado del lado servidor llega tarde. Ya se había
+  descartado en § 2026-09-14 por lo mismo.
+- *No probar la escritura y confiar en el `try/catch` del final.* Llega tarde:
+  para entonces la rotación ya se consumió y el token nuevo se pierde.
+- *Cookie de prueba propia y efímera* (elegida). Comprueba exactamente lo mismo
+  —si este contexto puede escribir— sin tocar ningún valor con significado.
+
+**Impacto:** ninguna regla de negocio cambia. La sesión deja de caerse sola
+cuando vence el access con el sondeo activo, que era el caso de todos los días.
+
+**Aprobado por:** Anthony Jácome.
+
+---
+
 ## 2026-09-23 — La sesión se cerraba a los 15 minutos: el refresco caía en el límite anónimo por IP
 
 **Cómo apareció:** se reportó que la sesión se cerraba mucho antes de las 8

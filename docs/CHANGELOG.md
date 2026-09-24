@@ -23,6 +23,34 @@
 
 ---
 
+## v1.161.1 — 2026-09-24
+
+**Tipo:** FIX
+**Módulo:** Sesiones — la prueba de escritura pisaba el refresh recién rotado
+(ver docs/AUDIT_LOG.md § 2026-09-24).
+
+- **Síntoma:** tras el arreglo del límite por IP los 429 desaparecieron, pero
+  la sesión seguía cayéndose. 122 refrescos rechazados contra 4 exitosos, con
+  sesiones muriendo a los ~15 minutos — la vida del access token.
+- **La causa estaba en el cliente:** `refreshDjangoAccessToken` reescribía la
+  cookie del refresh **con su valor viejo** para comprobar que podía escribir
+  cookies. Con el sondeo (cada 30s) dos peticiones salen juntas al vencer el
+  access: una rota y devuelve `R2`, la otra cae en la ventana de gracia y
+  recibe solo un access, así que su respuesta conserva el `Set-Cookie` de la
+  prueba (`R1`) y pisa el token nuevo si llega después. Pasada la ventana,
+  `R1` se presenta como reutilización y Django revoca la sesión entera.
+- **La prueba pasa a una cookie propia y efímera** (`nexo-write-probe`,
+  `maxAge: 0`): comprueba lo mismo sin tocar ningún valor con significado.
+- **Se instrumentó el backend** (commit anterior): el log registraba `-> 401`
+  sin distinguir los cuatro motivos posibles, y la revocación por inactividad
+  en peticiones normales no dejaba rastro alguno. Sin eso no se podía
+  diagnosticar.
+
+**Verificación:** 2 tests nuevos que reproducen la carrera; con el código
+anterior fallan mostrando el valor `R1` escrito y la doble escritura.
+1230/1230 en Vitest, 89 passed en `apps/authentication`, `tsc` y ESLint
+limpios.
+
 ## v1.161.0 — 2026-09-23
 
 **Tipo:** FIX
