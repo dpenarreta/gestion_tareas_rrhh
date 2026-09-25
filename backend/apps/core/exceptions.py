@@ -71,6 +71,21 @@ def api_exception_handler(exc, context):
     code = getattr(exc, "default_code", exc.__class__.__name__.lower())
     message = response.data.get("detail") if isinstance(response.data, dict) else str(response.data)
 
+    # Diagnóstico de los cierres de sesión (2026-09-25): el endpoint de
+    # refresco acumulaba ~1900 respuestas 401 sin que NINGUNA dejara motivo,
+    # porque se rechazaban antes de entrar a la vista y la instrumentación de
+    # `apps.authentication` solo cubre lo que ocurre dentro. Acá pasan todos
+    # los 401, nazcan donde nazcan. Se registra el código y la ruta, nunca el
+    # token ni el cuerpo.
+    if response.status_code == 401:
+        peticion = context.get("request")
+        logger.info(
+            "Rechazo 401 en %s (code=%s, autenticado=%s)",
+            getattr(peticion, "path", "?"),
+            code,
+            bool(getattr(getattr(peticion, "user", None), "is_authenticated", False)),
+        )
+
     return error_response(
         code=str(code),
         message=str(message) if message else "Error en la solicitud.",
