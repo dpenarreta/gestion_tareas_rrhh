@@ -23,6 +23,35 @@
 
 ---
 
+## v1.162.0 — 2026-09-25
+
+**Tipo:** FIX
+**Módulo:** Sesiones — dos sondeos sincronizados consumían dos rotaciones y la
+sesión se revocaba sola (ver docs/AUDIT_LOG.md § 2026-09-25).
+
+- **Diagnóstico:** 1092 refrescos rechazados en un día, **100% por "sesión
+  revocada"**, con dos detecciones de "robo" de la misma sesión separadas por
+  **15 milisegundos** — dos peticiones del propio frontend, no un atacante.
+- **La causa:** `NotificationBell` y `Sidebar` sondean con el **mismo
+  intervalo de 30 s** y arrancan juntos, y no había ninguna coordinación del
+  refresco. El **89% de los refrescos ocurrían en ráfaga** (985 segundos con 2
+  o más contra 121 con uno solo). Django tolera una sola generación hacia
+  atrás, así que la segunda rotación convertía el token de la primera en
+  reutilización y revocaba la sesión entera.
+- **`refrescosEnCurso`**: una sola llamada a Django por token, aunque varias
+  peticiones la pidan a la vez; todas escriben después el mismo par en sus
+  propias cookies. La clave del mapa es el propio refresh token, nunca algo
+  global — dos personas distintas jamás comparten resultado.
+- **La detección de robo no se toca.** Se evaluó ampliarla a N generaciones y
+  se descartó: aflojar esa defensa es el último recurso, no el primero.
+- **Medición corregida:** los conteos anteriores daban "0 motivos" porque el
+  log escribe Unicode escapado (`sesión`) y los patrones con acentos no
+  coincidían. Los datos estaban; el filtro estaba roto.
+
+**Verificación:** 3 tests nuevos; el principal falla con el código anterior
+mostrando `expected 2 to be 1` — dos rotaciones donde debía haber una.
+1233/1233 en Vitest, `tsc` y ESLint limpios.
+
 ## v1.161.1 — 2026-09-24
 
 **Tipo:** FIX

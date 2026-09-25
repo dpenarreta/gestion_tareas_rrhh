@@ -15,6 +15,70 @@
 
 ---
 
+## 2026-09-25 — Las sesiones se revocaban solas: dos sondeos sincronizados consumían dos rotaciones
+
+**Cómo se midió.** Tres intentos previos habían fallado por medir mal, así que
+esta vez el método fue: comparar poblaciones equivalentes (sesiones nacidas
+antes y después de cada cambio), elegir una métrica que no admita
+interpretación —la vida de la sesión— e instrumentar hasta que no quedara
+ningún punto ciego.
+
+Hizo falta un cuarto paso que faltaba: **verificar la herramienta de medición**.
+Los conteos daban "0 motivos" porque el log escribe JSON con Unicode escapado
+(`sesión`) y los patrones con acentos nunca coincidían. Los datos estaban
+desde el principio; el filtro estaba roto.
+
+**El diagnóstico, con los patrones corregidos:** 1092 refrescos rechazados en
+un día, **el 100% por "sesión revocada"**. Y en el log, la firma del problema:
+
+    17:20:18,134  Reutilización de refresh token detectada  sesión=46ea1f6c…
+    17:20:18,149  Reutilización de refresh token detectada  sesión=46ea1f6c…
+
+Dos "robos" de la misma sesión separados por **15 milisegundos**. No es un
+atacante: son dos peticiones del propio frontend.
+
+**La causa, en dos partes.** `NotificationBell` y `Sidebar` sondean con el
+**mismo intervalo de 30 s** y arrancan juntos al montar el shell, así que
+quedan sincronizados para siempre. Y no existía ninguna coordinación del
+refresco: cada petición que encontraba el access vencido llamaba a Django por
+su cuenta. Medido: **el 89% de los refrescos ocurrían en ráfaga** (985 segundos
+con 2 o más simultáneos contra 121 con uno solo), con picos de 4.
+
+Django tolera **una sola generación hacia atrás** (`previous_refresh_token_jti`
++ 60 s de gracia). Dos rotaciones seguidas dejan el token de la primera dos
+generaciones atrás, y la siguiente vez que aparece se lo trata como
+reutilización: **se revoca la sesión entera**. Una revocación genera después
+cientos de 401, porque la pestaña sigue sondeando — de ahí 1092 rechazos con
+apenas 2 revocaciones.
+
+**Por qué los tres arreglos anteriores no bastaron:** la ventana de gracia y el
+bloqueo de fila (§ 2026-09-14) arreglaron el lado del servidor; el límite por
+IP (§ 2026-09-23) era un cuello real y distinto —los 429 desaparecieron—; y la
+cookie de prueba (§ 2026-09-24) corrigió una carrera real pero secundaria, que
+no movió la aguja: la vida mediana de las sesiones siguió en 15,5 min contra
+15,6 antes. Ninguno atacaba el hecho de que dos peticiones consumieran dos
+rotaciones.
+
+**Alternativas consideradas:**
+
+- *Ampliar la tolerancia de Django a N generaciones.* Ataca el síntoma en la
+  capa que menos conviene aflojar: la detección de robo existe justamente para
+  que un token interceptado no sirva. Queda como segundo paso si hiciera falta.
+- *Desincronizar los sondeos* (30 s y 45 s). Reduce la probabilidad, no la
+  elimina: cualquier navegación simultánea vuelve a provocarlo.
+- *Serializar el refresco por token* (elegida). Una sola llamada a Django por
+  token, aunque la pidan varias peticiones a la vez; todas escriben después el
+  mismo par en sus propias cookies. La clave es el token, nunca algo global:
+  dos personas distintas jamás comparten resultado.
+
+**Impacto:** ninguna regla de negocio cambia, y la detección de robo queda
+intacta. Deja de consumirse más de una rotación por vencimiento del access, que
+era lo que revocaba sesiones de gente que no hizo nada.
+
+**Aprobado por:** Anthony Jácome.
+
+---
+
 ## 2026-09-24 — La sesión se caía sola: la prueba de escritura pisaba el refresh recién rotado
 
 **Cómo apareció:** tras arreglar el límite de peticiones (§ 2026-09-23) los

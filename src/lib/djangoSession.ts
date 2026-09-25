@@ -182,6 +182,31 @@ export async function clearDjangoTokenCookies(): Promise<void> {
   cookieStore.delete(REFRESH_COOKIE);
 }
 
+type TokensRefrescados = { access: string; refresh?: string };
+
+/**
+ * Refrescos en vuelo, indexados por el token que los originó. Ver el comentario
+ * de `refreshDjangoAccessToken`: evita que dos peticiones simultáneas consuman
+ * dos rotaciones y se revoquen mutuamente.
+ */
+const refrescosEnCurso = new Map<string, Promise<TokensRefrescados | null>>();
+
+async function pedirRefrescoADjango(refreshToken: string): Promise<TokensRefrescados | null> {
+  try {
+    const response = await fetch(`${DJANGO_API_URL}/auth/token/refresh/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh: refreshToken }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+    if (!response.ok) return null;
+    return (await response.json()) as TokensRefrescados;
+  } catch (err) {
+    safeLog("warn", "No se pudo refrescar la sesión Django", err);
+    return null;
+  }
+}
+
 async function refreshDjangoAccessToken(): Promise<string | null> {
   const cookieStore = await cookies();
   const refreshToken = cookieStore.get(REFRESH_COOKIE)?.value;
@@ -219,14 +244,30 @@ async function refreshDjangoAccessToken(): Promise<string | null> {
     return null;
   }
 
+  // Una sola llamada a Django por token, aunque varias peticiones la pidan a
+  // la vez. Medido en producción: el 89% de los refrescos ocurrían en ráfaga
+  // (985 segundos con 2 o más simultáneos contra 121 con uno solo), porque
+  // los dos sondeos del frontend usan el MISMO intervalo de 30s y arrancan
+  // juntos. Cada uno rotaba por su cuenta, y Django solo tolera una
+  // generación hacia atrás: la segunda rotación convertía al token de la
+  // primera en "reutilización" y revocaba la sesión entera.
+  //
+  // La clave del mapa es el propio refresh token, nunca algo global: dos
+  // personas distintas tienen tokens distintos y jamás comparten resultado.
+  // Todas las peticiones que esperan escriben DESPUÉS el mismo par en sus
+  // propias cookies, así que las respuestas concurrentes ya no se pisan.
+  let enCurso = refrescosEnCurso.get(refreshToken);
+  if (!enCurso) {
+    enCurso = pedirRefrescoADjango(refreshToken);
+    refrescosEnCurso.set(refreshToken, enCurso);
+    // Se libera al terminar: el token siguiente ya será otro.
+    enCurso.finally(() => refrescosEnCurso.delete(refreshToken));
+  }
+
+  const data = await enCurso;
+  if (!data) return null;
+
   try {
-    const response = await fetch(`${DJANGO_API_URL}/auth/token/refresh/`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ refresh: refreshToken }),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
-    if (!response.ok) return null;
 
     // El `refresh` de la respuesta es OBLIGATORIO guardarlo: es el único que
     // Django va a aceptar de acá en adelante. Descartarlo —como se hacía
@@ -234,7 +275,6 @@ async function refreshDjangoAccessToken(): Promise<string | null> {
     // siguiente refresco revocaba la sesión por reutilización. Ese era el
     // motivo real de que el aviso de tratamiento de datos reapareciera y de
     // que hubiera que volver a iniciar sesión cada tanto.
-    const data = (await response.json()) as { access: string; refresh?: string };
     cookieStore.set(ACCESS_COOKIE, data.access, cookieOptions(ACCESS_COOKIE_MAX_AGE_SECONDS));
     if (data.refresh) {
       cookieStore.set(REFRESH_COOKIE, data.refresh, cookieOptions(REFRESH_COOKIE_MAX_AGE_SECONDS));
