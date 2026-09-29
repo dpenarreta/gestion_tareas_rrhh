@@ -29,8 +29,18 @@ from apps.tasks.business_time import business_calendar_day, business_day_real_ra
 from apps.tasks.models import MonthClosure, Task, TaskActivity
 
 _MONTH_NAMES = [
-    "enero", "febrero", "marzo", "abril", "mayo", "junio",
-    "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+    "enero",
+    "febrero",
+    "marzo",
+    "abril",
+    "mayo",
+    "junio",
+    "julio",
+    "agosto",
+    "septiembre",
+    "octubre",
+    "noviembre",
+    "diciembre",
 ]
 
 
@@ -95,21 +105,57 @@ def compute_workload_range(
     """
     if base_hours <= 0:
         if real_hours > 0:
-            return {"min": 0, "max": 0, "elevated_max": 0, "color": "orange", "label": "Carga elevada"}
+            return {
+                "min": 0,
+                "max": 0,
+                "elevated_max": 0,
+                "color": "orange",
+                "label": "Carga elevada",
+            }
         return {"min": 0, "max": 0, "elevated_max": 0, "color": "green", "label": "Óptimo"}
 
     min_ = round_half_up(limit_low, 2)
     max_ = round_half_up(limit_high, 2)
     elevated_max = round_half_up(limit_overload, 2)
     if real_hours < min_:
-        return {"min": min_, "max": max_, "elevated_max": elevated_max, "color": "red", "label": "Subutilización"}
+        return {
+            "min": min_,
+            "max": max_,
+            "elevated_max": elevated_max,
+            "color": "red",
+            "label": "Subutilización",
+        }
     if real_hours < base_hours:
-        return {"min": min_, "max": max_, "elevated_max": elevated_max, "color": "yellow", "label": "Moderado"}
+        return {
+            "min": min_,
+            "max": max_,
+            "elevated_max": elevated_max,
+            "color": "yellow",
+            "label": "Moderado",
+        }
     if real_hours <= max_:
-        return {"min": min_, "max": max_, "elevated_max": elevated_max, "color": "green", "label": "Óptimo"}
+        return {
+            "min": min_,
+            "max": max_,
+            "elevated_max": elevated_max,
+            "color": "green",
+            "label": "Óptimo",
+        }
     if real_hours <= elevated_max:
-        return {"min": min_, "max": max_, "elevated_max": elevated_max, "color": "orange", "label": "Carga elevada"}
-    return {"min": min_, "max": max_, "elevated_max": elevated_max, "color": "red", "label": "Sobrecarga"}
+        return {
+            "min": min_,
+            "max": max_,
+            "elevated_max": elevated_max,
+            "color": "orange",
+            "label": "Carga elevada",
+        }
+    return {
+        "min": min_,
+        "max": max_,
+        "elevated_max": elevated_max,
+        "color": "red",
+        "label": "Sobrecarga",
+    }
 
 
 def compute_workload_pct(real_hours: float, base_hours: float, optimal_max: float) -> int:
@@ -170,26 +216,83 @@ def monthly_business_base_for_users(users, year: int, month: int) -> dict:
     per_user: dict[int, dict] = {}
 
     team_special_map = get_team_special_status_day_map(users, start, effective_end)
-    if not team_special_map:
-        return {"shared": shared, "per_user": per_user}
-
     holidays = get_holiday_set()
-    for user_id, day_map in team_special_map.items():
-        if not day_map:
+
+    # Dos motivos independientes para que una persona tenga una base distinta
+    # a la del equipo, y pueden darse juntos:
+    #   - un `SpecialStatus` vigente (maternidad/lactancia), que cambia las
+    #     horas de cada día;
+    #   - un `kpi_start_date`, que recorta DESDE CUÁNDO se cuenta el mes.
+    # El segundo faltaba: esta función arrancaba siempre el día 1, así que el
+    # Resumen Ejecutivo y los KPIs del equipo mostraban el mes entero (143h)
+    # para gente cuyo período empezaba el 17 (ver docs/AUDIT_LOG.md §
+    # 2026-09-29). `compute_carga_tiempo` sí lo aplicaba, de ahí que las dos
+    # pantallas se contradijeran entre sí.
+    for user in users:
+        kpi_start_day = (
+            user.kpi_start_date.date() if getattr(user, "kpi_start_date", None) else None
+        )
+        # Sólo recorta dentro de este mes: una fecha anterior no cambia nada, y
+        # una posterior al cierre dejaría la base en cero.
+        kpi_start_applies = bool(kpi_start_day and start < kpi_start_day <= effective_end)
+        day_map = team_special_map.get(user.id) or {}
+        if not kpi_start_applies and not day_map:
             continue
-        base_hours = sum_weighted_base_hours(start, effective_end, shared["hours_per_day"], holidays, {}, day_map, "daily_hours")
-        limit_base_hours = sum_weighted_base_hours(start, effective_end, shared["hours_per_day"], holidays, {}, day_map, "limit_base")
-        limit_low_hours = sum_weighted_limit(start, effective_end, holidays, day_map, shared["limit_low_per_day"], "limit_low")
-        limit_high_hours = sum_weighted_limit(start, effective_end, holidays, day_map, shared["limit_high_per_day"], "limit_high")
-        limit_overload_hours = sum_weighted_limit(start, effective_end, holidays, day_map, shared["limit_overload_per_day"], "limit_overload")
-        per_user[user_id] = {
-            **shared,
-            "base_hours": base_hours,
-            "limit_base_hours": limit_base_hours,
-            "limit_low_hours": limit_low_hours,
-            "limit_high_hours": limit_high_hours,
-            "limit_overload_hours": limit_overload_hours,
+
+        user_start = kpi_start_day if kpi_start_applies else start
+        base_usuario = {
+            **business_base_for_range(user_start, effective_end),
+            "start": user_start,
+            "end": effective_end,
         }
+        if day_map:
+            base_usuario.update(
+                {
+                    "base_hours": sum_weighted_base_hours(
+                        user_start,
+                        effective_end,
+                        shared["hours_per_day"],
+                        holidays,
+                        {},
+                        day_map,
+                        "daily_hours",
+                    ),
+                    "limit_base_hours": sum_weighted_base_hours(
+                        user_start,
+                        effective_end,
+                        shared["hours_per_day"],
+                        holidays,
+                        {},
+                        day_map,
+                        "limit_base",
+                    ),
+                    "limit_low_hours": sum_weighted_limit(
+                        user_start,
+                        effective_end,
+                        holidays,
+                        day_map,
+                        shared["limit_low_per_day"],
+                        "limit_low",
+                    ),
+                    "limit_high_hours": sum_weighted_limit(
+                        user_start,
+                        effective_end,
+                        holidays,
+                        day_map,
+                        shared["limit_high_per_day"],
+                        "limit_high",
+                    ),
+                    "limit_overload_hours": sum_weighted_limit(
+                        user_start,
+                        effective_end,
+                        holidays,
+                        day_map,
+                        shared["limit_overload_per_day"],
+                        "limit_overload",
+                    ),
+                }
+            )
+        per_user[user.id] = base_usuario
     return {"shared": shared, "per_user": per_user}
 
 
@@ -231,7 +334,9 @@ def _last_business_day(start: date, end: date, holidays: set[date]) -> date | No
     return None
 
 
-def _special_status_type_in_range(special_map: dict[date, dict], start: date, end: date) -> str | None:
+def _special_status_type_in_range(
+    special_map: dict[date, dict], start: date, end: date
+) -> str | None:
     current = start
     while current <= end:
         cfg = special_map.get(current)
@@ -257,14 +362,19 @@ def _real_hours_in_window(user, cal_start: date, cal_end: date) -> float:
     _, real_end = business_day_real_range(cal_end)
     fija_hours = (
         Task.objects.filter(
-            assigned_to=user, type=Task.Type.FIJA, archived_month__isnull=True,
-            completed_at__gte=real_start, completed_at__lte=real_end,
+            assigned_to=user,
+            type=Task.Type.FIJA,
+            archived_month__isnull=True,
+            completed_at__gte=real_start,
+            completed_at__lte=real_end,
         ).aggregate(total=Sum("real_hours"))["total"]
         or 0
     )
     activity_minutes = (
         TaskActivity.objects.filter(
-            author=user, created_at__gte=real_start, created_at__lte=real_end,
+            author=user,
+            created_at__gte=real_start,
+            created_at__lte=real_end,
         ).aggregate(total=Sum("duration"))["total"]
         or 0
     )
@@ -296,13 +406,20 @@ def _holiday_hours_in_range(user, range_start: date, range_end: date, holidays: 
 
 
 def _to_metric(
-    real_hours: float, base_hours: float, classification_base: float, hours_per_day: float,
-    limit_low: float, limit_high: float, limit_overload: float,
+    real_hours: float,
+    base_hours: float,
+    classification_base: float,
+    hours_per_day: float,
+    limit_low: float,
+    limit_high: float,
+    limit_overload: float,
 ) -> dict:
     """`base_hours` es la base de exhibición (horas objetivo); `classification_base`
     es el umbral real de clasificación Moderado/Óptimo — para todo período
     sin estado especial ambos valores son idénticos."""
-    range_ = compute_workload_range(real_hours, classification_base, limit_low, limit_high, limit_overload)
+    range_ = compute_workload_range(
+        real_hours, classification_base, limit_low, limit_high, limit_overload
+    )
     pct = (
         compute_workload_pct(real_hours, classification_base, range_["max"])
         if classification_base > 0
@@ -349,7 +466,9 @@ def compute_carga_tiempo(*, user, now: datetime) -> dict:
     kpi_start_day = user.kpi_start_date.date() if user.kpi_start_date else None
     kpi_start_applies = kpi_start_day is not None and kpi_start_day > month_start
     effective_month_start = kpi_start_day if kpi_start_applies else month_start
-    effective_week_start = kpi_start_day if (kpi_start_day and kpi_start_day > week_start) else week_start
+    effective_week_start = (
+        kpi_start_day if (kpi_start_day and kpi_start_day > week_start) else week_start
+    )
 
     today_is_weekend = not is_business_day(today)
     today_is_holiday = not today_is_weekend and today in holidays
@@ -361,10 +480,16 @@ def compute_carga_tiempo(*, user, now: datetime) -> dict:
     today_classification_base = today_cfg["limit_base"] if today_cfg else hours_per_day
     today_limit_low_per_day = today_cfg["limit_low"] if today_cfg else limit_low_per_day
     today_limit_high_per_day = today_cfg["limit_high"] if today_cfg else limit_high_per_day
-    today_limit_overload_per_day = today_cfg["limit_overload"] if today_cfg else limit_overload_per_day
+    today_limit_overload_per_day = (
+        today_cfg["limit_overload"] if today_cfg else limit_overload_per_day
+    )
     today_leave_hours = leave_hours_for_day(today_leave_info, today_daily_hours)
-    day_factor = max(0.0, 1 - today_leave_hours / today_daily_hours) if today_daily_hours > 0 else 1.0
-    daily_base_hours = 0.0 if (today_is_weekend or today_is_holiday) else today_daily_hours * day_factor
+    day_factor = (
+        max(0.0, 1 - today_leave_hours / today_daily_hours) if today_daily_hours > 0 else 1.0
+    )
+    daily_base_hours = (
+        0.0 if (today_is_weekend or today_is_holiday) else today_daily_hours * day_factor
+    )
     daily_classification_base = today_classification_base * day_factor
     daily_limit_low = today_limit_low_per_day * day_factor
     daily_limit_high = today_limit_high_per_day * day_factor
@@ -372,39 +497,89 @@ def compute_carga_tiempo(*, user, now: datetime) -> dict:
 
     weekly_business_days = count_business_days(effective_week_start, week_end, holidays)
     weekly_base_hours = sum_weighted_base_hours(
-        effective_week_start, week_end, hours_per_day, holidays, leave_map, special_map, "daily_hours"
+        effective_week_start,
+        week_end,
+        hours_per_day,
+        holidays,
+        leave_map,
+        special_map,
+        "daily_hours",
     )
     weekly_classification_base = sum_weighted_base_hours(
-        effective_week_start, week_end, hours_per_day, holidays, leave_map, special_map, "limit_base"
+        effective_week_start,
+        week_end,
+        hours_per_day,
+        holidays,
+        leave_map,
+        special_map,
+        "limit_base",
     )
-    weekly_limit_low_hours = sum_weighted_limit(effective_week_start, week_end, holidays, special_map, limit_low_per_day, "limit_low")
-    weekly_limit_high_hours = sum_weighted_limit(effective_week_start, week_end, holidays, special_map, limit_high_per_day, "limit_high")
+    weekly_limit_low_hours = sum_weighted_limit(
+        effective_week_start, week_end, holidays, special_map, limit_low_per_day, "limit_low"
+    )
+    weekly_limit_high_hours = sum_weighted_limit(
+        effective_week_start, week_end, holidays, special_map, limit_high_per_day, "limit_high"
+    )
     weekly_limit_overload_hours = sum_weighted_limit(
-        effective_week_start, week_end, holidays, special_map, limit_overload_per_day, "limit_overload"
+        effective_week_start,
+        week_end,
+        holidays,
+        special_map,
+        limit_overload_per_day,
+        "limit_overload",
     )
-    weekly_special_status_type = _special_status_type_in_range(special_map, effective_week_start, week_end)
+    weekly_special_status_type = _special_status_type_in_range(
+        special_map, effective_week_start, week_end
+    )
 
     monthly_business_days = count_business_days(effective_month_start, month_end, holidays)
     monthly_base_hours = sum_weighted_base_hours(
-        effective_month_start, month_end, hours_per_day, holidays, leave_map, special_map, "daily_hours"
+        effective_month_start,
+        month_end,
+        hours_per_day,
+        holidays,
+        leave_map,
+        special_map,
+        "daily_hours",
     )
     monthly_classification_base = sum_weighted_base_hours(
-        effective_month_start, month_end, hours_per_day, holidays, leave_map, special_map, "limit_base"
+        effective_month_start,
+        month_end,
+        hours_per_day,
+        holidays,
+        leave_map,
+        special_map,
+        "limit_base",
     )
-    monthly_limit_low_hours = sum_weighted_limit(effective_month_start, month_end, holidays, special_map, limit_low_per_day, "limit_low")
-    monthly_limit_high_hours = sum_weighted_limit(effective_month_start, month_end, holidays, special_map, limit_high_per_day, "limit_high")
+    monthly_limit_low_hours = sum_weighted_limit(
+        effective_month_start, month_end, holidays, special_map, limit_low_per_day, "limit_low"
+    )
+    monthly_limit_high_hours = sum_weighted_limit(
+        effective_month_start, month_end, holidays, special_map, limit_high_per_day, "limit_high"
+    )
     monthly_limit_overload_hours = sum_weighted_limit(
-        effective_month_start, month_end, holidays, special_map, limit_overload_per_day, "limit_overload"
+        effective_month_start,
+        month_end,
+        holidays,
+        special_map,
+        limit_overload_per_day,
+        "limit_overload",
     )
-    monthly_special_status_type = _special_status_type_in_range(special_map, effective_month_start, month_end)
+    monthly_special_status_type = _special_status_type_in_range(
+        special_map, effective_month_start, month_end
+    )
 
     diaria_hours = _real_hours_in_window(user, today, today)
     semanal_hours = _real_hours_in_window(user, effective_week_start, week_end)
     mensual_hours = _real_hours_in_window(user, effective_month_start, month_end)
     weekend_hours = _weekend_hours_in_range(user, effective_week_start, week_end)
     monthly_weekend_hours = _weekend_hours_in_range(user, effective_month_start, month_end)
-    monthly_holiday_hours = _holiday_hours_in_range(user, effective_month_start, month_end, holidays)
-    monthly_leave_totals = total_leave_minutes(leave_map, effective_month_start, month_end, hours_per_day)
+    monthly_holiday_hours = _holiday_hours_in_range(
+        user, effective_month_start, month_end, holidays
+    )
+    monthly_leave_totals = total_leave_minutes(
+        leave_map, effective_month_start, month_end, hours_per_day
+    )
 
     week_biz_start = _first_business_day(week_start, week_end, holidays) or week_start
     week_biz_end = _last_business_day(week_start, week_end, holidays) or week_end
@@ -413,23 +588,38 @@ def compute_carga_tiempo(*, user, now: datetime) -> dict:
         "medico_leave_minutes": today_leave_info["medico_minutes"] if today_leave_info else 0,
         "medico_leave_full_day": today_leave_info["medico_full_day"] if today_leave_info else False,
         "personal_leave_minutes": today_leave_info["personal_minutes"] if today_leave_info else 0,
-        "personal_leave_full_day": today_leave_info["personal_full_day"] if today_leave_info else False,
-        "vacaciones_full_day": today_leave_info["vacaciones_full_day"] if today_leave_info else False,
+        "personal_leave_full_day": (
+            today_leave_info["personal_full_day"] if today_leave_info else False
+        ),
+        "vacaciones_full_day": (
+            today_leave_info["vacaciones_full_day"] if today_leave_info else False
+        ),
         "special_status_type": today_special_status_type,
     }
 
     if today_is_weekend or today_is_holiday:
         diaria_metric = {
-            "real_hours": diaria_hours, "base_hours": 0, "pct": 0, "color": "green",
-            "range_min": 0, "range_max": 0, "label": "Óptimo",
-            "is_weekend": today_is_weekend, "is_holiday": today_is_holiday,
+            "real_hours": diaria_hours,
+            "base_hours": 0,
+            "pct": 0,
+            "color": "green",
+            "range_min": 0,
+            "range_max": 0,
+            "label": "Óptimo",
+            "is_weekend": today_is_weekend,
+            "is_holiday": today_is_holiday,
             **leave_fields,
         }
     else:
         diaria_metric = {
             **_to_metric(
-                diaria_hours, daily_base_hours, daily_classification_base, today_daily_hours,
-                daily_limit_low, daily_limit_high, daily_limit_overload,
+                diaria_hours,
+                daily_base_hours,
+                daily_classification_base,
+                today_daily_hours,
+                daily_limit_low,
+                daily_limit_high,
+                daily_limit_overload,
             ),
             "is_holiday": False,
             **leave_fields,
@@ -439,8 +629,13 @@ def compute_carga_tiempo(*, user, now: datetime) -> dict:
         "diaria": diaria_metric,
         "semanal": {
             **_to_metric(
-                semanal_hours, weekly_base_hours, weekly_classification_base, hours_per_day,
-                weekly_limit_low_hours, weekly_limit_high_hours, weekly_limit_overload_hours,
+                semanal_hours,
+                weekly_base_hours,
+                weekly_classification_base,
+                hours_per_day,
+                weekly_limit_low_hours,
+                weekly_limit_high_hours,
+                weekly_limit_overload_hours,
             ),
             "week_start_label": _format_short_date(week_biz_start),
             "week_end_label": _format_short_date(week_biz_end),
@@ -450,8 +645,13 @@ def compute_carga_tiempo(*, user, now: datetime) -> dict:
         },
         "mensual": {
             **_to_metric(
-                mensual_hours, monthly_base_hours, monthly_classification_base, hours_per_day,
-                monthly_limit_low_hours, monthly_limit_high_hours, monthly_limit_overload_hours,
+                mensual_hours,
+                monthly_base_hours,
+                monthly_classification_base,
+                hours_per_day,
+                monthly_limit_low_hours,
+                monthly_limit_high_hours,
+                monthly_limit_overload_hours,
             ),
             "month_label": _format_month_label(today),
             "business_days": monthly_business_days,
@@ -492,7 +692,9 @@ def compute_carga_history(*, user, now: datetime) -> dict:
     holidays = get_holiday_set()
 
     kpi_start_day = user.kpi_start_date.date() if user.kpi_start_date else None
-    effective_month_start = kpi_start_day if (kpi_start_day and kpi_start_day > month_start) else month_start
+    effective_month_start = (
+        kpi_start_day if (kpi_start_day and kpi_start_day > month_start) else month_start
+    )
     range_end = today
 
     daily: list[dict] = []
@@ -504,20 +706,29 @@ def compute_carga_history(*, user, now: datetime) -> dict:
 
         daily_fija_tasks = list(
             Task.objects.filter(
-                assigned_to=user, type=Task.Type.FIJA, archived_month__isnull=True,
-                completed_at__gte=daily_real_start, completed_at__lte=daily_real_end,
+                assigned_to=user,
+                type=Task.Type.FIJA,
+                archived_month__isnull=True,
+                completed_at__gte=daily_real_start,
+                completed_at__lte=daily_real_end,
             ).values("completed_at", "real_hours")
         )
         daily_activities = list(
             TaskActivity.objects.filter(
-                author=user, created_at__gte=daily_real_start, created_at__lte=daily_real_end,
+                author=user,
+                created_at__gte=daily_real_start,
+                created_at__lte=daily_real_end,
             ).values("created_at", "duration")
         )
 
         def real_hours_for_day(day: date) -> float:
             start, end = business_day_real_range(day)
-            fija_hours = sum(t["real_hours"] for t in daily_fija_tasks if start <= t["completed_at"] <= end)
-            activity_hours = sum(a["duration"] for a in daily_activities if start <= a["created_at"] <= end) / 60
+            fija_hours = sum(
+                t["real_hours"] for t in daily_fija_tasks if start <= t["completed_at"] <= end
+            )
+            activity_hours = (
+                sum(a["duration"] for a in daily_activities if start <= a["created_at"] <= end) / 60
+            )
             return round_half_up(fija_hours + activity_hours, 2)
 
         current = effective_month_start
@@ -533,31 +744,70 @@ def compute_carga_history(*, user, now: datetime) -> dict:
             if not is_business_day(current):
                 if real_hours > 0:
                     daily.append(
-                        {**base, "real_hours": real_hours, "base_hours": 0, "color": "orange",
-                         "label": "Carga elevada", "kind": "weekend-extra"}
+                        {
+                            **base,
+                            "real_hours": real_hours,
+                            "base_hours": 0,
+                            "color": "orange",
+                            "label": "Carga elevada",
+                            "kind": "weekend-extra",
+                        }
                     )
                 current += timedelta(days=1)
                 continue
 
             if current in holidays:
                 daily.append(
-                    {**base, "real_hours": real_hours, "base_hours": 0, "color": "green",
-                     "label": "Óptimo", "kind": "holiday"}
+                    {
+                        **base,
+                        "real_hours": real_hours,
+                        "base_hours": 0,
+                        "color": "green",
+                        "label": "Óptimo",
+                        "kind": "holiday",
+                    }
                 )
                 current += timedelta(days=1)
                 continue
 
             leave_info = leave_map.get(current)
             if leave_info and leave_info["medico_full_day"]:
-                daily.append({**base, "real_hours": real_hours, "base_hours": 0, "color": "green", "label": "Óptimo", "kind": "leave-medico"})
+                daily.append(
+                    {
+                        **base,
+                        "real_hours": real_hours,
+                        "base_hours": 0,
+                        "color": "green",
+                        "label": "Óptimo",
+                        "kind": "leave-medico",
+                    }
+                )
                 current += timedelta(days=1)
                 continue
             if leave_info and leave_info["personal_full_day"]:
-                daily.append({**base, "real_hours": real_hours, "base_hours": 0, "color": "green", "label": "Óptimo", "kind": "leave-personal"})
+                daily.append(
+                    {
+                        **base,
+                        "real_hours": real_hours,
+                        "base_hours": 0,
+                        "color": "green",
+                        "label": "Óptimo",
+                        "kind": "leave-personal",
+                    }
+                )
                 current += timedelta(days=1)
                 continue
             if leave_info and leave_info["vacaciones_full_day"]:
-                daily.append({**base, "real_hours": real_hours, "base_hours": 0, "color": "green", "label": "Óptimo", "kind": "leave-vacaciones"})
+                daily.append(
+                    {
+                        **base,
+                        "real_hours": real_hours,
+                        "base_hours": 0,
+                        "color": "green",
+                        "label": "Óptimo",
+                        "kind": "leave-vacaciones",
+                    }
+                )
                 current += timedelta(days=1)
                 continue
 
@@ -571,13 +821,22 @@ def compute_carga_history(*, user, now: datetime) -> dict:
             day_base_hours = day_daily_hours * day_factor
             day_class_base = day_classification_base * day_factor
             range_ = compute_workload_range(
-                real_hours, day_class_base, day_limit_low * day_factor, day_limit_high * day_factor,
+                real_hours,
+                day_class_base,
+                day_limit_low * day_factor,
+                day_limit_high * day_factor,
                 day_limit_overload * day_factor,
             )
             is_empty = real_hours == 0 and leave_hours == 0
             daily.append(
-                {**base, "real_hours": real_hours, "base_hours": day_base_hours,
-                 "color": range_["color"], "label": range_["label"], "kind": "empty" if is_empty else "normal"}
+                {
+                    **base,
+                    "real_hours": real_hours,
+                    "base_hours": day_base_hours,
+                    "color": range_["color"],
+                    "label": range_["label"],
+                    "kind": "empty" if is_empty else "normal",
+                }
             )
             current += timedelta(days=1)
 
@@ -605,29 +864,62 @@ def compute_carga_history(*, user, now: datetime) -> dict:
 
     weekly_fija_tasks = list(
         Task.objects.filter(
-            assigned_to=user, type=Task.Type.FIJA, archived_month__isnull=True,
-            completed_at__gte=weekly_real_start, completed_at__lte=weekly_real_end,
+            assigned_to=user,
+            type=Task.Type.FIJA,
+            archived_month__isnull=True,
+            completed_at__gte=weekly_real_start,
+            completed_at__lte=weekly_real_end,
         ).values("completed_at", "real_hours")
     )
     weekly_activities = list(
         TaskActivity.objects.filter(
-            author=user, created_at__gte=weekly_real_start, created_at__lte=weekly_real_end,
+            author=user,
+            created_at__gte=weekly_real_start,
+            created_at__lte=weekly_real_end,
         ).values("created_at", "duration")
     )
 
     weekly: list[dict] = []
     for index, (slice_start, slice_end) in enumerate(week_slices):
-        base_hours = sum_weighted_base_hours(slice_start, slice_end, hours_per_day, holidays, {}, weekly_special_map, "daily_hours")
-        classification_base = sum_weighted_base_hours(slice_start, slice_end, hours_per_day, holidays, {}, weekly_special_map, "limit_base")
-        limit_low_hours = sum_weighted_limit(slice_start, slice_end, holidays, weekly_special_map, limit_low_per_day, "limit_low")
-        limit_high_hours = sum_weighted_limit(slice_start, slice_end, holidays, weekly_special_map, limit_high_per_day, "limit_high")
-        limit_overload_hours = sum_weighted_limit(slice_start, slice_end, holidays, weekly_special_map, limit_overload_per_day, "limit_overload")
+        base_hours = sum_weighted_base_hours(
+            slice_start, slice_end, hours_per_day, holidays, {}, weekly_special_map, "daily_hours"
+        )
+        classification_base = sum_weighted_base_hours(
+            slice_start, slice_end, hours_per_day, holidays, {}, weekly_special_map, "limit_base"
+        )
+        limit_low_hours = sum_weighted_limit(
+            slice_start, slice_end, holidays, weekly_special_map, limit_low_per_day, "limit_low"
+        )
+        limit_high_hours = sum_weighted_limit(
+            slice_start, slice_end, holidays, weekly_special_map, limit_high_per_day, "limit_high"
+        )
+        limit_overload_hours = sum_weighted_limit(
+            slice_start,
+            slice_end,
+            holidays,
+            weekly_special_map,
+            limit_overload_per_day,
+            "limit_overload",
+        )
         real_start, _ = business_day_real_range(slice_start)
         _, real_end = business_day_real_range(slice_end)
-        fija_hours = sum(t["real_hours"] for t in weekly_fija_tasks if real_start <= t["completed_at"] <= real_end)
-        activity_hours = sum(a["duration"] for a in weekly_activities if real_start <= a["created_at"] <= real_end) / 60
+        fija_hours = sum(
+            t["real_hours"]
+            for t in weekly_fija_tasks
+            if real_start <= t["completed_at"] <= real_end
+        )
+        activity_hours = (
+            sum(
+                a["duration"]
+                for a in weekly_activities
+                if real_start <= a["created_at"] <= real_end
+            )
+            / 60
+        )
         real_hours = round_half_up(fija_hours + activity_hours, 2)
-        range_ = compute_workload_range(real_hours, classification_base, limit_low_hours, limit_high_hours, limit_overload_hours)
+        range_ = compute_workload_range(
+            real_hours, classification_base, limit_low_hours, limit_high_hours, limit_overload_hours
+        )
         weekly.append(
             {
                 "week_label": f"Sem {index + 1}",
@@ -635,7 +927,9 @@ def compute_carga_history(*, user, now: datetime) -> dict:
                 "base_hours": round_half_up(base_hours, 2),
                 "color": range_["color"],
                 "label": range_["label"],
-                "special_status_type": _special_status_type_in_range(weekly_special_map, slice_start, slice_end),
+                "special_status_type": _special_status_type_in_range(
+                    weekly_special_map, slice_start, slice_end
+                ),
             }
         )
 
@@ -648,7 +942,9 @@ def redact_sensitive_workload_detail(carga_tiempo: dict) -> dict:
     son el propio titular ni el Administrador (Art. 26 LOPDP). Réplica
     exacta de `redactSensitiveWorkloadDetail`."""
     diaria = carga_tiempo["diaria"]
-    diaria_leave_minutes = (diaria.get("medico_leave_minutes") or 0) + (diaria.get("personal_leave_minutes") or 0)
+    diaria_leave_minutes = (diaria.get("medico_leave_minutes") or 0) + (
+        diaria.get("personal_leave_minutes") or 0
+    )
     diaria_full_day = (
         diaria.get("medico_leave_full_day", False)
         or diaria.get("personal_leave_full_day", False)
@@ -683,9 +979,15 @@ def redact_sensitive_workload_detail(carga_tiempo: dict) -> dict:
             "special_status_type": None,
         },
         "daily_history": [
-            {**p, "special_status_type": None, "kind": "leave-generic" if p["kind"] in leave_kinds else p["kind"]}
+            {
+                **p,
+                "special_status_type": None,
+                "kind": "leave-generic" if p["kind"] in leave_kinds else p["kind"],
+            }
             for p in carga_tiempo["daily_history"]
         ],
-        "weekly_history": [{**p, "special_status_type": None} for p in carga_tiempo["weekly_history"]],
+        "weekly_history": [
+            {**p, "special_status_type": None} for p in carga_tiempo["weekly_history"]
+        ],
         "sensitive_detail_visible": False,
     }

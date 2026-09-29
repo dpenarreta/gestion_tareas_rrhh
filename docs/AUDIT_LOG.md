@@ -15,6 +15,54 @@
 
 ---
 
+## 2026-09-29 — El Resumen Ejecutivo ignoraba la fecha de inicio de cálculo por usuario
+
+**Cómo apareció:** se configuró el 17/09 como fecha de inicio de cálculo KPI
+para todo el equipo, y la carga laboral seguía mostrando el mes completo
+(143 h) en vez del tramo desde esa fecha.
+
+**Lo que confundía el diagnóstico:** el ajuste SÍ funcionaba en una parte del
+sistema. `compute_carga_tiempo` lo aplicaba correctamente —10 días hábiles y
+bases de 32,5 a 60 h para las mismas personas—, así que dos pantallas del mismo
+módulo mostraban números contradictorios sobre el mismo dato.
+
+**La causa:** `monthly_business_base_for_users` arrancaba siempre el día 1
+(`start = date(year, month, 1)`). Esa función contempla el `SpecialStatus` por
+usuario (maternidad/lactancia), que cambia las horas de cada día, pero nunca
+mirό `kpi_start_date`, que cambia *desde cuándo* se cuenta el mes. Alimenta el
+Resumen Ejecutivo, los KPIs del equipo y `/kpis/me/range`.
+
+**El panorama más amplio:** de los diez módulos de `apps.analytics` que cuentan
+días hábiles, sólo dos aplicaban el ajuste (`workload.py` e `history.py`). Este
+cambio corrige el punto que alimenta las pantallas reportadas; los otros siete
+siguen sin contemplarlo y conviene revisarlos uno por uno antes de dar el tema
+por cerrado.
+
+**Alternativas consideradas:**
+
+- *Recortar el resultado en el frontend.* Next.js no recalcula KPIs por
+  decisión de arquitectura, y hacerlo dejaría dos definiciones del mismo número.
+- *Filtrar por fecha en cada consumidor.* Son varios (Resumen Ejecutivo, KPIs
+  del equipo, rango propio) y cada uno tendría que acordarse del ajuste.
+- *Resolverlo donde ya se resuelve el caso análogo* (elegida). La función ya
+  construía una base propia por usuario para el estado especial; el
+  `kpi_start_date` es el mismo problema con otro parámetro, y ahora ambos se
+  combinan si coinciden en la misma persona.
+
+**Detalle que evita un error nuevo:** el recorte sólo aplica si la fecha cae
+dentro del mes consultado (`start < kpi_start_day <= effective_end`). Sin ese
+filtro, un ajuste de un mes anterior dejaría la base en cero al consultar
+meses siguientes.
+
+**Impacto:** ninguna fórmula cambia. Las dos pantallas dejan de contradecir a
+`compute_carga_tiempo` y los días previos a la fecha configurada dejan de
+contar como base laboral, que es lo que el propio texto de la pantalla de
+Ajustes promete.
+
+**Aprobado por:** Anthony Jácome.
+
+---
+
 ## 2026-09-25 — Las sesiones se revocaban solas: dos sondeos sincronizados consumían dos rotaciones
 
 **Cómo se midió.** Tres intentos previos habían fallado por medir mal, así que

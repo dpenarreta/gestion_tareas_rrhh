@@ -23,6 +23,36 @@
 
 ---
 
+## v1.162.1 — 2026-09-29
+
+**Tipo:** FIX
+**Módulo:** Analytics — el Resumen Ejecutivo y los KPIs del equipo ignoraban
+la fecha de inicio de cálculo por usuario (ver docs/AUDIT_LOG.md § 2026-09-29).
+
+- **Síntoma:** con el 17/09 configurado como inicio de cálculo, la carga
+  laboral mostraba el mes completo (**143 h**) en vez del tramo desde esa
+  fecha.
+- **Lo que confundía:** `compute_carga_tiempo` sí lo aplicaba —10 días
+  hábiles, bases de 32,5 a 60 h para las mismas personas—, así que dos
+  pantallas del mismo módulo se contradecían.
+- **La causa:** `monthly_business_base_for_users` arrancaba siempre el día 1.
+  Contemplaba el `SpecialStatus` por usuario (que cambia las horas de cada
+  día) pero no `kpi_start_date` (que cambia desde cuándo se cuenta el mes).
+  Alimenta el Resumen Ejecutivo, los KPIs del equipo y `/kpis/me/range`.
+- **`workload.py`**: la base propia por usuario ahora nace de su
+  `kpi_start_date` cuando cae dentro del mes, y se combina con el estado
+  especial si la persona tiene los dos. El recorte sólo aplica dentro del mes
+  consultado: sin ese filtro, un ajuste de un mes anterior dejaría la base en
+  cero en los meses siguientes.
+- **Pendiente relacionado:** de los diez módulos de `apps.analytics` que
+  cuentan días hábiles, sólo dos aplicaban el ajuste. Este cambio cubre el que
+  alimenta las pantallas reportadas; los otros siete conviene revisarlos.
+
+**Verificación:** 4 tests nuevos (sin ajuste usa la base del equipo, con
+ajuste se recorta, una fecha de otro mes no recorta nada, y el ajuste de una
+persona no afecta al resto); se comprobó que fallan al ignorar la fecha.
+643 passed en `apps/analytics`, ruff y black limpios.
+
 ## v1.162.0 — 2026-09-25
 
 **Tipo:** FIX
