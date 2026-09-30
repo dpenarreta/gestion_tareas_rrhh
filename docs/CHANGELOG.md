@@ -23,6 +23,98 @@
 
 ---
 
+## v1.163.0 — 2026-09-29
+
+**Tipo:** ANALYTICS
+**Módulo:** Carga laboral — las horas esperadas de un mes de trabajo son 140h
+fijas, y `kpi_start_date` pasa a regir en los siete módulos que lo ignoraban
+(ver docs/AUDIT_LOG.md § 2026-09-29).
+
+### Las horas esperadas del mes ya no se cuentan por días hábiles
+
+- **Regla de negocio:** un mes de trabajo son **140 h**. Antes la base salía de
+  `días hábiles × HORAS_EFECTIVAS_DIA`, así que el objetivo se movía solo con
+  el calendario: **130 h** en febrero de 2026 (20 hábiles), **143 h** en
+  septiembre (22), **136,5 h** en noviembre (21). La misma persona con las
+  mismas horas cambiaba de zona del semáforo según el mes.
+- **Cómo se prorratea:** `tasaEsperada(mes) = HORAS_ESPERADAS_MES / días
+  hábiles del mes calendario completo`, y la base de cualquier tramo es
+  `días hábiles del tramo × tasaEsperada`. Un mes entero suma exactamente
+  140 h; un tramo desde el 17 de septiembre da `10 × (140/22) = 63,64 h` (antes
+  65 h con la regla vieja, y 143 h antes del arreglo de v1.162.1). Un rango de
+  varios meses suma el objetivo de cada mes con su propia tasa.
+- **Qué NO cambió:** `HORAS_EFECTIVAS_DIA` (6,5 h) sigue rigiendo el día y la
+  semana, y los tres límites externos del semáforo siguen siendo umbrales por
+  día. Son objetivos distintos y no se reconcilian de forma exacta
+  (22 × 6,5 = 143 ≠ 140): en el mes manda el mensual.
+- **Parametrizable:** clave `HORAS_ESPERADAS_MES` (default 140), editable en
+  Configuraciones → Configuración de Carga Laboral, con rango 40–400 h y sin
+  entrar en la validación de orden del semáforo (que es por día). La
+  configuración no es retroactiva, igual que el resto del catálogo: un cambio
+  de hoy no reescribe meses ya cerrados.
+- **La vista previa de esa tarjeta** decía literalmente "Horas mensuales: varía
+  según días laborables (ej: septiembre = 22 días × 6.30h = 143h)" — ahora
+  muestra las horas esperadas del mes y la tasa diaria que implican.
+- **Archivos:** `backend/apps/configuration/services.py`
+  (`CONFIG_KEY_HORAS_ESPERADAS_MES`, `get_effective_horas_esperadas_mes`,
+  `expected_hours_per_day_for_month`, `expected_base_hours_for_range`,
+  `business_base_for_range`), `backend/apps/configuration/views.py`,
+  `backend/apps/analytics/workload.py`, `backend/apps/reports/member_kpis.py`,
+  `backend/apps/reports/team_report.py`, `src/lib/workload.ts`,
+  `src/lib/systemConfig.ts`, `src/lib/djangoSystemConfigAdapter.ts`,
+  `src/app/api/settings/workload-config/route.ts`,
+  `src/components/settings/WorkloadConfigSection.tsx`,
+  `src/components/settings/registry.ts`.
+- **Alcance real:** todo consumidor de base horaria pasa por
+  `business_base_for_range`, así que el cambio llega de una sola vez a
+  Analytics, KPIs, Dashboard, Reportes Ejecutivos y al cierre de mes
+  (`working_hours_considered` de `MonthClosure`, que antes decía un número
+  distinto al de Analytics para el mismo período).
+
+### Los siete módulos que ignoraban `kpi_start_date`
+
+Todos comparaban un objetivo de mes entero contra horas reales que sí
+arrancaban en la fecha configurada:
+
+- **`health_score.py`** — el factor "Carga laboral" del Equilibrio Operativo
+  medía las horas del tramo contra la base del mes completo, hundiendo el score.
+- **`kpi_simulate.py`** — el escenario simulado partía de la base del mes
+  entero mientras el valor actual venía de `compute_carga_tiempo`, que sí
+  aplicaba el ajuste: las dos columnas del simulador se contradecían.
+- **`history.py` (`compute_monthly_history`)** — base del mes completo **y**
+  suma de horas anteriores al período. Alimenta Benchmark y Tendencias, así que
+  el error se propagaba.
+- **`history.py` (`compute_weekly_history`)** — las semanas anteriores a la
+  fecha contaban 6,5 h/día de objetivo con 0 h reales; ahora quedan con
+  `business_days=0` y los consumidores (`with_data`) las descartan solos.
+- **`prediction.py` / `prediction_engine.py`** — la extrapolación de ritmo
+  usaba `días del mes / días transcurridos desde el día 1`; ahora mide la
+  fracción transcurrida del período del usuario (`10/8 = 1,25` en vez de
+  `22/20 = 1,10`). El conteo de tareas sigue midiendo el mes calendario a
+  propósito, para no contradecir a `compute_monthly_history`.
+- **Sin cambios, deliberadamente:** `capacity_forecast.py` solo proyecta días
+  futuros (de mañana a fin de mes), donde la fecha de inicio ya no cambia nada;
+  `risk_alerts.py` cuenta días hábiles sin actividad, que no es un período de
+  cálculo. `benchmark.py` y `trend_engine.py` consumen `history.py` y quedan
+  corregidos por arrastre.
+
+### Versiones de fórmula
+
+`FORMULA_VERSIONS.cargaLaboral` **1.0 → 2.0**, `FORMULA_VERSIONS.prediccion`
+**2.0 → 2.1**, `FORMULA_SET_VERSION` **4.4 → 4.5**.
+
+**Verificación:** 13 tests nuevos de la regla mensual
+(`apps/configuration/tests/test_horas_esperadas_mes.py`) y 8 de
+`kpi_start_date` por módulo
+(`apps/analytics/tests/test_kpi_start_date_por_modulo.py`), más 3 en la vista
+de configuración. Todos validados reintroduciendo el bug: 10 de 13 fallan con
+la fórmula vieja y 7 de 8 con la base global. Cuatro aserciones existentes se
+actualizaron al nuevo comportamiento (base de cierre anticipado, base efectiva
+al inicio del período, día de borde local de RANGO_MESES y
+`working_hours_considered` del cierre de mes) y 4 tests del frontend
+(`workload-closure-cutoff`). Suite completa: backend y 1233 tests del
+frontend en verde, `ruff`, `eslint` y `tsc` limpios.
+
 ## v1.162.1 — 2026-09-29
 
 **Tipo:** FIX

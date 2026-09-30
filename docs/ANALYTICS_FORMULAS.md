@@ -320,7 +320,30 @@ Zonas (computeWorkloadRange, 5 zonas por RANGO, no un punto único):
   si realHours <= limitHigh   → 100
   si no                       → round(100 + (realHours-limitHigh)/limitHigh × 100)
 ```
-`limitLow`, `baseHours` (=`hoursPerDay`), `limitHigh`, `limitOverload` vienen **escalados** por el caller (límite diario × días hábiles del período) para que el rango crezca proporcionalmente en vistas semanales/mensuales.
+`limitLow`, `limitHigh` y `limitOverload` vienen **escalados** por el caller (límite diario × días hábiles del período) para que el rango crezca proporcionalmente en vistas semanales/mensuales.
+
+`baseHours` NO se escala así en las vistas **mensuales** (cambio 2026-09-29, `cargaLaboral` v2.0):
+
+```
+Día y semana:  baseHours = Σ(HORAS_EFECTIVAS_DIA ponderadas por permisos/estado especial)
+Mes o tramo:   tasaEsperada(mes) = HORAS_ESPERADAS_MES / díasHábiles(mes calendario completo)
+               baseHours         = díasHábilesDelTramo × tasaEsperada(mes)
+```
+
+Las horas esperadas de un **mes de trabajo son un valor fijo del negocio**
+(`HORAS_ESPERADAS_MES` = **140h**), no el producto `díasHábiles × HORAS_EFECTIVAS_DIA`
+— ese producto movía el objetivo con el calendario (130h en febrero de 2026 con
+20 hábiles, 143h en septiembre con 22, 136,5h en noviembre con 21), de modo que
+la misma persona con las mismas horas cambiaba de zona del semáforo según el mes.
+El divisor es siempre el mes calendario completo, así un mes entero suma
+exactamente 140h y cualquier tramo (un `kpiStartDate` a mitad de mes, un cierre
+con corte anticipado) recibe la parte proporcional a sus días hábiles. Un rango
+de varios meses suma el objetivo de cada mes con su propia tasa.
+
+`HORAS_EFECTIVAS_DIA` sigue rigiendo el día y la semana: son dos objetivos
+distintos y configurados aparte, y no se reconcilian de forma exacta
+(22 × 6,5 = 143 ≠ 140). El mensual es el que manda en el mes — decisión
+explícita del negocio, ver `docs/AUDIT_LOG.md` § 2026-09-29.
 
 ### Variables
 - `realHours`: horas reales = Σ `Task.realHours` (tipo `FIJA`, completadas) + Σ `TaskActivity.duration/60`, del período.
@@ -329,7 +352,8 @@ Zonas (computeWorkloadRange, 5 zonas por RANGO, no un punto único):
 
 ### Pesos
 No son "pesos" (no es una suma ponderada) sino **4 límites independientes** configurables (`ANALYTICS_CONFIG_DEFAULTS` no los incluye — viven en claves propias de `systemConfig.ts`, no en `ANALYTICS_CONFIG_DEFAULTS`):
-- `HORAS_EFECTIVAS_DIA` (base) = **6.5 h/día** (`DEFAULT_HORAS_EFECTIVAS`)
+- `HORAS_EFECTIVAS_DIA` (base **diaria/semanal**) = **6.5 h/día** (`DEFAULT_HORAS_EFECTIVAS`)
+- `HORAS_ESPERADAS_MES` (base **mensual**) = **140 h/mes** (`DEFAULT_HORAS_ESPERADAS_MES`) — fijo, prorrateado por días hábiles
 - `workload_limit_low` = **5.5 h/día** (`DEFAULT_WORKLOAD_LIMIT_LOW`)
 - `workload_limit_high` = **7.5 h/día** (`DEFAULT_WORKLOAD_LIMIT_HIGH`)
 - `workload_limit_overload` = **8.5 h/día** (`DEFAULT_WORKLOAD_LIMIT_OVERLOAD`)
@@ -347,20 +371,27 @@ Vista diaria: `hoursPerDay=6.5`, `limitLow=5.5`, `limitHigh=7.5`, `limitOverload
 
 (Este es el ejemplo citado explícitamente en el propio comentario del código: "7.667h con límite óptimo 7.5h da ~102%, no un salto brusco".)
 
-Vista mensual con 22 días hábiles: `baseHours=22×6.5=143h`, `limitLow=22×5.5=121h`, `limitHigh=22×7.5=165h`, `limitOverload=22×8.5=187h`. `realHours=150h` → `143<=150<=165` → **"Óptimo"**, `pct=100%` (dentro de zona óptima, techo en 100).
+Vista mensual con 22 días hábiles: `baseHours=140h` (fijas, `tasaEsperada=140/22=6.3636h/día`), `limitLow=22×5.5=121h`, `limitHigh=22×7.5=165h`, `limitOverload=22×8.5=187h`. `realHours=150h` → `140<=150<=165` → **"Óptimo"**, `pct=100%` (dentro de zona óptima, techo en 100).
+
+Tramo desde el 17 de septiembre de 2026 (10 de los 22 días hábiles del mes, por
+un `kpiStartDate`): `baseHours = 10 × 6.3636 = 63.64h`. Con la regla anterior
+daba `10 × 6.5 = 65h`, y antes del arreglo de `monthlyBusinessBaseForUsers`
+(v1.162.1) mostraba el mes entero, 143h.
 
 ### Casos borde
 - `baseHours<=0` (mes/semana sin días hábiles): si `realHours>0` → `{color: orange, label: "Carga elevada"}`; si no → `{color: green, label: "Óptimo"}` (sin división por cero).
 - Fin de semana/feriado: sin base laboral — se muestra como "trabajo en fin de semana"/"trabajo en feriado" en vez de forzar una clasificación sin sentido (`computeCargaTiempo`, rama `todayIsWeekendDay || todayIsHolidayDay`).
 - Permiso parcial (médico/personal) un día: reduce proporcionalmente **toda** la envolvente del día (base y los 4 límites) vía `dayFactor = max(0, 1 - leaveHours/dailyHours)` — evita que un permiso de 3h en un día de 6.5h marque falsamente "Subutilización".
-- Ajuste `User.kpiStartDate`: si cae dentro del mes en curso, los días anteriores no cuentan para la base laboral ni las horas reales.
+- Ajuste `User.kpiStartDate`: si cae dentro del mes en curso, los días anteriores no cuentan para la base laboral ni las horas reales. Rige en **todos** los módulos que miden el mes — Resumen Ejecutivo y KPIs del equipo (`monthlyBusinessBaseForUsers`, v1.162.1), Equilibrio Operativo, simulador de KPIs, histórico mensual/semanal y las dos proyecciones de ritmo (2026-09-29). `capacityForecast` es la excepción deliberada: solo proyecta días futuros, donde la fecha de inicio ya no cambia nada.
 
 ### Reglas de negocio
 - `computeWorkloadPct`/`computeWorkloadRange` son la **única fuente** para toda clasificación de carga en 5 zonas (Registro de auditoría, **D5** — confirmado sin duplicación fuera de `workload.ts`).
 - `WorkloadColor` "red" es **ambiguo** entre Subutilización y Sobrecarga (comparten color) — código que necesita distinguir "carga excesiva" de "carga insuficiente" debe usar `WorkloadLabel`, no `WorkloadColor` (bug real documentado y corregido en `riskAlerts.ts`, ver §12).
 
 ### Versión
-`FORMULA_VERSIONS.cargaLaboral = "1.0"`.
+`FORMULA_VERSIONS.cargaLaboral = "2.0"` (v2.0, 2026-09-29: el objetivo mensual
+pasa a ser `HORAS_ESPERADAS_MES` fijas prorrateadas, en vez de `díasHábiles ×
+HORAS_EFECTIVAS_DIA`). `FORMULA_SET_VERSION = "4.5"`.
 
 ### Notas
 - Riesgo de regresión (registro de auditoría): Medio — la existencia de `baseHours` vs. `classificationBase` como dos denominadores distintos es fácil de confundir en cambios futuros; documentado extensamente en comentarios del código (`toMetric`, `sumWeightedBaseHours`).
@@ -667,6 +698,7 @@ rango = [max(0, estimado-halfWidth), min(100, estimado+halfWidth)]
 - `weekly`: `computeWeeklyHistory(userId, 6, now)`, filtrado a semanas con `businessDays>0`.
 - `consistency`: `ConsistencyResult` (§8).
 - `daysRemaining`: días calendario restantes hasta fin de mes.
+- `weekly` excluye las semanas anteriores al `kpiStartDate` del usuario: quedan con `businessDays=0` y el filtro de arriba las descarta (antes contaban 32,5h de base con 0h reales y arrastraban la regresión hacia abajo).
 - `PREDICTION_MAX_DAYS = 30` — **fijo por diseño, no configurable** (más allá de eso la precisión cae demasiado).
 - `horasParaRangoOptimo`: si la carga mensual actual está en "Subutilización", `max(0, round(rangeMin - realHours, 2))`; si no, `0`.
 
@@ -692,6 +724,11 @@ Ritmo de cumplimiento: mes con 22 días hábiles totales, 15 transcurridos, `com
 ```
 projected = 55 × (22/15) = 55 × 1.4667 = 80.67 → cumplimientoEstimadoCierreMes = min(100, round(80.67)) = 81%
 ```
+Los dos días hábiles del cociente son los del **período de cálculo del usuario**,
+no los del mes calendario (`prediccion` v2.1, 2026-09-29): con un `kpiStartDate`
+el 17 y 10 días hábiles de período (8 transcurridos), el factor es `10/8 = 1.25`,
+no `22/20 = 1.10`. El conteo de tareas sí sigue midiendo el mes calendario, para
+no contradecir a `computeMonthlyHistory`.
 Confianza numérica: `weeksOfData=4` → `dataScore=min(1,4/6)=0.667`; consistencia "consistente" → `consistencyScore=0.8`; `daysRemaining=7` → `horizonScore=1-(7/30)×0.4=0.9067`:
 ```
 confidencePct = round(92×(0.4×0.667 + 0.4×0.8 + 0.2×0.9067)) = round(92×(0.2667+0.32+0.1813)) = round(92×0.768) = round(70.66) = 71%
@@ -710,7 +747,9 @@ Rango: `halfWidth = max(2, round((100-71)×0.2)) = max(2, round(5.8)) = 6` → `
 - `computeMonthlyCompliancePace` reutiliza `computeMonthlyHistory` (misma Definición A que el resto del motor) desde la corrección D4 — antes tenía su propia consulta y su propio cálculo de `completedPct`, una 4ª variante redundante dentro del mismo archivo. Efecto residual (documentado, no un bug): `computeMonthlyHistory.completedPct` viene redondeado a entero *antes* de aplicar el factor de proyección, mientras la versión anterior redondeaba solo al final — diferencia de como máximo ±1 punto porcentual en casos de borde.
 
 ### Versión
-`FORMULA_VERSIONS.prediccion = "2.0"`.
+`FORMULA_VERSIONS.prediccion = "2.1"` (v2.1, 2026-09-29: la fracción de
+período transcurrida se mide sobre el período de cálculo del usuario,
+`kpiStartDate`, no sobre el mes calendario).
 
 ### Notas
 - Riesgo de regresión Bajo (registro de auditoría) — acotada y con techo de confianza fijo que evita falsa certeza.
@@ -1426,9 +1465,10 @@ mismo cálculo de base horaria (`businessBaseCore`, `sumWeightedBaseHours`/
 `sumWeightedLimit`) que ya usa toda la app.
 
 ### Ejemplo de cálculo
-Julio 2026 completo: 23 días hábiles, 184 horas base (días hábiles × horas
-efectivas vigentes). Cierre con fecha de corte 28/07/2026 (`closureType =
-MANUAL`, cerrado el 02/08/2026): 20 días hábiles, 160 horas base. Desde ese
+Julio 2026 completo: 23 días hábiles, 140 horas base (las horas esperadas del
+mes, ver §4 — antes del 2026-09-29 eran días hábiles × horas efectivas = 149,5h).
+Cierre con fecha de corte 28/07/2026 (`closureType = MANUAL`, cerrado el
+02/08/2026): 20 días hábiles, `20 × (140/23) = 121,74` horas base. Desde ese
 momento, TODO KPI/Analytics/Executive Reporting de julio 2026 usa 160h, nunca
 184h — incluyendo reportes generados meses después.
 

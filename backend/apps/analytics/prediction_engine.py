@@ -30,7 +30,7 @@ from .history import compute_consistency, compute_weekly_history
 from .scoring import compute_data_quality
 from .trend_engine import compute_trend_engine
 from .utils import is_task_overdue
-from .workload import get_month_closure_period, monthly_business_base
+from .workload import get_month_closure_period, monthly_business_base_for_users
 
 PREDICTION_ENGINE_VERSION = "1.0.0"
 
@@ -115,9 +115,18 @@ def compute_cumplimiento_projection(*, user, now: datetime | None = None) -> dic
     year, month = today.year, today.month
 
     weekly = compute_weekly_history(user=user, weeks_back=window_weeks, now=now)
-    biz = monthly_business_base(year, month)
+    # Igual que en `prediction.py`: numerador y denominador del ritmo tienen
+    # que medirse sobre el período de cálculo de esta persona, no sobre el mes
+    # calendario, o `kpi_start_date` deja la proyección sesgada.
+    multi = monthly_business_base_for_users([user], year, month)
+    biz = multi["per_user"].get(user.id) or multi["shared"]
     _, _, effective_end = get_month_closure_period(year, month)
-    month_start = date(year, month, 1)
+    month_start = biz["start"]
+    # El conteo de tareas sigue midiendo el MES calendario: cambiarlo también
+    # haría que esta proyección de cumplimiento contara un universo de tareas
+    # distinto al de `compute_monthly_history`, y dos pantallas volverían a
+    # mostrar dos cumplimientos distintos para el mismo mes.
+    tasks_month_start = date(year, month, 1)
     holidays = get_holiday_set()
     consistency = compute_consistency(user=user, now=now)
     data_quality = compute_data_quality(user_ids=[user.id])
@@ -127,7 +136,7 @@ def compute_cumplimiento_projection(*, user, now: datetime | None = None) -> dic
         return {"available": False, "reason": "Sin historial suficiente para proyectar el cumplimiento"}
 
     elapsed_business_days = count_business_days(month_start, today, holidays)
-    start_dt = datetime(month_start.year, month_start.month, month_start.day, tzinfo=dt_timezone.utc)
+    start_dt = datetime(tasks_month_start.year, tasks_month_start.month, tasks_month_start.day, tzinfo=dt_timezone.utc)
     end_dt = datetime(effective_end.year, effective_end.month, effective_end.day, tzinfo=dt_timezone.utc)
     month_tasks = list(Task.objects.filter(assigned_to=user, end_date__gte=start_dt, end_date__lte=end_dt).only("status"))
 

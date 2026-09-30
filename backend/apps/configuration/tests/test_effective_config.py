@@ -145,4 +145,7 @@ def test_business_base_for_range_uses_effective_hours_at_period_start(actor):
     result = business_base_for_range(date(2026, 1, 5), date(2026, 1, 9))  # 1 semana hábil
     assert result["business_days"] == 5
     assert result["hours_per_day"] == 8.0
-    assert result["base_hours"] == 40.0
+    # `hours_per_day` sigue resolviéndose al inicio del período, pero YA NO es
+    # de donde sale la base: el objetivo es mensual (140h) y se prorratea por
+    # días hábiles — 5 de los 22 de enero 2026 = 31,82h, no 5 × 8h.
+    assert result["base_hours"] == 31.82

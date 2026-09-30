@@ -265,7 +265,11 @@ def test_working_days_hours_considered_reflect_config_and_holidays(
 
     # 1..9 enero: 1=feriado, 3-4=fin de semana -> hábiles: 2,5,6,7,8,9 = 6
     assert response.data["working_days_considered"] == 6
-    assert response.data["working_hours_considered"] == 48.0
+    # Las horas del tramo prorratean las 140h esperadas del mes (enero 2026 con
+    # el 1 feriado deja 21 hábiles): 6 × (140/21) = 40h. Antes eran 6 × 8h/día
+    # = 48h, y el cierre quedaba diciendo un número distinto al de Analytics
+    # para el mismo período.
+    assert response.data["working_hours_considered"] == 40.0
 
 
 # --- /correct (corrección de Admin sobre archivadas) ---------------------

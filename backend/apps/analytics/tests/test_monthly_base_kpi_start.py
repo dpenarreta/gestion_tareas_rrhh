@@ -7,7 +7,8 @@ medidas en producción) para gente cuyo período de cálculo empezaba el 17.
 modo que las dos pantallas se contradecían entre sí.
 """
 
-from datetime import datetime, timezone as tz
+from datetime import datetime
+from datetime import timezone as tz
 
 import pytest
 from django.contrib.auth.models import Group

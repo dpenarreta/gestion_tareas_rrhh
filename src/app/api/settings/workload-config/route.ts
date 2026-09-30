@@ -10,6 +10,9 @@ type DjangoWorkloadConfig = {
   workload_limit_low: number;
   workload_limit_high: number;
   workload_limit_overload: number;
+  // Objetivo MENSUAL (140h). No entra en el orden del semáforo — los otros 4
+  // son umbrales por día.
+  monthly_expected_hours: number;
 };
 
 function toNexoShape(data: DjangoWorkloadConfig) {
@@ -18,6 +21,7 @@ function toNexoShape(data: DjangoWorkloadConfig) {
     workloadLimitLow: data.workload_limit_low,
     workloadLimitHigh: data.workload_limit_high,
     workloadLimitOverload: data.workload_limit_overload,
+    monthlyExpectedHours: data.monthly_expected_hours,
   };
 }
 
@@ -51,6 +55,7 @@ export async function PUT(request: NextRequest) {
     workloadLimitLow?: number;
     workloadLimitHigh?: number;
     workloadLimitOverload?: number;
+    monthlyExpectedHours?: number;
   };
   try {
     body = await request.json();
@@ -58,12 +63,13 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ error: "Cuerpo inválido" }, { status: 400 });
   }
 
-  const { hoursPerDay, workloadLimitLow, workloadLimitHigh, workloadLimitOverload } = body;
+  const { hoursPerDay, workloadLimitLow, workloadLimitHigh, workloadLimitOverload, monthlyExpectedHours } = body;
   const payload: Record<string, number> = {};
   if (hoursPerDay !== undefined) payload.hours_per_day = hoursPerDay;
   if (workloadLimitLow !== undefined) payload.workload_limit_low = workloadLimitLow;
   if (workloadLimitHigh !== undefined) payload.workload_limit_high = workloadLimitHigh;
   if (workloadLimitOverload !== undefined) payload.workload_limit_overload = workloadLimitOverload;
+  if (monthlyExpectedHours !== undefined) payload.monthly_expected_hours = monthlyExpectedHours;
 
   const response = await djangoApiFetch("/settings/workload-config/", {
     method: "PUT",

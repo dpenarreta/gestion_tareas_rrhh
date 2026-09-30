@@ -33,6 +33,8 @@ def test_get_returns_defaults():
     assert response.status_code == 200
     assert response.data == {
         "hours_per_day": 6.5, "workload_limit_low": 5.5, "workload_limit_high": 7.5, "workload_limit_overload": 8.5,
+        # Horas esperadas del MES: valor fijo de negocio, no días hábiles × 6,5.
+        "monthly_expected_hours": 140.0,
     }
 
 
@@ -71,3 +73,32 @@ def test_put_updates_partial_field_and_keeps_others():
 
     get_response = _client_for(admin).get("/api/v1/settings/workload-config/")
     assert get_response.data["hours_per_day"] == 7
+
+
+def test_put_guarda_las_horas_esperadas_del_mes():
+    admin = _user_with_group("admin_mes", "ADMINISTRADOR")
+    response = _client_for(admin).put(
+        "/api/v1/settings/workload-config/", {"monthly_expected_hours": 160}, format="json"
+    )
+    assert response.status_code == 200
+    assert response.data["monthly_expected_hours"] == 160.0
+
+
+def test_las_horas_del_mes_no_entran_en_el_orden_del_semaforo():
+    """El orden low < efectivas <= alto < sobrecarga es POR DÍA — un valor
+    mensual de 140h no puede hacerlo fallar."""
+    admin = _user_with_group("admin_orden", "ADMINISTRADOR")
+    response = _client_for(admin).put(
+        "/api/v1/settings/workload-config/",
+        {"monthly_expected_hours": 140, "hours_per_day": 6.5},
+        format="json",
+    )
+    assert response.status_code == 200
+
+
+def test_rechaza_un_mes_fuera_de_rango():
+    admin = _user_with_group("admin_rango", "ADMINISTRADOR")
+    response = _client_for(admin).put(
+        "/api/v1/settings/workload-config/", {"monthly_expected_hours": 14}, format="json"
+    )
+    assert response.status_code == 400

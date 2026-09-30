@@ -71,6 +71,7 @@ from .serializers import (
 from .services import (
     ANALYTICS_CONFIG_DEFAULTS,
     CONFIG_KEY_CONSENT_TEXT,
+    CONFIG_KEY_HORAS_ESPERADAS_MES,
     CONFIG_KEY_NOVA_CACHE_TTL_MINUTES,
     CONFIG_KEY_PASSWORD_MIN_LENGTH,
     CONFIG_KEY_PREDICTION_WINDOW_WEEKS,
@@ -92,6 +93,7 @@ from .services import (
     get_effective_desk_archive_retention_days,
     get_effective_desk_note_max_replies,
     get_effective_horas_efectivas,
+    get_effective_horas_esperadas_mes,
     get_effective_notification_rules,
     get_effective_nova_cache_ttl_minutes,
     get_effective_password_min_length,
@@ -714,6 +716,16 @@ _WORKLOAD_CONFIG_FIELDS = {
         0,
         24,
         "El límite de Sobrecarga",
+    ),
+    # Único campo MENSUAL del grupo: no entra en el orden del semáforo (que es
+    # por día) y su rango es otro. El mes son 140h fijas, no días hábiles ×
+    # horas efectivas — ver `CONFIG_KEY_HORAS_ESPERADAS_MES`.
+    "monthly_expected_hours": (
+        get_effective_horas_esperadas_mes,
+        CONFIG_KEY_HORAS_ESPERADAS_MES,
+        40,
+        400,
+        "Las horas esperadas del mes",
     ),
 }
 

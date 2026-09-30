@@ -34,7 +34,7 @@ from .workload import (
     compute_carga_tiempo,
     compute_workload_pct,
     compute_workload_range,
-    monthly_business_base,
+    monthly_business_base_for_users,
 )
 
 
@@ -92,7 +92,11 @@ def simulate_kpi_scenario(*, user, body: dict, now: datetime) -> dict:
     today = business_calendar_day(now)
     year, month = today.year, today.month
 
-    biz = monthly_business_base(year, month)
+    # Misma razón que en `health_score`: el simulador compara escenarios
+    # contra `carga_tiempo["mensual"]["real_hours"]`, que ya respeta
+    # `kpi_start_date` — la base tiene que arrancar en la misma fecha.
+    multi = monthly_business_base_for_users([user], year, month)
+    biz = multi["per_user"].get(user.id) or multi["shared"]
     hours_per_day = get_effective_horas_efectivas(now)
     carga_tiempo = compute_carga_tiempo(user=user, now=now)
     capacity = compute_capacity_forecast(user=user, now=now)

@@ -12,6 +12,8 @@ vi.mock("@/lib/djangoHolidaysAdapter", () => ({
 
 vi.mock("@/lib/systemConfig", () => ({
   getEffectiveHorasEfectivas: vi.fn().mockResolvedValue(6.5),
+  // Horas esperadas del MES: la base ya no sale de díasHábiles × horasEfectivas.
+  getEffectiveHorasEsperadasMes: vi.fn().mockResolvedValue(140),
   getEffectiveWorkloadLimitLow: vi.fn().mockResolvedValue(5.5),
   getEffectiveWorkloadLimitHigh: vi.fn().mockResolvedValue(7.5),
   getEffectiveWorkloadLimitOverload: vi.fn().mockResolvedValue(8.5),
@@ -26,7 +28,8 @@ describe("monthlyBusinessBase — Motor de Cierre Inteligente con Fecha de Corte
     const biz = await monthlyBusinessBase(2026, 7);
     expect(biz.end).toEqual(new Date(Date.UTC(2026, 6, 31, 23, 59, 59, 999)));
     expect(biz.businessDays).toBe(23);
-    expect(biz.baseHours).toBeCloseTo(23 * 6.5, 5);
+    // El mes completo son las 140h esperadas, no 23 × 6.5 = 149.5.
+    expect(biz.baseHours).toBeCloseTo(140, 5);
   });
 
   it("con un MonthClosure cerrado en el último día (closureType NORMAL), el resultado es idéntico al de un mes sin cierre", async () => {
@@ -36,7 +39,7 @@ describe("monthlyBusinessBase — Motor de Cierre Inteligente con Fecha de Corte
     });
     const biz = await monthlyBusinessBase(2026, 7);
     expect(biz.businessDays).toBe(23);
-    expect(biz.baseHours).toBeCloseTo(23 * 6.5, 5);
+    expect(biz.baseHours).toBeCloseTo(140, 5);
   });
 
   it("con un MonthClosure de corte anticipado, trunca días hábiles y horas base al día de corte", async () => {
@@ -47,7 +50,8 @@ describe("monthlyBusinessBase — Motor de Cierre Inteligente con Fecha de Corte
     });
     const biz = await monthlyBusinessBase(2026, 7);
     expect(biz.businessDays).toBe(20);
-    expect(biz.baseHours).toBeCloseTo(20 * 6.5, 5);
+    // 20 de los 23 días hábiles de julio, prorrateando las 140h del mes.
+    expect(biz.baseHours).toBeCloseTo((140 / 23) * 20, 2);
     expect(biz.end).toEqual(new Date(Date.UTC(2026, 6, 28)));
   });
 

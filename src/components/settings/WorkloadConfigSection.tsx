@@ -29,6 +29,8 @@ export default function WorkloadConfigSection() {
   const [limitHighInput, setLimitHighInput] = useState("7.30");
   const [workloadLimitOverload, setWorkloadLimitOverload] = useState<number | null>(null);
   const [limitOverloadInput, setLimitOverloadInput] = useState("8.30");
+  const [monthlyExpectedHours, setMonthlyExpectedHours] = useState<number | null>(null);
+  const [monthlyInput, setMonthlyInput] = useState("140.00");
   const [hoursLoading, setHoursLoading] = useState(true);
   const [hoursSaving, setHoursSaving] = useState(false);
 
@@ -46,6 +48,8 @@ export default function WorkloadConfigSection() {
         setLimitHighInput(hoursToDisplay(data.workloadLimitHigh));
         setWorkloadLimitOverload(data.workloadLimitOverload);
         setLimitOverloadInput(hoursToDisplay(data.workloadLimitOverload));
+        setMonthlyExpectedHours(data.monthlyExpectedHours);
+        setMonthlyInput(hoursToDisplay(data.monthlyExpectedHours));
       }
     } finally {
       setHoursLoading(false);
@@ -61,7 +65,8 @@ export default function WorkloadConfigSection() {
       !validateDisplayHours(hoursInput) ||
       !validateDisplayHours(limitLowInput) ||
       !validateDisplayHours(limitHighInput) ||
-      !validateDisplayHours(limitOverloadInput)
+      !validateDisplayHours(limitOverloadInput) ||
+      !validateDisplayHours(monthlyInput)
     ) {
       showToast(INVALID_HOURS_MESSAGE, "error");
       return;
@@ -80,6 +85,7 @@ export default function WorkloadConfigSection() {
           workloadLimitLow: limitLowValue,
           workloadLimitHigh: limitHighValue,
           workloadLimitOverload: limitOverloadValue,
+          monthlyExpectedHours: displayToHours(monthlyInput),
         }),
       });
       const data = await res.json();
@@ -94,6 +100,8 @@ export default function WorkloadConfigSection() {
         setLimitHighInput(hoursToDisplay(data.workloadLimitHigh));
         setWorkloadLimitOverload(data.workloadLimitOverload);
         setLimitOverloadInput(hoursToDisplay(data.workloadLimitOverload));
+        setMonthlyExpectedHours(data.monthlyExpectedHours);
+        setMonthlyInput(hoursToDisplay(data.monthlyExpectedHours));
         showToast("Configuración de carga laboral actualizada.", "success");
       }
     } catch {
@@ -105,13 +113,14 @@ export default function WorkloadConfigSection() {
 
   return (
     <SectionCard title="Configuración de Carga Laboral">
-      {hoursLoading || hoursPerDay === null ? (
+      {hoursLoading || hoursPerDay === null || monthlyExpectedHours === null ? (
         <SkeletonText lines={4} />
       ) : (
         <>
           <p className="text-xs text-secondary">
             4 límites definen los 5 rangos del semáforo de carga laboral. Cada uno se guarda por separado y debe
-            mantener el orden: Subutilización &lt; Moderado/Óptimo &lt; Óptimo/Elevada &lt; Elevada/Sobrecarga.
+            mantener el orden: Subutilización &lt; Moderado/Óptimo &lt; Óptimo/Elevada &lt; Elevada/Sobrecarga. Los
+            cuatro son umbrales por día; el objetivo del mes se configura aparte, más abajo.
           </p>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -171,6 +180,24 @@ export default function WorkloadConfigSection() {
             </div>
           </div>
 
+          <div className="space-y-1.5 pt-1.5 border-t border-border">
+            <label className="text-sm font-medium text-title">Horas esperadas del mes de trabajo</label>
+            <p className="text-xs text-secondary">
+              Objetivo mensual de horas. Es un valor fijo del negocio: NO se calcula multiplicando días
+              hábiles por horas efectivas —eso hacía que el objetivo cambiara con el calendario— y se
+              prorratea entre los días hábiles de cada mes. Un período parcial (por ejemplo una Fecha de
+              inicio de cálculo KPI a mitad de mes) recibe la parte proporcional.
+            </p>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={monthlyInput}
+              onChange={(e) => setMonthlyInput(e.target.value)}
+              placeholder="ej: 140.00"
+              className="w-32 border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+          </div>
+
           {(() => {
             if (
               !validateDisplayHours(hoursInput) ||
@@ -183,7 +210,16 @@ export default function WorkloadConfigSection() {
             const lowPreview = displayToHours(limitLowInput);
             const highPreview = displayToHours(limitHighInput);
             const overloadPreview = displayToHours(limitOverloadInput);
+            if (!validateDisplayHours(monthlyInput)) return null;
+            const monthlyPreview = displayToHours(monthlyInput);
             if (preview < 4 || preview > 8) return null;
+            if (monthlyPreview < 40 || monthlyPreview > 400) {
+              return (
+                <div className="rounded-lg bg-danger/[.09] border border-danger/30 px-4 py-3 text-sm text-danger">
+                  Las horas esperadas del mes deben estar entre 40 y 400.
+                </div>
+              );
+            }
             if (!(lowPreview < preview && preview <= highPreview && highPreview < overloadPreview)) {
               return (
                 <div className="rounded-lg bg-danger/[.09] border border-danger/30 px-4 py-3 text-sm text-danger">
@@ -204,8 +240,10 @@ export default function WorkloadConfigSection() {
                 <p>🔴 Sobrecarga: más de <span className="font-medium text-title">{hoursToDisplay(overloadPreview)}</span></p>
                 <p className="pt-1.5 border-t border-border">Horas semanales: <span className="font-medium text-title">{hoursToDisplay(preview * 5)} horas</span> (5 días × {hoursToDisplay(preview)}h)</p>
                 <p>
-                  Horas mensuales: varía según días laborables (ej: {monthLabel} = {bizDays} días ×{" "}
-                  {hoursToDisplay(preview)}h = <span className="font-medium text-title">{hoursToDisplay(preview * bizDays)} horas</span>)
+                  Horas mensuales esperadas:{" "}
+                  <span className="font-medium text-title">{hoursToDisplay(monthlyPreview)} horas</span>, iguales todos
+                  los meses (ej: {monthLabel} tiene {bizDays} días hábiles →{" "}
+                  <span className="font-medium text-title">{hoursToDisplay(monthlyPreview / bizDays)}h/día</span>)
                 </p>
               </div>
             );
@@ -222,7 +260,9 @@ export default function WorkloadConfigSection() {
                 displayToHours(hoursInput) === hoursPerDay &&
                 displayToHours(limitLowInput) === workloadLimitLow &&
                 displayToHours(limitHighInput) === workloadLimitHigh &&
-                displayToHours(limitOverloadInput) === workloadLimitOverload)
+                validateDisplayHours(monthlyInput) &&
+                displayToHours(limitOverloadInput) === workloadLimitOverload &&
+                displayToHours(monthlyInput) === monthlyExpectedHours)
             }
           >
             {hoursSaving ? "Guardando…" : "Guardar configuración"}

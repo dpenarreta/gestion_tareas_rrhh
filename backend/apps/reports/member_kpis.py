@@ -173,7 +173,9 @@ def compute_effective_member_bases(
     users: list[User],
     period_start: date,
     period_end: date,
-    hours_per_day: float,
+    # Tasa diaria ESPERADA del período (140h del mes / sus días hábiles), no
+    # `HORAS_EFECTIVAS_DIA`: el objetivo mensual es el que se prorratea.
+    expected_hours_per_day: float,
     limit_low_per_day: float,
     limit_high_per_day: float,
     limit_overload_per_day: float,
@@ -249,8 +251,8 @@ def compute_effective_member_bases(
             }
             continue
 
-        base_hours = sum_weighted_base_hours(clamped_start, user_period_end, hours_per_day, holidays, {}, user_special_map, "daily_hours")
-        limit_base_hours = sum_weighted_base_hours(clamped_start, user_period_end, hours_per_day, holidays, {}, user_special_map, "limit_base")
+        base_hours = sum_weighted_base_hours(clamped_start, user_period_end, expected_hours_per_day, holidays, {}, user_special_map, "daily_hours")
+        limit_base_hours = sum_weighted_base_hours(clamped_start, user_period_end, expected_hours_per_day, holidays, {}, user_special_map, "limit_base")
         limit_low_hours = sum_weighted_limit(clamped_start, user_period_end, holidays, user_special_map, limit_low_per_day, "limit_low")
         limit_high_hours = sum_weighted_limit(clamped_start, user_period_end, holidays, user_special_map, limit_high_per_day, "limit_high")
         limit_overload_hours = sum_weighted_limit(clamped_start, user_period_end, holidays, user_special_map, limit_overload_per_day, "limit_overload")
@@ -299,7 +301,7 @@ def compute_monthly_member_kpis(
     carga_real_end = min(carga_real_end_raw, cutoff)
 
     effective_bases = compute_effective_member_bases(
-        users, carga_start, carga_end, base["hours_per_day"], base["limit_low_per_day"], base["limit_high_per_day"], base["limit_overload_per_day"], now=now
+        users, carga_start, carga_end, base["expected_hours_per_day"], base["limit_low_per_day"], base["limit_high_per_day"], base["limit_overload_per_day"], now=now
     )
 
     all_tasks_raw = list(
@@ -473,7 +475,7 @@ def compute_custom_range_member_kpis(
         users,
         period_start.date(),
         period_end.date(),
-        base["hours_per_day"],
+        base["expected_hours_per_day"],
         base["limit_low_per_day"],
         base["limit_high_per_day"],
         base["limit_overload_per_day"],
@@ -644,7 +646,7 @@ def compute_range_member_kpis(
     range_start_rate = monthly_business_base(from_year, from_month)
     effective_bases = compute_effective_member_bases(
         users, range_start.date(), range_end.date(),
-        range_start_rate["hours_per_day"], range_start_rate["limit_low_per_day"],
+        range_start_rate["expected_hours_per_day"], range_start_rate["limit_low_per_day"],
         range_start_rate["limit_high_per_day"], range_start_rate["limit_overload_per_day"],
         now=now, period_start_instant=range_start, period_end_instant=range_end,
     )

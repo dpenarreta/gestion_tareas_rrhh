@@ -146,4 +146,7 @@ def test_monthly_business_base_truncated_by_early_closure(admin):
     # 1..9 enero: hábiles = 2,5,6,7,8,9 = 6 (1 es feriado solo si está sembrado; sin
     # feriados sembrados en este test, el 1 de enero SÍ cuenta como hábil -> 7 días).
     assert result["business_days"] == 7
-    assert result["base_hours"] == 56.0
+    # 7 de los 22 días hábiles de enero 2026, prorrateando las 140h esperadas
+    # del mes: 7 × (140/22) = 44,55h. Antes era 7 × 8h/día = 56h — la base ya no
+    # sale de `HORAS_EFECTIVAS_DIA`, de ahí que sembrar "8.0" no la mueva.
+    assert result["base_hours"] == 44.55

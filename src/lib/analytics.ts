@@ -48,7 +48,7 @@ export const ANALYTICS_ENGINE_VERSION = "1.5.0";
  * Administrador reconoce como paquete (ANALYTICS_ENGINE_VERSION=motor,
  * FORMULA_SET_VERSION=paquete de fórmulas vigente dentro de ese motor).
  */
-export const FORMULA_SET_VERSION = "4.4";
+export const FORMULA_SET_VERSION = "4.5";
 
 export { PREDICTION_MAX_DAYS };
 
@@ -59,7 +59,12 @@ export { PREDICTION_MAX_DAYS };
 // AnalyticsAuditLog (campo `formulaVersions` de `result`) y se expone
 // exclusivamente al Administrador en el panel de Diagnóstico del Motor.
 export const FORMULA_VERSIONS = {
-  cargaLaboral: "1.0",
+  // v2.0: las horas esperadas de un mes de trabajo son un valor fijo del
+  // negocio (`HORAS_ESPERADAS_MES`, 140h) prorrateado por días hábiles, no
+  // `díasHábiles × horasEfectivas` — ese cálculo movía el objetivo con el
+  // calendario (130h en febrero, 143h en septiembre). Ver docs/AUDIT_LOG.md §
+  // 2026-09-29 y docs/ANALYTICS_FORMULAS.md § Carga Laboral.
+  cargaLaboral: "2.0",
   // Equilibrio Operativo (antes "Score de Salud Laboral" — Sprint Analytics
   // 2.0 lo revive y renombra; ver docs/DECISIONS.md). v1.1: normalización
   // progresiva de Capacidad Futura (§Sprint Analytics 2.0 Bloque 9) cambia el
@@ -77,7 +82,9 @@ export const FORMULA_VERSIONS = {
   // efectivo del historial, sin registro o anuladas por permiso/vacaciones
   // completas — antes se contaban como semanas con realHours=0, inflando el CV.
   consistencia: "2.1",
-  prediccion: "2.0",
+  // v2.1: la extrapolación de ritmo mide la fracción transcurrida del período
+  // de cálculo DEL USUARIO (`kpi_start_date`), no del mes calendario.
+  prediccion: "2.1",
   // Nuevas en Sprint 5 (§S5-B, S5-G) — motor de normalización continuo.
   performanceScore: "4.0",
   trazabilidad: "4.0",

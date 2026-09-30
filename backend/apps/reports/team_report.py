@@ -199,7 +199,7 @@ def assemble_monthly_team_report(
     _closure, _natural_end, effective_end = get_month_closure_period(year, month)
     carga_start = date(year, month, 1)
     effective_bases = compute_effective_member_bases(
-        users, carga_start, effective_end, base["hours_per_day"], base["limit_low_per_day"], base["limit_high_per_day"], base["limit_overload_per_day"], now=now
+        users, carga_start, effective_end, base["expected_hours_per_day"], base["limit_low_per_day"], base["limit_high_per_day"], base["limit_overload_per_day"], now=now
     )
     total_limit_base_hours = sum(effective_bases[u.id]["limit_base_hours"] for u in users)
     total_limit_low_hours = sum(effective_bases[u.id]["limit_low_hours"] for u in users)
@@ -355,7 +355,7 @@ def assemble_custom_range_team_report(
 
     base = business_base_for_range(period_start.date(), period_end.date())
     effective_bases = compute_effective_member_bases(
-        users, period_start.date(), period_end.date(), base["hours_per_day"], base["limit_low_per_day"], base["limit_high_per_day"], base["limit_overload_per_day"], now=now
+        users, period_start.date(), period_end.date(), base["expected_hours_per_day"], base["limit_low_per_day"], base["limit_high_per_day"], base["limit_overload_per_day"], now=now
     )
     total_limit_base_hours = sum(effective_bases[u.id]["limit_base_hours"] for u in users)
     total_limit_low_hours = sum(effective_bases[u.id]["limit_low_hours"] for u in users)
@@ -470,7 +470,7 @@ def assemble_range_team_report(
     range_start_rate = monthly_business_base(from_year, from_month)
     effective_bases = compute_effective_member_bases(
         users, range_start.date(), range_end.date(),
-        range_start_rate["hours_per_day"], range_start_rate["limit_low_per_day"], range_start_rate["limit_high_per_day"], range_start_rate["limit_overload_per_day"],
+        range_start_rate["expected_hours_per_day"], range_start_rate["limit_low_per_day"], range_start_rate["limit_high_per_day"], range_start_rate["limit_overload_per_day"],
         now=now, period_start_instant=range_start, period_end_instant=range_end,
     )
     total_limit_base_hours = sum(effective_bases[u.id]["limit_base_hours"] for u in users)

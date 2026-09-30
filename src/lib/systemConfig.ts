@@ -32,6 +32,12 @@ export async function getEffectiveHorasEfectivas(_asOf?: Date): Promise<number> 
   return (await fetchDjangoWorkloadLimits()).hoursPerDay;
 }
 
+/** Horas esperadas de un MES de trabajo (140h). El objetivo mensual NO sale de
+ * días hábiles × horas efectivas — ver `HORAS_ESPERADAS_MES` en Django. */
+export async function getEffectiveHorasEsperadasMes(_asOf?: Date): Promise<number> {
+  return (await fetchDjangoWorkloadLimits()).monthlyExpectedHours;
+}
+
 export async function getEffectiveWorkloadLimitLow(_asOf?: Date): Promise<number> {
   return (await fetchDjangoWorkloadLimits()).workloadLimitLow;
 }

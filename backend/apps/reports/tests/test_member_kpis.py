@@ -580,4 +580,8 @@ def test_range_member_kpis_effective_bases_counts_extra_local_boundary_day(user)
 
     result = compute_range_member_kpis(user_ids=[user.id], from_year=2025, from_month=10, to_year=2025, to_month=11, now=now)
 
-    assert result["aggregated_members"][user.id]["carga_base_hours"] == 104.0
+    # 16 días × la tasa esperada del mes de inicio del rango (octubre 2025, 23
+    # días hábiles -> 140/23 = 6,087h/día) = 97,39h. Lo que este test vigila es
+    # el CONTEO de días (16, incluido el 1 de diciembre), no la tasa: con 15
+    # días daría 91,31h.
+    assert result["aggregated_members"][user.id]["carga_base_hours"] == 97.39

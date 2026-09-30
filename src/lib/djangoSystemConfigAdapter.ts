@@ -27,9 +27,17 @@ type DjangoWorkloadConfig = {
   workload_limit_low: number;
   workload_limit_high: number;
   workload_limit_overload: number;
+  monthly_expected_hours: number;
 };
 
-const FALLBACK_WORKLOAD_CONFIG = { hoursPerDay: 6.5, workloadLimitLow: 5.5, workloadLimitHigh: 7.5, workloadLimitOverload: 8.5 };
+const FALLBACK_WORKLOAD_CONFIG = {
+  hoursPerDay: 6.5,
+  workloadLimitLow: 5.5,
+  workloadLimitHigh: 7.5,
+  workloadLimitOverload: 8.5,
+  // Horas esperadas del MES — valor fijo de negocio, no díasHábiles × 6.5.
+  monthlyExpectedHours: 140,
+};
 
 export async function fetchDjangoWorkloadLimits(): Promise<typeof FALLBACK_WORKLOAD_CONFIG> {
   const response = await djangoApiFetch("/settings/workload-config/");
@@ -40,6 +48,7 @@ export async function fetchDjangoWorkloadLimits(): Promise<typeof FALLBACK_WORKL
     workloadLimitLow: data.workload_limit_low,
     workloadLimitHigh: data.workload_limit_high,
     workloadLimitOverload: data.workload_limit_overload,
+    monthlyExpectedHours: data.monthly_expected_hours,
   };
 }
 

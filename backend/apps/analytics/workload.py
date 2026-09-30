@@ -11,6 +11,7 @@ from django.db.models import Sum
 from apps.configuration.services import (
     business_base_for_range,
     count_business_days,
+    expected_hours_per_day_for_month,
     get_effective_horas_efectivas,
     get_effective_workload_limit_high,
     get_effective_workload_limit_low,
@@ -248,10 +249,14 @@ def monthly_business_base_for_users(users, year: int, month: int) -> dict:
         if day_map:
             base_usuario.update(
                 {
+                    # Los días SIN estado especial valen la tasa esperada del
+                    # mes (140h / días hábiles), no `hours_per_day`: si no, una
+                    # persona con maternidad/lactancia quedaría medida contra
+                    # una base construida con otra regla que el resto.
                     "base_hours": sum_weighted_base_hours(
                         user_start,
                         effective_end,
-                        shared["hours_per_day"],
+                        shared["expected_hours_per_day"],
                         holidays,
                         {},
                         day_map,
@@ -260,7 +265,7 @@ def monthly_business_base_for_users(users, year: int, month: int) -> dict:
                     "limit_base_hours": sum_weighted_base_hours(
                         user_start,
                         effective_end,
-                        shared["hours_per_day"],
+                        shared["expected_hours_per_day"],
                         holidays,
                         {},
                         day_map,
@@ -533,10 +538,17 @@ def compute_carga_tiempo(*, user, now: datetime) -> dict:
     )
 
     monthly_business_days = count_business_days(effective_month_start, month_end, holidays)
+    # El MES se mide contra las horas esperadas del mes (140h repartidas entre
+    # sus días hábiles), no contra `hours_per_day`. El día y la semana de arriba
+    # sí siguen usando `hours_per_day`: son objetivos distintos y configurados
+    # aparte (ver `HORAS_ESPERADAS_MES` en apps/configuration/services.py).
+    monthly_hours_per_day = expected_hours_per_day_for_month(
+        today.year, today.month, holidays
+    )
     monthly_base_hours = sum_weighted_base_hours(
         effective_month_start,
         month_end,
-        hours_per_day,
+        monthly_hours_per_day,
         holidays,
         leave_map,
         special_map,
@@ -545,7 +557,7 @@ def compute_carga_tiempo(*, user, now: datetime) -> dict:
     monthly_classification_base = sum_weighted_base_hours(
         effective_month_start,
         month_end,
-        hours_per_day,
+        monthly_hours_per_day,
         holidays,
         leave_map,
         special_map,

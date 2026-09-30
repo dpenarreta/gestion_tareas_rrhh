@@ -6,7 +6,7 @@ Puerto de `src/lib/analytics.ts` §5 (Detección de anomalías) y §6
 Coordina con Inteligencia Preventiva (fase 7 del roadmap general, fuera
 de esta migración de stack), que reutilizará estos mismos archivos."""
 
-from datetime import date, datetime
+from datetime import datetime
 from datetime import timezone as dt_timezone
 
 from apps.configuration.services import (
@@ -19,7 +19,7 @@ from apps.tasks.business_time import business_calendar_day
 
 from .history import _stddev, compute_consistency, compute_monthly_history, compute_weekly_history
 from .scoring import _month_bounds
-from .workload import compute_carga_tiempo, monthly_business_base
+from .workload import compute_carga_tiempo, monthly_business_base_for_users
 
 # ── Detección de anomalías (§5) ────────────────────────────────────────────────
 
@@ -90,9 +90,13 @@ def _compute_monthly_compliance_pace(*, user, now: datetime) -> float:
     (extrapolar por días hábiles transcurridos vs. totales del mes).
     Réplica exacta de `computeMonthlyCompliancePace`."""
     today = business_calendar_day(now)
-    month_start = date(today.year, today.month, 1)
     holidays = get_holiday_set()
-    biz = monthly_business_base(today.year, today.month)
+    # La fracción de período transcurrida se mide sobre el período de cálculo
+    # DE ESTA PERSONA: con `kpi_start_date` el 17, extrapolar con los días del
+    # mes entero sobreestimaba lo que falta y el ritmo proyectado salía inflado.
+    multi = monthly_business_base_for_users([user], today.year, today.month)
+    biz = multi["per_user"].get(user.id) or multi["shared"]
+    month_start = biz["start"]
     monthly = compute_monthly_history(user=user, months_back=1, now=now)
     elapsed_business_days = count_business_days(month_start, today, holidays)
     current = monthly[-1]

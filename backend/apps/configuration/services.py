@@ -26,6 +26,14 @@ from .models import DataPurgeLog, Holiday, LeaveRecord, SpecialStatus, SystemCon
 CONFIG_KEY_HORAS_EFECTIVAS = "HORAS_EFECTIVAS_DIA"
 DEFAULT_HORAS_EFECTIVAS = 6.5
 
+# Horas esperadas de un MES de trabajo. Regla de negocio explícita: el mes
+# son 140h, NO el resultado de multiplicar días hábiles × horas efectivas
+# (eso daba 130h en febrero y 143h en septiembre, es decir un objetivo que
+# se movía solo con el calendario). `HORAS_EFECTIVAS_DIA` sigue rigiendo el
+# día y la semana; esta clave rige el mes y cualquier tramo de mes.
+CONFIG_KEY_HORAS_ESPERADAS_MES = "HORAS_ESPERADAS_MES"
+DEFAULT_HORAS_ESPERADAS_MES = 140.0
+
 CONFIG_KEY_WORKLOAD_LIMIT_LOW = "workload_limit_low"
 DEFAULT_WORKLOAD_LIMIT_LOW = 5.5
 
@@ -103,6 +111,12 @@ def get_effective_config_value(key: str, as_of: datetime, fallback: float) -> fl
 
 def get_effective_horas_efectivas(as_of: datetime) -> float:
     return get_effective_config_value(CONFIG_KEY_HORAS_EFECTIVAS, as_of, DEFAULT_HORAS_EFECTIVAS)
+
+
+def get_effective_horas_esperadas_mes(as_of: datetime) -> float:
+    return get_effective_config_value(
+        CONFIG_KEY_HORAS_ESPERADAS_MES, as_of, DEFAULT_HORAS_ESPERADAS_MES
+    )
 
 
 def get_effective_workload_limit_low(as_of: datetime) -> float:
@@ -856,13 +870,65 @@ def count_business_days(start: date, end: date, holidays: set[date]) -> int:
     return count
 
 
+def expected_hours_per_day_for_month(
+    year: int, month: int, holidays: set[date] | None = None
+) -> float:
+    """Reparte las horas esperadas del MES entre sus días hábiles.
+
+    El divisor es siempre el mes CALENDARIO completo, nunca el tramo que se
+    esté midiendo: así un mes entero suma exactamente las horas esperadas
+    configuradas (140h) y cualquier tramo —un `kpi_start_date` a mitad de
+    mes, un cierre con corte anticipado— queda prorrateado en proporción a
+    sus días hábiles. Un mes con 20 días hábiles pide 7h/día y uno con 23
+    pide 6,09h/día: es el calendario el que se adapta al objetivo mensual,
+    no al revés."""
+    holidays = get_holiday_set() if holidays is None else holidays
+    month_start = date(year, month, 1)
+    month_end = date(year, month, calendar.monthrange(year, month)[1])
+    business_days = count_business_days(month_start, month_end, holidays)
+    if business_days <= 0:
+        return 0.0
+    as_of = datetime(year, month, 1, tzinfo=dt_timezone.utc)
+    return get_effective_horas_esperadas_mes(as_of) / business_days
+
+
+def expected_base_hours_for_range(
+    start: date, end: date, holidays: set[date] | None = None
+) -> float:
+    """Horas esperadas de `[start, end]` según la regla mensual de 140h.
+
+    Se recorre mes por mes porque cada uno tiene su propia tasa diaria
+    esperada (140h / sus días hábiles) — un rango de varios meses, como los
+    de Reportes Ejecutivos, no puede usar una sola tasa promedio sin
+    desviarse del total de cada mes."""
+    holidays = get_holiday_set() if holidays is None else holidays
+    total = 0.0
+    cursor = start
+    while cursor <= end:
+        month_end = date(cursor.year, cursor.month, calendar.monthrange(cursor.year, cursor.month)[1])
+        segment_end = min(end, month_end)
+        segment_days = count_business_days(cursor, segment_end, holidays)
+        if segment_days:
+            total += segment_days * expected_hours_per_day_for_month(
+                cursor.year, cursor.month, holidays
+            )
+        cursor = month_end + timedelta(days=1)
+    return round_half_up(total, 2)
+
+
 def business_base_for_range(start: date, end: date) -> dict:
     """Réplica de `businessBaseCore` — completada en la Fase 4a con los
     campos de límites que `MonthClosureService` (Fase 3d) no necesitaba
     (esa sub-fase solo leía `business_days`/`base_hours`/`hours_per_day`,
     que siguen presentes sin cambios). El valor de configuración vigente
     al INICIO del rango es el que rige (mismo criterio legacy: cambios
-    posteriores no alteran cálculos de períodos ya transcurridos)."""
+    posteriores no alteran cálculos de períodos ya transcurridos).
+
+    `base_hours` ya NO es `días hábiles × horas efectivas`: el objetivo de
+    un mes de trabajo es un valor fijo (`HORAS_ESPERADAS_MES`, 140h) y lo
+    que se prorratea es ese total. Los 3 límites externos del semáforo
+    (low/high/overload) siguen siendo umbrales POR DÍA configurados
+    aparte, así que se mantienen como días hábiles × su valor diario."""
     holidays = get_holiday_set()
     business_days = count_business_days(start, end, holidays)
     as_of = datetime(start.year, start.month, start.day, tzinfo=dt_timezone.utc)
@@ -870,18 +936,23 @@ def business_base_for_range(start: date, end: date) -> dict:
     limit_low_per_day = get_effective_workload_limit_low(as_of)
     limit_high_per_day = get_effective_workload_limit_high(as_of)
     limit_overload_per_day = get_effective_workload_limit_overload(as_of)
-    base_hours = business_days * hours_per_day
+    base_hours = expected_base_hours_for_range(start, end, holidays)
+    # Tasa diaria implícita del rango — la necesitan los cálculos que
+    # reconstruyen la base día a día (estados especiales, prorrateo de
+    # ingresos a mitad de mes) para no volver a caer en `hours_per_day`.
+    expected_per_day = round_half_up(base_hours / business_days, 4) if business_days else 0.0
     return {
         "business_days": business_days,
         "base_hours": base_hours,
         "hours_per_day": hours_per_day,
+        "expected_hours_per_day": expected_per_day,
         "limit_low_per_day": limit_low_per_day,
         "limit_high_per_day": limit_high_per_day,
         "limit_overload_per_day": limit_overload_per_day,
         "limit_low_hours": business_days * limit_low_per_day,
-        # Para el equipo global (sin estado especial) coincide siempre con
-        # `base_hours` (mismo `hours_per_day`) — se expone aparte porque
-        # futuras funciones por-usuario sí pueden diferenciarlo.
+        # Umbral de clasificación Moderado/Óptimo: tiene que ser el MISMO
+        # número que se exhibe como base, o la pantalla muestra 140h y
+        # clasifica contra 143h (la contradicción que originó este cambio).
         "limit_base_hours": base_hours,
         "limit_high_hours": business_days * limit_high_per_day,
         "limit_overload_hours": business_days * limit_overload_per_day,

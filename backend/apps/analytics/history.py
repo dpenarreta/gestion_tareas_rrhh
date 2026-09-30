@@ -22,7 +22,7 @@ from apps.tasks.models import MonthClosure, Task, TaskActivity
 from .scoring import compute_completed_pct_any
 from .services import _month_bounds, _shift_month
 from .utils import is_task_overdue
-from .workload import _utc_week_start, get_month_closure_period, monthly_business_base
+from .workload import _utc_week_start, monthly_business_base_for_users
 
 _MONTH_ABBR = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
 
@@ -67,12 +67,18 @@ def compute_monthly_history(*, user, months_back: int = 6, now: datetime) -> lis
     months = [_shift_month(today.year, today.month, -(months_back - 1 - i)) for i in range(months_back)]
 
     month_bounds_list = [_month_bounds(yy, mm) for yy, mm in months]
+    # Base POR USUARIO: `monthly_business_base` arrancaba siempre el día 1, así
+    # que el histórico mensual mostraba el mes entero como objetivo (y sumaba
+    # horas anteriores al período) para quien tiene `kpi_start_date` a mitad de
+    # mes. `per_user` ya devuelve el `start`/`end` recortado, y de él salen
+    # también las ventanas con que se suman las horas reales de cada mes.
     biz_starts_ends = []
+    biz_by_month = []
     for yy, mm in months:
-        start_date = date(yy, mm, 1)
-        _, _, effective_end_date = get_month_closure_period(yy, mm)
-        biz_starts_ends.append((start_date, effective_end_date))
-    biz_by_month = [monthly_business_base(yy, mm) for yy, mm in months]
+        multi = monthly_business_base_for_users([user], yy, mm)
+        info = multi["per_user"].get(user.id) or multi["shared"]
+        biz_by_month.append(info)
+        biz_starts_ends.append((info["start"], info["end"]))
 
     range_start = month_bounds_list[0][0]
     range_end = month_bounds_list[-1][1]
@@ -164,6 +170,21 @@ def compute_weekly_history(*, user, weeks_back: int = 6, now: datetime) -> list[
 
     holidays = get_holiday_set()
     hours_per_day = get_effective_horas_efectivas(now)
+    # Una semana anterior al inicio del período de cálculo de esta persona no
+    # tiene objetivo: contarla como "32,5h de base y 0 reales" la hacía
+    # aparecer subutilizada y arrastraba la regresión de Predicciones hacia
+    # abajo. Con la base en 0 sus `business_days` quedan en 0 y los
+    # consumidores (`with_data`) ya la descartan solos.
+    kpi_start_dt = (
+        datetime(
+            user.kpi_start_date.year,
+            user.kpi_start_date.month,
+            user.kpi_start_date.day,
+            tzinfo=dt_timezone.utc,
+        )
+        if user.kpi_start_date
+        else None
+    )
     range_start = weeks[0][0]
     range_end = weeks[-1][1]
     real_start, _ = business_day_real_range(range_start.date())
@@ -188,13 +209,18 @@ def compute_weekly_history(*, user, weeks_back: int = 6, now: datetime) -> list[
 
     result = []
     for i, (start, end) in enumerate(weeks):
-        business_days = count_business_days(start.date(), end.date(), holidays)
+        effective_start = max(start, kpi_start_dt) if kpi_start_dt else start
+        business_days = (
+            count_business_days(effective_start.date(), end.date(), holidays)
+            if effective_start <= end
+            else 0
+        )
         week_tasks = [t for t in tasks if start <= t.end_date <= end]
         completed = sum(1 for t in week_tasks if t.status == Task.Status.COMPLETADA)
 
         real_hours = 0.0
         days_with_registration = 0
-        current = start
+        current = effective_start
         while current <= end:
             if is_working_day(current.date(), holidays):
                 ds, de = business_day_real_range(current.date())

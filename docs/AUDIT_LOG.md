@@ -15,6 +15,149 @@
 
 ---
 
+## 2026-09-29 — Las horas esperadas de un mes de trabajo son 140h, no días hábiles × horas efectivas
+
+**Cómo apareció:** al revisar por qué el Resumen Ejecutivo mostraba 143 h (ver
+la entrada de más abajo), el usuario aclaró que el objetivo del mes es **140 h**
+y que **no se calcula sobre la cantidad de días hábiles**. El número que el
+sistema exhibía no era solo un problema de prorrateo: la fórmula de fondo
+estaba equivocada.
+
+**El problema:** `business_base_for_range` calculaba
+`base_hours = días hábiles × HORAS_EFECTIVAS_DIA`. Con 6,5 h/día eso daba
+**130 h** en febrero de 2026 (20 hábiles), **143 h** en septiembre (22) y
+**136,5 h** en noviembre (21). El objetivo se movía solo con el calendario: la
+misma persona con las mismas horas reales podía pasar de "Óptimo" a "Moderado"
+sin que cambiara nada de su trabajo. Como todos los consumidores de base
+horaria pasan por esa función, el desvío estaba en Analytics, KPIs, Dashboard,
+Reportes Ejecutivos y el cierre de mes a la vez.
+
+**La tensión que había que resolver:** `HORAS_EFECTIVAS_DIA` (6,5 h) es un
+valor configurado y en uso para el día y la semana. `22 × 6,5 = 143 ≠ 140`, así
+que las dos cifras son matemáticamente incompatibles y no hay forma de
+satisfacer ambas de manera exacta.
+
+**Alternativas consideradas:**
+
+- *Derivar la tasa diaria de las 140 h y usarla también en el día y la semana*
+  (`140/22 = 6,36 h/día` en septiembre). Es la opción internamente más
+  coherente, pero cambia el semáforo diario de todo el mundo —quien registre
+  6,4 h pasa de "Moderado" a "Óptimo"— y contradice un valor que el
+  administrador configuró a propósito. Se descartó: el pedido fue sobre el mes,
+  no sobre el día.
+- *Dejar la base en 140 h fijas sin prorratear.* Rompería el arreglo de
+  v1.162.1 que el propio usuario pidió: alguien con período desde el 17 tendría
+  un objetivo de mes completo.
+- *Escalar también los tres límites del semáforo* por el mismo factor
+  (`140/143 = 0,979`). Son umbrales POR DÍA que el negocio configura aparte
+  (5,5 / 7,5 / 8,5) y no forman parte de la regla mensual; moverlos habría
+  cambiado zonas que nadie pidió tocar. Se verificó en cambio que el orden
+  `limit_low < base < limit_high` se mantiene con la base en 140 h, con un test
+  propio.
+- *Hardcodear las 140 h.* Se descartó por el precedente ya establecido con el
+  tiempo de inactividad (§ 2026-09-16): un número de negocio va al catálogo de
+  configuración, no al código.
+
+**Decisión:** las horas esperadas del mes son una clave de configuración nueva
+(`HORAS_ESPERADAS_MES`, default **140**) y es ese total el que se prorratea:
+
+```
+tasaEsperada(mes) = HORAS_ESPERADAS_MES / días hábiles del mes calendario completo
+base_hours(tramo) = días hábiles del tramo × tasaEsperada(mes)
+```
+
+El divisor es siempre el mes calendario completo, nunca el tramo medido: así un
+mes entero suma exactamente 140 h y cualquier tramo —un `kpi_start_date` a
+mitad de mes, un cierre con corte anticipado— recibe la parte proporcional. Un
+rango de varios meses se recorre mes por mes, porque cada uno tiene su propia
+tasa. `HORAS_EFECTIVAS_DIA` sigue rigiendo el día y la semana; en el mes manda
+el valor mensual.
+
+`limit_base_hours` (el umbral de clasificación Moderado/Óptimo) se mueve junto
+con `base_hours` y no aparte: si no, la pantalla mostraría 140 h y clasificaría
+contra 143 h, que es exactamente la clase de contradicción que originó todo
+este hilo.
+
+**Justificación:** es la regla que el negocio declaró, y deja de hacer que una
+medición de desempeño dependa de cuántos lunes cayeron en el mes. Que el valor
+sea parametrizable y no retroactivo conserva los meses ya cerrados: un cambio
+de hoy no reescribe un KPI histórico.
+
+**Impacto:** cambia el denominador de toda métrica mensual de carga. Con la
+configuración vigente (6,5 h/día) la base de un mes completo baja de 143 h a
+140 h (−2,1 %) y la de un tramo desde el 17 de septiembre de 65 h a 63,64 h; un
+febrero pasa de 130 h a 140 h (+7,7 %), que es el caso donde la fórmula vieja
+más se desviaba. `working_hours_considered` de `MonthClosure` queda alineado
+con Analytics, que antes reportaba otro número para el mismo período.
+`FORMULA_VERSIONS.cargaLaboral` sube a 2.0 y `FORMULA_SET_VERSION` a 4.5.
+
+---
+
+## 2026-09-29 — `kpi_start_date` faltaba en siete de los diez módulos que miden el mes
+
+**Cómo apareció:** la entrada de más abajo dejó anotado que sólo dos de los
+diez módulos de `apps.analytics` que cuentan días hábiles aplicaban el ajuste,
+y quedó explícitamente sin cerrar por no tocar fórmulas sin entender la
+intención de cada una. El usuario pidió revisarlos.
+
+**El patrón común:** los siete llamaban a `monthly_business_base` —la variante
+global, que arranca el día 1— mientras comparaban contra horas reales que sí
+arrancaban en la fecha configurada, porque venían de `compute_carga_tiempo`.
+Un objetivo de mes entero contra horas de medio mes.
+
+**Lo que se corrigió, y por qué en cada caso:**
+
+- `health_score.py`: el factor "Carga laboral" del Equilibrio Operativo
+  dividía las horas del tramo por la base del mes completo. El score quedaba
+  sistemáticamente bajo para toda persona con período recortado.
+- `kpi_simulate.py`: el valor actual (`before`) venía de
+  `compute_carga_tiempo` —correcto— y el simulado (`after`) de la base global.
+  Las dos columnas del mismo simulador se contradecían.
+- `history.py`/`compute_monthly_history`: base del mes completo **y** suma de
+  horas anteriores al período. Alimenta Benchmark y Tendencias, así que el
+  error se propagaba a esos dos módulos sin que tuvieran un defecto propio.
+- `history.py`/`compute_weekly_history`: las semanas anteriores a la fecha de
+  inicio contaban 6,5 h/día de objetivo con 0 h reales, marcando
+  "Subutilización" antes de que el período de la persona existiera y
+  arrastrando hacia abajo la regresión de Predicciones. Ahora quedan con
+  `business_days = 0`, que es el criterio que el motor de Consistencia ya
+  documentaba desde Analytics Engine v1.3.1: no asumir semanas anteriores al
+  inicio real de los registros.
+- `prediction.py` y `prediction_engine.py`: la extrapolación de ritmo usaba
+  `días hábiles del mes / días transcurridos desde el día 1`. Ahora mide la
+  fracción transcurrida del período del usuario (`10/8 = 1,25` en vez de
+  `22/20 = 1,10`).
+
+**Lo que NO se cambió, deliberadamente:**
+
+- `capacity_forecast.py` solo proyecta de mañana a fin de mes. La fecha de
+  inicio del período no cambia nada hacia adelante; recortarlo habría sido un
+  cambio sin sentido de negocio.
+- `risk_alerts.py` cuenta días hábiles sin actividad. Es una detección de
+  inactividad, no un período de cálculo.
+- **El conteo de tareas** de `prediction_engine.py` sigue midiendo el mes
+  calendario, aunque el cociente de días ya use el período del usuario. Mover
+  también el universo de tareas era defendible —`kpi_start_date` significa
+  "desde cuándo se calculan los KPIs"—, pero `compute_monthly_history` cuenta
+  tareas por mes calendario: cambiar uno y no el otro habría creado dos
+  cumplimientos distintos para el mismo mes, que es precisamente el síntoma que
+  se venía corrigiendo. Si el negocio quiere que las tareas también se
+  recorten, hay que hacerlo en los dos a la vez.
+
+**Justificación de la forma:** todos usan el mismo patrón ya establecido en
+`services.py` — `multi["per_user"].get(user.id) or multi["shared"]` — en vez de
+recortar fechas a mano en cada módulo. `monthly_business_base_for_users` ya
+resuelve el `kpi_start_date` y el `SpecialStatus` juntos, y duplicar esa lógica
+siete veces habría sido el camino más corto a que vuelvan a divergir.
+
+**Impacto:** el Equilibrio Operativo, el simulador, el histórico mensual y
+semanal, Benchmark, Tendencias y las dos proyecciones de ritmo cambian de
+resultado para toda persona con `kpi_start_date` dentro del mes medido — en
+todos los casos hacia el número que las otras pantallas ya mostraban.
+`FORMULA_VERSIONS.prediccion` sube a 2.1.
+
+---
+
 ## 2026-09-29 — El Resumen Ejecutivo ignoraba la fecha de inicio de cálculo por usuario
 
 **Cómo apareció:** se configuró el 17/09 como fecha de inicio de cálculo KPI

@@ -17,7 +17,7 @@ from .history import compute_consistency
 from .models import ANALYTICS_ENGINE_VERSION
 from .scoring import _month_bounds, audit_calculation, compute_completed_pct_any, weighted_points
 from .utils import is_task_overdue
-from .workload import compute_carga_tiempo, monthly_business_base
+from .workload import compute_carga_tiempo, monthly_business_base_for_users
 
 
 def carga_health_score(real_hours: float, base_hours: float, limit_high_hours: float, limit_overload_hours: float) -> int:
@@ -99,7 +99,12 @@ def compute_health_score(*, user, now: datetime, precomputed_consistency: dict |
     carga_tiempo = compute_carga_tiempo(user=user, now=now)
     capacity = compute_capacity_forecast(user=user, now=now)
     consistency = precomputed_consistency if precomputed_consistency is not None else compute_consistency(user=user, now=now)
-    biz = monthly_business_base(year, month)
+    # Per-usuario, no global: las horas reales vienen de `compute_carga_tiempo`,
+    # que arranca en `kpi_start_date`. Con la base del mes entero, el factor de
+    # carga de alguien cuyo período empieza el 17 se medía contra 30 días de
+    # objetivo y el score quedaba sistemáticamente bajo.
+    multi = monthly_business_base_for_users([user], year, month)
+    biz = multi["per_user"].get(user.id) or multi["shared"]
 
     completed_pct = compute_completed_pct_any(tasks, empty_value=100)
     overdue = [t for t in tasks if is_task_overdue(t.end_date, t.status, now)]
