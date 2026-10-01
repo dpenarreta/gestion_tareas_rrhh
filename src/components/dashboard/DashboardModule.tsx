@@ -22,6 +22,7 @@ import { ROLE_LABEL, canCreateMeetings, isLeadershipRole } from "@/lib/roles";
 import { Button } from "@/components/ui/Button";
 import { SkeletonText } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { CheckCircle2, Calendar, CheckCheck, Megaphone, AlertTriangle, FolderKanban, X } from "lucide-react";
 import TaskFormModal from "@/components/tasks/TaskFormModal";
 import type { AssignableUser } from "@/components/tasks/types";
@@ -455,7 +456,8 @@ function ComunicadosCard({
   announcements: Announcement[];
   canPost: boolean;
   onPublish: (data: { title: string; content: string; durationDays: number; pinned: boolean }) => Promise<void>;
-  onDelete: (id: string) => Promise<void>;
+  // Ya no borra: abre la confirmacion en el componente padre.
+  onDelete: (id: string) => void;
 }) {
   const [showForm, setShowForm] = useState(false);
   const [title, setTitle] = useState("");
@@ -703,6 +705,8 @@ export default function DashboardModule({
   const [novaMessage, setNovaMessage] = useState("");
   const [novaLoading, setNovaLoading] = useState(true);
   const [cardOrder, setCardOrder] = useState<string[]>(initialCardOrder);
+  const [pendingAnnouncementId, setPendingAnnouncementId] = useState<string | null>(null);
+  const [deletingAnnouncement, setDeletingAnnouncement] = useState(false);
   const [showTaskModal, setShowTaskModal] = useState(false);
   const [showMeetingModal, setShowMeetingModal] = useState(false);
   const [assignableUsers, setAssignableUsers] = useState<AssignableUser[]>([]);
@@ -793,9 +797,19 @@ export default function DashboardModule({
     fetchData();
   }
 
-  async function handleDeleteAnnouncement(id: string) {
-    await fetch(`/api/announcements/${id}`, { method: "DELETE" });
-    fetchData();
+  // Un comunicado lo ve toda la organizacion y el backend lo borra de verdad
+  // (`announcement.delete()`, sin papelera), asi que el clic solo abre la
+  // confirmacion.
+  async function confirmDeleteAnnouncement() {
+    if (!pendingAnnouncementId) return;
+    setDeletingAnnouncement(true);
+    try {
+      await fetch(`/api/announcements/${pendingAnnouncementId}`, { method: "DELETE" });
+      fetchData();
+    } finally {
+      setDeletingAnnouncement(false);
+      setPendingAnnouncementId(null);
+    }
   }
 
   // Cards visible (hide Comunicados if empty and not canPost; Escritorio Digital
@@ -848,7 +862,7 @@ export default function DashboardModule({
             announcements={data.announcements}
             canPost={canPost}
             onPublish={handlePublishAnnouncement}
-            onDelete={handleDeleteAnnouncement}
+            onDelete={setPendingAnnouncementId}
           />
         );
       case "acciones":
@@ -935,6 +949,17 @@ export default function DashboardModule({
           currentUserId={userId}
         />
       )}
+
+      <ConfirmDialog
+        open={pendingAnnouncementId !== null}
+        title="Eliminar comunicado"
+        message={`¿Eliminar "${data?.announcements.find((a) => a.id === pendingAnnouncementId)?.title ?? "este comunicado"}"? Deja de verlo toda la organización y no se puede deshacer.`}
+        confirmLabel="Eliminar"
+        danger
+        loading={deletingAnnouncement}
+        onConfirm={confirmDeleteAnnouncement}
+        onCancel={() => setPendingAnnouncementId(null)}
+      />
     </div>
   );
 }

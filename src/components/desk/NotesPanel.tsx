@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
 import DeskNotePostIt from "./DeskNotePostIt";
 import NewNoteModal from "./NewNoteModal";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import type { DeskNote } from "./types";
 
 type Tab = "desk" | "pinned" | "archive" | "sent";
@@ -40,6 +41,8 @@ export default function NotesPanel({ onNoteCreated }: { onNoteCreated?: () => vo
   const [archiveNotes, setArchiveNotes] = useState<DeskNote[] | null>(null);
   const [sentNotes, setSentNotes] = useState<DeskNote[] | null>(null);
   const [showNewNote, setShowNewNote] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [deletingNote, setDeletingNote] = useState(false);
 
   const loadDesk = useCallback(() => {
     fetch("/api/desk-notes?view=desk")
@@ -121,9 +124,17 @@ export default function NotesPanel({ onNoteCreated }: { onNoteCreated?: () => vo
   // §7/§8: eliminación definitiva por el destinatario (solo desde Archivadas)
   // o eliminación por el remitente (papelera) — mismo endpoint, la API
   // decide cuál corresponde según quién llama.
-  async function deleteNote(id: string) {
-    removeNoteEverywhere(id);
-    await fetch(`/api/desk-notes/${id}`, { method: "DELETE" });
+  async function confirmDeleteNote() {
+    if (!pendingDeleteId) return;
+    const id = pendingDeleteId;
+    setDeletingNote(true);
+    try {
+      removeNoteEverywhere(id);
+      await fetch(`/api/desk-notes/${id}`, { method: "DELETE" });
+    } finally {
+      setDeletingNote(false);
+      setPendingDeleteId(null);
+    }
   }
 
   function convertedToReminder(id: string, reminderId: string) {
@@ -186,7 +197,7 @@ export default function NotesPanel({ onNoteCreated }: { onNoteCreated?: () => vo
                 onMarkRead={markRead}
                 onTogglePin={togglePin}
                 onToggleArchive={toggleArchive}
-                onDelete={deleteNote}
+                onDelete={setPendingDeleteId}
                 onConvertedToReminder={convertedToReminder}
                 onReplied={replied}
               />
@@ -206,6 +217,27 @@ export default function NotesPanel({ onNoteCreated }: { onNoteCreated?: () => vo
           }}
         />
       )}
+
+      {/* El MISMO endpoint hace dos cosas distintas segun quien llama (ver
+          `deleteNote` arriba): al remitente le manda la nota a la papelera, al
+          destinatario se la borra para siempre. La pestana "Enviadas" son las
+          notas que mando yo, y las otras dos las que recibi — asi que el
+          mensaje tiene que decir cual de las dos va a pasar, o estaria
+          prometiendo una papelera que para el destinatario no existe. */}
+      <ConfirmDialog
+        open={pendingDeleteId !== null}
+        title="Eliminar nota"
+        message={
+          tab === "sent"
+            ? "¿Eliminar esta nota? Se va a la papelera y podés recuperarla desde el Centro de Recuperación."
+            : "¿Eliminar esta nota? Al eliminarla como destinatario se borra definitivamente: no se puede deshacer."
+        }
+        confirmLabel="Eliminar"
+        danger
+        loading={deletingNote}
+        onConfirm={confirmDeleteNote}
+        onCancel={() => setPendingDeleteId(null)}
+      />
     </div>
   );
 }

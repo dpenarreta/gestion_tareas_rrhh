@@ -23,6 +23,86 @@
 
 ---
 
+## v1.163.2 — 2026-10-01
+
+**Tipo:** UX
+**Módulo:** Transversal — auditoría de los 16 puntos de borrado del frontend.
+
+Tras el hallazgo de v1.163.1 (actividades borraban sin preguntar) se revisaron
+**todos** los `DELETE` que salen de un componente cliente. De 16, **cinco** no
+tenían ninguna confirmación. Los 11 restantes ya usaban `ConfirmDialog` y se
+verificó que el diálogo esté realmente conectado al botón, no sólo importado.
+
+| Dónde | Qué borra | ¿Reversible? |
+|---|---|---|
+| `DashboardModule` | Comunicado de toda la organización | **No** — `announcement.delete()` |
+| `RemindersPanel` | Recordatorio personal | **No** — `reminder.delete()`, sin papelera |
+| `NotesPanel` | Nota del Escritorio | Depende de quién borra (ver abajo) |
+| `ProjectParticipantsTab` | Participante de un proyecto | Se puede volver a agregar |
+| `ActivityItem` | Actividad y sus horas | **No** — ya corregido en v1.163.1 |
+
+- **Las notas tienen dos comportamientos en el mismo endpoint:** al remitente
+  la nota se le va a la papelera (`trash_note`), al destinatario se le borra
+  para siempre (`delete_archived_note_permanently`). El mensaje distingue los
+  dos casos según la pestaña — prometer una papelera que para el destinatario
+  no existe habría sido peor que no avisar.
+- **Cada mensaje dice qué se pierde**, no "¿estás seguro?": el comunicado
+  nombra el título y aclara que deja de verlo toda la organización; el
+  recordatorio aclara que no hay papelera; el participante aclara que pierde
+  el acceso, queda en el historial y se puede volver a agregar.
+- **Archivos:** `src/components/dashboard/DashboardModule.tsx`,
+  `src/components/desk/NotesPanel.tsx`,
+  `src/components/desk/RemindersPanel.tsx`,
+  `src/components/projects/ProjectParticipantsTab.tsx`.
+
+**Verificación:** 5 tests nuevos en
+`src/__tests__/components/DeleteConfirmations.test.tsx` (participantes y
+recordatorios), validados reintroduciendo el código original de cada botón —
+2 de 5 fallan por cada bug repuesto. `DashboardModule` y `NotesPanel` quedaron
+sin test propio: ambos disparan varias peticiones al montarse y el costo de
+sostener esos mocks supera lo que el test aportaría; están cubiertos por
+`tsc`/`eslint` y hay que probarlos a mano. 109 archivos y 1243 tests del
+frontend en verde.
+
+**Pendiente menor detectado, no corregido:** `TableView.handleBulkDeleteClick`
+usa un `alert()` nativo para avisar "No puedes eliminar tareas de otros
+usuarios" — bloquea la pestaña y es inconsistente con el `showToast` que usa
+el resto de la app. No es un borrado sin confirmación (el masivo sí pregunta),
+así que queda fuera de este cambio.
+
+## v1.163.1 — 2026-10-01
+
+**Tipo:** UX
+**Módulo:** Actividades — borrar una actividad no pedía confirmación.
+
+- **Síntoma reportado:** el icono de papelera de una actividad borraba en el
+  acto, sin preguntar nada.
+- **Lo que encontré:** `ActivityItem.handleDelete` llamaba al `DELETE`
+  directo desde el `onClick`. Revisé la historia completa del archivo
+  (`git log --follow`, más búsquedas por contenido en todos los commits) y
+  **nunca** tuvo una confirmación: no es una regresión, es un faltante desde
+  que se creó el componente (`c187ec4`). El refactor que reemplazó los
+  `confirm()` nativos por `ConfirmDialog` (`051b105`) tocó 13 archivos y
+  `ActivityItem.tsx` no fue uno de ellos. Lo más parecido que sí confirma, y
+  que está a centímetros en la misma pantalla, es el borrado de **tareas**
+  (`TasksModule`, "Eliminar tarea").
+- **Por qué importa más que en otros módulos:** tareas, notas y proyectos
+  tienen papelera; **las actividades no**. Un clic accidental borraba horas ya
+  registradas sin vuelta atrás, y además descuenta esas horas de la carga
+  laboral del mes.
+- **El arreglo:** `ConfirmDialog` —el mismo componente que usa el resto de la
+  app— con el motivo y las horas en el mensaje, en vez de un "¿estás seguro?"
+  genérico: *¿Eliminar la actividad "Reunión" de 1h 30min? Esas horas dejan de
+  contar en tu carga del mes y la acción no se puede deshacer.*
+- **Archivos:** `src/components/tasks/ActivityItem.tsx`.
+
+**Verificación:** 5 tests nuevos en
+`src/__tests__/components/ActivityDeleteConfirm.test.tsx` (el clic no borra,
+el diálogo nombra motivo y horas, confirmar dispara el `DELETE`, cancelar no
+toca nada, y quien no es el autor no ve la papelera). Validados
+reintroduciendo el bug: 4 de 5 fallan si el botón vuelve a borrar directo.
+108 archivos y 1238 tests del frontend en verde, `tsc` y `eslint` limpios.
+
 ## v1.163.0 — 2026-09-29
 
 **Tipo:** ANALYTICS

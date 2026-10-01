@@ -5,6 +5,7 @@ import type { Role } from "@/lib/roles";
 import type { TaskActivity, ActivityComment } from "./types";
 import { reasonLabel, reasonIsActive, reasonIsArchived, reasonColorClass, formatDuration, type ActivityReasonConfig } from "./activityReasons";
 import { Modal, ModalHeader } from "@/components/ui/Modal";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Button } from "@/components/ui/Button";
 import { Spinner } from "@/components/ui/Skeleton";
 
@@ -46,6 +47,7 @@ type Props = {
 
 export default function ActivityItem({ activity: a, taskId, currentUserId, currentUserRole, reasons, onDeleted, onUpdated }: Props) {
   const [deleting, setDeleting] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const [showComments, setShowComments] = useState(false);
   const [comments, setComments] = useState<ActivityComment[] | null>(null);
@@ -75,6 +77,7 @@ export default function ActivityItem({ activity: a, taskId, currentUserId, curre
       if (res.ok) onDeleted(a.id);
     } finally {
       setDeleting(false);
+      setConfirmingDelete(false);
     }
   }
 
@@ -203,7 +206,7 @@ export default function ActivityItem({ activity: a, taskId, currentUserId, curre
           )}
           {canDelete && (
             <button
-              onClick={handleDelete}
+              onClick={() => setConfirmingDelete(true)}
               disabled={deleting}
               className="p-0.5 text-disabled hover:text-danger transition-colors disabled:opacity-40"
               title="Eliminar actividad"
@@ -360,6 +363,21 @@ export default function ActivityItem({ activity: a, taskId, currentUserId, curre
           </div>
         </div>
       </Modal>
+
+      {/* Borrar una actividad descuenta sus horas del mes y no se puede
+          deshacer: no hay papelera de actividades como sí la hay de tareas,
+          notas y proyectos. Por eso el diálogo nombra el motivo y las horas
+          que se van a perder, en vez de preguntar "¿estás seguro?" a secas. */}
+      <ConfirmDialog
+        open={confirmingDelete}
+        title="Eliminar actividad"
+        message={`¿Eliminar la actividad "${label}" de ${formatDuration(a.duration)}? Esas horas dejan de contar en tu carga del mes y la acción no se puede deshacer.`}
+        confirmLabel="Eliminar"
+        danger
+        loading={deleting}
+        onConfirm={handleDelete}
+        onCancel={() => setConfirmingDelete(false)}
+      />
     </div>
   );
 }

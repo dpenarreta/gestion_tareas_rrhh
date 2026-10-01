@@ -7,6 +7,7 @@ import { Clock, CheckCircle2, Archive } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import ReminderCard from "./ReminderCard";
 import NewReminderModal from "./NewReminderModal";
 import type { PersonalReminder } from "./types";
@@ -40,6 +41,8 @@ export default function RemindersPanel({ onChanged }: { onChanged?: () => void }
   const [reminders, setReminders] = useState<PersonalReminder[] | null>(null);
   const [showNew, setShowNew] = useState(false);
   const [editing, setEditing] = useState<PersonalReminder | null>(null);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [removing, setRemoving] = useState(false);
   // Se obtiene una sola vez para todas las tarjetas, no por ReminderCard (ver /api/settings/snooze-presets).
   const [snoozePresetsMinutes, setSnoozePresetsMinutes] = useState<number[] | undefined>(undefined);
 
@@ -105,10 +108,20 @@ export default function RemindersPanel({ onChanged }: { onChanged?: () => void }
     onChanged?.();
   }
 
-  async function remove(id: string) {
-    setReminders((prev) => prev?.filter((r) => r.id !== id) ?? prev);
-    await fetch(`/api/desk-reminders/${id}`, { method: "DELETE" });
-    onChanged?.();
+  // Un recordatorio se borra de verdad (`reminder.delete()` en Django, sin
+  // papelera), asi que el icono solo abre la confirmacion.
+  async function confirmRemove() {
+    if (!pendingDeleteId) return;
+    const id = pendingDeleteId;
+    setRemoving(true);
+    try {
+      setReminders((prev) => prev?.filter((r) => r.id !== id) ?? prev);
+      await fetch(`/api/desk-reminders/${id}`, { method: "DELETE" });
+      onChanged?.();
+    } finally {
+      setRemoving(false);
+      setPendingDeleteId(null);
+    }
   }
 
   function convertedToTask(id: string, taskId: string) {
@@ -160,7 +173,7 @@ export default function RemindersPanel({ onChanged }: { onChanged?: () => void }
                 onReopen={reopen}
                 onArchive={archive}
                 onEdit={setEditing}
-                onDelete={remove}
+                onDelete={setPendingDeleteId}
                 onConvertedToTask={convertedToTask}
                 snoozePresetsMinutes={snoozePresetsMinutes}
               />
@@ -190,6 +203,17 @@ export default function RemindersPanel({ onChanged }: { onChanged?: () => void }
           }}
         />
       )}
+
+      <ConfirmDialog
+        open={pendingDeleteId !== null}
+        title="Eliminar recordatorio"
+        message={`¿Eliminar "${reminders?.find((r) => r.id === pendingDeleteId)?.title ?? "este recordatorio"}"? No hay papelera de recordatorios: no se puede deshacer.`}
+        confirmLabel="Eliminar"
+        danger
+        loading={removing}
+        onConfirm={confirmRemove}
+        onCancel={() => setPendingDeleteId(null)}
+      />
     </div>
   );
 }

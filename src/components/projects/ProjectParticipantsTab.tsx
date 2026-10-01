@@ -5,6 +5,7 @@ import type { ProjectParticipant, ProjectUserRef } from "./types";
 import { ROLE_LABEL } from "@/lib/roles";
 import type { Role } from "@/lib/roles";
 import { useToast } from "@/components/ui/Toast";
+import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 
 type Props = {
   projectId: string;
@@ -27,6 +28,7 @@ export default function ProjectParticipantsTab({
   const [selectedUserId, setSelectedUserId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
+  const [pendingRemoveId, setPendingRemoveId] = useState<string | null>(null);
 
   const availableCandidates = candidateUsers.filter((u) => !participants.some((p) => p.userId === u.id));
 
@@ -121,7 +123,7 @@ export default function ProjectParticipantsTab({
             </div>
             {canManage && p.userId !== responsibleId && (
               <button
-                onClick={() => removeParticipant(p.id)}
+                onClick={() => setPendingRemoveId(p.id)}
                 disabled={removingId === p.id}
                 className="text-xs text-danger hover:underline disabled:opacity-40"
               >
@@ -131,6 +133,24 @@ export default function ProjectParticipantsTab({
           </div>
         ))}
       </div>
+
+      {/* Quitar a alguien de un proyecto le saca el acceso y queda registrado
+          en el historial a nombre de quien lo hizo. Se puede volver a agregar,
+          asi que el aviso lo dice en vez de amenazar con algo irreversible. */}
+      <ConfirmDialog
+        open={pendingRemoveId !== null}
+        title="Quitar participante"
+        message={`¿Quitar a ${participants.find((p) => p.id === pendingRemoveId)?.user.name ?? "esta persona"} del proyecto? Pierde el acceso y queda registrado en el historial. Podés volver a agregarla después.`}
+        confirmLabel="Quitar"
+        danger
+        loading={removingId !== null}
+        onConfirm={() => {
+          const id = pendingRemoveId;
+          setPendingRemoveId(null);
+          if (id) removeParticipant(id);
+        }}
+        onCancel={() => setPendingRemoveId(null)}
+      />
     </div>
   );
 }
