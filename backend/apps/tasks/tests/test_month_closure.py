@@ -185,7 +185,11 @@ def test_close_month_duplicates_recurring_frequency_to_next_month(
 
     assert response.status_code == 200
     assert response.data["duplicated_count"] == 1
-    duplicate = Task.objects.get(archived_month__isnull=True, frequency="MENSUAL")
+    # Desde 2026-10-02 quedan DOS vivas: la original sin terminar, que ya no se
+    # archiva, y la instancia del mes siguiente. Se distinguen por la fecha.
+    duplicate = Task.objects.get(
+        archived_month__isnull=True, frequency="MENSUAL", start_date__month=2
+    )
     assert duplicate.status == "PENDIENTE"
     assert duplicate.real_hours == 0
     assert duplicate.progress == 0
@@ -208,7 +212,9 @@ def test_close_month_duplicate_clamps_day_at_month_end(manager_client, manager, 
 
     manager_client.post("/api/v1/tasks/close-month/", {"year": YEAR, "month": MONTH}, format="json")
 
-    duplicate = Task.objects.get(archived_month__isnull=True, frequency="SEMANAL")
+    duplicate = Task.objects.get(
+        archived_month__isnull=True, frequency="SEMANAL", end_date__month=2
+    )
     assert duplicate.end_date == datetime(
         YEAR, 2, 28, tzinfo=dt_timezone.utc
     )  # 2026 no es bisiesto

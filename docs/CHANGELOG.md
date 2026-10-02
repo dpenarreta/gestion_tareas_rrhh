@@ -23,6 +23,85 @@
 
 ---
 
+## v1.164.0 — 2026-10-02
+
+**Tipo:** FEATURE
+**Módulo:** Cierre de mes — una tarea recurrente que no se cerró sigue viva **y**
+genera la del mes siguiente (ver docs/AUDIT_LOG.md § 2026-10-02).
+
+### El problema
+
+El cierre hacía una cosa o la otra según el tipo, nunca las dos:
+
+| | Seguía viva | Generaba la del mes siguiente |
+|---|---|---|
+| FIJA recurrente sin terminar | **No** — se archivaba | Sí, desde cero |
+| SEGUIMIENTO recurrente sin terminar | Sí | **No** |
+
+En el primer caso el trabajo a medias quedaba sepultado en el mes cerrado y la
+copia nueva nacía con 0% de avance. En el segundo la tarea seguía abierta pero
+la cadencia mensual se cortaba: nunca aparecía la instancia del mes siguiente.
+
+### La regla nueva
+
+Si es recurrente (`MENSUAL`/`SEMANAL`/`DIARIA`/`QUINCENAL`) y **no se cerró**:
+
+- **no se archiva** — sigue viva con su progreso, sus horas y su historial;
+- **además se crea la del mes siguiente**, limpia (0% y sin horas).
+
+Lo que no cambió: una recurrente **completada** se archiva y genera su sucesora
+igual que siempre; una **PUNTUAL** sin terminar se sigue archivando, porque no
+hay cadencia que mantener.
+
+### Que no se multiplique
+
+Una tarea que sigue viva conserva su fecha fin en el mes cerrado y nunca recibe
+`archived_month`, así que volvería a entrar como candidata en cada cierre
+posterior y generaría **una copia nueva cada mes, para siempre**. Por eso se
+agrega `Task.successor_created_at` (migración `0008`): marca que esa tarea ya
+generó su sucesora. Es el campo que evita el desborde, y tiene un test propio
+que cierra tres meses seguidos y verifica que sale una sola instancia por mes.
+
+### Aviso de meses sin cerrar
+
+El cierre es **manual** y nada lo dispara solo: un mes que nadie cierra no
+archiva nada y sus recurrentes no generan su instancia. Se decidió mantenerlo
+manual —archiva, congela horas del mes y alimenta los KPIs históricos: hacerlo
+solo sin que nadie revise la fecha de corte es arriesgado— y avisar en su lugar.
+`GET /api/v1/tasks/close-month/` devuelve ahora `pending_closures` (meses ya
+terminados, con tareas, que nadie cerró, hasta 12 meses atrás) y el módulo de
+Trabajos muestra un aviso con un botón que abre el asistente directamente en el
+mes más viejo. Solo lo ve quien puede cerrar el mes: a los demás ni se les
+consulta el endpoint.
+
+### Consecuencias visibles
+
+- **Una recurrente sin cerrar aparece vencida.** Su fecha fin queda en el mes
+  que pasó y no se mueve. Es deliberado: correrla automáticamente al mes nuevo
+  escondería un incumplimiento real y falsearía el KPI de tareas vencidas.
+- **Quedan dos tareas vivas** por cada recurrente sin cerrar: la que viene
+  arrastrada y la del mes nuevo. Es exactamente lo pedido, pero cambia el conteo
+  de tareas abiertas.
+- **Las horas de una tarea arrastrada cuentan en el mes en que se complete**,
+  no en el mes de su fecha fin — `_real_hours_in_window` filtra por
+  `completed_at`, no por `end_date`.
+
+- **Archivos:** `backend/apps/tasks/models.py` (+ migración
+  `0008_task_successor_created_at`), `backend/apps/tasks/services.py`
+  (`MonthClosureService`: `_sigue_viva`, `_continued_tasks`,
+  `_fuentes_de_duplicado`, `pending_closures`),
+  `backend/apps/tasks/views.py`, `src/lib/djangoTasksAdapter.ts`,
+  `src/components/tasks/TasksModule.tsx`,
+  `src/components/tasks/CloseMonthModal.tsx`.
+
+**Verificación:** 21 tests nuevos en
+`backend/apps/tasks/tests/test_month_closure_recurrentes.py` y 6 en
+`src/__tests__/components/TasksModulePendingClosures.test.tsx`, validados
+reponiendo el criterio viejo — 7 de 13 fallan con la clasificación anterior y 4
+de 6 si se saca el aviso. Dos aserciones existentes se actualizaron porque
+ahora quedan dos tareas vivas donde antes había una. 2043 tests del backend y
+1249 del frontend en verde; `ruff`, `tsc` y `eslint` limpios.
+
 ## v1.163.2 — 2026-10-01
 
 **Tipo:** UX

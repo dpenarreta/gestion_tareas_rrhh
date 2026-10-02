@@ -8,7 +8,7 @@
 
 | Componente | Versión | Notas |
 |---|---|---|
-| **NEXO** (producto) | **v1.163.2** | Ver `docs/CHANGELOG.md` para el detalle de qué introdujo cada versión |
+| **NEXO** (producto) | **v1.164.0** | Ver `docs/CHANGELOG.md` para el detalle de qué introdujo cada versión |
 | **Analytics Engine** | v1.5.0 | `ANALYTICS_ENGINE_VERSION` en `src/lib/analytics.ts` — sin cambios (Validación de Fecha Fin es gobierno/trazabilidad sobre `Task.endDate`, no una fórmula de Analytics) |
 | **Formulas Set** | v4.5 | `FORMULA_SET_VERSION` en `src/lib/analytics.ts` — v4.5 (2026-09-29): las horas esperadas del mes pasan a ser un valor fijo (`FORMULA_VERSIONS.cargaLaboral` 1.0 → 2.0) y el ritmo proyectado mide el período del usuario (`prediccion` 2.0 → 2.1) |
 | **Executive Reporting Engine** | v2.0 | `EXECUTIVE_REPORTING_ENGINE_VERSION` en `src/lib/executiveReporting/version.ts` — sin cambios |

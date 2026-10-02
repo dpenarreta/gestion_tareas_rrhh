@@ -464,11 +464,18 @@ class CloseMonthView(generics.GenericAPIView):
         year, month = self._parse_year_month(
             request.query_params.get("year"), request.query_params.get("month"), timezone.now()
         )
+        now = timezone.now()
         preview = MonthClosureService.preview(
             year=year, month=month,
-            cutoff_date_raw=request.query_params.get("cutoffDate"), now=timezone.now(),
+            cutoff_date_raw=request.query_params.get("cutoffDate"), now=now,
         )
-        return Response(self._serialize(preview))
+        # Nada dispara el cierre solo: si nadie lo ejecuta, el mes no se
+        # archiva y sus recurrentes no generan la instancia del mes siguiente.
+        # Viaja en el mismo GET que ya hace el asistente para no sumar una
+        # llamada mas por cada vez que se abre el modulo de Trabajos.
+        return Response(
+            {**self._serialize(preview), "pending_closures": MonthClosureService.pending_closures(now)}
+        )
 
     def post(self, request):
         now = timezone.now()

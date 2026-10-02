@@ -34,6 +34,7 @@ from .closure import (
     next_month_start,
     next_year_month,
     period_start,
+    previous_month,
     resolve_cutoff_date,
     shift_to_next_month,
 )
@@ -1024,20 +1025,102 @@ class MonthClosureService:
     `working_hours_considered`, congelados al cerrar), nunca qué tareas se
     archivan — mismo criterio que el legacy."""
 
+    # Estados que significan "no se cerro en el mes".
+    _ABIERTOS = [Task.Status.PENDIENTE, Task.Status.EN_PROGRESO]
+
+    @staticmethod
+    def _tasks_del_periodo(month_end: datetime):
+        """Todo lo que el cierre tiene que mirar: sin archivar y con fecha fin
+        anterior al fin del mes."""
+        return Task.objects.filter(archived_month__isnull=True, end_date__lt=month_end)
+
+    @staticmethod
+    def _sigue_viva(task: Task) -> bool:
+        """Una tarea que NO se cerro en el mes sigue viva en vez de archivarse
+        si es recurrente —asi conserva su progreso, sus horas y su historial—
+        o si es de SEGUIMIENTO, que ya se comportaba asi.
+
+        El cambio del 2026-10-02 es el primer caso: antes una FIJA recurrente
+        sin terminar se archivaba igual, y la copia del mes siguiente nacia
+        desde cero, de modo que el trabajo a medias quedaba sepultado en el
+        mes cerrado."""
+        if task.status not in MonthClosureService._ABIERTOS:
+            return False
+        return task.frequency in RECURRING_FREQUENCIES or task.type == Task.Type.SEGUIMIENTO
+
     @staticmethod
     def _candidate_tasks_queryset(month_end: datetime):
-        return Task.objects.filter(archived_month__isnull=True, end_date__lt=month_end).filter(
-            Q(type=Task.Type.FIJA) | Q(type=Task.Type.SEGUIMIENTO, status=Task.Status.COMPLETADA)
-        )
+        """Las que SI se archivan. Se resuelve en Python y no en el ORM porque
+        `_sigue_viva` cruza tres campos y duplicarla como `Q(...)` fue
+        justamente lo que dejo el criterio viejo repetido en dos lugares."""
+        candidatas = [
+            t for t in MonthClosureService._tasks_del_periodo(month_end)
+            if not MonthClosureService._sigue_viva(t)
+        ]
+        return candidatas
+
+    @staticmethod
+    def _continued_tasks(month_end: datetime) -> list[Task]:
+        return [
+            t for t in MonthClosureService._tasks_del_periodo(month_end)
+            if MonthClosureService._sigue_viva(t)
+        ]
 
     @staticmethod
     def _continued_active_count(month_end: datetime) -> int:
-        return Task.objects.filter(
-            archived_month__isnull=True,
-            end_date__lt=month_end,
-            type=Task.Type.SEGUIMIENTO,
-            status__in=[Task.Status.PENDIENTE, Task.Status.EN_PROGRESO],
-        ).count()
+        return len(MonthClosureService._continued_tasks(month_end))
+
+    @staticmethod
+    def _fuentes_de_duplicado(month_end: datetime) -> list[Task]:
+        """De que tareas nace la instancia del mes siguiente: toda recurrente
+        del periodo que todavia no haya generado la suya.
+
+        `successor_created_at` es imprescindible desde que las recurrentes sin
+        completar siguen vivas: su `end_date` queda en el mes cerrado, asi que
+        volverian a aparecer como candidatas en cada cierre posterior y
+        generarian una copia nueva cada mes."""
+        return [
+            t for t in MonthClosureService._tasks_del_periodo(month_end)
+            if t.frequency in RECURRING_FREQUENCIES and t.successor_created_at is None
+        ]
+
+    # Cuantos meses hacia atras se buscan cierres faltantes. El cierre es
+    # MANUAL y nada lo dispara solo, asi que un mes que nadie cerro no avisa de
+    # ninguna forma: las recurrentes de ese mes no generan su instancia y el
+    # mes no entra al Repositorio. Doce es el horizonte de los KPIs historicos.
+    _MESES_HACIA_ATRAS_PARA_AVISAR = 12
+
+    @staticmethod
+    def pending_closures(now: datetime) -> list[dict]:
+        """Meses YA TERMINADOS que nadie cerro, del mas viejo al mas reciente.
+
+        Solo se informan los meses con tareas: un mes sin actividad no tiene
+        nada que cerrar y avisar por el seria ruido."""
+        last_year, last_month = previous_month(now)
+        cursor_year, cursor_month = last_year, last_month
+        meses: list[tuple[int, int]] = []
+        for _ in range(MonthClosureService._MESES_HACIA_ATRAS_PARA_AVISAR):
+            meses.append((cursor_year, cursor_month))
+            cursor_year, cursor_month = (
+                (cursor_year - 1, 12) if cursor_month == 1 else (cursor_year, cursor_month - 1)
+            )
+
+        cerrados = set(
+            MonthClosure.objects.filter(
+                year__gte=min(y for y, _ in meses)
+            ).values_list("year", "month")
+        )
+
+        pendientes = []
+        for year, month in sorted(meses):
+            if (year, month) in cerrados:
+                continue
+            inicio = period_start(year, month)
+            fin = next_month_start(year, month)
+            if not Task.objects.filter(end_date__gte=inicio, end_date__lt=fin).exists():
+                continue
+            pendientes.append({"year": year, "month": month})
+        return pendientes
 
     @staticmethod
     def preview(*, year: int, month: int, cutoff_date_raw: str | None, now: datetime) -> dict:
@@ -1045,12 +1128,11 @@ class MonthClosureService:
         existing = MonthClosure.objects.filter(month=month, year=year).exists()
         month_end = next_month_start(year, month)
 
-        statuses = list(
-            MonthClosureService._candidate_tasks_queryset(month_end).values_list(
-                "status", flat=True
-            )
-        )
+        statuses = [t.status for t in MonthClosureService._candidate_tasks_queryset(month_end)]
         continued_active = MonthClosureService._continued_active_count(month_end)
+        # El asistente tiene que poder anticipar cuantas se van a crear: es la
+        # mitad del cambio que el usuario pidio y no se veia en ningun lado.
+        to_duplicate = len(MonthClosureService._fuentes_de_duplicado(month_end))
         business = business_base_for_range(period_start(year, month).date(), cutoff_date.date())
 
         return {
@@ -1062,6 +1144,7 @@ class MonthClosureService:
             "pending": statuses.count(Task.Status.PENDIENTE),
             "in_progress": statuses.count(Task.Status.EN_PROGRESO),
             "continued_active": continued_active,
+            "to_duplicate": to_duplicate,
             "cutoff_date": cutoff_date,
             "closure_type": determine_closure_type(year, month, cutoff_date, now),
             "calendar_days_total": days_in_month(year, month),
@@ -1085,8 +1168,10 @@ class MonthClosureService:
         month_end = next_month_start(year, month)
         next_year, next_month = next_year_month(year, month)
 
-        candidate_tasks = list(MonthClosureService._candidate_tasks_queryset(month_end))
-        continued_active = MonthClosureService._continued_active_count(month_end)
+        candidate_tasks = MonthClosureService._candidate_tasks_queryset(month_end)
+        continued_tasks = MonthClosureService._continued_tasks(month_end)
+        continued_active = len(continued_tasks)
+        fuentes = MonthClosureService._fuentes_de_duplicado(month_end)
 
         total = len(candidate_tasks)
         completed = sum(1 for t in candidate_tasks if t.status == Task.Status.COMPLETADA)
@@ -1110,8 +1195,7 @@ class MonthClosureService:
                 created_by_id=t.created_by_id,
                 color=t.color,
             )
-            for t in candidate_tasks
-            if t.frequency in RECURRING_FREQUENCIES
+            for t in fuentes
         ]
 
         archived_month_key = f"{year}-{month:02d}"
@@ -1137,6 +1221,12 @@ class MonthClosureService:
                     "inProgress": in_progress,
                     "duplicated": len(duplicates),
                     "continuedActive": continued_active,
+                    # Desglose del conteo anterior: cuantas de las que siguen
+                    # vivas lo hacen por ser recurrentes sin terminar (el caso
+                    # nuevo) y no por ser de SEGUIMIENTO.
+                    "continuedRecurring": sum(
+                        1 for t in continued_tasks if t.frequency in RECURRING_FREQUENCIES
+                    ),
                 },
             )
             Task.objects.filter(id__in=task_ids).update(
@@ -1144,6 +1234,12 @@ class MonthClosureService:
             )
             if duplicates:
                 Task.objects.bulk_create(duplicates)
+                # Sin esta marca, las que siguen vivas volverian a generar una
+                # copia en cada cierre posterior (su `end_date` queda en el mes
+                # cerrado y nunca reciben `archived_month`).
+                Task.objects.filter(id__in=[t.id for t in fuentes]).update(
+                    successor_created_at=timezone.now()
+                )
 
         return {
             "archived_count": total,

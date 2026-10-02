@@ -66,6 +66,13 @@ class Task(BaseModel):
     color = models.CharField(max_length=20, blank=True, default="")
     archived_month = models.CharField(max_length=7, null=True, blank=True)
     archived_at = models.DateTimeField(null=True, blank=True)
+    # Marca que el cierre de mes YA genero la instancia del mes siguiente a
+    # partir de esta tarea. Hace falta porque una recurrente sin completar ya
+    # no se archiva (sigue viva, ver `MonthClosureService`): sin esta marca
+    # volveria a entrar como candidata en cada cierre posterior y generaria
+    # una copia nueva por mes, para siempre. `archived_month` cumple ese papel
+    # para las que si se archivan, pero estas nunca lo reciben.
+    successor_created_at = models.DateTimeField(null=True, blank=True)
     corrected = models.BooleanField(default=False)
     assigned_to = models.ForeignKey(
         settings.AUTH_USER_MODEL, related_name="assigned_tasks", on_delete=models.PROTECT

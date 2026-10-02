@@ -453,6 +453,11 @@ export type DjangoMonthClosurePreview = {
   calendar_days_considered: number;
   working_days_considered: number;
   working_hours_considered: number;
+  /** Cuántas instancias del mes siguiente va a crear este cierre. */
+  to_duplicate: number;
+  /** Meses ya terminados que nadie cerró. El cierre es manual y nada lo
+   *  dispara solo: sin este aviso, un mes olvidado no se nota. */
+  pending_closures: { year: number; month: number }[];
 };
 
 export type DjangoMonthClosureResult = {
@@ -487,6 +492,8 @@ export function mapDjangoMonthClosurePreviewToNexoShape(preview: DjangoMonthClos
     calendarDaysConsidered: preview.calendar_days_considered,
     workingDaysConsidered: preview.working_days_considered,
     workingHoursConsidered: preview.working_hours_considered,
+    toDuplicate: preview.to_duplicate,
+    pendingClosures: preview.pending_closures ?? [],
   };
 }
 

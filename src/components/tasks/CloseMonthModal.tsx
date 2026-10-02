@@ -18,6 +18,8 @@ type Preview = {
   calendarDaysConsidered: number;
   workingDaysConsidered: number;
   workingHoursConsidered: number;
+  toDuplicate: number;
+  pendingClosures: { year: number; month: number }[];
 };
 
 type Result = {
@@ -46,9 +48,13 @@ function shortDayMonth(iso: string) {
 type Props = {
   onClose: () => void;
   onClosed: () => void;
+  /** Mes al que abrir directamente, cuando se llega desde el aviso de meses
+   *  sin cerrar. Sin esto el modal siempre arranca en el mes anterior y habria
+   *  que buscar a mano el que quedo pendiente. */
+  initialPeriod?: { year: number; month: number };
 };
 
-export default function CloseMonthModal({ onClose, onClosed }: Props) {
+export default function CloseMonthModal({ onClose, onClosed, initialPeriod }: Props) {
   const [preview, setPreview] = useState<Preview | null>(null);
   const [selected, setSelected] = useState<{ year: number; month: number } | null>(null);
   const [cutoffDate, setCutoffDate] = useState("");
@@ -82,11 +88,16 @@ export default function CloseMonthModal({ onClose, onClosed }: Props) {
   }
 
   useEffect(() => {
-    fetch("/api/tasks/close-month")
+    const params = initialPeriod
+      ? `?year=${initialPeriod.year}&month=${initialPeriod.month}`
+      : "";
+    fetch(`/api/tasks/close-month${params}`)
       .then((r) => r.json())
       .then((data: Preview) => applyPreview(data))
       .catch(() => setError("No se pudo cargar el resumen"))
       .finally(() => setLoading(false));
+    // Solo al montar: el mes se cambia despues con el selector del propio modal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function handleMonthChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -250,16 +261,26 @@ export default function CloseMonthModal({ onClose, onClosed }: Props) {
                     </div>
                   </div>
 
-                  {preview.continuedActive > 0 && (
-                    <div className="rounded-xl border border-primary/25 bg-primary-surface px-3 py-2.5">
-                      <p className="text-xs text-primary">Seguimiento que continúa activo (no se cierra)</p>
-                      <p className="text-lg font-bold text-primary">{preview.continuedActive}</p>
-                    </div>
-                  )}
+                  <div className="grid grid-cols-2 gap-2">
+                    {preview.continuedActive > 0 && (
+                      <div className="rounded-xl border border-primary/25 bg-primary-surface px-3 py-2.5">
+                        <p className="text-xs text-primary">Siguen activas (no se archivan)</p>
+                        <p className="text-lg font-bold text-primary">{preview.continuedActive}</p>
+                      </div>
+                    )}
+                    {preview.toDuplicate > 0 && (
+                      <div className="rounded-xl border border-primary/25 bg-primary-surface px-3 py-2.5">
+                        <p className="text-xs text-primary">Se crearán para el mes siguiente</p>
+                        <p className="text-lg font-bold text-primary">{preview.toDuplicate}</p>
+                      </div>
+                    )}
+                  </div>
 
                   <div className="text-xs text-main bg-background border border-border rounded-xl px-4 py-2.5">
-                    Las tareas pasarán al repositorio. Las recurrentes se duplicarán para el mes siguiente.
-                    {preview.continuedActive > 0 && " Las de Seguimiento pendientes o en progreso continúan activas, sin archivarse."}
+                    Las tareas completadas pasarán al repositorio y cada recurrente generará su instancia del mes
+                    siguiente.
+                    {preview.continuedActive > 0 &&
+                      " Las recurrentes que no se cerraron NO se archivan: siguen activas con su progreso y, además, se crea la del mes siguiente."}
                   </div>
                 </>
               )}
@@ -270,7 +291,11 @@ export default function CloseMonthModal({ onClose, onClosed }: Props) {
             <div className="text-sm text-success bg-success/[.13] rounded-xl px-4 py-3 space-y-1">
               <p>{result.archivedCount} tareas archivadas, {result.duplicatedCount} tareas creadas para {monthLabel(result.nextYear, result.nextMonth)} {result.nextYear}.</p>
               {result.continuedActiveCount > 0 && (
-                <p>{result.continuedActiveCount} tarea{result.continuedActiveCount !== 1 ? "s" : ""} de Seguimiento continuaron activas sin cerrarse.</p>
+                <p>
+                  {result.continuedActiveCount} tarea{result.continuedActiveCount !== 1 ? "s" : ""} sin cerrar
+                  {result.continuedActiveCount !== 1 ? " siguen" : " sigue"} activa
+                  {result.continuedActiveCount !== 1 ? "s" : ""} con su progreso.
+                </p>
               )}
               {result.closureType !== "NORMAL" && (
                 <p>Fecha de corte: {shortDayMonth(result.cutoffDate)} ({result.closureType === "EARLY" ? "cierre anticipado" : "corte regularizado manualmente"}).</p>

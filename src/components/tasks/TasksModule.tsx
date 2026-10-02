@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
 import type { Role } from "@/lib/roles";
 import type { Task, ViewType, AssignableUser } from "./types";
@@ -9,7 +9,7 @@ import { canManageUsers } from "@/lib/roles";
 import { Button } from "@/components/ui/Button";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { SearchX } from "lucide-react";
+import { SearchX, AlertTriangle } from "lucide-react";
 import KanbanView from "./KanbanView";
 import TableView from "./TableView";
 import GanttView from "./GanttView";
@@ -33,6 +33,12 @@ type Props = {
   currentActivityFormat: ActivityFormat;
 };
 
+/** "Septiembre 2026" — el aviso nombra el mes, no un "2026-09" que obliga a traducir. */
+function monthLabel({ year, month }: { year: number; month: number }): string {
+  const nombre = new Date(year, month - 1, 1).toLocaleDateString("es-CL", { month: "long" });
+  return `${nombre.charAt(0).toUpperCase()}${nombre.slice(1)} ${year}`;
+}
+
 export default function TasksModule({ initialTasks, initialViews, initialUsers, currentUserId, currentUserRole, currentActivityFormat }: Props) {
   const defaultViews: ViewType[] = initialViews.length > 0 ? initialViews : ["KANBAN", "TABLA"];
   const [tasks, setTasks] = useState<Task[]>(initialTasks);
@@ -44,6 +50,11 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
   const [initialStatus, setInitialStatus] = useState<Task["status"]>("PENDIENTE");
   const [showRepository, setShowRepository] = useState(false);
   const [showCloseMonth, setShowCloseMonth] = useState(false);
+  // Meses ya terminados que nadie cerro. El cierre es manual y nada lo dispara
+  // solo: sin aviso, un mes olvidado no archiva nada y sus recurrentes nunca
+  // generan la instancia del mes siguiente.
+  const [pendingClosures, setPendingClosures] = useState<{ year: number; month: number }[]>([]);
+  const [closeMonthPeriod, setCloseMonthPeriod] = useState<{ year: number; month: number } | undefined>(undefined);
   const [search, setSearch] = useState("");
   const openTaskId = useSearchParams().get("openTask");
 
@@ -70,6 +81,29 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
       setTasks(data);
     }
   }, []);
+
+  const puedeCerrarMes = canManageUsers(currentUserRole);
+
+  const loadPendingClosures = useCallback(async () => {
+    // El endpoint exige el permiso de cierre: para el resto devolveria 403 y
+    // ademas el aviso no les serviria de nada, porque no pueden actuar.
+    if (!puedeCerrarMes) return;
+    try {
+      const res = await fetch("/api/tasks/close-month");
+      if (!res.ok) return;
+      const data = await res.json();
+      setPendingClosures(Array.isArray(data.pendingClosures) ? data.pendingClosures : []);
+    } catch {
+      // Un aviso que no carga no puede romper el modulo de Trabajos.
+    }
+  }, [puedeCerrarMes]);
+
+  useEffect(() => {
+    // `queueMicrotask` y no una llamada directa: el patron ya establecido en
+    // `WorkloadConfigSection`, para no disparar setState dentro del cuerpo del
+    // efecto (react-hooks/set-state-in-effect).
+    queueMicrotask(() => void loadPendingClosures());
+  }, [loadPendingClosures]);
 
   const saveViewPreferences = useCallback(
     async (views: ViewType[]) => {
@@ -299,7 +333,7 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
           </button>
         </div>
 
-        {canManageUsers(currentUserRole) && (
+        {puedeCerrarMes && (
           <Button size="sm" className="shrink-0" onClick={() => setShowCloseMonth(true)}>
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -308,6 +342,35 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
           </Button>
         )}
       </div>
+
+      {pendingClosures.length > 0 && (
+        <div className="rounded-xl border border-warning/35 bg-warning/[.09] px-4 py-3 flex items-start gap-3 flex-wrap">
+          <AlertTriangle className="w-4 h-4 text-warning shrink-0 mt-0.5" strokeWidth={2} />
+          <div className="min-w-0 flex-1 space-y-0.5">
+            <p className="text-sm font-semibold text-title">
+              {pendingClosures.length === 1
+                ? `${monthLabel(pendingClosures[0])} quedó sin cerrar`
+                : `${pendingClosures.length} meses quedaron sin cerrar`}
+            </p>
+            <p className="text-xs text-secondary">
+              {pendingClosures.length > 1 && `${pendingClosures.map(monthLabel).join(", ")}. `}
+              Hasta que se cierre, las tareas de ese mes no pasan al repositorio y las recurrentes no generan su
+              instancia del mes siguiente.
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="shrink-0"
+            onClick={() => {
+              setCloseMonthPeriod(pendingClosures[0]);
+              setShowCloseMonth(true);
+            }}
+          >
+            Cerrar {monthLabel(pendingClosures[0])}
+          </Button>
+        </div>
+      )}
 
       {/* Active view */}
       <div className="flex-1">
@@ -363,8 +426,9 @@ export default function TasksModule({ initialTasks, initialViews, initialUsers, 
 
       {showCloseMonth && (
         <CloseMonthModal
-          onClose={() => setShowCloseMonth(false)}
-          onClosed={() => { refreshTasks(); }}
+          initialPeriod={closeMonthPeriod}
+          onClose={() => { setShowCloseMonth(false); setCloseMonthPeriod(undefined); }}
+          onClosed={() => { refreshTasks(); loadPendingClosures(); }}
         />
       )}
 

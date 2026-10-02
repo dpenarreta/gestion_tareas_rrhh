@@ -15,6 +15,72 @@
 
 ---
 
+## 2026-10-02 — Una recurrente que no se cerró sigue viva Y genera la del mes siguiente
+
+**Cómo apareció:** pedido explícito — «cada vez que una tarea no se cierra en
+ese mes, las tareas que son recurrentes deben de seguirse y auto crearse en el
+siguiente mes». Las dos mitades de esa frase existían por separado en el motor,
+pero nunca juntas.
+
+**Lo que hacía el cierre:** `_candidate_tasks_queryset` archivaba todo lo FIJA
+más lo de SEGUIMIENTO completado, y duplicaba las recurrentes **entre las
+archivadas**. De ahí salían dos comportamientos distintos:
+
+- una FIJA recurrente sin terminar se archivaba y la copia del mes siguiente
+  nacía con 0% — el avance quedaba sepultado en el mes cerrado;
+- una de SEGUIMIENTO sin terminar seguía viva (el motor ya la llamaba
+  «continued active») pero, al no estar entre las archivadas, **no generaba
+  ninguna sucesora**: la cadencia mensual se cortaba en silencio.
+
+**Alternativas consideradas:**
+
+- *Solo arreglar el caso de SEGUIMIENTO* (cambio mínimo: que las abiertas
+  generen su sucesora, sin tocar el archivado). Se planteó explícitamente al
+  usuario junto con la opción completa; eligió la completa.
+- *Mover la fecha fin de la tarea arrastrada al mes nuevo*, para que no quede
+  vencida para siempre. Se descartó: esconde un incumplimiento real y falsea el
+  KPI de tareas vencidas. Una tarea que venció el 20 de enero venció el 20 de
+  enero, se siga trabajando o no.
+- *Cierre automático programado* en vez del aviso. Se descartó con el usuario:
+  el cierre archiva, congela las horas del mes y alimenta los KPIs históricos;
+  además la fecha de corte es una decisión de quien cierra (`EARLY`/`MANUAL`).
+  Un proceso que lo hiciera solo congelaría KPIs sin que nadie los revise.
+- *Resolver la clasificación con `Q(...)` en el ORM*, como estaba. Se pasó a
+  Python (`_sigue_viva`): el criterio cruza tres campos y tenerlo duplicado
+  entre `_candidate_tasks_queryset` y `_continued_active_count` fue justamente
+  lo que dejó las dos mitades desalineadas.
+
+**Decisión:** una tarea recurrente que no se cerró no se archiva —sigue viva
+con su progreso, sus horas y su historial— y además se crea su instancia del
+mes siguiente, limpia. Una recurrente completada se archiva y genera su
+sucesora, como siempre. Una PUNTUAL sin terminar se sigue archivando: no hay
+cadencia que mantener.
+
+**El campo que evita el desborde:** una tarea que sigue viva conserva su fecha
+fin en el mes cerrado y nunca recibe `archived_month`, así que volvería a
+entrar como candidata en cada cierre posterior y generaría una copia nueva cada
+mes, indefinidamente. `Task.successor_created_at` marca que ya generó la suya.
+Se prefirió un campo explícito antes que acotar la duplicación a las tareas
+cuya fecha fin cae dentro del mes que se cierra: esa segunda vía parecía más
+barata (sin migración) pero rompe el caso de cerrar meses atrasados, donde las
+recurrentes del mes viejo se quedarían sin sucesora.
+
+**Por qué el aviso y no el automatismo:** el cierre es manual y nada lo dispara.
+Un mes olvidado no avisaba de ninguna forma, y es el único camino por el que
+las recurrentes ruedan. `pending_closures` informa los meses ya terminados, con
+tareas, que nadie cerró —hasta 12 meses atrás, el horizonte de los KPIs
+históricos—. Los meses sin ninguna tarea no se informan: avisar por un mes en
+el que nadie registró nada sería ruido. Viaja en el GET que el asistente ya
+hacía, para no sumar una llamada por cada apertura del módulo de Trabajos.
+
+**Impacto:** quedan dos tareas vivas por cada recurrente sin cerrar (la
+arrastrada y la del mes nuevo), de modo que sube el conteo de tareas abiertas.
+La arrastrada figura vencida desde su fecha fin, que es la verdad. Sus horas
+cuentan en el mes en que efectivamente se complete —`_real_hours_in_window`
+filtra por `completed_at`, no por `end_date`—, no en el mes de su vencimiento.
+
+---
+
 ## 2026-09-29 — Las horas esperadas de un mes de trabajo son 140h, no días hábiles × horas efectivas
 
 **Cómo apareció:** al revisar por qué el Resumen Ejecutivo mostraba 143 h (ver
