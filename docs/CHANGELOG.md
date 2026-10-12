@@ -23,6 +23,44 @@
 
 ---
 
+## v1.168.0 — 2026-10-12
+
+**Tipo:** FEATURE / UX
+**Módulo:** Control Operativo de Novedades — Horas extras: relleno tipo Excel
+en la captura masiva.
+
+- **Controlador de relleno**: la celda activa muestra un cuadrito azul; al
+  arrastrarlo hacia abajo (o arriba) se resaltan las celdas destino y al soltar
+  se **copia** el valor (2 → 2, 2, 2; nunca una serie). Esc cancela el arrastre.
+- **Rellenar hacia abajo** (botón accesible y atajo **Ctrl+D**): copia la
+  primera celda del rango elegido con Mayús+clic / Mayús+↓; si no hay rango pero
+  hay filas marcadas, copia la celda activa en esas filas; si no, copia la celda
+  de arriba (como en Excel).
+- **Ctrl+C** copia un rango de una columna como texto para Excel; el pegado de
+  rangos ya existía.
+- Solo en columnas de captura: # HORAS EXTRAS, # HORAS SABADO, SABADO,
+  DOMINGO, FERIADO, TRABAJO REALIZADO, OBSERVACIONES. Nunca FECHA (tiene su
+  acción explícita) ni la identidad del colaborador. Las filas bloqueadas o de
+  un período cerrado se saltan y se informa cuántas.
+- El relleno solo cambia la tabla: las filas quedan "pendientes" y se guardan
+  con el botón Guardar habitual, en un único lote (`overtime/bulk`), con las
+  mismas validaciones y la misma protección contra duplicados. Aviso con
+  opción "Deshacer".
+
+- **Archivos:** `src/lib/novedadesCapture.ts` (`fillColumn`,
+  `copyColumnRange`, `isFillableColumn`),
+  `src/components/novedades/OvertimeCapture.tsx`.
+
+**Verificación:** 5 tests nuevos en `src/__tests__/novedadesCapture.test.ts`
+(copia sin serie, texto y marcas, filas bloqueadas, columnas no rellenables,
+registro existente queda como modificado, copia de rango). Probado en localhost:
+arrastre con resaltado (2, 2, 2, 2), Rellenar hacia abajo sobre filas marcadas,
+Mayús+↓ + Ctrl+D, Esc que cancela, y guardado de 4 filas en una sola solicitud.
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
 ## v1.167.1 — 2026-10-12
 
 **Tipo:** UX / FIX

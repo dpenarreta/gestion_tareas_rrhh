@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   applyPaste,
+  copyColumnRange,
   duplicateKeysOf,
+  fillColumn,
+  isFillableColumn,
   parseDateText,
   parseFlag,
   rowFromCollaborator,
@@ -95,5 +98,62 @@ describe("captura masiva de horas extras", () => {
       duplicates: 0,
       locked: 1,
     });
+  });
+});
+
+describe("relleno tipo Excel", () => {
+  const editable = (r: { state: string }) => r.state !== "locked";
+  const team = [
+    { id: 1, cedula: "0101010101", fullName: "A", regional: "", area: "", cargo: "" },
+    { id: 2, cedula: "0202020202", fullName: "B", regional: "", area: "", cargo: "" },
+    { id: 3, cedula: "0303030303", fullName: "C", regional: "", area: "", cargo: "" },
+    { id: 4, cedula: "0404040404", fullName: "D", regional: "", area: "", cargo: "" },
+  ];
+  const base = () => team.map((c) => rowFromCollaborator(c, "2026-10-12"));
+  const HE = 6; // # HORAS EXTRAS
+  const OBS = 12; // OBSERVACIONES
+
+  it("copia el mismo valor hacia abajo (2, 2, 2, 2), no una serie", () => {
+    const rows = base();
+    rows[0] = { ...rows[0], overtimeHours: "2" };
+    const result = fillColumn(rows, HE, 0, [1, 2, 3], editable);
+    expect(result.rows.map((r) => r.overtimeHours)).toEqual(["2", "2", "2", "2"]);
+    expect(result.filled).toBe(3);
+    expect(result.rows.slice(1).every((r) => r.dirty && r.state === "new")).toBe(true);
+  });
+
+  it("rellena texto y marcas, respetando filas bloqueadas", () => {
+    const rows = base();
+    rows[0] = { ...rows[0], observations: "Inventario", isSaturday: true };
+    rows[2] = { ...rows[2], state: "locked" as const };
+    const text = fillColumn(rows, OBS, 0, [1, 2, 3], editable);
+    expect(text.rows.map((r) => r.observations)).toEqual(["Inventario", "Inventario", "", "Inventario"]);
+    expect(text.skipped).toBe(1);
+    const flag = fillColumn(rows, 8, 0, [1], editable); // SABADO
+    expect(flag.rows[1].isSaturday).toBe(true);
+  });
+
+  it("nunca rellena fecha ni identidad", () => {
+    const rows = base();
+    for (const col of [0, 1, 2, 3, 4, 5]) {
+      expect(isFillableColumn(col)).toBe(false);
+      expect(fillColumn(rows, col, 0, [1, 2], editable).filled).toBe(0);
+    }
+    for (const col of [6, 7, 8, 9, 10, 11, 12]) expect(isFillableColumn(col)).toBe(true);
+  });
+
+  it("una fila existente rellenada queda como modificada (se actualiza, no se duplica)", () => {
+    const rows = base();
+    rows[0] = { ...rows[0], overtimeHours: "3" };
+    rows[1] = { ...rows[1], id: 99, version: 2, state: "saved" as const, dirty: false, overtimeHours: "1" };
+    const result = fillColumn(rows, HE, 0, [1], editable);
+    expect(result.rows[1]).toMatchObject({ id: 99, overtimeHours: "3", dirty: true, state: "existing" });
+  });
+
+  it("copia un rango de una columna como texto para Excel", () => {
+    const rows = base().map((r, i) => ({ ...r, overtimeHours: String(i + 1), isSunday: i % 2 === 0 }));
+    expect(copyColumnRange(rows, HE, 0, 2)).toBe("1\n2\n3");
+    expect(copyColumnRange(rows, 9, 3, 2)).toBe("SI\nNO");
+    expect(copyColumnRange(rows, 0, 0, 0)).toBe("12/10/2026");
   });
 });

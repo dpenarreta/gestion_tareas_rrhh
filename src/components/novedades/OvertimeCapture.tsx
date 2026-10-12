@@ -1,7 +1,16 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type KeyboardEvent } from "react";
-import { ClipboardPaste, Download, FileSpreadsheet, Plus, RotateCw, Save, Trash2, Upload } from "lucide-react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type KeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
+import { ArrowDownToLine, ClipboardPaste, Download, FileSpreadsheet, Plus, RotateCw, Save, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Modal, ModalHeader } from "@/components/ui/Modal";
@@ -10,7 +19,10 @@ import { useToast } from "@/components/ui/Toast";
 import {
   CAPTURE_COLUMNS,
   applyPaste,
+  copyColumnRange,
   duplicateKeysOf,
+  fillColumn,
+  isFillableColumn,
   isoWeekday,
   newRowKey,
   rowFromCollaborator,
@@ -85,6 +97,11 @@ export default function OvertimeCapture({ ctx, supervisorId }: { ctx: ModuleCont
   const [rows, setRows] = useState<CaptureRow[]>([]);
   const [defaultDate, setDefaultDate] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Celda activa y rango vertical (una columna) para el relleno tipo Excel.
+  const [active, setActive] = useState<{ r: number; c: number } | null>(null);
+  const [range, setRange] = useState<{ c: number; r1: number; r2: number } | null>(null);
+  const [drag, setDrag] = useState<{ c: number; from: number; to: number } | null>(null);
+  const dragRef = useRef<{ c: number; from: number; to: number } | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -193,10 +210,125 @@ export default function OvertimeCapture({ ctx, supervisorId }: { ctx: ModuleCont
     );
   }
 
+  // Relleno: COPIA el valor de la celda origen en las filas destino de la
+  // misma columna (nunca genera una serie). Solo cambia el estado de la tabla;
+  // se guarda con el botón Guardar habitual, en un solo lote.
+  function fill(colIndex: number, sourceIndex: number, targets: number[]) {
+    const snapshot = rows;
+    const result = fillColumn(rows, colIndex, sourceIndex, targets, editable);
+    if (!result.filled && !result.skipped) {
+      showToast("Las celdas de destino ya tienen ese valor.", "info");
+      return;
+    }
+    setRows(result.rows);
+    const header = CAPTURE_COLUMNS[colIndex].header;
+    const field = CAPTURE_COLUMNS[colIndex].field!;
+    const changed = new Set(targets);
+    showToast(
+      `${header}: valor copiado en ${result.filled} fila(s)` +
+        (result.skipped ? `; ${result.skipped} bloqueada(s) sin cambios` : "") +
+        ". Pendiente de guardar.",
+      result.skipped ? "warning" : "success",
+      {
+        label: "Deshacer",
+        onClick: () =>
+          setRows((current) =>
+            current.map((row, i) => {
+              const before = snapshot[i];
+              if (!changed.has(i) || !before || before.key !== row.key) return row;
+              return { ...row, [field]: before[field], dirty: before.dirty, state: before.state, errors: before.errors };
+            }),
+          ),
+      },
+    );
+  }
+
+  const rangeRows = (rg: { r1: number; r2: number }) => {
+    const [a, b] = rg.r1 <= rg.r2 ? [rg.r1, rg.r2] : [rg.r2, rg.r1];
+    return Array.from({ length: b - a + 1 }, (_, i) => a + i);
+  };
+
+  /** Rellenar hacia abajo: con un rango vertical, copia la primera celda del
+   * rango en el resto; si no hay rango pero hay filas marcadas, copia la celda
+   * activa en esas filas; si no, copia la celda de arriba en la activa (Ctrl+D
+   * de Excel). */
+  function fillDown() {
+    if (!active || !isFillableColumn(active.c)) {
+      showToast("Seleccione una celda de horas, SABADO/DOMINGO/FERIADO o texto.", "info");
+      return;
+    }
+    if (range && range.c === active.c && range.r1 !== range.r2) {
+      const targets = rangeRows(range);
+      fill(active.c, targets[0], targets.slice(1));
+      return;
+    }
+    const checked = rows.map((r, i) => (selected.has(r.key) ? i : -1)).filter((i) => i >= 0 && i !== active.r);
+    if (checked.length) {
+      fill(active.c, active.r, checked);
+      return;
+    }
+    if (active.r > 0) fill(active.c, active.r - 1, [active.r]);
+  }
+
+  function startDrag(e: ReactMouseEvent, r: number, c: number) {
+    e.preventDefault();
+    e.stopPropagation();
+    dragRef.current = { c, from: r, to: r };
+    setDrag(dragRef.current);
+    const onMove = (ev: MouseEvent) => {
+      const el = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>("[data-row]");
+      if (!el || !dragRef.current) return;
+      const to = Number(el.dataset.row);
+      if (to !== dragRef.current.to) {
+        dragRef.current = { ...dragRef.current, to };
+        setDrag(dragRef.current);
+      }
+    };
+    const finish = (apply: boolean) => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      window.removeEventListener("keydown", onKey);
+      const current = dragRef.current;
+      dragRef.current = null;
+      setDrag(null);
+      if (apply && current && current.to !== current.from) {
+        const targets = rangeRows({ r1: current.from, r2: current.to }).filter((i) => i !== current.from);
+        fill(current.c, current.from, targets);
+        setRange({ c: current.c, r1: current.from, r2: current.to });
+      }
+    };
+    const onUp = () => finish(true);
+    const onKey = (ev: globalThis.KeyboardEvent) => {
+      if (ev.key === "Escape") finish(false); // cancela el arrastre sin aplicar
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    window.addEventListener("keydown", onKey);
+  }
+
   function onCellKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     const t = e.currentTarget;
     const r = Number(t.dataset.r);
     const c = Number(t.dataset.c);
+    const mod = e.ctrlKey || e.metaKey;
+    if (mod && e.key.toLowerCase() === "d") {
+      e.preventDefault();
+      fillDown();
+      return;
+    }
+    if (mod && e.key.toLowerCase() === "c" && range && range.r1 !== range.r2) {
+      e.preventDefault();
+      navigator.clipboard?.writeText(copyColumnRange(rows, range.c, range.r1, range.r2));
+      showToast(`${rangeRows(range).length} celda(s) copiadas.`, "info");
+      return;
+    }
+    if (e.shiftKey && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      e.preventDefault();
+      const anchor = range && range.c === c ? range : { c, r1: r, r2: r };
+      const r2 = Math.max(0, Math.min(rows.length - 1, anchor.r2 + (e.key === "ArrowDown" ? 1 : -1)));
+      setRange({ c, r1: anchor.r1, r2 });
+      return;
+    }
     const move: Record<string, [number, number]> = { ArrowDown: [1, 0], Enter: [1, 0], ArrowUp: [-1, 0] };
     const atStart = t.type !== "text" || t.selectionStart === 0;
     const atEnd = t.type !== "text" || t.selectionEnd === t.value.length;
@@ -344,6 +476,15 @@ export default function OvertimeCapture({ ctx, supervisorId }: { ctx: ModuleCont
           <Download className="w-4 h-4" /> Plantilla
         </Button>
         <div className="ml-auto flex gap-2">
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={fillDown}
+            disabled={!canWrite || !isOpen || !active || !isFillableColumn(active.c)}
+            title="Copia el valor de la celda activa en el rango seleccionado (Mayús+clic o Mayús+↓) o en las filas marcadas. Atajo: Ctrl+D"
+          >
+            <ArrowDownToLine className="w-4 h-4" /> Rellenar hacia abajo
+          </Button>
           <Button size="sm" variant="ghost" onClick={applyDateToSelected} disabled={!selected.size}>
             Aplicar fecha a seleccionadas
           </Button>
@@ -386,6 +527,13 @@ export default function OvertimeCapture({ ctx, supervisorId }: { ctx: ModuleCont
         </div>
       </div>
       <ErrorBox message={saveError} />
+      {rows.length > 0 && canWrite && isOpen && (
+        <p className="text-[11px] text-secondary">
+          Relleno tipo Excel: arrastre el cuadrito azul de la celda activa hacia abajo (Esc cancela), o elija el rango con
+          Mayús+clic / Mayús+↓ y pulse Ctrl+D o “Rellenar hacia abajo”. Con filas marcadas, el valor se copia a esas filas.
+          Siempre se copia el mismo valor (2, 2, 2), nunca una serie. Fecha e identidad no se rellenan.
+        </p>
+      )}
 
       {rows.length === 0 ? (
         <div className="border border-dashed border-border rounded-xl py-12 text-center text-sm text-secondary space-y-1">
@@ -428,7 +576,7 @@ export default function OvertimeCapture({ ctx, supervisorId }: { ctx: ModuleCont
                     row.errors[field as keyof CaptureRow["errors"]] ? "ring-1 ring-danger ring-inset bg-danger/[.08]" : ""
                   }`;
                 return (
-                  <tr key={row.key} className={st === "error" ? "bg-danger/[.04]" : st === "saved" ? "bg-success/[.04]" : ""}>
+                  <tr key={row.key} data-row={r} className={st === "error" ? "bg-danger/[.04]" : st === "saved" ? "bg-success/[.04]" : ""}>
                     <td className="sticky left-0 z-10 bg-surface border-b border-r border-border px-2 text-center">
                       <input
                         type="checkbox"
@@ -459,12 +607,49 @@ export default function OvertimeCapture({ ctx, supervisorId }: { ctx: ModuleCont
                       }
                       const field = col.field;
                       const error = row.errors[field];
+                      const inDrag =
+                        drag && drag.c === c && r >= Math.min(drag.from, drag.to) && r <= Math.max(drag.from, drag.to);
+                      const inRange =
+                        range && range.c === c && r >= Math.min(range.r1, range.r2) && r <= Math.max(range.r1, range.r2);
+                      const isActive = active?.r === r && active?.c === c;
+                      const showHandle = isActive && !drag && canEdit && isFillableColumn(c);
+                      const cellState = inDrag
+                        ? "bg-primary-surface outline outline-1 outline-dashed outline-primary -outline-offset-1"
+                        : inRange && range && range.r1 !== range.r2
+                          ? "bg-primary-surface/60"
+                          : "";
+                      const onCellMouseDown = (e: ReactMouseEvent) => {
+                        if (e.shiftKey && active && active.c === c) {
+                          e.preventDefault();
+                          setRange({ c, r1: active.r, r2: r });
+                        }
+                      };
+                      const onCellFocus = () => {
+                        setActive({ r, c });
+                        if (!range || range.c !== c || (range.r1 !== r && range.r2 !== r)) setRange({ c, r1: r, r2: r });
+                      };
+                      const handle = showHandle ? (
+                        <span
+                          role="button"
+                          tabIndex={-1}
+                          aria-label="Arrastre hacia abajo para copiar el valor (Esc cancela)"
+                          title="Arrastre para copiar este valor a otras filas"
+                          onMouseDown={(e) => startDrag(e, r, c)}
+                          className="absolute -bottom-1 -right-1 z-10 w-2.5 h-2.5 bg-primary border border-white cursor-crosshair"
+                        />
+                      ) : null;
                       if (col.kind === "flag") {
                         const value = row[field] as boolean | null;
                         return (
-                          <td key={col.header} className={`${base} text-center`} title={field === "isHoliday" && value === null ? "Automático según el calendario de feriados" : error}>
+                          <td
+                            key={col.header}
+                            className={`${base} text-center relative ${cellState}`}
+                            title={field === "isHoliday" && value === null ? "Automático según el calendario de feriados" : error}
+                            onMouseDown={onCellMouseDown}
+                          >
                             <input
                               type="checkbox"
+                              onFocus={onCellFocus}
                               data-r={r}
                               data-c={c}
                               disabled={!canEdit}
@@ -474,12 +659,17 @@ export default function OvertimeCapture({ ctx, supervisorId }: { ctx: ModuleCont
                               onKeyDown={onCellKeyDown}
                             />
                             {field === "isHoliday" && value === null && <span className="ml-1 text-[10px] text-secondary">auto</span>}
+                            {handle}
                           </td>
                         );
                       }
                       return (
-                        <td key={col.header} className={base} title={error}>
+                        <td key={col.header} className={`${base} relative ${cellState}`} title={error} onMouseDown={onCellMouseDown}>
                           <input
+                            onFocus={(e) => {
+                              onCellFocus();
+                              if (e.target.type === "text") e.target.select();
+                            }}
                             type={col.kind === "date" ? "date" : "text"}
                             inputMode={col.kind === "hours" ? "decimal" : undefined}
                             min={col.kind === "date" ? period.startDate : undefined}
@@ -503,6 +693,7 @@ export default function OvertimeCapture({ ctx, supervisorId }: { ctx: ModuleCont
                             onPaste={(e) => onCellPaste(e, r, c)}
                             className={`${cls(field)} ${col.kind === "hours" ? "text-right w-20" : col.kind === "text" ? "min-w-[200px]" : ""}`}
                           />
+                          {handle}
                         </td>
                       );
                     })}

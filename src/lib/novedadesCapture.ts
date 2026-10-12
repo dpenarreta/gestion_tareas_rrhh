@@ -261,3 +261,71 @@ export function summarize(rows: CaptureRow[], duplicateKeys: Set<string>): Captu
     locked: rows.filter((r) => r.state === "locked").length,
   };
 }
+
+// ── Relleno tipo Excel ────────────────────────────────────────────────────────
+
+/** Columnas que admiten relleno: solo valores capturados. FECHA tiene su
+ * propia acción explícita ("Aplicar fecha a seleccionadas") y la identidad
+ * del colaborador nunca se rellena. */
+export const FILLABLE_KINDS = new Set(["hours", "flag", "text"]);
+
+export function isFillableColumn(colIndex: number): boolean {
+  const column = CAPTURE_COLUMNS[colIndex];
+  return Boolean(column?.field && FILLABLE_KINDS.has(column.kind));
+}
+
+/** Copia el valor de la celda origen (misma columna) en las filas destino.
+ * Siempre COPIA — un 2 rellena 2, 2, 2; nunca genera una serie 3, 4, 5.
+ * Las filas no editables (bloqueadas, período cerrado) se saltan y se
+ * informan; las que ya tienen ese mismo valor no se marcan como cambiadas. */
+export function fillColumn(
+  rows: CaptureRow[],
+  colIndex: number,
+  sourceIndex: number,
+  targetIndexes: number[],
+  editable: (row: CaptureRow) => boolean,
+): { rows: CaptureRow[]; filled: number; skipped: number } {
+  const field = CAPTURE_COLUMNS[colIndex]?.field;
+  const source = rows[sourceIndex];
+  if (!field || !source || !isFillableColumn(colIndex)) return { rows, filled: 0, skipped: 0 };
+  const value = source[field];
+  let filled = 0;
+  let skipped = 0;
+  const targets = new Set(targetIndexes.filter((i) => i !== sourceIndex));
+  const next = rows.map((row, i) => {
+    if (!targets.has(i)) return row;
+    if (!editable(row)) {
+      skipped += 1;
+      return row;
+    }
+    if (row[field] === value) return row;
+    filled += 1;
+    return {
+      ...row,
+      [field]: value,
+      dirty: true,
+      errors: {},
+      state: row.id === null ? ("new" as const) : ("existing" as const),
+    };
+  });
+  return { rows: next, filled, skipped };
+}
+
+/** Celdas de un rango (misma columna) como texto tabulado, para Ctrl+C. */
+export function copyColumnRange(rows: CaptureRow[], colIndex: number, from: number, to: number): string {
+  const field = CAPTURE_COLUMNS[colIndex]?.field;
+  const column = CAPTURE_COLUMNS[colIndex];
+  const [a, b] = from <= to ? [from, to] : [to, from];
+  return rows
+    .slice(a, b + 1)
+    .map((row) => {
+      if (!field) {
+        return [null, row.cedula, row.fullName, row.regional, row.area, row.cargo][colIndex] ?? "";
+      }
+      const value = row[field];
+      if (column.kind === "flag") return value === true ? "SI" : value === false ? "NO" : "";
+      if (column.kind === "date") return row.date ? row.date.split("-").reverse().join("/") : "";
+      return String(value ?? "");
+    })
+    .join("\n");
+}
