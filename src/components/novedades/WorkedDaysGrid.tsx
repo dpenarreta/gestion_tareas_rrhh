@@ -56,13 +56,16 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
     queueMicrotask(load);
   }, [load]);
 
-  // Evita perder cambios sin guardar al cerrar o recargar la pestaña.
+  // Evita perder cambios sin guardar al cerrar o recargar la pestaña, y
+  // avisa al módulo para confirmar antes de cambiar de pestaña/período.
+  const { setDirty } = ctx;
   useEffect(() => {
+    setDirty(dirtyCount > 0);
     if (!dirtyCount) return;
     const handler = (e: BeforeUnloadEvent) => e.preventDefault();
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [dirtyCount]);
+  }, [dirtyCount, setDirty]);
 
   const rows = useMemo(() => {
     if (!matrix) return [];

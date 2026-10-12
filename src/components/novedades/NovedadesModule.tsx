@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Users } from "lucide-react";
 import { novedadesApi } from "./api";
@@ -30,6 +30,8 @@ export type ModuleContext = {
   supervisors: SupervisorOption[];
   refreshPeriods: () => void;
   openPeriod: (code: string, supervisorId?: number | null) => void;
+  /** Las pantallas con edición avisan si tienen cambios sin guardar. */
+  setDirty: (dirty: boolean) => void;
 };
 
 export default function NovedadesModule({ me }: { me: NovedadesMe }) {
@@ -46,6 +48,18 @@ export default function NovedadesModule({ me }: { me: NovedadesMe }) {
   const [periods, setPeriods] = useState<PeriodOption[]>([]);
   const [period, setPeriod] = useState<string>(me.currentPeriod.code);
   const [periodsVersion, setPeriodsVersion] = useState(0);
+  // Ref (no estado): avisar cambios sin guardar no debe re-renderizar el módulo.
+  const dirtyRef = useRef(false);
+  const setDirty = useCallback((dirty: boolean) => {
+    dirtyRef.current = dirty;
+  }, []);
+  // Cambiar de pestaña, período o supervisor desmonta la tabla en edición:
+  // se pide confirmación para no perder lo escrito.
+  const guard = useCallback((action: () => void) => {
+    if (dirtyRef.current && !window.confirm("Hay cambios sin guardar que se perderán. ¿Continuar?")) return;
+    dirtyRef.current = false;
+    action();
+  }, []);
 
   useEffect(() => {
     if (me.isSupervisor && !me.nationalWrite) return;
@@ -71,11 +85,13 @@ export default function NovedadesModule({ me }: { me: NovedadesMe }) {
     supervisorId,
     supervisors,
     refreshPeriods: () => setPeriodsVersion((v) => v + 1),
-    openPeriod: (code, sid) => {
-      setPeriod(code);
-      if (sid !== undefined) setSupervisorId(sid);
-      setTab(me.isAssistant ? "HORAS" : "DIAS");
-    },
+    openPeriod: (code, sid) =>
+      guard(() => {
+        setPeriod(code);
+        if (sid !== undefined) setSupervisorId(sid);
+        setTab(me.isAssistant ? "HORAS" : "DIAS");
+      }),
+    setDirty,
   };
 
   const showSupervisorPicker = !me.isSupervisor || me.nationalWrite;
@@ -97,7 +113,10 @@ export default function NovedadesModule({ me }: { me: NovedadesMe }) {
               <span className="block text-xs font-semibold text-secondary mb-1">Supervisor</span>
               <SelectInput
                 value={supervisorId ?? ""}
-                onChange={(e) => setSupervisorId(e.target.value ? Number(e.target.value) : null)}
+                onChange={(e) => {
+                  const value = e.target.value ? Number(e.target.value) : null;
+                  guard(() => setSupervisorId(value));
+                }}
               >
                 {tab !== "DIAS" && <option value="">Todos los supervisores</option>}
                 {supervisors.map((s) => (
@@ -110,7 +129,13 @@ export default function NovedadesModule({ me }: { me: NovedadesMe }) {
           )}
           <label className="min-w-[230px]">
             <span className="block text-xs font-semibold text-secondary mb-1">Período</span>
-            <SelectInput value={period} onChange={(e) => setPeriod(e.target.value)}>
+            <SelectInput
+              value={period}
+              onChange={(e) => {
+                const value = e.target.value;
+                guard(() => setPeriod(value));
+              }}
+            >
               {!periods.some((p) => p.code === period) && <option value={period}>{period}</option>}
               {periods.map((p) => (
                 <option key={p.code} value={p.code}>
@@ -133,7 +158,7 @@ export default function NovedadesModule({ me }: { me: NovedadesMe }) {
         {tabs.map((t) => (
           <button
             key={t}
-            onClick={() => setTab(t)}
+            onClick={() => guard(() => setTab(t))}
             className={`px-4 py-2.5 border-b-2 text-sm font-medium whitespace-nowrap transition-colors rounded-t-lg ${
               tab === t
                 ? "border-primary text-primary bg-primary-surface/60"

@@ -90,6 +90,30 @@ class OvertimeWriteSerializer(serializers.Serializer):
     version = serializers.IntegerField(required=False, allow_null=True)
 
 
+class BulkOvertimeRowSerializer(serializers.Serializer):
+    """Fila de la captura masiva. De la identidad solo viaja el id del
+    colaborador: cédula, nombre, regional, área, cargo y supervisor se leen
+    de la base en el servidor."""
+
+    client_key = serializers.CharField(max_length=64)
+    id = serializers.IntegerField(required=False, allow_null=True)
+    version = serializers.IntegerField(required=False, allow_null=True)
+    collaborator_id = serializers.IntegerField(required=False, allow_null=True)
+    date = serializers.DateField(required=False, allow_null=True)
+    overtime_hours = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    saturday_hours = serializers.CharField(required=False, allow_null=True, allow_blank=True)
+    is_saturday = serializers.BooleanField(required=False, allow_null=True, default=None)
+    is_sunday = serializers.BooleanField(required=False, allow_null=True, default=None)
+    is_holiday = serializers.BooleanField(required=False, allow_null=True, default=None)
+    work_done = serializers.CharField(required=False, allow_blank=True, default="")
+    observations = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class BulkOvertimeSerializer(serializers.Serializer):
+    period = serializers.CharField()
+    rows = BulkOvertimeRowSerializer(many=True, allow_empty=False)
+
+
 class OvertimeRecordSerializer(serializers.ModelSerializer):
     cedula = serializers.CharField(source="collaborator.cedula")
     full_name = serializers.CharField(source="collaborator.full_name")

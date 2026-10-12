@@ -40,6 +40,17 @@ urlpatterns = [
         name="novedades-worked-days-export",
     ),
     path("overtime/", views.OvertimeListView.as_view(), name="novedades-overtime"),
+    path("overtime/bulk/", views.OvertimeBulkView.as_view(), name="novedades-overtime-bulk"),
+    path(
+        "overtime/template/",
+        views.OvertimeTemplateView.as_view(),
+        name="novedades-overtime-template",
+    ),
+    path(
+        "worked-days/template/",
+        views.WorkedDayTemplateView.as_view(),
+        name="novedades-worked-days-template",
+    ),
     path("overtime/export/", views.OvertimeExportView.as_view(), name="novedades-overtime-export"),
     path(
         "overtime/<int:pk>/", views.OvertimeDetailView.as_view(), name="novedades-overtime-detail"

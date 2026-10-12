@@ -282,6 +282,7 @@ def test_overtime_indicators_respect_filters(supervisor, supervisor2):
         "overtime_hours": "3.5",
         "saturday_hours": "1",
         "supervisors_reporting": 2,
+        "collaborators_with_records": 2,
     }
     only_b = OvertimeService.filter(qs, {"supervisor": supervisor2.pk})
     assert OvertimeService.indicators(only_b)["records"] == 1

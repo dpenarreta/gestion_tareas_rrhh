@@ -23,6 +23,57 @@
 
 ---
 
+## v1.166.0 — 2026-10-12
+
+**Tipo:** FEATURE
+**Módulo:** Control Operativo de Novedades — captura masiva de Horas extras
+tipo Excel.
+
+### Qué cambia
+
+- **Captura masiva** (Horas extras → Captura masiva): fecha de trabajo
+  general, selector múltiple de colaboradores del equipo (búsqueda por
+  nombre/cédula/cargo/área, "seleccionar visibles"), una fila por persona con
+  cédula, nombre, regional, área y cargo de solo lectura, fecha editable por
+  fila, edición directa de celdas, navegación con flechas/Enter/Tab, pegado de
+  rangos desde Excel sobre las columnas editables, "Pegar desde Excel" de
+  filas completas (resueltas por cédula contra el equipo), cargar registros
+  existentes de una fecha para editarlos, aplicar fecha a seleccionadas,
+  quitar filas, resumen previo (nuevas, modificadas, válidas, con error,
+  posibles duplicados, bloqueadas) y estado por fila (texto + color).
+- **Guardado por lote** `POST /api/v1/novedades/overtime/bulk/`: valida todo el
+  lote, guarda cada fila válida en su propia transacción y devuelve el
+  resultado por fila (`created`/`updated`/`unchanged`/`error`/`duplicate`/
+  `conflict`/`locked`). Reintentar no duplica (una fila ya guardada con los
+  mismos valores vuelve como `unchanged`). Máximo 500 filas por solicitud; la
+  interfaz divide lotes mayores sola. La identidad nunca se toma del navegador.
+- **Restricción en base de datos**: índice único filtrado (colaborador, fecha)
+  sobre registros activos (migración `novedades.0003`).
+- **Importación de horas extras** reutiliza el mismo guardado por lote.
+- **Consolidado**: paginación (totales y exportación sobre el filtro completo),
+  rango de fechas, filtro por jornada (sábado/domingo/feriado), indicadores de
+  colaboradores con novedades y de supervisores con período cerrado/pendiente.
+- **Exportación**: cédula como texto (conserva ceros), neutraliza contenido que
+  Excel ejecutaría como fórmula, nombre con fecha de exportación, auditada.
+  Plantillas descargables de Horas extras y Días laborados.
+- **Días laborados**: un intento de registrar sábado/domingo por API queda
+  auditado. Aviso de cambios sin guardar al cambiar de pestaña, período o
+  supervisor.
+- **Historial**: filtro por rango de fechas.
+
+- **Archivos:** `backend/apps/novedades/{services,excel,views,urls,serializers,models}.py`,
+  migración `0003_overtime_active_unique`, `src/lib/novedadesCapture.ts`,
+  `src/components/novedades/{OvertimeCapture,OvertimeView,NovedadesModule,WorkedDaysGrid,HistoryView}.tsx`.
+
+**Verificación:** 16 tests nuevos en `backend/apps/novedades/tests/test_bulk.py`
+y 7 en `src/__tests__/novedadesCapture.test.ts`; flujo probado en localhost
+(selección múltiple, fila inválida conservada mientras la válida se guarda,
+edición de un registro guardado sin duplicarlo, verificado en la base).
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
 ## v1.165.0 — 2026-10-12
 
 **Tipo:** FEATURE

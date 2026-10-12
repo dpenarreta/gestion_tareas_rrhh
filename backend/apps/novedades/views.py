@@ -22,6 +22,7 @@ from .models import ImportBatch
 from .periods import parse_period_code, period_for_date
 from .permissions import CanAccessNovedades
 from .serializers import (
+    BulkOvertimeSerializer,
     CloseSerializer,
     CollaboratorCreateSerializer,
     CollaboratorSerializer,
@@ -266,7 +267,17 @@ def _overtime_filters(view) -> dict:
     params = view.request.query_params
     filters = {
         k: params.get(k)
-        for k in ("date", "date_from", "date_to", "cedula", "name", "regional", "area", "cargo")
+        for k in (
+            "date",
+            "date_from",
+            "date_to",
+            "cedula",
+            "name",
+            "regional",
+            "area",
+            "cargo",
+            "jornada",
+        )
     }
     if params.get("period"):
         filters["period"] = view.period_param()
@@ -280,10 +291,25 @@ class OvertimeListView(NovedadesView):
         qs = OvertimeService.filter(
             OvertimeService.queryset_for(self.access), _overtime_filters(self)
         )
+        params = request.query_params
+        try:
+            offset = max(int(params.get("offset", 0)), 0)
+            limit = min(max(int(params.get("limit", 200)), 1), 1000)
+        except ValueError:
+            offset, limit = 0, 200
+        indicators = OvertimeService.indicators(qs)
+        if params.get("period") and self.access.national_read:
+            statuses = PeriodService.status_overview(self.access, self.period_param())
+            indicators["supervisors_closed"] = sum(1 for s in statuses if s["status"] == "CLOSED")
+            indicators["supervisors_pending"] = sum(1 for s in statuses if s["status"] != "CLOSED")
+        # Los totales salen del filtro completo; la página solo limita filas.
         return Response(
             {
-                "indicators": OvertimeService.indicators(qs),
-                "records": OvertimeRecordSerializer(qs[:5000], many=True).data,
+                "indicators": indicators,
+                "count": indicators["records"],
+                "offset": offset,
+                "limit": limit,
+                "records": OvertimeRecordSerializer(qs[offset : offset + limit], many=True).data,
             }
         )
 
@@ -314,9 +340,37 @@ class OvertimeExportView(NovedadesView):
         qs = OvertimeService.filter(
             OvertimeService.queryset_for(self.access), _overtime_filters(self)
         )
-        content = ExportService.overtime(self.access, qs)
+        content = ExportService.overtime(
+            self.access, qs, filters=dict(request.query_params.items()), context=self.context
+        )
         suffix = request.query_params.get("period") or "consolidado"
-        return self.xlsx(content, f"horas-extras-{suffix}.xlsx")
+        return self.xlsx(content, f"horas-extras-{suffix}-exportado-{today():%Y%m%d}.xlsx")
+
+
+class OvertimeBulkView(NovedadesView):
+    """Guardado masivo de la captura tipo Excel: resultado por fila."""
+
+    def post(self, request):
+        data = self.validated(BulkOvertimeSerializer)
+        result = OvertimeService.bulk_save(
+            self.access, self.period_param(data["period"]), data["rows"], context=self.context
+        )
+        return Response(result)
+
+
+class OvertimeTemplateView(NovedadesView):
+    def get(self, request):
+        return self.xlsx(ExportService.overtime_template(), "plantilla-horas-extras.xlsx")
+
+
+class WorkedDayTemplateView(NovedadesView):
+    def get(self, request):
+        key = self.period_param()
+        matrix = WorkedDayService.matrix(self.access, key, self.supervisor_param())
+        return self.xlsx(
+            ExportService.worked_days(self.access, matrix, blank=True),
+            f"plantilla-dias-laborados-{key.code}.xlsx",
+        )
 
 
 class ImportPreviewView(NovedadesView):

@@ -235,6 +235,16 @@ class OvertimeRecord(BaseModel):
 
     class Meta:
         ordering = ["date", "collaborator__full_name"]
+        # Regla vigente: una sola novedad ACTIVA por colaborador y fecha (el
+        # registro eliminado lógicamente no cuenta). La valida el servicio y
+        # además la base, para que dos guardados simultáneos no la burlen.
+        constraints = [
+            models.UniqueConstraint(
+                fields=["collaborator", "date"],
+                condition=models.Q(deleted_at__isnull=True),
+                name="novedades_overtime_active_uniq",
+            )
+        ]
         indexes = [
             models.Index(fields=["period", "supervisor"]),
             models.Index(fields=["collaborator", "date"]),

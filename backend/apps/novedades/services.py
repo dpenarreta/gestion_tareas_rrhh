@@ -11,12 +11,13 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth import get_user_model
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Count, Q, Sum
 from django.utils import timezone
 
 from apps.configuration.models import Holiday
 from apps.core.audit import record_audit_event
+from apps.core.models import AuditLog
 from apps.notifications.services import notify_many
 from apps.tasks.business_time import business_calendar_day
 
@@ -988,7 +989,14 @@ class WorkedDayService:
                     # Sí se permite vaciar/corregir lo ya registrado antes del cambio de estado.
                     value = parse_hours(cell.get("hours"))
                 else:
-                    errors.append({"collaborator_id": cid, "date": day, "message": exc.message})
+                    errors.append(
+                        {
+                            "collaborator_id": cid,
+                            "date": day,
+                            "message": exc.message,
+                            "code": exc.code,
+                        }
+                    )
                     continue
             expected_version = cell.get("version")
             if (
@@ -1014,6 +1022,19 @@ class WorkedDayService:
             plan.append((collaborator, day, current, old, value))
 
         if errors:
+            if any(e.get("code") == "weekend_locked" for e in errors):
+                # Un sábado/domingo solo llega acá saltándose la interfaz
+                # (que bloquea esas celdas): se deja constancia.
+                record_audit_event(
+                    actor=acc.user,
+                    action="novedades.worked_days.weekend_rejected",
+                    target_type="supervisor_period",
+                    target_id=sp.pk,
+                    module=MODULE,
+                    new_values={"period": key.code, "supervisor_id": supervisor.pk},
+                    result=AuditLog.Result.FAILURE,
+                    context=context,
+                )
             raise NovedadesError(
                 "Hay celdas con errores; no se guardó ningún cambio.", details={"cells": errors}
             )
@@ -1140,6 +1161,11 @@ class OvertimeService:
                 qs = qs.filter(**{f"collaborator__{field}__icontains": params[field].strip()})
         if params.get("supervisor"):
             qs = qs.filter(supervisor_id=params["supervisor"])
+        jornada = {"sabado": "is_saturday", "domingo": "is_sunday", "feriado": "is_holiday"}.get(
+            params.get("jornada") or ""
+        )
+        if jornada:
+            qs = qs.filter(**{jornada: True})
         return qs.order_by("date", "collaborator__full_name", "pk")
 
     @staticmethod
@@ -1149,48 +1175,68 @@ class OvertimeService:
             extra=Sum("overtime_hours"),
             saturday=Sum("saturday_hours"),
             supervisors=Count("supervisor", distinct=True),
+            collaborators=Count("collaborator", distinct=True),
         )
         return {
             "records": totals["records"] or 0,
             "overtime_hours": _fmt(totals["extra"] or Decimal("0")),
             "saturday_hours": _fmt(totals["saturday"] or Decimal("0")),
             "supervisors_reporting": totals["supervisors"] or 0,
+            "collaborators_with_records": totals["collaborators"] or 0,
         }
 
     @staticmethod
-    def _clean_values(data: dict, day: date) -> dict:
-        overtime = parse_hours(data.get("overtime_hours"), field_label="# Horas extras") or Decimal(
-            "0"
-        )
-        saturday = parse_hours(data.get("saturday_hours"), field_label="# Horas sábado") or Decimal(
-            "0"
-        )
-        if overtime + saturday <= 0:
-            raise NovedadesError("Registre al menos una hora extra o una hora de sábado.")
-        holiday = Holiday.objects.filter(date=day).exists()
+    def row_values(data: dict, day: date, *, is_holiday_day: bool | None = None):
+        """Validación de UNA novedad, campo por campo. Devuelve
+        `(valores, errores)` donde `errores` es `{campo: mensaje}` — la misma
+        regla para el formulario individual, el guardado masivo y la
+        importación. `# HORAS EXTRAS` y `# HORAS SABADO` son campos
+        independientes: nunca se suman ni se copian uno al otro."""
+        errors: dict[str, str] = {}
+        hours = {}
+        for field, label in (
+            ("overtime_hours", "# Horas extras"),
+            ("saturday_hours", "# Horas sábado"),
+        ):
+            try:
+                hours[field] = parse_hours(data.get(field), field_label=label) or Decimal("0")
+            except NovedadesError as exc:
+                errors[field] = exc.message
+        if not errors and hours["overtime_hours"] + hours["saturday_hours"] <= 0:
+            errors["overtime_hours"] = "Registre al menos una hora extra o una hora de sábado."
         work_done = str(data.get("work_done") or "").strip()
         observations = str(data.get("observations") or "").strip()
-        if len(work_done) > 500 or len(observations) > 1000:
-            raise NovedadesError(
-                "Texto demasiado largo (máx. 500 en Trabajo realizado y 1000 en Observaciones)."
-            )
+        if len(work_done) > 500:
+            errors["work_done"] = "Máximo 500 caracteres."
+        if len(observations) > 1000:
+            errors["observations"] = "Máximo 1000 caracteres."
+        for flag in ("is_saturday", "is_sunday", "is_holiday"):
+            if data.get(flag) is not None and not isinstance(data.get(flag), bool):
+                errors[flag] = "Valor inválido: use Sí o No."
+        if errors:
+            return None, errors
+        if is_holiday_day is None:
+            is_holiday_day = Holiday.objects.filter(date=day).exists()
+
+        def flag(name, default):
+            return bool(data[name]) if data.get(name) is not None else default
+
         return {
-            "overtime_hours": overtime,
-            "saturday_hours": saturday,
-            "is_saturday": (
-                bool(data["is_saturday"])
-                if data.get("is_saturday") is not None
-                else day.weekday() == 5
-            ),
-            "is_sunday": (
-                bool(data["is_sunday"]) if data.get("is_sunday") is not None else day.weekday() == 6
-            ),
-            "is_holiday": (
-                bool(data["is_holiday"]) if data.get("is_holiday") is not None else holiday
-            ),
+            "overtime_hours": hours["overtime_hours"],
+            "saturday_hours": hours["saturday_hours"],
+            "is_saturday": flag("is_saturday", day.weekday() == 5),
+            "is_sunday": flag("is_sunday", day.weekday() == 6),
+            "is_holiday": flag("is_holiday", is_holiday_day),
             "work_done": work_done,
             "observations": observations,
-        }
+        }, {}
+
+    @staticmethod
+    def _clean_values(data: dict, day: date) -> dict:
+        values, errors = OvertimeService.row_values(data, day)
+        if errors:
+            raise NovedadesError(next(iter(errors.values())), details={"fields": errors})
+        return values
 
     @staticmethod
     def create(
@@ -1351,6 +1397,380 @@ class OvertimeService:
                 + (f". Motivo: {reason}." if reason else "."),
                 exclude_user=acc.user,
             )
+
+    BULK_LIMIT = 500
+
+    @staticmethod
+    def bulk_save(
+        acc: NovedadesAccess,
+        key: PeriodKey,
+        rows: list[dict],
+        *,
+        source_file: str = "",
+        context=None,
+        notify: bool = True,
+    ) -> dict:
+        """Guardado masivo de la captura tipo Excel de Horas extras.
+
+        Comportamiento declarado (y cubierto por tests): primero se valida
+        TODO el lote; después se guarda cada fila válida en su propia
+        transacción y se devuelve el resultado fila por fila. Una fila con
+        error nunca se guarda y nunca impide guardar las demás.
+
+        Cada fila es una creación (sin `id`) o una actualización (`id` +
+        `version`). Reintentar el mismo lote no duplica nada: una fila nueva
+        cuyo (colaborador, fecha) ya existe con exactamente los mismos
+        valores, creada por el mismo usuario, se informa como "ya guardada"
+        con su id — es el caso de un doble clic o de una respuesta perdida
+        por la red. Si los valores difieren, es un duplicado real.
+
+        Nunca se confía en datos de identidad del navegador: cédula, nombre,
+        regional, área, cargo y supervisor salen de la base; del cliente
+        solo se toman el id del colaborador, la fecha y los valores
+        capturados."""
+        if not acc.can(perms.REGISTRAR) or acc.is_assistant:
+            raise _forbidden("No tiene habilitado el registro de novedades.")
+        if not rows:
+            raise NovedadesError("No hay filas para guardar.")
+        if len(rows) > OvertimeService.BULK_LIMIT:
+            raise NovedadesError(
+                f"El lote tiene {len(rows)} filas y el máximo es {OvertimeService.BULK_LIMIT}. "
+                "Guárdelo en partes: las filas no guardadas se conservan en la tabla.",
+                code="batch_too_large",
+            )
+
+        collaborator_ids = {r.get("collaborator_id") for r in rows if r.get("collaborator_id")}
+        collaborators = {
+            c.pk: c
+            for c in Collaborator.objects.select_related("current_supervisor").filter(
+                pk__in=collaborator_ids
+            )
+        }
+        record_ids = {r["id"] for r in rows if r.get("id")}
+        by_id = {
+            r.pk: r
+            for r in OvertimeRecord.objects.select_related(
+                "collaborator", "supervisor", "period"
+            ).filter(pk__in=record_ids, deleted_at__isnull=True)
+        }
+        existing_by_key = {
+            (r.collaborator_id, r.date): r
+            for r in OvertimeRecord.objects.filter(
+                collaborator_id__in=collaborator_ids,
+                date__gte=key.start_date,
+                date__lte=key.end_date,
+                deleted_at__isnull=True,
+            )
+        }
+        holidays = set(
+            Holiday.objects.filter(date__gte=key.start_date, date__lte=key.end_date).values_list(
+                "date", flat=True
+            )
+        )
+        supervisor_ids = {c.current_supervisor_id for c in collaborators.values()} | {
+            r.supervisor_id for r in by_id.values()
+        }
+        for sid in supervisor_ids:
+            PeriodService.ensure_current(User.objects.get(pk=sid))
+        open_supervisors = set(
+            SupervisorPeriod.objects.filter(
+                period__year=key.year,
+                period__month=key.month,
+                supervisor_id__in=supervisor_ids,
+                status=SupervisorPeriod.Status.OPEN,
+            ).values_list("supervisor_id", flat=True)
+        )
+        period = PeriodService.get_period(key)
+
+        results: list[dict] = []
+        plan: list[tuple[int, dict]] = []
+        seen_keys: dict[tuple, str] = {}
+
+        def fail(row, status, errors):
+            results.append(
+                {
+                    "client_key": row.get("client_key"),
+                    "status": status,
+                    "errors": errors,
+                    "record_id": row.get("id"),
+                }
+            )
+
+        for row in rows:
+            client_key = row.get("client_key")
+            day = row.get("date")
+            record = by_id.get(row["id"]) if row.get("id") else None
+            if row.get("id") and record is None:
+                fail(
+                    row,
+                    "error",
+                    {"row": "El registro ya no existe (fue eliminado); recargue la tabla."},
+                )
+                continue
+            if record is not None and not key.contains(record.date):
+                fail(
+                    row,
+                    "error",
+                    {"date": f"El registro pertenece a otro período, no a {key.label}."},
+                )
+                continue
+            collaborator = (
+                record.collaborator if record else collaborators.get(row.get("collaborator_id"))
+            )
+            if collaborator is None:
+                fail(row, "error", {"collaborator": "Colaborador no encontrado."})
+                continue
+            supervisor_id = record.supervisor_id if record else collaborator.current_supervisor_id
+            if not acc.can_write_for_supervisor(supervisor_id):
+                fail(row, "locked", {"collaborator": "El colaborador no pertenece a su equipo."})
+                continue
+            if day is None:
+                fail(row, "error", {"date": "La fecha es obligatoria."})
+                continue
+            if not key.contains(day):
+                fail(row, "error", {"date": f"La fecha no pertenece al período {key.label}."})
+                continue
+            if supervisor_id not in open_supervisors:
+                fail(
+                    row,
+                    "locked",
+                    {
+                        "row": f"{key.label} está cerrado para este equipo: no admite cambios ordinarios."
+                    },
+                )
+                continue
+            if record is None and collaborator.status != Collaborator.Status.ACTIVE:
+                fail(
+                    row,
+                    "error",
+                    {
+                        "collaborator": f"{collaborator.full_name} está {collaborator.get_status_display().lower()}."
+                    },
+                )
+                continue
+            values, errors = OvertimeService.row_values(row, day, is_holiday_day=day in holidays)
+            if errors:
+                fail(row, "error", errors)
+                continue
+            dup_key = (collaborator.pk, day)
+            if dup_key in seen_keys:
+                fail(
+                    row,
+                    "duplicate",
+                    {"date": "La misma persona y fecha está dos veces en la tabla."},
+                )
+                continue
+            seen_keys[dup_key] = client_key
+            other = existing_by_key.get(dup_key)
+            if record is not None:
+                if row.get("version") is not None and int(row["version"]) != record.version:
+                    fail(
+                        row,
+                        "conflict",
+                        {"row": "Otro usuario modificó este registro; recargue la tabla."},
+                    )
+                    continue
+                if other is not None and other.pk != record.pk:
+                    fail(
+                        row,
+                        "duplicate",
+                        {"date": "Ya existe otro registro de esta persona en esa fecha."},
+                    )
+                    continue
+            elif other is not None:
+                same = other.created_by_id == acc.user.pk and all(
+                    getattr(other, f) == v for f, v in values.items()
+                )
+                if same:
+                    # Reintento de una fila que ya se guardó: no se duplica.
+                    results.append(
+                        {
+                            "client_key": client_key,
+                            "status": "unchanged",
+                            "errors": {},
+                            "record_id": other.pk,
+                            "version": other.version,
+                        }
+                    )
+                    continue
+                fail(
+                    row,
+                    "duplicate",
+                    {
+                        "date": f"Ya existe un registro de {collaborator.full_name} el {day:%d/%m/%Y}; edítelo en lugar de crear otro."
+                    },
+                )
+                continue
+            plan.append(
+                (
+                    len(results),
+                    {"row": row, "record": record, "collaborator": collaborator, "values": values},
+                )
+            )
+            results.append({"client_key": client_key, "status": "pending", "errors": {}})
+
+        created = updated = unchanged = 0
+        events = []
+        for index, item in plan:
+            row, record, collaborator, values = (
+                item["row"],
+                item["record"],
+                item["collaborator"],
+                item["values"],
+            )
+            day = row["date"]
+            label = f"{collaborator.full_name} ({collaborator.cedula}) {day:%d/%m/%Y}"
+            try:
+                with transaction.atomic():
+                    if record is None:
+                        new = OvertimeRecord.objects.create(
+                            collaborator=collaborator,
+                            period=period,
+                            supervisor=collaborator.current_supervisor,
+                            date=day,
+                            created_by=acc.user,
+                            updated_by=acc.user,
+                            **values,
+                        )
+                        events.append(
+                            (
+                                "overtime.created",
+                                collaborator.current_supervisor_id,
+                                new.pk,
+                                label,
+                                "",
+                                "",
+                                "",
+                            )
+                        )
+                        results[index] = {
+                            "client_key": row.get("client_key"),
+                            "status": "created",
+                            "errors": {},
+                            "record_id": new.pk,
+                            "version": new.version,
+                        }
+                        created += 1
+                        continue
+                    changes = {
+                        f: (getattr(record, f), v)
+                        for f, v in values.items()
+                        if getattr(record, f) != v
+                    }
+                    if record.date != day:
+                        changes["date"] = (record.date, day)
+                    if not changes:
+                        results[index] = {
+                            "client_key": row.get("client_key"),
+                            "status": "unchanged",
+                            "errors": {},
+                            "record_id": record.pk,
+                            "version": record.version,
+                        }
+                        unchanged += 1
+                        continue
+                    count = OvertimeRecord.objects.filter(
+                        pk=record.pk, version=record.version
+                    ).update(
+                        **values,
+                        date=day,
+                        version=record.version + 1,
+                        updated_by=acc.user,
+                        updated_at=timezone.now(),
+                    )
+                    if not count:
+                        raise NovedadesError(
+                            "Otro usuario modificó este registro; recargue la tabla.",
+                            code="conflict",
+                        )
+                    for field, (old, new_value) in changes.items():
+                        events.append(
+                            (
+                                "overtime.updated",
+                                record.supervisor_id,
+                                record.pk,
+                                label,
+                                field,
+                                old,
+                                new_value,
+                            )
+                        )
+                    results[index] = {
+                        "client_key": row.get("client_key"),
+                        "status": "updated",
+                        "errors": {},
+                        "record_id": record.pk,
+                        "version": record.version + 1,
+                    }
+                    updated += 1
+            except NovedadesError as exc:
+                results[index] = {
+                    "client_key": row.get("client_key"),
+                    "status": "conflict",
+                    "errors": {"row": exc.message},
+                }
+            except IntegrityError:
+                # Otra petición guardó la misma persona y fecha entre la
+                # validación y la escritura: la restricción de la base lo frena.
+                results[index] = {
+                    "client_key": row.get("client_key"),
+                    "status": "duplicate",
+                    "errors": {
+                        "date": "Se registró en paralelo otra novedad de esta persona en esa fecha; recargue."
+                    },
+                }
+
+        role = perms.operational_role_of(acc.user) or (
+            "ADMINISTRADOR" if acc.user.is_superuser else ""
+        )
+        NovedadEvent.objects.bulk_create(
+            [
+                NovedadEvent(
+                    action=action,
+                    actor=acc.user,
+                    actor_role=role,
+                    supervisor_id=sid,
+                    period=period,
+                    target_type="overtime",
+                    target_id=str(rid),
+                    target_label=label[:255],
+                    field=field,
+                    old_value=_fmt(old)[:1000],
+                    new_value=_fmt(new)[:1000],
+                    source_file=source_file[:255],
+                )
+                for action, sid, rid, label, field, old, new in events
+            ]
+        )
+        summary = {
+            "created": created,
+            "updated": updated,
+            "unchanged": sum(1 for r in results if r["status"] == "unchanged"),
+            "errors": sum(
+                1 for r in results if r["status"] in ("error", "duplicate", "conflict", "locked")
+            ),
+            "total": len(rows),
+        }
+        if created or updated:
+            record_audit_event(
+                actor=acc.user,
+                action="novedades.overtime.bulk_saved",
+                target_type="overtime_batch",
+                target_id=period.code,
+                module=MODULE,
+                new_values={**summary, "period": key.code, "source_file": source_file},
+                context=context,
+            )
+            if notify:
+                NotificationService.notify_admins(
+                    f"Horas extras: {user_display(acc.user)} guardó un lote en {key.label} — "
+                    f"{created} nuevo(s), {updated} modificado(s)"
+                    + (f", {summary['errors']} con error" if summary["errors"] else "")
+                    + (f" (importación {source_file})" if source_file else "")
+                    + ".",
+                    exclude_user=acc.user,
+                )
+        return {"summary": summary, "rows": results}
 
 
 # ── Correcciones de períodos cerrados ─────────────────────────────────────────
@@ -1525,6 +1945,10 @@ class HistoryService:
             qs = qs.filter(action__startswith=params["action"])
         if params.get("q"):
             qs = qs.filter(target_label__icontains=params["q"].strip())
+        if params.get("date_from"):
+            qs = qs.filter(created_at__date__gte=params["date_from"])
+        if params.get("date_to"):
+            qs = qs.filter(created_at__date__lte=params["date_to"])
         return qs
 
     @staticmethod

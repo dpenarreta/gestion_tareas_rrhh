@@ -95,6 +95,22 @@ def _sheet_bytes(wb) -> bytes:
     return buffer.getvalue()
 
 
+_FORMULA_PREFIXES = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _safe_text(value) -> str:
+    """Texto libre exportado a Excel: un valor que empieza con `=`, `+`,
+    `-` o `@` se ejecutaría como fórmula al abrir el archivo (inyección
+    CSV/Excel). Se antepone un apóstrofo, que Excel muestra como texto."""
+    text = str(value or "")
+    return f"'{text}" if text.startswith(_FORMULA_PREFIXES) else text
+
+
+def _text_cell(ws, row: int, col: int):
+    """Cédulas como texto: conserva ceros iniciales y evita notación científica."""
+    ws.cell(row=row, column=col).number_format = "@"
+
+
 def _style_header(ws, ncols: int):
     for col in range(1, ncols + 1):
         cell = ws.cell(row=1, column=col)
@@ -106,41 +122,72 @@ def _style_header(ws, ncols: int):
 
 class ExportService:
     @staticmethod
-    def overtime(acc: NovedadesAccess, qs) -> bytes:
+    def overtime(acc: NovedadesAccess, qs, *, filters: dict | None = None, context=None) -> bytes:
+        """Exporta TODO lo que cumple los filtros dentro del ámbito del
+        usuario (no la página visible): `qs` ya viene acotado por
+        `OvertimeService.queryset_for`. Queda auditado."""
         if not acc.can(perms.EXPORTAR):
             raise _forbidden("No tiene habilitada la exportación a Excel.")
+        EventService.log(
+            actor=acc.user,
+            action="export.overtime",
+            supervisor=acc.user if acc.is_supervisor else None,
+            target_type="export",
+            target_label="Horas extras",
+            new_value=f"{qs.count()} registros",
+            reason=", ".join(f"{k}={v}" for k, v in (filters or {}).items() if v)[:500],
+            context=context,
+        )
         wb = openpyxl.Workbook()
         ws = wb.active
         ws.title = "Horas extras"
         ws.append(OVERTIME_EXPORT_HEADERS)
-        for r in qs:
+        for r in qs.iterator(chunk_size=1000):
             ws.append(
                 [
                     r.date,
-                    r.collaborator.cedula,
-                    r.collaborator.full_name,
-                    r.collaborator.regional,
-                    r.collaborator.area,
-                    r.collaborator.cargo,
-                    user_display(r.supervisor),
+                    str(r.collaborator.cedula),
+                    _safe_text(r.collaborator.full_name),
+                    _safe_text(r.collaborator.regional),
+                    _safe_text(r.collaborator.area),
+                    _safe_text(r.collaborator.cargo),
+                    _safe_text(user_display(r.supervisor)),
                     float(r.overtime_hours),
                     float(r.saturday_hours),
                     "SI" if r.is_saturday else "NO",
                     "SI" if r.is_sunday else "NO",
                     "SI" if r.is_holiday else "NO",
-                    r.work_done,
-                    r.observations,
+                    _safe_text(r.work_done),
+                    _safe_text(r.observations),
                 ]
             )
             ws.cell(row=ws.max_row, column=1).number_format = "DD/MM/YYYY"
+            _text_cell(ws, ws.max_row, 2)
         _style_header(ws, len(OVERTIME_EXPORT_HEADERS))
         for idx, width in enumerate([12, 14, 32, 16, 18, 20, 26, 10, 10, 8, 8, 8, 36, 36], start=1):
             ws.column_dimensions[get_column_letter(idx)].width = width
         return _sheet_bytes(wb)
 
     @staticmethod
-    def worked_days(acc: NovedadesAccess, matrix: dict) -> bytes:
-        if not acc.can(perms.EXPORTAR):
+    def overtime_template() -> bytes:
+        """Plantilla de importación de Horas extras: los 13 encabezados exactos."""
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Horas extras"
+        ws.append(OVERTIME_HEADERS)
+        _style_header(ws, len(OVERTIME_HEADERS))
+        for idx, width in enumerate([12, 14, 32, 16, 18, 20, 10, 10, 8, 8, 8, 36, 36], start=1):
+            ws.column_dimensions[get_column_letter(idx)].width = width
+        for r in range(2, 502):
+            _text_cell(ws, r, 2)
+            ws.cell(row=r, column=1).number_format = "DD/MM/YYYY"
+        return _sheet_bytes(wb)
+
+    @staticmethod
+    def worked_days(acc: NovedadesAccess, matrix: dict, *, blank: bool = False) -> bytes:
+        """Exportación de la matriz; con `blank=True` es la plantilla de
+        importación (mismos colaboradores y fechas, celdas vacías)."""
+        if not blank and not acc.can(perms.EXPORTAR):
             raise _forbidden("No tiene habilitada la exportación a Excel.")
         wb = openpyxl.Workbook()
         ws = wb.active
@@ -159,9 +206,16 @@ class ExportService:
                 cell = row["cells"].get(c["date"])
                 values.append(float(cell["hours"]) if cell and cell["hours"] is not None else None)
             ws.append(
-                [supervisor_name, row["cargo"], row["cut_label"], row["cedula"], row["full_name"]]
-                + values
+                [
+                    _safe_text(supervisor_name),
+                    _safe_text(row["cargo"]),
+                    row["cut_label"],
+                    str(row["cedula"]),
+                    _safe_text(row["full_name"]),
+                ]
+                + (values if not blank else [None] * len(values))
             )
+            _text_cell(ws, ws.max_row, 4)
         _style_header(ws, fixed + len(dates))
         for idx, d in enumerate(dates, start=fixed + 1):
             ws.column_dimensions[get_column_letter(idx)].width = 11
@@ -573,46 +627,68 @@ class ImportService:
                         notify=False,
                     )
                     applied += result["saved"]
-            else:
-                for item in items:
-                    data = {
-                        "collaborator_id": item["collaborator_id"],
-                        "date": date.fromisoformat(item["date"]),
-                        "overtime_hours": item["overtime_hours"],
-                        "saturday_hours": item["saturday_hours"],
-                        "is_saturday": item["is_saturday"],
-                        "is_sunday": item["is_sunday"],
-                        "is_holiday": item["is_holiday"],
-                        "work_done": item["work_done"],
-                        "observations": item["observations"],
-                    }
-                    current = OvertimeRecord.objects.filter(
-                        collaborator_id=item["collaborator_id"],
-                        date=data["date"],
+            elif items:
+                # Misma validación y misma escritura que la captura masiva
+                # (`OvertimeService.bulk_save`): la importación no tiene un
+                # camino propio que pueda divergir.
+                day_of = {i["row"]: date.fromisoformat(i["date"]) for i in items}
+                current = {
+                    (r.collaborator_id, r.date): r
+                    for r in OvertimeRecord.objects.filter(
+                        collaborator_id__in={i["collaborator_id"] for i in items},
+                        date__in=set(day_of.values()),
                         deleted_at__isnull=True,
-                    ).first()
-                    if current is None:
-                        OvertimeService.create(
-                            acc, data, source_file=batch.file_name, context=context, notify=False
-                        )
-                        applied += 1
-                    elif strategy == "update":
-                        OvertimeService.update(
-                            acc,
-                            current.pk,
-                            data,
-                            source_file=batch.file_name,
-                            context=context,
-                            notify=False,
-                        )
-                        applied += 1
-                    else:
-                        skipped += 1
+                    )
+                }
+                rows = []
+                for item in items:
+                    existing = current.get((item["collaborator_id"], day_of[item["row"]]))
+                    rows.append(
+                        {
+                            "client_key": str(item["row"]),
+                            "id": existing.pk if existing else None,
+                            "version": existing.version if existing else None,
+                            "collaborator_id": item["collaborator_id"],
+                            "date": day_of[item["row"]],
+                            **{
+                                f: item[f]
+                                for f in (
+                                    "overtime_hours",
+                                    "saturday_hours",
+                                    "is_saturday",
+                                    "is_sunday",
+                                    "is_holiday",
+                                    "work_done",
+                                    "observations",
+                                )
+                            },
+                        }
+                    )
+                for start in range(0, len(rows), OvertimeService.BULK_LIMIT):
+                    result = OvertimeService.bulk_save(
+                        acc,
+                        key,
+                        rows[start : start + OvertimeService.BULK_LIMIT],
+                        source_file=batch.file_name,
+                        context=context,
+                        notify=False,
+                    )
+                    applied += result["summary"]["created"] + result["summary"]["updated"]
+                    skipped += result["summary"]["unchanged"]
+                    for r in result["rows"]:
+                        if r["errors"]:
+                            batch.errors.append(
+                                {
+                                    "row": int(r["client_key"]),
+                                    "column": "",
+                                    "message": " ".join(r["errors"].values()),
+                                }
+                            )
             skipped += len(batch.rows) - len(items)
             batch.status = ImportBatch.Status.CONFIRMED
             batch.strategy = strategy
             batch.summary = {**batch.summary, "applied": applied, "skipped": skipped}
-            batch.save(update_fields=["status", "strategy", "summary", "updated_at"])
+            batch.save(update_fields=["status", "strategy", "summary", "errors", "updated_at"])
             EventService.log(
                 actor=acc.user,
                 action="import.confirmed",

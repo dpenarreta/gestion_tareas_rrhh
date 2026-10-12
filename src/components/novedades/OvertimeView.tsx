@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Download, Plus, Upload } from "lucide-react";
+import { Download } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Modal, ModalHeader } from "@/components/ui/Modal";
 import { Spinner } from "@/components/ui/Skeleton";
@@ -11,8 +11,9 @@ import { ErrorBox, Label, TextArea, TextInput } from "./fields";
 import { PERM, type OvertimeIndicators, type OvertimeRecord } from "./types";
 import type { ModuleContext } from "./NovedadesModule";
 import OvertimeFormDialog from "./OvertimeFormDialog";
-import ImportDialog from "./ImportDialog";
 import CorrectionDialog from "./CorrectionDialog";
+import OvertimeCapture from "./OvertimeCapture";
+import { SelectInput } from "./fields";
 
 // Encabezados EXACTOS de la tabla en pantalla (13). La exportación agrega
 // SUPERVISOR después de CARGO (14) — eso lo arma Django.
@@ -32,20 +33,71 @@ const HEADERS = [
   "OBSERVACIONES",
 ];
 
-type Filters = { date: string; cedula: string; name: string; regional: string; area: string; cargo: string };
-const EMPTY_FILTERS: Filters = { date: "", cedula: "", name: "", regional: "", area: "", cargo: "" };
+type Filters = {
+  date_from: string;
+  date_to: string;
+  cedula: string;
+  name: string;
+  regional: string;
+  area: string;
+  cargo: string;
+  jornada: string;
+};
+const EMPTY_FILTERS: Filters = { date_from: "", date_to: "", cedula: "", name: "", regional: "", area: "", cargo: "", jornada: "" };
+const PAGE = 200;
 
+type Indicators = OvertimeIndicators & {
+  collaboratorsWithRecords?: number;
+  supervisorsClosed?: number;
+  supervisorsPending?: number;
+};
+
+// Horas extras: la captura masiva (tabla editable tipo Excel) es la vía
+// principal de registro; la consulta muestra el consolidado del ámbito del
+// usuario (nacional para el Asistente/Administrador).
 export default function OvertimeView({ ctx }: { ctx: ModuleContext }) {
+  const canCapture = ctx.can(PERM.registrar) && !ctx.me.isAssistant;
+  const [mode, setMode] = useState<"CAPTURA" | "CONSULTA">(canCapture ? "CAPTURA" : "CONSULTA");
+  return (
+    <div className="space-y-3">
+      {canCapture && (
+        <div className="inline-flex rounded-lg border border-border p-0.5 bg-surface2 text-sm">
+          {(["CAPTURA", "CONSULTA"] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => setMode(m)}
+              className={`px-3 py-1.5 rounded-md ${mode === m ? "bg-surface text-primary font-semibold shadow-sm" : "text-secondary"}`}
+            >
+              {m === "CAPTURA" ? "Captura masiva" : "Consulta de registros"}
+            </button>
+          ))}
+        </div>
+      )}
+      {mode === "CAPTURA" && canCapture ? (
+        ctx.supervisorId !== null ? (
+          <OvertimeCapture key={`${ctx.period}-${ctx.supervisorId}`} ctx={ctx} supervisorId={ctx.supervisorId} />
+        ) : (
+          <p className="text-sm text-secondary py-6">Seleccione un supervisor para capturar horas extras de su equipo.</p>
+        )
+      ) : (
+        <OvertimeConsult ctx={ctx} />
+      )}
+    </div>
+  );
+}
+
+function OvertimeConsult({ ctx }: { ctx: ModuleContext }) {
   const { showToast } = useToast();
   const [filters, setFilters] = useState<Filters>(EMPTY_FILTERS);
   const [applied, setApplied] = useState<Filters>(EMPTY_FILTERS);
   const [records, setRecords] = useState<OvertimeRecord[] | null>(null);
-  const [indicators, setIndicators] = useState<OvertimeIndicators | null>(null);
+  const [indicators, setIndicators] = useState<Indicators | null>(null);
+  const [count, setCount] = useState(0);
+  const [offset, setOffset] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [detail, setDetail] = useState<OvertimeRecord | null>(null);
   const [form, setForm] = useState<{ record: OvertimeRecord | null } | null>(null);
   const [deleting, setDeleting] = useState<OvertimeRecord | null>(null);
-  const [importOpen, setImportOpen] = useState(false);
   const [correcting, setCorrecting] = useState<OvertimeRecord | null>(null);
 
   const canWrite = ctx.can(PERM.registrar) && !ctx.me.isAssistant;
@@ -53,19 +105,22 @@ export default function OvertimeView({ ctx }: { ctx: ModuleContext }) {
 
   const load = useCallback(async () => {
     setError(null);
-    const result = await novedadesApi.get<{ indicators: OvertimeIndicators; records: OvertimeRecord[] }>("overtime", {
+    const result = await novedadesApi.get<{ indicators: Indicators; count: number; records: OvertimeRecord[] }>("overtime", {
       period: ctx.period,
       supervisor: ctx.supervisorId ?? undefined,
       ...applied,
+      offset,
+      limit: PAGE,
     });
     if (result.ok) {
       setRecords(result.data.records);
       setIndicators(result.data.indicators);
+      setCount(result.data.count);
     } else {
       setRecords([]);
       setError(result.error);
     }
-  }, [ctx.period, ctx.supervisorId, applied]);
+  }, [ctx.period, ctx.supervisorId, applied, offset]);
 
   useEffect(() => {
     queueMicrotask(load);
@@ -75,12 +130,19 @@ export default function OvertimeView({ ctx }: { ctx: ModuleContext }) {
 
   return (
     <div className="space-y-3">
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
         {[
           ["Registros", indicators?.records],
-          ["Total horas extras", indicators?.overtimeHours],
-          ["Total horas sábado", indicators?.saturdayHours],
+          ["Total # horas extras", indicators?.overtimeHours],
+          ["Total # horas sábado", indicators?.saturdayHours],
+          ["Colaboradores con novedades", indicators?.collaboratorsWithRecords],
           ["Supervisores que reportaron", indicators?.supervisorsReporting],
+          ...(indicators?.supervisorsClosed !== undefined
+            ? [
+                ["Supervisores con período cerrado", indicators.supervisorsClosed],
+                ["Supervisores con captura pendiente", indicators.supervisorsPending],
+              ]
+            : []),
         ].map(([label, value]) => (
           <div key={label as string} className="bg-surface border border-border rounded-xl p-3">
             <div className="text-xs text-secondary">{label}</div>
@@ -90,15 +152,29 @@ export default function OvertimeView({ ctx }: { ctx: ModuleContext }) {
       </div>
 
       <form
-        className="grid grid-cols-2 md:grid-cols-7 gap-2 items-end"
+        className="grid grid-cols-2 md:grid-cols-5 xl:grid-cols-9 gap-2 items-end"
         onSubmit={(e) => {
           e.preventDefault();
+          setOffset(0);
           setApplied(filters);
         }}
       >
         <label>
-          <Label>Fecha</Label>
-          <TextInput type="date" value={filters.date} onChange={(e) => setFilters({ ...filters, date: e.target.value })} />
+          <Label>Desde</Label>
+          <TextInput type="date" value={filters.date_from} onChange={(e) => setFilters({ ...filters, date_from: e.target.value })} />
+        </label>
+        <label>
+          <Label>Hasta</Label>
+          <TextInput type="date" value={filters.date_to} onChange={(e) => setFilters({ ...filters, date_to: e.target.value })} />
+        </label>
+        <label>
+          <Label>Jornada</Label>
+          <SelectInput value={filters.jornada} onChange={(e) => setFilters({ ...filters, jornada: e.target.value })}>
+            <option value="">Todas</option>
+            <option value="sabado">Sábado</option>
+            <option value="domingo">Domingo</option>
+            <option value="feriado">Feriado</option>
+          </SelectInput>
         </label>
         {(
           [
@@ -124,6 +200,7 @@ export default function OvertimeView({ ctx }: { ctx: ModuleContext }) {
             size="sm"
             onClick={() => {
               setFilters(EMPTY_FILTERS);
+              setOffset(0);
               setApplied(EMPTY_FILTERS);
             }}
           >
@@ -143,16 +220,6 @@ export default function OvertimeView({ ctx }: { ctx: ModuleContext }) {
             }}
           >
             <Download className="w-4 h-4" /> Exportar Excel
-          </Button>
-        )}
-        {canWrite && ctx.can(PERM.importar) && (
-          <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}>
-            <Upload className="w-4 h-4" /> Importar
-          </Button>
-        )}
-        {canWrite && (
-          <Button size="sm" onClick={() => setForm({ record: null })}>
-            <Plus className="w-4 h-4" /> Registrar novedad
           </Button>
         )}
       </div>
@@ -205,6 +272,20 @@ export default function OvertimeView({ ctx }: { ctx: ModuleContext }) {
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {count > PAGE && (
+        <div className="flex items-center justify-end gap-2 text-sm">
+          <span className="text-secondary">
+            {offset + 1}–{Math.min(offset + PAGE, count)} de {count} (los totales y la exportación incluyen todo)
+          </span>
+          <Button variant="secondary" size="sm" disabled={offset === 0} onClick={() => setOffset(Math.max(offset - PAGE, 0))}>
+            Anterior
+          </Button>
+          <Button variant="secondary" size="sm" disabled={offset + PAGE >= count} onClick={() => setOffset(offset + PAGE)}>
+            Siguiente
+          </Button>
         </div>
       )}
 
@@ -299,17 +380,6 @@ export default function OvertimeView({ ctx }: { ctx: ModuleContext }) {
           onClose={() => setDeleting(null)}
           onDone={() => {
             setDeleting(null);
-            load();
-          }}
-        />
-      )}
-      {importOpen && (
-        <ImportDialog
-          kind="OVERTIME"
-          period={ctx.period}
-          onClose={() => setImportOpen(false)}
-          onImported={() => {
-            setImportOpen(false);
             load();
           }}
         />

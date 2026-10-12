@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/Button";
 import { SearchInput } from "@/components/ui/SearchInput";
 import { Spinner } from "@/components/ui/Skeleton";
 import { formatDateTime, novedadesApi } from "./api";
-import { ErrorBox, SelectInput } from "./fields";
+import { ErrorBox, SelectInput, TextInput } from "./fields";
 import type { NovedadEvent } from "./types";
 import type { ModuleContext } from "./NovedadesModule";
 
@@ -22,6 +22,7 @@ const ACTION_LABEL: Record<string, string> = {
   "overtime.deleted": "Horas extras (eliminación)",
   "period.closed": "Cierre de período",
   "import.confirmed": "Importación de Excel",
+  "export.overtime": "Exportación de Excel",
   "correction.worked_day": "Corrección (días laborados)",
   "correction.overtime": "Corrección (horas extras)",
   "permission.role_changed": "Permiso de rol",
@@ -38,6 +39,8 @@ export default function HistoryView({ ctx, kind }: { ctx: ModuleContext; kind?: 
   const [action, setAction] = useState("");
   const [q, setQ] = useState("");
   const [allPeriods, setAllPeriods] = useState(false);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -47,6 +50,8 @@ export default function HistoryView({ ctx, kind }: { ctx: ModuleContext; kind?: 
       action,
       q,
       kind,
+      date_from: dateFrom,
+      date_to: dateTo,
       offset,
       limit: PAGE,
     });
@@ -58,7 +63,7 @@ export default function HistoryView({ ctx, kind }: { ctx: ModuleContext; kind?: 
       setEvents([]);
       setError(result.error);
     }
-  }, [ctx.period, ctx.supervisorId, action, q, kind, offset, allPeriods]);
+  }, [ctx.period, ctx.supervisorId, action, q, kind, offset, allPeriods, dateFrom, dateTo]);
 
   useEffect(() => {
     const timer = setTimeout(load, 250);
@@ -82,6 +87,14 @@ export default function HistoryView({ ctx, kind }: { ctx: ModuleContext; kind?: 
           <label className="flex items-center gap-2 text-sm text-secondary">
             <input type="checkbox" checked={allPeriods} onChange={(e) => { setAllPeriods(e.target.checked); setOffset(0); }} />
             Todos los períodos
+          </label>
+          <label className="flex items-center gap-1 text-sm text-secondary">
+            Desde
+            <TextInput type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setOffset(0); }} className="w-40" />
+          </label>
+          <label className="flex items-center gap-1 text-sm text-secondary">
+            Hasta
+            <TextInput type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setOffset(0); }} className="w-40" />
           </label>
         </div>
       )}
