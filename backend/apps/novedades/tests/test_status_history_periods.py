@@ -276,3 +276,31 @@ def test_other_admin_receives_status_alert_when_admin_changes(admin, supervisor)
     CollaboratorService.change_status(access(admin), c.pk, "INACTIVE", "Baja")
     assert len(_status_alerts(other_admin)) == 1
     assert _status_alerts(admin) == []  # quien hace el cambio no se alerta a sí mismo
+
+
+# ── Visibilidad del historial y marca azul de ingresos ────────────────────────
+
+
+def test_history_is_for_admin_and_assistant_only_supervisor_keeps_repository(
+    client_for, admin, supervisor, assistant
+):
+    _collab(supervisor)
+    sup = client_for(supervisor)
+    response = sup.get(f"{BASE}/history/", {"period": "2026-10"})
+    assert response.status_code == 403  # aunque tenga novedades.historial_ver
+    assert sup.get(f"{BASE}/repository/").status_code == 200
+    assert sup.get(f"{BASE}/me/").json()["can_view_history"] is False
+
+    for user in (admin, assistant):
+        client = client_for(user)
+        assert client.get(f"{BASE}/history/", {"period": "2026-10"}).status_code == 200
+        assert client.get(f"{BASE}/me/").json()["can_view_history"] is True
+
+
+def test_new_collaborator_event_is_blue_in_history(client_for, admin, supervisor):
+    c = _collab(supervisor)
+    CollaboratorService.update(access(supervisor), c.pk, {"cargo": "Jefe"})
+    rows = client_for(admin).get(f"{BASE}/history/", {"period": "2026-10"}).json()["results"]
+    by_action = {r["action"]: r for r in rows}
+    assert by_action["collaborator.created"]["highlight"] == "info"
+    assert by_action["collaborator.updated"]["highlight"] == ""  # una modificación no es ingreso

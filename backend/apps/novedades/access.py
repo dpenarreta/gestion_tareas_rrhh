@@ -176,6 +176,14 @@ class NovedadesAccess:
     def national_read(self) -> bool:
         return self.national_write or self.is_assistant
 
+    @property
+    def can_view_event_history(self) -> bool:
+        """Historial de registros: solo Administrador y Asistente de
+        Operaciones. Restricción obligatoria para el Supervisor (decisión de
+        producto, 2026-10-12): aunque tenga `novedades.historial_ver`, ese
+        permiso solo le habilita el Repositorio mensual."""
+        return self.can(HISTORIAL) and not self.is_supervisor
+
     def readable_supervisor_ids(self) -> list[int] | None:
         """`None` = todos (nacional); lista = solo esos supervisores."""
         if self.national_read:
@@ -205,4 +213,5 @@ class NovedadesAccess:
             "is_assistant": self.is_assistant,
             "national_read": self.national_read,
             "national_write": self.national_write,
+            "can_view_history": self.can_view_event_history,
         }

@@ -33,6 +33,13 @@ const ACTION_LABEL: Record<string, string> = {
 
 const PAGE = 100;
 
+// Marca del EVENTO (la decide Django en `highlight`): rojo = pasó a Inactivo o
+// Suspendido; azul = nuevo ingreso a la base. Siempre con etiqueta de texto.
+const HIGHLIGHT_ROW: Record<string, string> = {
+  danger: "bg-danger/[.06] shadow-[inset_3px_0_0_var(--danger)]",
+  info: "bg-blue-500/[.07] shadow-[inset_3px_0_0_var(--color-blue-600)]",
+};
+
 export default function HistoryView({ ctx, kind }: { ctx: ModuleContext; kind?: "permissions" }) {
   const [events, setEvents] = useState<NovedadEvent[] | null>(null);
   const [count, setCount] = useState(0);
@@ -128,7 +135,7 @@ export default function HistoryView({ ctx, kind }: { ctx: ModuleContext; kind?: 
                 <tr
                   key={e.id}
                   data-highlight={e.highlight || undefined}
-                  className={e.highlight === "danger" ? "bg-danger/[.06] shadow-[inset_3px_0_0_var(--danger)]" : undefined}
+                  className={e.highlight ? HIGHLIGHT_ROW[e.highlight] : undefined}
                 >
                   <td className="border-b border-border px-2 py-1.5 whitespace-nowrap">{formatDateTime(e.createdAt)}</td>
                   <td className="border-b border-border px-2 py-1.5 whitespace-nowrap">{ACTION_LABEL[e.action] ?? e.action}</td>
@@ -141,7 +148,15 @@ export default function HistoryView({ ctx, kind }: { ctx: ModuleContext; kind?: 
                   <td className="border-b border-border px-2 py-1.5 text-secondary">{e.oldValue}</td>
                   <td className="border-b border-border px-2 py-1.5">
                     {/* Etiqueta con texto además del color: el estado nuevo del EVENTO, no el actual. */}
-                    {e.highlight === "danger" ? <Badge variant="danger">{e.newValue}</Badge> : e.newValue}
+                    {e.highlight === "danger" ? (
+                      <Badge variant="danger">{e.newValue}</Badge>
+                    ) : e.highlight === "info" ? (
+                      <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold bg-blue-600/[.12] text-blue-700 dark:text-blue-300">
+                        Nuevo ingreso
+                      </span>
+                    ) : (
+                      e.newValue
+                    )}
                   </td>
                   <td className="border-b border-border px-2 py-1.5">{e.reason}</td>
                   <td className="border-b border-border px-2 py-1.5 text-secondary">{e.sourceFile}</td>

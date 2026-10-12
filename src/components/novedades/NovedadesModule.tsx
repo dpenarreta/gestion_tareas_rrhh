@@ -38,9 +38,10 @@ export default function NovedadesModule({ me }: { me: NovedadesMe }) {
   const can = useCallback((codename: string) => me.permissions.includes(codename), [me.permissions]);
   const tabs = useMemo(() => {
     const list: Tab[] = ["DIAS", "HORAS", "BASE"];
-    if (can(PERM.historial)) list.push("HISTORIAL", "REPOSITORIO");
+    if (me.canViewHistory) list.push("HISTORIAL");
+    if (can(PERM.historial)) list.push("REPOSITORIO");
     return me.isAssistant ? (["HORAS", ...list.filter((t) => t !== "HORAS")] as Tab[]) : list;
-  }, [can, me.isAssistant]);
+  }, [can, me.isAssistant, me.canViewHistory]);
 
   const [tab, setTab] = useState<Tab>(tabs[0]);
   const [supervisors, setSupervisors] = useState<SupervisorOption[]>([]);

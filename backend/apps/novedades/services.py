@@ -2079,6 +2079,11 @@ class HistoryService:
     def events(acc: NovedadesAccess, params: dict):
         if not acc.can(perms.HISTORIAL):
             raise _forbidden("No tiene habilitada la consulta del historial.")
+        if not acc.can_view_event_history:
+            raise _forbidden(
+                "El historial de registros solo lo consultan el Administrador y el "
+                "Asistente de Operaciones."
+            )
         qs = NovedadEvent.objects.select_related("actor", "supervisor", "period")
         ids = acc.readable_supervisor_ids()
         if ids is not None:

@@ -5,7 +5,7 @@ import type { ModuleContext } from "@/components/novedades/NovedadesModule";
 
 // Historial de registros: los cambios a Inactivo/Suspendido se marcan en
 // rojo CON etiqueta de texto; la reactivación conserva el diseño normal. La
-// marca la decide Django (`highlight`). Ver docs/CHANGELOG.md § v1.170.0.
+// marca la decide Django (`highlight`). Ver docs/CHANGELOG.md § v1.170.0 y v1.171.0.
 
 const ctx = { period: "2026-10", supervisorId: null } as unknown as ModuleContext;
 
@@ -66,5 +66,26 @@ describe("HistoryView — cambios de estado", () => {
     expect(screen.getByText("—")).toBeInTheDocument();
     // Pide el historial del período elegido (el backend incluye los eventos sin período de esas fechas).
     expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toContain("period=2026-10");
+  });
+});
+
+describe("HistoryView — nuevos ingresos", () => {
+  it("marca en azul, con la etiqueta 'Nuevo ingreso', el alta de un colaborador", async () => {
+    const created = {
+      ...event(36, "", "ACTIVO", "info"),
+      action: "collaborator.created",
+      field: "",
+      reason: "",
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, status: 200, json: async () => ({ count: 1, results: [created] }) })),
+    );
+    const { container } = render(<HistoryView ctx={ctx} />);
+    await waitFor(() => expect(container.querySelectorAll("tbody tr")).toHaveLength(1));
+    const row = container.querySelector('tr[data-highlight="info"]') as HTMLElement;
+    expect(row).toHaveClass("bg-blue-500/[.07]");
+    expect(within(row).getByText("Nuevo ingreso")).toHaveClass("text-blue-700");
+    expect(within(row).getByText("Alta de colaborador")).toBeInTheDocument();
   });
 });

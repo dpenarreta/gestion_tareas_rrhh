@@ -8,6 +8,8 @@ export type NovedadesMe = {
   isAssistant: boolean;
   nationalRead: boolean;
   nationalWrite: boolean;
+  /** Historial de registros: Administrador y Asistente; nunca el Supervisor (lo decide Django). */
+  canViewHistory?: boolean;
   currentPeriod: { code: string; label: string; status: string | null };
   user: { id: number; name: string };
 };
@@ -147,7 +149,7 @@ export type NovedadEvent = {
   reason: string;
   sourceFile: string;
   createdAt: string;
-  /** "danger" = el evento dejó al colaborador Inactivo o Suspendido (lo decide Django). */
+  /** "danger" = dejó al colaborador Inactivo o Suspendido; "info" = nuevo ingreso a la base (lo decide Django). */
   highlight?: string;
 };
 

@@ -8,6 +8,7 @@
 
 | Decisión | Motivo técnico | Detalle completo |
 |---|---|---|
+| El Historial de registros de Novedades lo ven solo el Administrador y el Asistente de Operaciones; el Supervisor conserva el Repositorio mensual (2026-10-12) | Pedido explícito del usuario. Se aplica como restricción obligatoria por código (como el ámbito de datos), no como permiso configurable, porque `novedades.historial_ver` cubre también el Repositorio, que el Supervisor sigue necesitando | [CHANGELOG v1.171.0](CHANGELOG.md) |
 | Importación de Días laborados: «Empleado» sin ninguna palabra en común con el nombre de la cédula bloquea la fila; una diferencia parcial solo avisa (2026-10-12) | Evita cargar horas a la persona equivocada por una cédula mal digitada, sin rechazar planillas por tildes, orden de apellidos u omisión de un nombre | [CHANGELOG v1.167.1](CHANGELOG.md) |
 | La importación de la base crea/actualiza colaboradores; las de novedades siguen exigiendo que existan (2026-10-12) | Son flujos distintos: cargar personas vs. registrar novedades de personas ya conocidas. Relajar la validación en las novedades permitiría crear colaboradores sin control al cargar horas | [CHANGELOG v1.167.0](CHANGELOG.md) |
 | Política de actualización por importación: solo nombre, regional, área y cargo; nunca cédula, estado, supervisor ni permisos (2026-10-12) | El estado y la asignación tienen flujos propios auditados (cambio de estado con motivo, Reasignar); una planilla no debe saltárselos | [CHANGELOG v1.167.0](CHANGELOG.md) |

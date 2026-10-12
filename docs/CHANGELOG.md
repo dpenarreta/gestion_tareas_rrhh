@@ -23,6 +23,40 @@
 
 ---
 
+## v1.171.0 — 2026-10-12
+
+**Tipo:** UX / SECURITY
+**Módulo:** Control Operativo de Novedades — Historial de registros: ingresos
+en azul y visibilidad restringida.
+
+- **Ingresos en azul:** el alta de un colaborador en la base (por formulario o
+  por importación) se marca en el Historial de registros con la fila teñida de
+  azul y la etiqueta de texto **"Nuevo ingreso"**. Django lo indica con
+  `highlight: "info"` (igual que `"danger"` para Inactivo/Suspendido); las
+  modificaciones y demás eventos conservan el diseño normal.
+- **Historial solo para Administrador y Asistente de Operaciones:** el
+  Supervisor de Operaciones ya no ve la pestaña ni puede consultar el endpoint
+  (`/history/` responde 403), aunque tenga `novedades.historial_ver`. Es una
+  restricción obligatoria por código (`NovedadesAccess.can_view_event_history`),
+  no un ajuste configurable. El Supervisor **conserva el Repositorio mensual**,
+  que usa el mismo permiso. `me` expone `can_view_history` para la pantalla.
+
+- **Archivos:** `backend/apps/novedades/{access,services,serializers}.py`,
+  `src/components/novedades/{HistoryView,NovedadesModule}.tsx`,
+  `src/components/novedades/types.ts`.
+
+**Verificación:** 2 tests nuevos en
+`backend/apps/novedades/tests/test_status_history_periods.py` (403 al
+Supervisor con Repositorio disponible; Administrador y Asistente ven el
+historial; alta en azul y modificación sin marca) y 1 en
+`src/__tests__/components/NovedadesHistoryHighlight.test.tsx`. Probado en
+localhost con un Supervisor: sin pestaña Historial, `/history/` 403,
+Repositorio mensual disponible.
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
 ## v1.170.0 — 2026-10-12
 
 **Tipo:** FIX / UX
