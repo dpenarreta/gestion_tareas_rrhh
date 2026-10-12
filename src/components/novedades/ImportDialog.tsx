@@ -16,7 +16,7 @@ type Props = {
 };
 
 const TEMPLATE_HINT: Record<Props["kind"], string> = {
-  WORKED_DAYS: "Supervisor | Cargo | Corte anterior | Cédula | Empleado | una columna por fecha del período",
+  WORKED_DAYS: "Supervisor | Cargo | Cédula | Empleado | una columna por fecha del período",
   OVERTIME:
     "FECHA | CEDULA | NOMBRE DEL COLABORADOR | REGIONAL | ÁREA | CARGO | # HORAS EXTRAS | # HORAS SABADO | SABADO | DOMINGO | FERIADO | TRABAJO REALIZADO | OBSERVACIONES",
 };

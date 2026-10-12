@@ -264,7 +264,7 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
           <table className="border-separate border-spacing-0 text-xs">
             <thead>
               <tr>
-                {["Supervisor", "Cargo", "Corte anterior"].map((h) => (
+                {["Supervisor", "Cargo"].map((h) => (
                   <th key={h} rowSpan={2} className="sticky top-0 z-20 bg-surface2 border-b border-r border-border px-2 py-1.5 text-left font-semibold text-secondary whitespace-nowrap">
                     {h}
                   </th>
@@ -299,7 +299,6 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
                   <tr key={row.collaboratorId} className="group">
                     <td className="border-b border-r border-border px-2 py-1 whitespace-nowrap text-secondary">{matrix.supervisor.name}</td>
                     <td className="border-b border-r border-border px-2 py-1 whitespace-nowrap">{row.cargo}</td>
-                    <td className="border-b border-r border-border px-2 py-1 whitespace-nowrap text-secondary">{row.cutLabel}</td>
                     <td className="sticky left-0 z-10 bg-surface border-b border-r border-border px-2 py-1 font-mono">{row.cedula}</td>
                     <td className="sticky left-[96px] z-10 bg-surface border-b border-r border-border px-2 py-1">
                       <div className="flex items-center gap-1.5">

@@ -37,7 +37,6 @@ export type MatrixRow = {
   regional: string;
   status: CollaboratorStatus;
   isCurrentMember: boolean;
-  cutLabel: string;
   cells: Record<string, MatrixCell>;
   totalHours: string;
 };

@@ -79,10 +79,6 @@ class PeriodKey:
         start, end = self.start_date, self.end_date
         return [start + timedelta(days=offset) for offset in range((end - start).days + 1)]
 
-    def range_label(self) -> str:
-        """Texto de la columna "Corte anterior": el rango del corte."""
-        return f"{self.label}: {self.start_date:%d/%m/%Y} – {self.end_date:%d/%m/%Y}"
-
 
 def period_for_date(day: date) -> PeriodKey:
     """Período al que pertenece un día: del 23 en adelante ya cuenta para el

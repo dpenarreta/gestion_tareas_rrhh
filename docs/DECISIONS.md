@@ -8,6 +8,7 @@
 
 | Decisión | Motivo técnico | Detalle completo |
 |---|---|---|
+| Se retira «Corte anterior» de Días laborados; la importación la ignora en archivos antiguos (2026-10-12) | Pedido explícito: el dato no debe mostrarse ni solicitarse. Era un texto derivado del período (no persistido), así que se elimina sin migración; leer columnas por encabezado evita romper planillas ya en uso | [CHANGELOG v1.166.1](CHANGELOG.md) |
 | Guardado masivo de Horas extras: se guardan las filas válidas y se devuelven los errores de las demás (2026-10-12) | Cada novedad es independiente (una persona, una fecha); bloquear todo el lote por una fila mal escrita obligaría a reescribir el trabajo. Comportamiento declarado y cubierto por tests | [CHANGELOG v1.166.0](CHANGELOG.md) |
 | Una sola novedad activa de horas extras por colaborador y fecha, también en base de datos (2026-10-12) | Era la regla del servicio desde v1.165.0; se refuerza con un índice único filtrado para que dos guardados simultáneos no la burlen. **Pendiente de confirmar con la operación** si alguna vez corresponden dos novedades distintas el mismo día | [CHANGELOG v1.166.0](CHANGELOG.md) |
 | La captura masiva no tiene un permiso propio: usa `novedades.registrar` (2026-10-12) | Registrar de a una o en lote es la misma facultad con las mismas validaciones; un permiso separado no restringiría nada real | [CHANGELOG v1.166.0](CHANGELOG.md) |

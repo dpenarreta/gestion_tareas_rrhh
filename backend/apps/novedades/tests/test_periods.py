@@ -39,8 +39,7 @@ def test_consecutive_periods_have_no_gaps_or_overlaps():
     assert all(period_for_date(d).contains(d) for d in covered)
 
 
-def test_cut_label_and_parse():
-    assert PeriodKey(2026, 10).range_label() == "Octubre 2026: 23/09/2026 – 22/10/2026"
+def test_parse_period_code():
     assert parse_period_code("2027-01") == PeriodKey(2027, 1)
     with pytest.raises(ValueError):
         parse_period_code("2026-13")

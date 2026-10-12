@@ -40,7 +40,10 @@ from .services import (
     user_display,
 )
 
-WORKED_DAYS_FIXED_HEADERS = ["Supervisor", "Cargo", "Corte anterior", "Cédula", "Empleado"]
+WORKED_DAYS_FIXED_HEADERS = ["Supervisor", "Cargo", "Cédula", "Empleado"]
+# Columna retirada del formato (2026-10-12): si un archivo antiguo la trae,
+# la importación la ignora sin error.
+LEGACY_IGNORED_HEADERS = {"CORTE ANTERIOR"}
 OVERTIME_HEADERS = [
     "FECHA",
     "CEDULA",
@@ -209,20 +212,19 @@ class ExportService:
                 [
                     _safe_text(supervisor_name),
                     _safe_text(row["cargo"]),
-                    row["cut_label"],
                     str(row["cedula"]),
                     _safe_text(row["full_name"]),
                 ]
                 + (values if not blank else [None] * len(values))
             )
-            _text_cell(ws, ws.max_row, 4)
+            _text_cell(ws, ws.max_row, 3)
         _style_header(ws, fixed + len(dates))
         for idx, d in enumerate(dates, start=fixed + 1):
             ws.column_dimensions[get_column_letter(idx)].width = 11
             if is_weekend(d):
                 for r in range(1, ws.max_row + 1):
                     ws.cell(row=r, column=idx).fill = WEEKEND_FILL
-        for idx, width in enumerate([26, 20, 34, 14, 32], start=1):
+        for idx, width in enumerate([26, 20, 14, 32], start=1):
             ws.column_dimensions[get_column_letter(idx)].width = width
         ws.freeze_panes = ws.cell(row=2, column=fixed + 1)
         return _sheet_bytes(wb)
@@ -350,16 +352,29 @@ class ImportService:
     @staticmethod
     def _parse_worked_days(acc, key: PeriodKey, rows):
         header = list(rows[0])
-        fixed = len(WORKED_DAYS_FIXED_HEADERS)
         errors, parsed = [], []
-        if [_norm(h) for h in header[:fixed]] != [_norm(h) for h in WORKED_DAYS_FIXED_HEADERS]:
+        # Las columnas fijas se ubican por su encabezado: así un archivo del
+        # formato anterior (con "Corte anterior") sigue siendo válido y esa
+        # columna simplemente se ignora.
+        positions = {
+            _norm(h): i for i, h in enumerate(header) if h is not None and not _header_date(h)
+        }
+        missing = [h for h in WORKED_DAYS_FIXED_HEADERS if _norm(h) not in positions]
+        if missing:
             raise NovedadesError(
-                "Encabezados inválidos. Las primeras columnas deben ser: "
+                "Encabezados inválidos. Faltan: "
+                + " | ".join(missing)
+                + ". Columnas esperadas: "
                 + " | ".join(WORKED_DAYS_FIXED_HEADERS)
+                + " | una columna por fecha del período."
             )
+        cedula_idx = positions[_norm("Cédula")]
+        fixed_idx = {positions[_norm(h)] for h in WORKED_DAYS_FIXED_HEADERS} | {
+            i for name, i in positions.items() if name in LEGACY_IGNORED_HEADERS
+        }
         date_cols: list[tuple[int, date]] = []
-        for idx, raw in enumerate(header[fixed:], start=fixed):
-            if raw is None or str(raw).strip() == "":
+        for idx, raw in enumerate(header):
+            if idx in fixed_idx or raw is None or str(raw).strip() == "":
                 continue
             d = _header_date(raw)
             if d is None:
@@ -382,7 +397,9 @@ class ImportService:
             return [], errors
 
         cedulas = {
-            normalize_cedula(r[3]) for r in rows[1:] if len(r) > 3 and r[3] not in (None, "")
+            normalize_cedula(r[cedula_idx])
+            for r in rows[1:]
+            if len(r) > cedula_idx and r[cedula_idx] not in (None, "")
         }
         by_cedula = {c.cedula: c for c in Collaborator.objects.filter(cedula__in=cedulas)}
         existing = {
@@ -395,7 +412,7 @@ class ImportService:
         for offset, row in enumerate(rows[1:], start=2):
             if all(v in (None, "") for v in row):
                 continue
-            cedula = normalize_cedula(row[3] if len(row) > 3 else "")
+            cedula = normalize_cedula(row[cedula_idx] if len(row) > cedula_idx else "")
             if not cedula:
                 errors.append({"row": offset, "column": "Cédula", "message": "Cédula vacía."})
                 continue

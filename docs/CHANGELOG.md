@@ -23,6 +23,33 @@
 
 ---
 
+## v1.166.1 — 2026-10-12
+
+**Tipo:** UX
+**Módulo:** Control Operativo de Novedades — Días laborados: se elimina la
+columna «Corte anterior».
+
+- Ya no se muestra en la matriz ni se pide en ningún paso. Tampoco aparece en
+  la exportación ni en la plantilla descargable (formato:
+  Supervisor | Cargo | Cédula | Empleado | una columna por fecha).
+- La importación ubica las columnas por su encabezado: un archivo del formato
+  anterior que todavía trae «Corte anterior» se importa igual y esa columna se
+  ignora sin error.
+- Era un texto calculado (el rango del período), no un dato guardado: no hay
+  migración ni cambio en registros. El período del 23 al 22 no cambia.
+
+- **Archivos:** `backend/apps/novedades/{excel,services,periods}.py`,
+  `src/components/novedades/{WorkedDaysGrid,ImportDialog}.tsx`,
+  `src/components/novedades/types.ts`, tests del módulo.
+
+**Verificación:** 3 tests nuevos en `backend/apps/novedades/tests/test_api.py`
+(archivo antiguo con la columna, columnas obligatorias faltantes, exportación y
+plantilla sin la columna) y 3 ajustados al formato nuevo.
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
 ## v1.166.0 — 2026-10-12
 
 **Tipo:** FEATURE

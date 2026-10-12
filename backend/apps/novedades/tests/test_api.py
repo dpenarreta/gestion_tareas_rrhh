@@ -148,17 +148,9 @@ def test_import_worked_days_preview_confirm_idempotent(client_for, admin, superv
     client = client_for(supervisor)
     _create(client)
     rows = [
-        [
-            "Supervisor",
-            "Cargo",
-            "Corte anterior",
-            "Cédula",
-            "Empleado",
-            date(2026, 10, 12),
-            date(2026, 10, 10),
-        ],
-        ["Sup1", "Operador", "", "0102030405", "Ana Pérez", 8, None],
-        ["Sup1", "Operador", "", "0999999999", "Nadie", 8, None],
+        ["Supervisor", "Cargo", "Cédula", "Empleado", date(2026, 10, 12), date(2026, 10, 10)],
+        ["Sup1", "Operador", "0102030405", "Ana Pérez", 8, None],
+        ["Sup1", "Operador", "0999999999", "Nadie", 8, None],
     ]
     preview = client.post(
         f"{BASE}/imports/preview/",
@@ -204,8 +196,8 @@ def test_import_rejects_weekend_values(client_for, admin, supervisor):
     client = client_for(supervisor)
     _create(client)
     rows = [
-        ["Supervisor", "Cargo", "Corte anterior", "Cédula", "Empleado", date(2026, 10, 10)],
-        ["Sup1", "Operador", "", "0102030405", "Ana Pérez", 8],
+        ["Supervisor", "Cargo", "Cédula", "Empleado", date(2026, 10, 10)],
+        ["Sup1", "Operador", "0102030405", "Ana Pérez", 8],
     ]
     body = client.post(
         f"{BASE}/imports/preview/",
@@ -246,3 +238,69 @@ def test_admin_national_scope_and_collaborator_creation_for_supervisor(
     assert Collaborator.objects.get().current_supervisor == supervisor
     status = client.get(f"{BASE}/periods/status/?period=2026-10").json()
     assert status[0]["supervisor_id"] == supervisor.pk
+
+
+def test_import_worked_days_old_format_with_corte_anterior_is_ignored(
+    client_for, admin, supervisor
+):
+    """Un archivo del formato anterior (con "Corte anterior") se importa igual:
+    esa columna se ignora, no se valida ni se pide."""
+    PermissionAdminService.create_override(
+        access(admin),
+        user_id=supervisor.pk,
+        codename=perms.IMPORTAR,
+        effect="GRANT",
+        reason="Carga",
+    )
+    client = client_for(supervisor)
+    _create(client)
+    rows = [
+        ["Supervisor", "Cargo", "Corte anterior", "Cédula", "Empleado", date(2026, 10, 12)],
+        ["Sup1", "Operador", "Octubre 2026: 23/09/2026 – 22/10/2026", "0102030405", "Ana Pérez", 8],
+    ]
+    body = client.post(
+        f"{BASE}/imports/preview/",
+        {"kind": "WORKED_DAYS", "period": "2026-10", "file": _xlsx(rows)},
+        format="multipart",
+    ).json()
+    assert body["errors"] == [] and body["summary"]["valid_rows"] == 1
+    client.post(f"{BASE}/imports/{body['id']}/confirm/", {"strategy": "skip"}, format="json")
+    assert WorkedDay.objects.get().hours == 8
+
+
+def test_import_worked_days_reports_missing_fixed_columns(client_for, admin, supervisor):
+    client = client_for(admin)
+    _create(client, supervisor_id=supervisor.pk)
+    response = client.post(
+        f"{BASE}/imports/preview/",
+        {
+            "kind": "WORKED_DAYS",
+            "period": "2026-10",
+            "file": _xlsx([["Supervisor", "Cargo", "Empleado", date(2026, 10, 12)]]),
+        },
+        format="multipart",
+    )
+    assert response.status_code == 400
+    assert "Cédula" in response.json()["error"]["message"]
+
+
+def test_worked_days_export_and_template_have_no_corte_anterior(client_for, admin, supervisor):
+    PermissionAdminService.create_override(
+        access(admin),
+        user_id=supervisor.pk,
+        codename=perms.EXPORTAR,
+        effect="GRANT",
+        reason="Exportar",
+    )
+    client = client_for(supervisor)
+    _create(client)
+    matrix = client.get(f"{BASE}/worked-days/?period=2026-10").json()
+    assert "cut_label" not in matrix["rows"][0]
+    for path in ("worked-days/export", "worked-days/template"):
+        ws = openpyxl.load_workbook(
+            io.BytesIO(client.get(f"{BASE}/{path}/?period=2026-10").content)
+        ).active
+        headers = [c.value for c in ws[1]]
+        assert headers[:4] == ["Supervisor", "Cargo", "Cédula", "Empleado"]
+        assert "Corte anterior" not in headers
+        assert ws.cell(row=2, column=3).value == "0102030405"

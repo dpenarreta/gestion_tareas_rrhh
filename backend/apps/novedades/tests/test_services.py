@@ -148,7 +148,7 @@ def test_empty_is_not_zero_and_values_persist(supervisor):
     row = matrix["rows"][0]
     assert row["cells"][MON.isoformat()]["hours"] == "0"
     assert TUE.isoformat() not in row["cells"]
-    assert row["cut_label"] == "Octubre 2026: 23/09/2026 – 22/10/2026"
+    assert "cut_label" not in row  # "Corte anterior" ya no forma parte de la matriz
     assert [c["date"] for c in matrix["columns"]][0] == "2026-09-23"
     assert len(matrix["columns"]) == 30
     weekend_cols = {c["date"] for c in matrix["columns"] if c["is_weekend"]}

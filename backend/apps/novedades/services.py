@@ -882,7 +882,6 @@ class WorkedDayService:
                     "regional": c.regional,
                     "status": c.status,
                     "is_current_member": c.current_supervisor_id == supervisor.pk,
-                    "cut_label": key.range_label(),
                     "cells": row_cells,
                     "total_hours": _fmt(total),
                 }
