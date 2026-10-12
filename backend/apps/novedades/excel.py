@@ -35,6 +35,7 @@ from .models import (
 )
 from .periods import WEEKDAY_NAMES_ES, PeriodKey, is_weekend
 from .services import (
+    ALERT_NEW_COLLABORATOR,
     EventService,
     NotificationService,
     NovedadesError,
@@ -43,6 +44,7 @@ from .services import (
     WorkedDayService,
     _fmt,
     _forbidden,
+    business_stamp,
     normalize_cedula,
     parse_hours,
     user_display,
@@ -1204,13 +1206,25 @@ class CollaboratorImportService:
             context=context,
             audit=False,
         )
-        if created or updated:
+        if created:
+            # Alerta azul: un resumen por importación, solo con lo efectivamente
+            # creado (las actualizaciones y los rechazos no son "nuevo ingreso").
             names = ", ".join(f"{c.full_name} ({c.cedula})" for c in created[:15])
             more = f" y {len(created) - 15} más" if len(created) > 15 else ""
             NotificationService.notify_admins(
-                f"Base de colaboradores: {user_display(acc.user)} importó «{batch.file_name}» para "
-                f"el equipo de {user_display(supervisor)} — {len(created)} nuevo(s), "
-                f"{updated} actualizado(s)" + (f". Nuevos: {names}{more}." if created else "."),
+                f"Nuevo(s) colaborador(es) registrado(s) en la base: {len(created)} — {names}{more}. "
+                f"Equipo de {user_display(supervisor)}. Registrado por {user_display(acc.user)} el "
+                f"{business_stamp()} (origen: importación «{batch.file_name}»; detalle en Historial "
+                "de registros).",
                 exclude_user=acc.user,
+                category=ALERT_NEW_COLLABORATOR,
+                dedup_key=f"novedades:collaborator-import:{batch.pk}",
+            )
+        if updated:
+            NotificationService.notify_admins(
+                f"Base de colaboradores: {user_display(acc.user)} actualizó {updated} colaborador(es) "
+                f"del equipo de {user_display(supervisor)} por importación «{batch.file_name}».",
+                exclude_user=acc.user,
+                dedup_key=f"novedades:collaborator-import-upd:{batch.pk}",
             )
         return batch

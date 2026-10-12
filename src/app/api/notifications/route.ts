@@ -12,6 +12,7 @@ type DjangoNotification = {
   task_id: number | null;
   task_title: string | null;
   read: boolean;
+  category?: string;
   created_at: string;
   task_assigned_to_id: number | null;
 };
@@ -24,6 +25,7 @@ function mapDjangoNotificationToNexoShape(n: DjangoNotification) {
     taskId: n.task_id !== null ? String(n.task_id) : null,
     taskTitle: n.task_title,
     read: n.read,
+    category: n.category ?? "",
     createdAt: n.created_at,
     taskAssignedToId: n.task_assigned_to_id !== null ? String(n.task_assigned_to_id) : null,
   };

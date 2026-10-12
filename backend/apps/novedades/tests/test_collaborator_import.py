@@ -75,8 +75,12 @@ def test_initial_load_creates_collaborators_that_did_not_exist(client_for, admin
     assert Collaborator.objects.get(cedula="1712345678").full_name == "Carla Mora"
     assert all(c.current_supervisor == supervisor for c in Collaborator.objects.all())
     # Una sola notificación resumen al Administrador, no una por persona.
-    messages = list(Notification.objects.filter(user=admin).values_list("message", flat=True))
-    assert len(messages) == 1 and "3 nuevo(s)" in messages[0]
+    # Alerta azul: resumen solo de lo creado, con origen importación.
+    alerts = list(Notification.objects.filter(user=admin).values_list("message", "category"))
+    assert len(alerts) == 1
+    message, category = alerts[0]
+    assert category == "new_collaborator"
+    assert "registrado(s) en la base: 3" in message and "origen: importación" in message
 
 
 def test_invalid_rows_and_duplicates_inside_the_file(client_for, admin, supervisor):
@@ -125,10 +129,14 @@ def test_existing_collaborators_skip_or_update_only_allowed_fields(client_for, a
     collaborator.refresh_from_db()
     assert collaborator.full_name == "Ana" and collaborator.cargo == "Operador"
 
+    blue = Notification.objects.filter(category="new_collaborator")
+    blue_before = blue.count()
     body = _preview(client, rows).json()
     assert body["summary"]["new_items"] == 0 and body["summary"]["to_update"] == 1
     result = _confirm(client, body["id"], "update").json()
     assert result["summary"]["updated"] == 1
+    # Una actualización no es un ingreso nuevo: no genera alerta azul.
+    assert blue.count() == blue_before
     collaborator.refresh_from_db()
     assert (collaborator.full_name, collaborator.area, collaborator.cargo) == (
         "Ana Pérez",

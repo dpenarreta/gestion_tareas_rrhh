@@ -7,7 +7,7 @@ ocultar un botón en el frontend nunca es la barrera de seguridad.
 
 import logging
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth import get_user_model
@@ -19,7 +19,7 @@ from apps.configuration.models import Holiday
 from apps.core.audit import record_audit_event
 from apps.core.models import AuditLog
 from apps.notifications.services import notify_many
-from apps.tasks.business_time import business_calendar_day
+from apps.tasks.business_time import BUSINESS_TZ_OFFSET_HOURS, business_calendar_day
 
 from . import access as perms
 from .access import SUPERVISOR_ROLE, NovedadesAccess
@@ -74,6 +74,16 @@ def user_display(user) -> str:
 
 def today() -> date:
     return business_calendar_day(timezone.now())
+
+
+def business_stamp() -> str:
+    """Fecha y hora en la zona del negocio (UTC-5, ver `apps.tasks.business_time`)."""
+    return (timezone.now() - timedelta(hours=BUSINESS_TZ_OFFSET_HOURS)).strftime("%d/%m/%Y %H:%M")
+
+
+# Categorías de alerta (la campana las pinta con color + icono + texto).
+ALERT_DELETION = "deletion"  # rojo
+ALERT_NEW_COLLABORATOR = "new_collaborator"  # azul
 
 
 def parse_hours(value, *, field_label: str = "Horas") -> Decimal | None:
@@ -224,7 +234,13 @@ class NotificationService:
         )
 
     @staticmethod
-    def notify_admins(message: str, *, exclude_user=None) -> None:
+    def notify_admins(
+        message: str, *, exclude_user=None, category: str = "", dedup_key: str | None = None
+    ) -> None:
+        """`category` da el color de la alerta; `dedup_key` evita repetirla
+        (reintentos, doble clic). Se envía solo si la transacción se confirma:
+        una operación fallida o revertida nunca genera alerta."""
+
         def _send():
             recipients = list(NotificationService.admin_recipients())
             if exclude_user is not None:
@@ -232,13 +248,17 @@ class NotificationService:
             if not recipients:
                 return
             try:
-                notify_many(users=recipients, message=message)
+                notify_many(
+                    users=recipients, message=message, category=category, dedup_key=dedup_key
+                )
             except Exception as exc:  # noqa: BLE001
                 logger.exception(
                     "No se pudo notificar al Administrador; queda pendiente de reintento"
                 )
                 PendingNotification.objects.create(
                     message=message,
+                    category=category,
+                    dedup_key=dedup_key or "",
                     recipient_ids=[u.pk for u in recipients],
                     attempts=1,
                     last_error=str(exc)[:500],
@@ -255,7 +275,10 @@ class NotificationService:
         for item in pending:
             try:
                 notify_many(
-                    users=User.objects.filter(pk__in=item.recipient_ids), message=item.message
+                    users=User.objects.filter(pk__in=item.recipient_ids),
+                    message=item.message,
+                    category=item.category,
+                    dedup_key=item.dedup_key or None,
                 )
                 item.delivered_at = timezone.now()
                 delivered += 1
@@ -645,13 +668,15 @@ class CollaboratorService:
                 new_value="ACTIVO",
                 context=context,
             )
-            registered_at = timezone.localtime().strftime("%d/%m/%Y %H:%M")
             NotificationService.notify_admins(
-                f"Nuevo colaborador operativo: {full_name} — cédula {cedula} — cargo "
+                f"Nuevo colaborador registrado en la base: {full_name} — cédula {cedula} — cargo "
                 f"{collaborator.cargo or 's/d'} — área {collaborator.area or 's/d'} — regional "
                 f"{collaborator.regional or 's/d'}. Supervisor: {user_display(supervisor)}. "
-                f"Registrado el {registered_at} (período {current.period.key.label}).",
+                f"Registrado por {user_display(acc.user)} el {business_stamp()} "
+                f"(origen: formulario; período {current.period.key.label}).",
                 exclude_user=acc.user,
+                category=ALERT_NEW_COLLABORATOR,
+                dedup_key=f"novedades:collaborator-new:{collaborator.pk}",
             )
         return collaborator
 
@@ -783,6 +808,71 @@ class CollaboratorService:
                 context=context,
             )
         return collaborator
+
+    @staticmethod
+    def delete(acc: NovedadesAccess, collaborator_id, reason: str, *, context=None) -> None:
+        """Elimina a un colaborador de la base oficial. Solo el Administrador del
+        módulo, con motivo, y SOLO si nunca tuvo novedades: si tiene días
+        laborados u horas extras (aunque estén eliminadas), su historia se
+        conserva y lo que corresponde es pasarlo a Inactivo. Queda la evidencia
+        en el historial del módulo y en la auditoría general."""
+        if not acc.national_write or not acc.can(perms.COLABORADORES):
+            raise _forbidden("Solo el Administrador puede eliminar colaboradores de la base.")
+        reason = (reason or "").strip()
+        if not reason:
+            raise NovedadesError(
+                "Indique el motivo de la eliminación.", details={"reason": ["Obligatorio."]}
+            )
+        collaborator = (
+            Collaborator.objects.select_related("current_supervisor")
+            .filter(pk=collaborator_id)
+            .first()
+        )
+        if collaborator is None:
+            raise _not_found("Colaborador no encontrado (puede que ya se haya eliminado).")
+        if collaborator.worked_days.exists() or collaborator.overtime_records.exists():
+            raise NovedadesError(
+                f"{collaborator.full_name} tiene días laborados u horas extras registrados: no se elimina "
+                "para conservar la historia. Cambie su estado a Inactivo.",
+                code="has_history",
+                status=409,
+            )
+        snapshot = {
+            "cedula": collaborator.cedula,
+            "full_name": collaborator.full_name,
+            "regional": collaborator.regional,
+            "area": collaborator.area,
+            "cargo": collaborator.cargo,
+            "status": collaborator.status,
+            "supervisor": user_display(collaborator.current_supervisor),
+        }
+        label = f"{collaborator.full_name} ({collaborator.cedula})"
+        with transaction.atomic():
+            supervisor = collaborator.current_supervisor
+            pk = collaborator.pk
+            collaborator.assignments.all().delete()
+            collaborator.status_changes.all().delete()
+            collaborator.delete()
+            EventService.log(
+                actor=acc.user,
+                action="collaborator.deleted",
+                supervisor=supervisor,
+                target_type="collaborator",
+                target_id=pk,
+                target_label=label,
+                old_value=", ".join(f"{k}={v}" for k, v in snapshot.items()),
+                new_value="ELIMINADO",
+                reason=reason,
+                context=context,
+            )
+            NotificationService.notify_admins(
+                f"Colaborador eliminado de la base oficial: {snapshot['full_name']} (cédula "
+                f"{snapshot['cedula']}) — base de {snapshot['supervisor']}. Eliminado por "
+                f"{user_display(acc.user)} el {business_stamp()}. Motivo: {reason}.",
+                exclude_user=acc.user,
+                category=ALERT_DELETION,
+                dedup_key=f"novedades:collaborator-deleted:{pk}",
+            )
 
     @staticmethod
     def history(acc: NovedadesAccess, collaborator_id) -> dict:
@@ -1376,9 +1466,16 @@ class OvertimeService:
             f"{record.collaborator.full_name} ({record.collaborator.cedula}) {record.date:%d/%m/%Y}"
         )
         with transaction.atomic():
+            # Borrado lógico condicional: si dos solicitudes llegan a la vez
+            # (doble clic, reintento), solo una lo marca; la otra recibe 404 y
+            # no deja evento ni alerta duplicados.
             record.deleted_at = timezone.now()
             record.deleted_by = acc.user
-            record.save(update_fields=["deleted_at", "deleted_by"])
+            marked = OvertimeRecord.objects.filter(pk=record.pk, deleted_at__isnull=True).update(
+                deleted_at=record.deleted_at, deleted_by=acc.user
+            )
+            if not marked:
+                raise _not_found("El registro ya fue eliminado.")
             EventService.log(
                 actor=acc.user,
                 action="overtime.deleted",
@@ -1392,9 +1489,15 @@ class OvertimeService:
                 context=context,
             )
             NotificationService.notify_admins(
-                f"Horas extras: {user_display(acc.user)} eliminó el registro de {label}"
-                + (f". Motivo: {reason}." if reason else "."),
+                f"Registro de horas extras eliminado: {record.collaborator.full_name} "
+                f"(cédula {record.collaborator.cedula}) — {record.date:%d/%m/%Y}, período "
+                f"{record.period.key.label}, {_fmt(record.overtime_hours)} h extra / "
+                f"{_fmt(record.saturday_hours)} h sábado. Eliminado por {user_display(acc.user)} el "
+                f"{business_stamp()}. El colaborador sigue en la base."
+                + (f" Motivo: {reason}." if reason else ""),
                 exclude_user=acc.user,
+                category=ALERT_DELETION,
+                dedup_key=f"novedades:overtime-deleted:{record.pk}",
             )
 
     BULK_LIMIT = 500
@@ -1875,7 +1978,11 @@ class CorrectionService:
             if delete:
                 record.deleted_at = timezone.now()
                 record.deleted_by = acc.user
-                record.save(update_fields=["deleted_at", "deleted_by"])
+                marked = OvertimeRecord.objects.filter(
+                    pk=record.pk, deleted_at__isnull=True
+                ).update(deleted_at=record.deleted_at, deleted_by=acc.user)
+                if not marked:  # otra solicitud lo eliminó primero
+                    raise _not_found("El registro ya fue eliminado.")
                 new_values = {"deleted": True}
             else:
                 merged = {f: getattr(record, f) for f in OVERTIME_FIELDS}
@@ -1910,6 +2017,17 @@ class CorrectionService:
                 reason=reason.strip(),
                 context=context,
             )
+            if delete:
+                NotificationService.notify_admins(
+                    f"Registro de horas extras eliminado (corrección de período cerrado): "
+                    f"{record.collaborator.full_name} (cédula {record.collaborator.cedula}) — "
+                    f"{record.date:%d/%m/%Y}, período {sp.period.key.label}. Eliminado por "
+                    f"{user_display(acc.user)} el {business_stamp()}. Motivo: {reason.strip()}. "
+                    "El colaborador sigue en la base.",
+                    exclude_user=acc.user,
+                    category=ALERT_DELETION,
+                    dedup_key=f"novedades:overtime-deleted:{record.pk}",
+                )
         return correction
 
 

@@ -23,6 +23,65 @@
 
 ---
 
+## v1.169.0 — 2026-10-12
+
+**Tipo:** FEATURE / SECURITY / DATABASE
+**Módulo:** Control Operativo de Novedades — eliminación en Horas extras y en la
+base de colaboradores; alertas administrativas por color.
+
+- **Eliminar una fila en la captura de Horas extras** (icono de papelera por
+  fila). Si la fila nunca se guardó, solo se quita de la tabla (con "Deshacer").
+  Si ya está guardada, se confirma en un diálogo (colaborador, cédula, fecha,
+  horas y motivo opcional) y se elimina en Django: borrado lógico
+  (`deleted_at`/`deleted_by`), evento `overtime.deleted` en el historial y
+  auditoría. **El colaborador sigue en la base oficial.** Se respetan permisos
+  (registrar + equipo propio; el Asistente no elimina) y el período cerrado
+  (409; ahí corresponde la corrección de período cerrado). El diálogo es el
+  mismo que ya usaba la consulta de Horas extras (`OvertimeDeleteDialog.tsx`,
+  antes duplicado dentro de `OvertimeView.tsx`).
+- **Sin doble ejecución**: el borrado es condicional en la base (solo marca si
+  sigue vigente); un doble clic o un reintento recibe 404 sin evento ni alerta
+  extra, y el diálogo bloquea el segundo clic. Si otro usuario ya lo eliminó, la
+  fila se quita de la tabla con un aviso, sin error.
+- **Eliminar un colaborador de la base oficial** (acción separada, solo
+  Administrador, motivo obligatorio). Django la rechaza (409 `has_history`) si
+  la persona tiene días laborados u horas extras, aunque estén eliminados: se
+  conserva la historia y lo que corresponde es pasarla a Inactivo. Queda el
+  evento `collaborator.deleted` con la foto de los datos eliminados.
+- **Alertas administrativas** en la campana existente (`apps.notifications`, sin
+  sistema nuevo), persistidas y con `dedup_key` para no repetirse:
+  - **Roja — Eliminación**: al confirmarse la eliminación de un registro de
+    horas extras (edición ordinaria o corrección de período cerrado) y,
+    con un mensaje distinto, al eliminar un colaborador de la base.
+  - **Azul — Nuevo colaborador**: al crear uno desde el formulario y, en la
+    importación de la base, **un solo resumen** con los efectivamente creados
+    (origen, quién y cuándo). Las actualizaciones no generan alerta azul.
+  - Se envían solo después de confirmar la transacción: una operación fallida
+    o rechazada no alerta. El color nunca es la única señal: cada alerta lleva
+    icono y etiqueta de texto ("Eliminación" / "Nuevo colaborador").
+- **Base de datos:** `Notification.category` (migración
+  `notifications/0005_notification_category`) y `PendingNotification.category`/
+  `dedup_key` (migración `novedades/0005_pending_notification_category`), ambas
+  aditivas con valor por defecto.
+
+- **Archivos:** `backend/apps/notifications/{models,services,views}.py`,
+  `backend/apps/novedades/{models,services,excel,views}.py`, migraciones
+  nuevas, `src/app/api/notifications/route.ts`,
+  `src/components/NotificationBell.tsx`,
+  `src/components/novedades/{OvertimeDeleteDialog,OvertimeCapture,OvertimeView,CollaboratorsView}.tsx`.
+
+**Verificación:** 8 tests nuevos en
+`backend/apps/novedades/tests/test_deletions_alerts.py`, 1 en
+`apps/notifications/tests/test_notifications.py` (categoría + deduplicación),
+ajustes en `test_collaborator_import.py` (resumen azul solo de creados; sin
+alerta azul por actualizaciones); 5 tests nuevos en
+`src/__tests__/components/NovedadesDeletionAlerts.test.tsx` y el mapeo de
+`category` en `src/__tests__/api/notifications.test.ts`.
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
 ## v1.168.0 — 2026-10-12
 
 **Tipo:** FEATURE / UX

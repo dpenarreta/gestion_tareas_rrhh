@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Download, Plus, Upload } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
@@ -36,6 +36,7 @@ export default function CollaboratorsView({ ctx }: { ctx: ModuleContext }) {
   const [history, setHistory] = useState<{ collaborator: Collaborator; data: History } | null>(null);
   const [reassigning, setReassigning] = useState<Collaborator | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [removing, setRemoving] = useState<Collaborator | null>(null);
 
   const canManage = ctx.can(PERM.colaboradores) && !ctx.me.isAssistant;
 
@@ -159,6 +160,11 @@ export default function CollaboratorsView({ ctx }: { ctx: ModuleContext }) {
                         Reasignar
                       </button>
                     )}
+                    {ctx.me.nationalWrite && canManage && (
+                      <button className="text-xs text-danger hover:underline" onClick={() => setRemoving(c)}>
+                        Eliminar
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -190,6 +196,16 @@ export default function CollaboratorsView({ ctx }: { ctx: ModuleContext }) {
           onClose={() => setImportOpen(false)}
           onImported={() => {
             setImportOpen(false);
+            load();
+          }}
+        />
+      )}
+      {removing && (
+        <DeleteCollaboratorDialog
+          collaborator={removing}
+          onClose={() => setRemoving(null)}
+          onDone={() => {
+            setRemoving(null);
             load();
           }}
         />
@@ -415,6 +431,75 @@ function ReassignDialog({
             }}
           >
             Reasignar
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+// Eliminar a una persona de la BASE OFICIAL (solo Administrador). Es una acción
+// distinta a eliminar un registro de horas extras: Django la rechaza si la
+// persona ya tiene novedades registradas (se conserva la historia y lo que
+// corresponde es pasarla a Inactivo).
+function DeleteCollaboratorDialog({
+  collaborator,
+  onClose,
+  onDone,
+}: {
+  collaborator: Collaborator;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const { showToast } = useToast();
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const inFlight = useRef(false);
+
+  async function confirm() {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setSaving(true);
+    setError(null);
+    const result = await novedadesApi.del(`collaborators/${collaborator.id}`, { reason: reason.trim() });
+    setSaving(false);
+    inFlight.current = false;
+    if (result.ok) {
+      showToast("Colaborador eliminado de la base oficial.", "success");
+      onDone();
+    } else if (result.status === 404) {
+      showToast("El colaborador ya no estaba en la base.", "info");
+      onDone();
+    } else {
+      setError(result.error);
+    }
+  }
+
+  return (
+    <Modal open onClose={saving ? () => {} : onClose} size="sm">
+      <ModalHeader title="Eliminar colaborador de la base oficial" onClose={onClose} />
+      <div className="p-5 space-y-3">
+        <p className="text-sm">
+          <strong>{collaborator.fullName}</strong> · cédula <span className="font-mono">{collaborator.cedula}</span> ·
+          supervisor {collaborator.supervisorName}
+        </p>
+        <p className="text-sm text-secondary">
+          Esto quita a la persona de la base oficial (no es lo mismo que eliminar un registro de horas extras). Solo se
+          permite si no tiene días laborados ni horas extras registrados; si los tiene, cambie su estado a Inactivo. Queda
+          en el historial y se alerta a los administradores.
+        </p>
+        <label className="block">
+          <Label hint="obligatorio">Motivo</Label>
+          <TextArea value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} />
+        </label>
+        <ErrorBox message={error} />
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose} disabled={saving}>
+            Cancelar
+          </Button>
+          <Button variant="destructive" loading={saving} disabled={saving || !reason.trim()} onClick={confirm}>
+            Eliminar de la base
           </Button>
         </div>
       </div>

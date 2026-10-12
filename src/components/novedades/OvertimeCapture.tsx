@@ -37,6 +37,7 @@ import { ErrorBox, Label, TextArea, TextInput } from "./fields";
 import { PERM, type OvertimeRecord, type PeriodOption } from "./types";
 import type { ModuleContext } from "./NovedadesModule";
 import ImportDialog from "./ImportDialog";
+import OvertimeDeleteDialog, { type OvertimeDeleteTarget } from "./OvertimeDeleteDialog";
 
 type RowResult = {
   clientKey: string;
@@ -108,6 +109,7 @@ export default function OvertimeCapture({ ctx, supervisorId }: { ctx: ModuleCont
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [saving, setSaving] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<{ key: string; target: OvertimeDeleteTarget } | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
 
   const canWrite = ctx.can(PERM.registrar) && !ctx.me.isAssistant;
@@ -194,6 +196,44 @@ export default function OvertimeCapture({ ctx, supervisorId }: { ctx: ModuleCont
     if (removing.some((r) => r.dirty) && !window.confirm("Hay filas con cambios sin guardar. ¿Quitarlas de la tabla?")) return;
     setRows((prev) => prev.filter((r) => !selected.has(r.key)));
     setSelected(new Set());
+  }
+
+  function dropRow(key: string) {
+    setRows((prev) => prev.filter((r) => r.key !== key));
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.delete(key);
+      return next;
+    });
+    setActive(null);
+    setRange(null);
+  }
+
+  // Eliminar UNA fila: si nunca se guardó solo se quita de la tabla (no hay
+  // nada en el servidor); si ya está guardada se confirma y se elimina en
+  // Django (borrado lógico, alerta al Administrador). Nunca toca la base de
+  // colaboradores.
+  function deleteRow(row: CaptureRow) {
+    if (row.id === null) {
+      dropRow(row.key);
+      showToast(`Fila de ${row.fullName} quitada (no estaba guardada).`, "info", {
+        label: "Deshacer",
+        onClick: () => setRows((prev) => (prev.some((r) => r.key === row.key) ? prev : [...prev, row])),
+      });
+      return;
+    }
+    if (row.dirty && !window.confirm("Esta fila tiene cambios sin guardar que se perderán. ¿Continuar con la eliminación?")) return;
+    setDeleting({
+      key: row.key,
+      target: {
+        id: row.id,
+        fullName: row.fullName,
+        cedula: row.cedula,
+        date: row.date,
+        overtimeHours: row.overtimeHours,
+        saturdayHours: row.saturdayHours,
+      },
+    });
   }
 
   function applyDateToSelected() {
@@ -565,6 +605,9 @@ export default function OvertimeCapture({ ctx, supervisorId }: { ctx: ModuleCont
                     {c.header}
                   </th>
                 ))}
+                <th className="sticky top-0 z-20 bg-surface2 border-b border-border px-2 py-2 text-secondary font-semibold">
+                  <span className="sr-only">Acciones</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -697,6 +740,24 @@ export default function OvertimeCapture({ ctx, supervisorId }: { ctx: ModuleCont
                         </td>
                       );
                     })}
+                    <td className="border-b border-border px-1 text-center">
+                      <button
+                        type="button"
+                        onClick={() => deleteRow(row)}
+                        disabled={!canEdit || deleting !== null}
+                        aria-label={`Eliminar fila de ${row.fullName}`}
+                        title={
+                          !canEdit
+                            ? "No se puede eliminar: período cerrado, fila bloqueada o sin permiso."
+                            : row.id === null
+                              ? "Quitar esta fila (no está guardada)"
+                              : "Eliminar este registro guardado (el colaborador sigue en la base)"
+                        }
+                        className="p-1 rounded text-secondary hover:text-danger hover:bg-danger/10 disabled:opacity-30 disabled:hover:text-secondary disabled:hover:bg-transparent"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
@@ -755,6 +816,16 @@ export default function OvertimeCapture({ ctx, supervisorId }: { ctx: ModuleCont
           onImported={() => {
             setImportOpen(false);
             loadExisting();
+          }}
+        />
+      )}
+      {deleting && (
+        <OvertimeDeleteDialog
+          record={deleting.target}
+          onClose={() => setDeleting(null)}
+          onDone={() => {
+            dropRow(deleting.key);
+            setDeleting(null);
           }}
         />
       )}

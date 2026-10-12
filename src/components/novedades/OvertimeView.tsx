@@ -7,12 +7,13 @@ import { Modal, ModalHeader } from "@/components/ui/Modal";
 import { Spinner } from "@/components/ui/Skeleton";
 import { useToast } from "@/components/ui/Toast";
 import { formatDate, formatDateTime, novedadesApi } from "./api";
-import { ErrorBox, Label, TextArea, TextInput } from "./fields";
+import { ErrorBox, Label, TextInput } from "./fields";
 import { PERM, type OvertimeIndicators, type OvertimeRecord } from "./types";
 import type { ModuleContext } from "./NovedadesModule";
 import OvertimeFormDialog from "./OvertimeFormDialog";
 import CorrectionDialog from "./CorrectionDialog";
 import OvertimeCapture from "./OvertimeCapture";
+import OvertimeDeleteDialog from "./OvertimeDeleteDialog";
 import { SelectInput } from "./fields";
 
 // Encabezados EXACTOS de la tabla en pantalla (13). La exportación agrega
@@ -375,7 +376,7 @@ function OvertimeConsult({ ctx }: { ctx: ModuleContext }) {
         />
       )}
       {deleting && (
-        <DeleteDialog
+        <OvertimeDeleteDialog
           record={deleting}
           onClose={() => setDeleting(null)}
           onDone={() => {
@@ -402,47 +403,3 @@ function OvertimeConsult({ ctx }: { ctx: ModuleContext }) {
   );
 }
 
-function DeleteDialog({ record, onClose, onDone }: { record: OvertimeRecord; onClose: () => void; onDone: () => void }) {
-  const { showToast } = useToast();
-  const [reason, setReason] = useState("");
-  const [error, setError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  return (
-    <Modal open onClose={onClose} size="sm">
-      <ModalHeader title="Eliminar registro" onClose={onClose} />
-      <div className="p-5 space-y-3">
-        <p className="text-sm text-secondary">
-          {record.fullName} · {formatDate(record.date)}. El registro se conserva en el historial (eliminación lógica) y
-          se notificará al Administrador.
-        </p>
-        <label className="block">
-          <Label hint="opcional">Motivo</Label>
-          <TextArea value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} />
-        </label>
-        <ErrorBox message={error} />
-        <div className="flex justify-end gap-2">
-          <Button variant="secondary" onClick={onClose} disabled={saving}>
-            Cancelar
-          </Button>
-          <Button
-            variant="destructive"
-            loading={saving}
-            onClick={async () => {
-              setSaving(true);
-              const result = await novedadesApi.del(`overtime/${record.id}`, { reason });
-              setSaving(false);
-              if (!result.ok) {
-                setError(result.error);
-                return;
-              }
-              showToast("Registro eliminado.", "success");
-              onDone();
-            }}
-          >
-            Eliminar
-          </Button>
-        </div>
-      </div>
-    </Modal>
-  );
-}

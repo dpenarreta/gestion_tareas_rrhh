@@ -403,6 +403,8 @@ class PendingNotification(models.Model):
     original."""
 
     message = models.TextField()
+    category = models.CharField(max_length=30, blank=True, default="")
+    dedup_key = models.CharField(max_length=100, blank=True, default="")
     recipient_ids = models.JSONField(default=list)
     attempts = models.PositiveSmallIntegerField(default=0)
     last_error = models.CharField(max_length=500, blank=True)

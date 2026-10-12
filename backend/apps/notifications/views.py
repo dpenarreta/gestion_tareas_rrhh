@@ -26,8 +26,11 @@ def _serialize(notification: Notification, task_owner_map: dict[int, int]) -> di
         "task_id": notification.task_id,
         "task_title": notification.task_title,
         "read": notification.read,
+        "category": notification.category,
         "created_at": notification.created_at,
-        "task_assigned_to_id": task_owner_map.get(notification.task_id) if notification.task_id is not None else None,
+        "task_assigned_to_id": (
+            task_owner_map.get(notification.task_id) if notification.task_id is not None else None
+        ),
     }
 
 
@@ -51,7 +54,11 @@ class NotificationListView(generics.GenericAPIView):
         unread_count = Notification.objects.filter(user=request.user, read=False).count()
 
         task_ids = {n.task_id for n in notifications if n.task_id is not None}
-        task_owner_map = dict(Task.objects.filter(id__in=task_ids).values_list("id", "assigned_to_id")) if task_ids else {}
+        task_owner_map = (
+            dict(Task.objects.filter(id__in=task_ids).values_list("id", "assigned_to_id"))
+            if task_ids
+            else {}
+        )
 
         return Response(
             {

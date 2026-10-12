@@ -213,6 +213,11 @@ class CollaboratorDetailView(NovedadesView):
         collaborator = CollaboratorService.update(self.access, pk, data, context=self.context)
         return Response(CollaboratorSerializer(collaborator).data)
 
+    def delete(self, request, pk):
+        data = self.validated(DeleteSerializer, request.data or {})
+        CollaboratorService.delete(self.access, pk, data["reason"], context=self.context)
+        return Response(status=204)
+
 
 class CollaboratorStatusView(NovedadesView):
     def post(self, request, pk):
