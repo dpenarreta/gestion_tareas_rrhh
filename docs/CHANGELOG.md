@@ -23,6 +23,65 @@
 
 ---
 
+## v1.170.0 — 2026-10-12
+
+**Tipo:** FIX / UX
+**Módulo:** Control Operativo de Novedades — cambios de estado en el Historial
+de registros; verificación del cierre de período.
+
+- **Causa raíz (caso ACOSTA ACOSTA MARCELO FERNANDO):** el cambio de estado
+  **sí se guardaba** (`CollaboratorStatusChange` y `NovedadEvent` en la misma
+  transacción), pero el evento se registraba **sin período**. El Historial de
+  registros filtra por defecto por el período elegido, así que esos eventos
+  solo aparecían marcando "Todos los períodos". Evidencia en la base local:
+  eventos 911, 912 y 913 del 12/10/2026 (Activo → Inactivo, Inactivo → Activo,
+  Activo → Inactivo; motivo "SALE"), con `period` vacío. No se inventó ni
+  reescribió ningún evento.
+- **Corrección:** los eventos de la base de colaboradores (cambio de estado,
+  modificación, reasignación, eliminación) se asocian al período abierto
+  vigente del supervisor, igual que el alta. El filtro por período también
+  incluye los eventos antiguos sin período ocurridos dentro de las fechas del
+  corte (23 → 22, hora del negocio UTC-5), así el caso reportado ya se ve en
+  Octubre 2026 sin tocar la base.
+- **Marca roja:** Django devuelve `highlight: "danger"` cuando el EVENTO deja
+  al colaborador Inactivo o Suspendido; la fila se tiñe de rojo y el estado
+  nuevo se muestra como etiqueta de texto. La reactivación conserva el diseño
+  normal. No cambia el estado real del colaborador.
+- **Sin duplicados:** el cambio de estado es condicional en la base (un doble
+  envío concurrente no registra un segundo evento); repetir el mismo estado
+  no registra nada. Si el registro del historial falla, se revierte también el
+  cambio de estado.
+- **Alerta al Administrador:** al pasar a Inactivo o Suspendido, alerta roja
+  "Inactivo / Suspendido" en la campana (categoría `status_change`, con
+  `dedup_key` por cambio), enviada solo tras confirmar la transacción, con
+  colaborador, estado anterior y nuevo, supervisor, responsable, fecha y hora y
+  motivo.
+- **Cierre de período (verificado, sin cambios de lógica):** cerrar marca el
+  período del supervisor como CERRADO (quién y cuándo, resumen) y abre el
+  siguiente (23/10 → 22/11) solo para ese supervisor. No copia novedades
+  diarias, no crea personas ni asignaciones, no toca estados ni genera eventos
+  de estado; es idempotente (`select_for_update` + restricciones únicas por
+  período/supervisor y por colaborador/fecha). La matriz del período nuevo
+  incluye Activos y Suspendidos del supervisor; los Inactivos solo aparecen en
+  los períodos donde tienen registros.
+
+- **Archivos:** `backend/apps/novedades/{services,serializers,excel}.py`,
+  `src/components/novedades/{HistoryView.tsx,types.ts}`,
+  `src/components/NotificationBell.tsx`.
+
+**Verificación:** 12 tests nuevos en
+`backend/apps/novedades/tests/test_status_history_periods.py` (eventos de
+Inactivo y Suspendido con período, responsable, fecha y motivo; marca roja;
+eventos antiguos sin período visibles en su corte; historial de todos los
+períodos; reversión si falla el historial; sin duplicados por reenvío o doble
+envío; permisos; cierre que no copia, no duplica ni reactiva; cierre repetido;
+otros supervisores intactos) y 1 en
+`src/__tests__/components/NovedadesHistoryHighlight.test.tsx`.
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
 ## v1.169.0 — 2026-10-12
 
 **Tipo:** FEATURE / SECURITY / DATABASE

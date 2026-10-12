@@ -7,7 +7,8 @@ ocultar un botón en el frontend nunca es la barrera de seguridad.
 
 import logging
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
+from datetime import timezone as dt_timezone
 from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth import get_user_model
@@ -76,6 +77,15 @@ def today() -> date:
     return business_calendar_day(timezone.now())
 
 
+def business_range(first: date, last: date) -> tuple[datetime, datetime]:
+    """[inicio, fin) en UTC de los días `first`..`last` del calendario del
+    negocio (UTC-5)."""
+    offset = timedelta(hours=BUSINESS_TZ_OFFSET_HOURS)
+    start = datetime.combine(first, time.min, tzinfo=dt_timezone.utc) + offset
+    end = datetime.combine(last + timedelta(days=1), time.min, tzinfo=dt_timezone.utc) + offset
+    return start, end
+
+
 def business_stamp() -> str:
     """Fecha y hora en la zona del negocio (UTC-5, ver `apps.tasks.business_time`)."""
     return (timezone.now() - timedelta(hours=BUSINESS_TZ_OFFSET_HOURS)).strftime("%d/%m/%Y %H:%M")
@@ -84,6 +94,7 @@ def business_stamp() -> str:
 # Categorías de alerta (la campana las pinta con color + icono + texto).
 ALERT_DELETION = "deletion"  # rojo
 ALERT_NEW_COLLABORATOR = "new_collaborator"  # azul
+ALERT_STATUS_CHANGE = "status_change"  # rojo: pasó a Inactivo o Suspendido
 
 
 def parse_hours(value, *, field_label: str = "Horas") -> Decimal | None:
@@ -701,6 +712,7 @@ class CollaboratorService:
                     actor=acc.user,
                     action="collaborator.updated",
                     supervisor=collaborator.current_supervisor,
+                    period=CollaboratorService._event_period(collaborator.current_supervisor),
                     target_type="collaborator",
                     target_id=collaborator.pk,
                     target_label=f"{collaborator.full_name} ({collaborator.cedula})",
@@ -711,6 +723,16 @@ class CollaboratorService:
                 )
             collaborator.save()
         return collaborator
+
+    @staticmethod
+    def _event_period(supervisor):
+        """Período al que se asocia un evento de la base de colaboradores: el
+        período abierto vigente del supervisor (mismo criterio que el alta).
+        Sin esto el evento quedaba con período vacío y el Historial de
+        registros, que por defecto filtra por período, no lo mostraba."""
+        if supervisor is None:
+            return None
+        return PeriodService.ensure_current(supervisor).period
 
     @staticmethod
     def change_status(
@@ -726,12 +748,20 @@ class CollaboratorService:
             )
         previous = collaborator.status
         if previous == new_status:
-            return collaborator
+            return collaborator  # mismo estado: no hay cambio ni evento
         labels = dict(Collaborator.Status.choices)
         with transaction.atomic():
+            # Actualización condicional: si dos envíos llegan a la vez (doble
+            # clic, reintento), solo el primero cambia el estado; el segundo
+            # ve que ya no está en el estado anterior y no registra nada.
+            changed = Collaborator.objects.filter(pk=collaborator.pk, status=previous).update(
+                status=new_status, updated_at=timezone.now()
+            )
+            if not changed:
+                collaborator.refresh_from_db()
+                return collaborator
             collaborator.status = new_status
-            collaborator.save(update_fields=["status", "updated_at"])
-            CollaboratorStatusChange.objects.create(
+            status_change = CollaboratorStatusChange.objects.create(
                 collaborator=collaborator,
                 previous_status=previous,
                 new_status=new_status,
@@ -742,6 +772,7 @@ class CollaboratorService:
                 actor=acc.user,
                 action="collaborator.status_changed",
                 supervisor=collaborator.current_supervisor,
+                period=CollaboratorService._event_period(collaborator.current_supervisor),
                 target_type="collaborator",
                 target_id=collaborator.pk,
                 target_label=f"{collaborator.full_name} ({collaborator.cedula})",
@@ -752,12 +783,14 @@ class CollaboratorService:
                 context=context,
             )
             if new_status in (Collaborator.Status.INACTIVE, Collaborator.Status.SUSPENDED):
-                changed_at = timezone.localtime().strftime("%d/%m/%Y %H:%M")
                 NotificationService.notify_admins(
                     f"Cambio de estado: {collaborator.full_name} (cédula {collaborator.cedula}) pasó de "
                     f"{labels[previous]} a {labels[new_status]}. Supervisor: "
-                    f"{user_display(collaborator.current_supervisor)}. Fecha: {changed_at}. Motivo: {reason}.",
+                    f"{user_display(collaborator.current_supervisor)}. Cambiado por "
+                    f"{user_display(acc.user)} el {business_stamp()}. Motivo: {reason}.",
                     exclude_user=acc.user,
+                    category=ALERT_STATUS_CHANGE,
+                    dedup_key=f"novedades:status-change:{status_change.pk}",
                 )
         return collaborator
 
@@ -793,11 +826,11 @@ class CollaboratorService:
             )
             collaborator.current_supervisor = new_supervisor
             collaborator.save(update_fields=["current_supervisor", "updated_at"])
-            PeriodService.ensure_current(new_supervisor)
             EventService.log(
                 actor=acc.user,
                 action="collaborator.reassigned",
                 supervisor=new_supervisor,
+                period=CollaboratorService._event_period(new_supervisor),
                 target_type="collaborator",
                 target_id=collaborator.pk,
                 target_label=f"{collaborator.full_name} ({collaborator.cedula})",
@@ -857,6 +890,7 @@ class CollaboratorService:
                 actor=acc.user,
                 action="collaborator.deleted",
                 supervisor=supervisor,
+                period=CollaboratorService._event_period(supervisor),
                 target_type="collaborator",
                 target_id=pk,
                 target_label=label,
@@ -2055,7 +2089,11 @@ class HistoryService:
             qs = qs.filter(action__in=HistoryService.PERMISSION_ACTIONS)
         if params.get("period"):
             key = params["period"]
-            qs = qs.filter(period__year=key.year, period__month=key.month)
+            start, end = business_range(key.start_date, key.end_date)
+            qs = qs.filter(
+                Q(period__year=key.year, period__month=key.month)
+                | Q(period__isnull=True, created_at__gte=start, created_at__lt=end)
+            )
         if params.get("supervisor"):
             qs = qs.filter(supervisor_id=params["supervisor"])
         if params.get("action"):

@@ -23,6 +23,12 @@ const ALERT_STYLES: Record<string, { label: string; border: string; text: string
     text: "text-danger",
     icon: "M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M4 7h16",
   },
+  status_change: {
+    label: "Inactivo / Suspendido",
+    border: "border-l-4 border-l-danger",
+    text: "text-danger",
+    icon: "M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636",
+  },
   new_collaborator: {
     label: "Nuevo colaborador",
     border: "border-l-4 border-l-blue-600 dark:border-l-blue-400",

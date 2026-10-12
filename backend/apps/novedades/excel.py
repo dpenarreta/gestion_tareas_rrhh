@@ -1148,6 +1148,7 @@ class CollaboratorImportService:
                                 actor=acc.user,
                                 action="collaborator.updated",
                                 supervisor=supervisor,
+                                period=current.period,
                                 target_type="collaborator",
                                 target_id=collaborator.pk,
                                 target_label=f"{collaborator.full_name} ({collaborator.cedula})",

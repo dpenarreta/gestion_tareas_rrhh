@@ -147,6 +147,8 @@ export type NovedadEvent = {
   reason: string;
   sourceFile: string;
   createdAt: string;
+  /** "danger" = el evento dejó al colaborador Inactivo o Suspendido (lo decide Django). */
+  highlight?: string;
 };
 
 export type RepositoryPeriod = {

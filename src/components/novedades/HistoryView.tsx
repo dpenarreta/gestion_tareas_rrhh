@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
 import { SearchInput } from "@/components/ui/SearchInput";
 import { Spinner } from "@/components/ui/Skeleton";
 import { formatDateTime, novedadesApi } from "./api";
@@ -124,17 +125,24 @@ export default function HistoryView({ ctx, kind }: { ctx: ModuleContext; kind?: 
                 </tr>
               )}
               {events.map((e) => (
-                <tr key={e.id}>
+                <tr
+                  key={e.id}
+                  data-highlight={e.highlight || undefined}
+                  className={e.highlight === "danger" ? "bg-danger/[.06] shadow-[inset_3px_0_0_var(--danger)]" : undefined}
+                >
                   <td className="border-b border-border px-2 py-1.5 whitespace-nowrap">{formatDateTime(e.createdAt)}</td>
                   <td className="border-b border-border px-2 py-1.5 whitespace-nowrap">{ACTION_LABEL[e.action] ?? e.action}</td>
                   <td className="border-b border-border px-2 py-1.5 whitespace-nowrap">{e.actorName}</td>
                   <td className="border-b border-border px-2 py-1.5 whitespace-nowrap text-secondary">{e.actorRole}</td>
                   <td className="border-b border-border px-2 py-1.5 whitespace-nowrap">{e.supervisorName}</td>
-                  <td className="border-b border-border px-2 py-1.5">{e.period ?? ""}</td>
+                  <td className="border-b border-border px-2 py-1.5">{e.period ?? "—"}</td>
                   <td className="border-b border-border px-2 py-1.5">{e.targetLabel}</td>
                   <td className="border-b border-border px-2 py-1.5">{e.field}</td>
                   <td className="border-b border-border px-2 py-1.5 text-secondary">{e.oldValue}</td>
-                  <td className="border-b border-border px-2 py-1.5">{e.newValue}</td>
+                  <td className="border-b border-border px-2 py-1.5">
+                    {/* Etiqueta con texto además del color: el estado nuevo del EVENTO, no el actual. */}
+                    {e.highlight === "danger" ? <Badge variant="danger">{e.newValue}</Badge> : e.newValue}
+                  </td>
                   <td className="border-b border-border px-2 py-1.5">{e.reason}</td>
                   <td className="border-b border-border px-2 py-1.5 text-secondary">{e.sourceFile}</td>
                 </tr>

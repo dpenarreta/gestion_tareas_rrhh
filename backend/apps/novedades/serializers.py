@@ -253,6 +253,7 @@ class EventSerializer(serializers.ModelSerializer):
     actor_name = serializers.SerializerMethodField()
     supervisor_name = serializers.SerializerMethodField()
     period = serializers.SerializerMethodField()
+    highlight = serializers.SerializerMethodField()
 
     class Meta:
         model = NovedadEvent
@@ -273,8 +274,23 @@ class EventSerializer(serializers.ModelSerializer):
             "reason",
             "source_file",
             "created_at",
+            "highlight",
         ]
         read_only_fields = fields
+
+    # Etiquetas con que `change_status` guarda el estado nuevo del evento.
+    DANGER_STATUSES = (
+        Collaborator.Status.INACTIVE.label,
+        Collaborator.Status.SUSPENDED.label,
+    )
+
+    def get_highlight(self, obj) -> str:
+        """ "danger" cuando el evento deja al colaborador Inactivo o
+        Suspendido: el Historial lo marca en rojo. Lo decide el backend, no
+        la pantalla, y describe al EVENTO (no al estado actual)."""
+        if obj.action == "collaborator.status_changed" and obj.new_value in self.DANGER_STATUSES:
+            return "danger"
+        return ""
 
     def get_actor_name(self, obj) -> str:
         return user_display(obj.actor)
