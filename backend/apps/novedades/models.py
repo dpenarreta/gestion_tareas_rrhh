@@ -285,20 +285,24 @@ class ClosedPeriodCorrection(models.Model):
 
 class ImportBatch(BaseModel):
     """Importación de Excel en dos pasos: vista previa (PREVIEW, con las
-    filas ya validadas en `rows`) y confirmación (CONFIRMED)."""
+    filas ya validadas en `rows`) y confirmación (CONFIRMED). La de la base de
+    colaboradores no pertenece a un período (`period` nulo)."""
 
     class Kind(models.TextChoices):
         WORKED_DAYS = "WORKED_DAYS", "Días laborados"
         OVERTIME = "OVERTIME", "Horas extras"
+        COLLABORATORS = "COLLABORATORS", "Base de colaboradores"
 
     class Status(models.TextChoices):
         PREVIEW = "PREVIEW", "Vista previa"
         CONFIRMED = "CONFIRMED", "Confirmada"
         CANCELLED = "CANCELLED", "Cancelada"
 
-    kind = models.CharField(max_length=12, choices=Kind.choices)
+    kind = models.CharField(max_length=20, choices=Kind.choices)
     status = models.CharField(max_length=10, choices=Status.choices, default=Status.PREVIEW)
-    period = models.ForeignKey(OperationalPeriod, on_delete=models.PROTECT, related_name="imports")
+    period = models.ForeignKey(
+        OperationalPeriod, on_delete=models.PROTECT, related_name="imports", null=True, blank=True
+    )
     uploaded_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="novedades_imports"
     )

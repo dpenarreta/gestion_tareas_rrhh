@@ -17,7 +17,7 @@ from apps.core.request_meta import get_request_context
 from apps.core.responses import error_response
 
 from .access import NovedadesAccess
-from .excel import ExportService, ImportService
+from .excel import CollaboratorImportService, ExportService, ImportService
 from .models import ImportBatch
 from .periods import parse_period_code, period_for_date
 from .permissions import CanAccessNovedades
@@ -358,6 +358,11 @@ class OvertimeBulkView(NovedadesView):
         return Response(result)
 
 
+class CollaboratorTemplateView(NovedadesView):
+    def get(self, request):
+        return self.xlsx(CollaboratorImportService.template(), "plantilla-base-colaboradores.xlsx")
+
+
 class OvertimeTemplateView(NovedadesView):
     def get(self, request):
         return self.xlsx(ExportService.overtime_template(), "plantilla-horas-extras.xlsx")
@@ -378,13 +383,21 @@ class ImportPreviewView(NovedadesView):
 
     def post(self, request):
         data = self.validated(ImportPreviewSerializer)
-        batch = ImportService.preview(
-            self.access,
-            kind=data["kind"],
-            key=self.period_param(data["period"]),
-            file=data["file"],
-            file_name=data["file"].name,
-        )
+        if data["kind"] == ImportBatch.Kind.COLLABORATORS:
+            batch = CollaboratorImportService.preview(
+                self.access,
+                file=data["file"],
+                file_name=data["file"].name,
+                supervisor_id=data.get("supervisor_id"),
+            )
+        else:
+            batch = ImportService.preview(
+                self.access,
+                kind=data["kind"],
+                key=self.period_param(data["period"]),
+                file=data["file"],
+                file_name=data["file"].name,
+            )
         return Response(ImportBatchSerializer(batch).data, status=201)
 
 

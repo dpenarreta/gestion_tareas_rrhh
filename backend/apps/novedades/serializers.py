@@ -189,8 +189,14 @@ class CloseSerializer(serializers.Serializer):
 
 class ImportPreviewSerializer(serializers.Serializer):
     kind = serializers.ChoiceField(choices=ImportBatch.Kind.choices)
-    period = serializers.CharField()
+    period = serializers.CharField(required=False, allow_blank=True, default="")
+    supervisor_id = serializers.IntegerField(required=False, allow_null=True)
     file = serializers.FileField()
+
+    def validate(self, attrs):
+        if attrs["kind"] != ImportBatch.Kind.COLLABORATORS and not attrs.get("period"):
+            raise serializers.ValidationError({"period": "Indique el período."})
+        return attrs
 
     def validate_file(self, value):
         if not value.name.lower().endswith(".xlsx"):
@@ -207,7 +213,10 @@ class ImportConfirmSerializer(serializers.Serializer):
 
 
 class ImportBatchSerializer(serializers.ModelSerializer):
-    period = serializers.CharField(source="period.code")
+    period = serializers.SerializerMethodField()
+
+    def get_period(self, obj) -> str | None:
+        return obj.period.code if obj.period else None
 
     class Meta:
         model = ImportBatch

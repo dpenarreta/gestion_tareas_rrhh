@@ -16,15 +16,23 @@ from datetime import date
 from decimal import Decimal
 
 import openpyxl
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+from apps.core.audit import record_audit_event
 from apps.tasks.task_import import parse_date
 
 from . import access as perms
 from .access import NovedadesAccess
-from .models import Collaborator, ImportBatch, OvertimeRecord, SupervisorPeriod, WorkedDay
+from .models import (
+    Collaborator,
+    CollaboratorAssignment,
+    ImportBatch,
+    OvertimeRecord,
+    SupervisorPeriod,
+    WorkedDay,
+)
 from .periods import WEEKDAY_NAMES_ES, PeriodKey, is_weekend
 from .services import (
     EventService,
@@ -276,7 +284,7 @@ class ImportService:
                 {
                     "row": row_num,
                     "column": column,
-                    "message": f"La cédula {cedula} no existe en la base de colaboradores (regístrela primero).",
+                    "message": f"La cédula {cedula} no existe en la base de colaboradores. Cárguela primero en Base de colaboradores (puede importarla desde ahí).",
                 }
             )
             return None
@@ -592,7 +600,6 @@ class ImportService:
 
     @staticmethod
     def confirm(acc: NovedadesAccess, batch_id, strategy: str, *, context=None) -> ImportBatch:
-        ImportService._check(acc)
         batch = (
             ImportBatch.objects.select_related("period")
             .filter(pk=batch_id, uploaded_by=acc.user)
@@ -608,6 +615,11 @@ class ImportService:
             raise NovedadesError(
                 "Estrategia inválida: use 'skip' (omitir existentes) o 'update' (actualizar)."
             )
+        if batch.kind == ImportBatch.Kind.COLLABORATORS:
+            # La base de colaboradores CREA personas: no pasa por la exigencia
+            # de existencia previa de las importaciones de novedades.
+            return CollaboratorImportService.confirm(acc, batch, strategy, context=context)
+        ImportService._check(acc)
         key = batch.period.key
         items = [i for i in batch.rows if strategy == "update" or not i.get("existing")]
         open_ids = ImportService._open_supervisor_ids(key, {i["supervisor_id"] for i in items})
@@ -731,3 +743,383 @@ class ImportService:
         ImportBatch.objects.filter(
             pk=batch_id, uploaded_by=acc.user, status=ImportBatch.Status.PREVIEW
         ).update(status=ImportBatch.Status.CANCELLED)
+
+
+# ── Importación de la base de colaboradores ───────────────────────────────────
+
+COLLABORATOR_TEMPLATE_HEADERS = ["CEDULA", "NOMBRES COMPLETOS", "REGIONAL", "ÁREA", "CARGO"]
+# Sinónimos aceptados por columna (comparados sin tildes ni mayúsculas), para
+# poder cargar la base desde las planillas que la operación ya usa —incluida
+# la de Días laborados (columna "Empleado")—. Cualquier otra columna se ignora.
+COLLABORATOR_HEADER_ALIASES = {
+    "cedula": {"CEDULA", "CEDULA DE IDENTIDAD", "IDENTIFICACION", "NUMERO DE CEDULA", "CI"},
+    "full_name": {
+        "NOMBRES COMPLETOS",
+        "NOMBRE COMPLETO",
+        "NOMBRE DEL COLABORADOR",
+        "APELLIDOS Y NOMBRES",
+        "NOMBRES Y APELLIDOS",
+        "NOMBRES",
+        "NOMBRE",
+        "EMPLEADO",
+        "COLABORADOR",
+    },
+    "regional": {"REGIONAL"},
+    "area": {"AREA"},
+    "cargo": {"CARGO"},
+}
+# Campos que una importación puede actualizar en un colaborador existente.
+# Nunca: cédula, estado operativo, supervisor asignado, ni nada de usuarios,
+# roles o permisos (el colaborador operativo no es un usuario de NEXO).
+COLLABORATOR_UPDATABLE = ("full_name", "regional", "area", "cargo")
+COLLABORATOR_LABELS = {
+    "full_name": "Nombre",
+    "regional": "Regional",
+    "area": "Área",
+    "cargo": "Cargo",
+}
+
+
+def normalize_import_cedula(raw) -> str:
+    """Cédula como texto. Excel guarda una cédula numérica sin el cero
+    inicial (0102030405 → 102030405): una de 9 dígitos se completa a los 10
+    de la cédula ecuatoriana. Texto alfanumérico (pasaporte) se respeta."""
+    if raw is None:
+        return ""
+    if isinstance(raw, float) and raw.is_integer():
+        raw = int(raw)
+    text = normalize_cedula(raw)
+    if text.isdigit() and len(text) == 9:
+        text = text.zfill(10)
+    return text
+
+
+def cedula_problem(cedula: str) -> str | None:
+    if not cedula:
+        return "Cédula vacía."
+    if not cedula.isalnum():
+        return f"Cédula «{cedula}» con caracteres no permitidos."
+    if not 6 <= len(cedula) <= 20:
+        return f"Cédula «{cedula}» con longitud inválida (6 a 20 caracteres)."
+    return None
+
+
+class CollaboratorImportService:
+    @staticmethod
+    def _check(acc: NovedadesAccess):
+        if not acc.can(perms.IMPORTAR):
+            raise _forbidden("No tiene habilitada la importación de Excel.")
+        if not acc.can(perms.COLABORADORES) or acc.is_assistant:
+            raise _forbidden("No tiene permiso para gestionar la base de colaboradores.")
+
+    @staticmethod
+    def _target_supervisor(acc: NovedadesAccess, supervisor_id):
+        if acc.is_supervisor and not acc.national_write:
+            return acc.user
+        if not supervisor_id:
+            raise NovedadesError("Seleccione el supervisor al que se asignará la base importada.")
+        supervisor = PeriodService.get_supervisor(supervisor_id)
+        if not acc.can_write_for_supervisor(supervisor.pk):
+            raise _forbidden()
+        return supervisor
+
+    @staticmethod
+    def template() -> bytes:
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "Colaboradores"
+        ws.append(COLLABORATOR_TEMPLATE_HEADERS)
+        _style_header(ws, len(COLLABORATOR_TEMPLATE_HEADERS))
+        for idx, width in enumerate([16, 36, 18, 20, 24], start=1):
+            ws.column_dimensions[get_column_letter(idx)].width = width
+        for r in range(2, 1002):
+            _text_cell(ws, r, 1)  # cédula como texto: conserva el cero inicial
+        return _sheet_bytes(wb)
+
+    @staticmethod
+    def _classify(supervisor, rows: list[dict]) -> tuple[list[dict], list[dict]]:
+        """Clasifica filas ya leídas como NEW / EXISTING / UNCHANGED o error,
+        contra el estado ACTUAL de la base (se usa en la vista previa y otra
+        vez al confirmar)."""
+        cedulas = {r["cedula"] for r in rows}
+        existing = {
+            c.cedula: c
+            for c in Collaborator.objects.select_related("current_supervisor").filter(
+                cedula__in=cedulas
+            )
+        }
+        planned, errors = [], []
+        for r in rows:
+            current = existing.get(r["cedula"])
+            if current is None:
+                planned.append({**r, "status": "NEW", "collaborator_id": None, "changes": {}})
+                continue
+            if current.current_supervisor_id != supervisor.pk:
+                errors.append(
+                    {
+                        "row": r["row"],
+                        "column": "CEDULA",
+                        "message": f"La cédula {r['cedula']} ya pertenece a la base de "
+                        f"{user_display(current.current_supervisor)}: no se reasigna por "
+                        "importación (el Administrador puede usar Reasignar).",
+                    }
+                )
+                continue
+            changes = {
+                f: [getattr(current, f), r[f]]
+                for f in COLLABORATOR_UPDATABLE
+                if r.get(f) and r[f] != getattr(current, f)
+            }
+            planned.append(
+                {
+                    **r,
+                    "status": "EXISTING" if changes else "UNCHANGED",
+                    "collaborator_id": current.pk,
+                    "changes": changes,
+                    "current_status": current.status,
+                }
+            )
+        return planned, errors
+
+    @staticmethod
+    def preview(acc: NovedadesAccess, *, file, file_name: str, supervisor_id=None) -> ImportBatch:
+        CollaboratorImportService._check(acc)
+        supervisor = CollaboratorImportService._target_supervisor(acc, supervisor_id)
+        content = file.read()
+        sheet = ImportService._load(io.BytesIO(content))
+        header = [_norm(h) for h in sheet[0]]
+        columns = {}
+        for field, aliases in COLLABORATOR_HEADER_ALIASES.items():
+            for idx, name in enumerate(header):
+                if name in aliases:
+                    columns[field] = idx
+                    break
+        missing = [
+            label
+            for field, label in (("cedula", "CEDULA"), ("full_name", "NOMBRES COMPLETOS"))
+            if field not in columns
+        ]
+        if missing:
+            raise NovedadesError(
+                "Encabezados inválidos: faltan "
+                + " y ".join(missing)
+                + ". Columnas reconocidas: "
+                + " | ".join(COLLABORATOR_TEMPLATE_HEADERS)
+                + " (también se aceptan «Cédula», «Empleado», «Nombre del colaborador», etc.)."
+            )
+        used = set(columns.values())
+        ignored = [str(sheet[0][i]) for i in range(len(header)) if i not in used and header[i]]
+
+        rows, errors, seen = [], [], {}
+        duplicates = 0
+        data_rows = 0
+        for offset, raw_row in enumerate(sheet[1:], start=2):
+            raw_row = list(raw_row)
+            if all(v in (None, "") for v in raw_row):
+                continue
+            data_rows += 1
+
+            def cell(field, raw_row=raw_row):
+                idx = columns.get(field)
+                return raw_row[idx] if idx is not None and idx < len(raw_row) else None
+
+            cedula = normalize_import_cedula(cell("cedula"))
+            problem = cedula_problem(cedula)
+            if problem:
+                errors.append({"row": offset, "column": "CEDULA", "message": problem})
+                continue
+            full_name = " ".join(str(cell("full_name") or "").split())
+            if not full_name:
+                errors.append(
+                    {"row": offset, "column": "NOMBRES COMPLETOS", "message": "Nombre vacío."}
+                )
+                continue
+            if cedula in seen:
+                duplicates += 1
+                errors.append(
+                    {
+                        "row": offset,
+                        "column": "CEDULA",
+                        "message": f"Cédula {cedula} repetida en el archivo "
+                        f"(ya está en la fila {seen[cedula]}).",
+                    }
+                )
+                continue
+            seen[cedula] = offset
+            values = {
+                f: " ".join(str(cell(f) or "").split()) for f in ("regional", "area", "cargo")
+            }
+            too_long = [
+                COLLABORATOR_LABELS[f]
+                for f in ("regional", "area", "cargo")
+                if len(values[f]) > 100
+            ]
+            if len(full_name) > 200:
+                too_long.append("Nombre")
+            if too_long:
+                errors.append(
+                    {
+                        "row": offset,
+                        "column": ", ".join(too_long),
+                        "message": "Texto demasiado largo.",
+                    }
+                )
+                continue
+            rows.append({"row": offset, "cedula": cedula, "full_name": full_name, **values})
+
+        planned, conflicts = CollaboratorImportService._classify(supervisor, rows)
+        errors.extend(conflicts)
+        summary = {
+            "total_rows": data_rows,
+            "new_items": sum(1 for p in planned if p["status"] == "NEW"),
+            "existing_items": sum(1 for p in planned if p["status"] != "NEW"),
+            "to_update": sum(1 for p in planned if p["status"] == "EXISTING"),
+            "unchanged": sum(1 for p in planned if p["status"] == "UNCHANGED"),
+            "duplicates_in_file": duplicates,
+            "invalid_rows": len({e["row"] for e in errors}),
+            "valid_rows": len(planned),
+            "ignored_columns": ignored,
+            "supervisor_id": supervisor.pk,
+            "supervisor_name": user_display(supervisor),
+        }
+        return ImportBatch.objects.create(
+            kind=ImportBatch.Kind.COLLABORATORS,
+            period=None,
+            uploaded_by=acc.user,
+            file_name=file_name[:255],
+            file_hash=hashlib.sha256(content).hexdigest(),
+            rows=planned,
+            errors=sorted(errors, key=lambda e: e["row"]),
+            summary=summary,
+        )
+
+    @staticmethod
+    def confirm(
+        acc: NovedadesAccess, batch: ImportBatch, strategy: str, *, context=None
+    ) -> ImportBatch:
+        """Crea los nuevos y, con `strategy="update"`, actualiza los campos
+        permitidos de los existentes. Se revalida todo contra la base actual
+        (alguien pudo crear la misma cédula entre la vista previa y la
+        confirmación); cada fila se guarda en su propia transacción."""
+        CollaboratorImportService._check(acc)
+        supervisor = CollaboratorImportService._target_supervisor(
+            acc, batch.summary.get("supervisor_id")
+        )
+        rows = [
+            {k: r[k] for k in ("row", "cedula", "full_name", "regional", "area", "cargo")}
+            for r in batch.rows
+        ]
+        planned, conflicts = CollaboratorImportService._classify(supervisor, rows)
+        current = PeriodService.ensure_current(supervisor)
+        created, updated, unchanged, rejected = [], 0, 0, list(conflicts)
+        for item in planned:
+            try:
+                with transaction.atomic():
+                    if item["status"] == "NEW":
+                        collaborator = Collaborator.objects.create(
+                            cedula=item["cedula"],
+                            full_name=item["full_name"],
+                            regional=item["regional"],
+                            area=item["area"],
+                            cargo=item["cargo"],
+                            current_supervisor=supervisor,
+                            created_by=acc.user,
+                        )
+                        CollaboratorAssignment.objects.create(
+                            collaborator=collaborator,
+                            supervisor=supervisor,
+                            assigned_by=acc.user,
+                            reason=f"Alta por importación ({batch.file_name})"[:500],
+                        )
+                        EventService.log(
+                            actor=acc.user,
+                            action="collaborator.created",
+                            supervisor=supervisor,
+                            period=current.period,
+                            target_type="collaborator",
+                            target_id=collaborator.pk,
+                            target_label=f"{collaborator.full_name} ({collaborator.cedula})",
+                            new_value="ACTIVO",
+                            source_file=batch.file_name,
+                            context=context,
+                            audit=False,
+                        )
+                        created.append(collaborator)
+                    elif item["status"] == "EXISTING" and strategy == "update":
+                        collaborator = Collaborator.objects.select_for_update().get(
+                            pk=item["collaborator_id"]
+                        )
+                        for field, (old, new) in item["changes"].items():
+                            setattr(collaborator, field, new)
+                            EventService.log(
+                                actor=acc.user,
+                                action="collaborator.updated",
+                                supervisor=supervisor,
+                                target_type="collaborator",
+                                target_id=collaborator.pk,
+                                target_label=f"{collaborator.full_name} ({collaborator.cedula})",
+                                field=field,
+                                old_value=old,
+                                new_value=new,
+                                source_file=batch.file_name,
+                                context=context,
+                                audit=False,
+                            )
+                        collaborator.save()
+                        updated += 1
+                    else:
+                        unchanged += 1
+            except IntegrityError:
+                rejected.append(
+                    {
+                        "row": item["row"],
+                        "column": "CEDULA",
+                        "message": f"La cédula {item['cedula']} se registró en paralelo; "
+                        "vuelva a importar.",
+                    }
+                )
+        merged = {(e["row"], e["message"]): e for e in [*batch.errors, *rejected]}
+        batch.status = ImportBatch.Status.CONFIRMED
+        batch.strategy = strategy
+        batch.errors = sorted(merged.values(), key=lambda e: e["row"])
+        batch.summary = {
+            **batch.summary,
+            "created": len(created),
+            "updated": updated,
+            "skipped": unchanged,
+            "rejected": len({e["row"] for e in rejected}),
+            "applied": len(created) + updated,
+        }
+        batch.save(update_fields=["status", "strategy", "errors", "summary", "updated_at"])
+        record_audit_event(
+            actor=acc.user,
+            action="novedades.collaborators.imported",
+            target_type="import",
+            target_id=batch.pk,
+            module="novedades",
+            new_values={**batch.summary, "file": batch.file_name},
+            context=context,
+        )
+        EventService.log(
+            actor=acc.user,
+            action="import.confirmed",
+            supervisor=supervisor,
+            target_type="import",
+            target_id=batch.pk,
+            target_label=batch.file_name,
+            new_value=f"{len(created)} creados, {updated} actualizados, {unchanged} sin cambios, "
+            f"{batch.summary['rejected']} rechazados",
+            source_file=batch.file_name,
+            context=context,
+            audit=False,
+        )
+        if created or updated:
+            names = ", ".join(f"{c.full_name} ({c.cedula})" for c in created[:15])
+            more = f" y {len(created) - 15} más" if len(created) > 15 else ""
+            NotificationService.notify_admins(
+                f"Base de colaboradores: {user_display(acc.user)} importó «{batch.file_name}» para "
+                f"el equipo de {user_display(supervisor)} — {len(created)} nuevo(s), "
+                f"{updated} actualizado(s)" + (f". Nuevos: {names}{more}." if created else "."),
+                exclude_user=acc.user,
+            )
+        return batch

@@ -13,6 +13,11 @@ urlpatterns = [
     path("periods/close/", views.ClosePeriodView.as_view(), name="novedades-close"),
     path("collaborators/", views.CollaboratorListView.as_view(), name="novedades-collaborators"),
     path(
+        "collaborators/template/",
+        views.CollaboratorTemplateView.as_view(),
+        name="novedades-collaborators-template",
+    ),
+    path(
         "collaborators/<int:pk>/",
         views.CollaboratorDetailView.as_view(),
         name="novedades-collaborator",

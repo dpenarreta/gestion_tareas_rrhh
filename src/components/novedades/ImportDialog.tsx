@@ -3,31 +3,54 @@
 import { useState } from "react";
 import { Modal, ModalHeader } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
+import { Badge } from "@/components/ui/Badge";
 import { useToast } from "@/components/ui/Toast";
 import { novedadesApi } from "./api";
 import { ErrorBox, Label, SelectInput } from "./fields";
 import type { ImportBatch } from "./types";
 
+type Kind = "WORKED_DAYS" | "OVERTIME" | "COLLABORATORS";
+
 type Props = {
-  kind: "WORKED_DAYS" | "OVERTIME";
-  period: string;
+  kind: Kind;
+  /** Período de las novedades; la base de colaboradores no depende de uno. */
+  period?: string;
+  /** Equipo destino de la base importada (el Administrador debe elegirlo). */
+  supervisorId?: number | null;
+  supervisorName?: string;
   onClose: () => void;
   onImported: () => void;
 };
 
-const TEMPLATE_HINT: Record<Props["kind"], string> = {
+const TITLE: Record<Kind, string> = {
+  WORKED_DAYS: "Importar Días laborados",
+  OVERTIME: "Importar Horas extras",
+  COLLABORATORS: "Importar Base de colaboradores",
+};
+
+const TEMPLATE_HINT: Record<Kind, string> = {
   WORKED_DAYS: "Supervisor | Cargo | Cédula | Empleado | una columna por fecha del período",
   OVERTIME:
     "FECHA | CEDULA | NOMBRE DEL COLABORADOR | REGIONAL | ÁREA | CARGO | # HORAS EXTRAS | # HORAS SABADO | SABADO | DOMINGO | FERIADO | TRABAJO REALIZADO | OBSERVACIONES",
+  COLLABORATORS:
+    "CEDULA | NOMBRES COMPLETOS | REGIONAL | ÁREA | CARGO (también se reconocen «Cédula», «Empleado», «Nombre del colaborador»; otras columnas se ignoran)",
 };
 
-export default function ImportDialog({ kind, period, onClose, onImported }: Props) {
+const ROW_STATUS: Record<string, { text: string; variant: "info" | "warning" | "neutral" }> = {
+  NEW: { text: "Nuevo", variant: "info" },
+  EXISTING: { text: "Existente · se actualizaría", variant: "warning" },
+  UNCHANGED: { text: "Existente · sin cambios", variant: "neutral" },
+};
+const FIELD_LABEL: Record<string, string> = { fullName: "Nombre", regional: "Regional", area: "Área", cargo: "Cargo" };
+
+export default function ImportDialog({ kind, period, supervisorId, supervisorName, onClose, onImported }: Props) {
   const { showToast } = useToast();
   const [file, setFile] = useState<File | null>(null);
   const [batch, setBatch] = useState<ImportBatch | null>(null);
   const [strategy, setStrategy] = useState<"skip" | "update">("skip");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const isBase = kind === "COLLABORATORS";
 
   async function preview() {
     if (!file) return;
@@ -35,7 +58,8 @@ export default function ImportDialog({ kind, period, onClose, onImported }: Prop
     setError(null);
     const form = new FormData();
     form.set("kind", kind);
-    form.set("period", period);
+    if (period) form.set("period", period);
+    if (isBase && supervisorId) form.set("supervisor_id", String(supervisorId));
     form.set("file", file);
     const result = await novedadesApi.upload<ImportBatch>("imports/preview", form);
     setBusy(false);
@@ -53,68 +77,125 @@ export default function ImportDialog({ kind, period, onClose, onImported }: Prop
       setError(result.error);
       return;
     }
+    const s = result.data.summary;
     showToast(
-      `Importación aplicada: ${result.data.summary.applied ?? 0} aplicados, ${result.data.summary.skipped ?? 0} omitidos.`,
-      "success",
+      isBase
+        ? `Base importada: ${s.created ?? 0} creados, ${s.updated ?? 0} actualizados, ${s.skipped ?? 0} sin cambios` +
+            (s.rejected ? `, ${s.rejected} rechazados (vea el reporte).` : ".")
+        : `Importación aplicada: ${s.applied ?? 0} aplicados, ${s.skipped ?? 0} omitidos.`,
+      s.rejected ? "warning" : "success",
     );
     onImported();
   }
 
   async function cancel() {
-    if (batch) await novedadesApi.post(`imports/${batch.id}/cancel`);
+    if (batch && batch.status === "PREVIEW") await novedadesApi.post(`imports/${batch.id}/cancel`);
     onClose();
   }
 
+  const cards: [string, number | undefined, string][] = batch
+    ? isBase
+      ? [
+          ["Filas procesadas", batch.summary.totalRows, "text-title"],
+          ["Nuevos", batch.summary.newItems, "text-primary"],
+          ["Existentes", batch.summary.existingItems, "text-title"],
+          ["Se actualizarían", batch.summary.toUpdate, "text-warning"],
+          ["Duplicados en el archivo", batch.summary.duplicatesInFile, "text-danger"],
+          ["Filas inválidas", batch.summary.invalidRows, "text-danger"],
+        ]
+      : [
+          ["Filas válidas", batch.summary.validRows, "text-success"],
+          ["Filas con error", batch.summary.invalidRows, "text-danger"],
+          ["Nuevos", batch.summary.newItems, "text-title"],
+          ["Ya existentes", batch.summary.existingItems, "text-warning"],
+        ]
+    : [];
+
   return (
     <Modal open onClose={cancel} size="lg">
-      <ModalHeader title={kind === "WORKED_DAYS" ? "Importar Días laborados" : "Importar Horas extras"} onClose={cancel} />
+      <ModalHeader title={TITLE[kind]} onClose={cancel} />
       <div className="p-5 space-y-4">
         {!batch ? (
           <>
-            <p className="text-sm text-secondary">
-              Período <strong>{period}</strong>. El archivo (.xlsx) debe tener los encabezados:
-            </p>
+            {isBase ? (
+              <p className="text-sm text-secondary">
+                Carga inicial o actualización de la base del equipo
+                {supervisorName ? (
+                  <>
+                    {" "}
+                    de <strong>{supervisorName}</strong>
+                  </>
+                ) : null}
+                . Las cédulas que no existan se crean; las que ya estén en esta base se informan como existentes. El
+                archivo (.xlsx) debe tener:
+              </p>
+            ) : (
+              <p className="text-sm text-secondary">
+                Período <strong>{period}</strong>. El archivo (.xlsx) debe tener los encabezados:
+              </p>
+            )}
             <p className="text-xs font-mono bg-surface2 rounded-lg p-2 break-words">{TEMPLATE_HINT[kind]}</p>
-            <input
-              type="file"
-              accept=".xlsx"
-              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-              className="block text-sm"
-            />
-            <p className="text-xs text-secondary">
-              Primero se muestra una vista previa: no se guarda nada hasta que confirme.
-            </p>
+            <input type="file" accept=".xlsx" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="block text-sm" />
+            <p className="text-xs text-secondary">Primero se muestra una vista previa: no se guarda nada hasta que confirme.</p>
           </>
         ) : (
           <>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-sm">
-              {[
-                ["Filas válidas", batch.summary.validRows, "text-success"],
-                ["Filas con error", batch.summary.invalidRows, "text-danger"],
-                ["Nuevos", batch.summary.newItems, "text-title"],
-                ["Ya existentes", batch.summary.existingItems, "text-warning"],
-              ].map(([label, value, color]) => (
-                <div key={label as string} className="bg-surface2 rounded-lg p-2">
-                  <div className={`text-lg font-bold ${color}`}>{value as number}</div>
+            <div className={`grid grid-cols-2 ${isBase ? "sm:grid-cols-3" : "sm:grid-cols-4"} gap-2 text-center text-sm`}>
+              {cards.map(([label, value, color]) => (
+                <div key={label} className="bg-surface2 rounded-lg p-2">
+                  <div className={`text-lg font-bold ${color}`}>{value ?? 0}</div>
                   <div className="text-xs text-secondary">{label}</div>
                 </div>
               ))}
             </div>
+            {isBase && batch.summary.ignoredColumns && batch.summary.ignoredColumns.length > 0 && (
+              <p className="text-xs text-secondary">Columnas ignoradas: {batch.summary.ignoredColumns.join(", ")}</p>
+            )}
             {batch.summary.alreadyImported && (
               <p className="text-sm text-warning">
                 Este mismo archivo ya se importó en este período. Si continúa, no se duplicarán registros.
               </p>
             )}
+            {isBase && batch.rows.length > 0 && (
+              <div className="max-h-56 overflow-y-auto border border-border rounded-lg">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-surface2">
+                    <tr>
+                      {["Fila", "Cédula", "Nombre", "Resultado", "Cambios"].map((h) => (
+                        <th key={h} className="text-left px-2 py-1.5 font-semibold text-secondary">
+                          {h}
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(batch.rows as BaseRow[]).slice(0, 500).map((r) => (
+                      <tr key={r.row} className="border-t border-border">
+                        <td className="px-2 py-1">{r.row}</td>
+                        <td className="px-2 py-1 font-mono">{r.cedula}</td>
+                        <td className="px-2 py-1">{r.fullName}</td>
+                        <td className="px-2 py-1">
+                          <Badge variant={ROW_STATUS[r.status]?.variant ?? "neutral"}>{ROW_STATUS[r.status]?.text ?? r.status}</Badge>
+                        </td>
+                        <td className="px-2 py-1 text-secondary">
+                          {Object.entries(r.changes ?? {})
+                            .map(([f, [oldV, newV]]) => `${FIELD_LABEL[f] ?? f}: ${oldV || "—"} → ${newV}`)
+                            .join(" · ")}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
             {batch.errors.length > 0 && (
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-sm font-semibold text-danger">Errores ({batch.errors.length})</span>
+                  <span className="text-sm font-semibold text-danger">Filas con error ({batch.errors.length}) — no se guardarán</span>
                   <Button
                     variant="ghost"
                     size="sm"
-                    onClick={() =>
-                      novedadesApi.download(`imports/${batch.id}/errors`, {}, `errores-importacion-${batch.id}.xlsx`)
-                    }
+                    onClick={() => novedadesApi.download(`imports/${batch.id}/errors`, {}, `errores-importacion-${batch.id}.xlsx`)}
                   >
                     Descargar reporte
                   </Button>
@@ -129,18 +210,30 @@ export default function ImportDialog({ kind, period, onClose, onImported }: Prop
                 </ul>
               </div>
             )}
-            {batch.summary.existingItems > 0 && (
-              <label className="block max-w-sm">
-                <Label>Registros que ya existen</Label>
+            {(isBase ? (batch.summary.toUpdate ?? 0) > 0 : batch.summary.existingItems > 0) && (
+              <label className="block max-w-md">
+                <Label>{isBase ? "Colaboradores existentes" : "Registros que ya existen"}</Label>
                 <SelectInput value={strategy} onChange={(e) => setStrategy(e.target.value as "skip" | "update")}>
-                  <option value="skip">Omitirlos (no modificar lo existente)</option>
-                  <option value="update">Actualizarlos con el valor del archivo</option>
+                  {isBase ? (
+                    <>
+                      <option value="skip">Solo crear los nuevos (no modificar existentes)</option>
+                      <option value="update">Crear nuevos y actualizar nombre, regional, área y cargo de existentes</option>
+                    </>
+                  ) : (
+                    <>
+                      <option value="skip">Omitirlos (no modificar lo existente)</option>
+                      <option value="update">Actualizarlos con el valor del archivo</option>
+                    </>
+                  )}
                 </SelectInput>
+                {isBase && (
+                  <span className="block text-xs text-secondary mt-1">
+                    Nunca se modifican por importación: cédula, estado operativo, supervisor asignado ni usuarios o permisos.
+                  </span>
+                )}
               </label>
             )}
-            {batch.summary.validRows === 0 && (
-              <p className="text-sm text-secondary">No hay filas válidas para importar.</p>
-            )}
+            {batch.summary.validRows === 0 && <p className="text-sm text-secondary">No hay filas válidas para importar.</p>}
           </>
         )}
         <ErrorBox message={error} />
@@ -162,3 +255,11 @@ export default function ImportDialog({ kind, period, onClose, onImported }: Prop
     </Modal>
   );
 }
+
+type BaseRow = {
+  row: number;
+  cedula: string;
+  fullName: string;
+  status: string;
+  changes?: Record<string, [string, string]>;
+};

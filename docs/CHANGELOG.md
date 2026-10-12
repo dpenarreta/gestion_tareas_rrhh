@@ -23,6 +23,53 @@
 
 ---
 
+## v1.167.0 — 2026-10-12
+
+**Tipo:** FEATURE / FIX
+**Módulo:** Control Operativo de Novedades — importación de la Base de
+colaboradores.
+
+### El problema
+
+No existía una importación de la base: la única vía era importar Días laborados
+u Horas extras, que registran **novedades** y por eso exigen (con razón) que la
+persona ya exista. Una carga inicial respondía «La cédula no existe en la base
+de colaboradores (regístrela primero)» para cada fila.
+
+### La corrección
+
+- Nueva importación **Base de colaboradores → Importar base** (y plantilla
+  `CEDULA | NOMBRES COMPLETOS | REGIONAL | ÁREA | CARGO`). Reconoce también
+  «Cédula», «Empleado», «Nombre del colaborador», etc., e ignora otras columnas
+  —se puede cargar la base desde la planilla de Días laborados—.
+- Cada fila se clasifica como **Nuevo** (se crea), **Existente** (se informa;
+  con «actualizar» solo cambian nombre, regional, área y cargo) o **Inválido**
+  (cédula vacía/ilegible, nombre vacío, cédula repetida en el archivo, o cédula
+  de la base de otro supervisor —no se reasigna por importación—). Nunca se
+  modifican cédula, estado operativo, supervisor, usuarios ni permisos.
+- Cédula como texto; una cédula numérica de 9 dígitos (Excel perdió el 0
+  inicial) se completa a 10.
+- Vista previa con totales (procesadas, nuevos, existentes, a actualizar,
+  duplicados, inválidas) y detalle por fila; la confirmación revalida contra la
+  base actual, guarda cada fila en su propia transacción, no duplica (cédula
+  única + reconfirmar es idempotente) y envía una sola notificación resumen.
+- Las importaciones de Días laborados y Horas extras **siguen exigiendo** que el
+  colaborador exista; su mensaje ahora indica que se puede importar la base.
+- `ImportBatch`: nuevo tipo `COLLABORATORS` y período opcional (migración
+  `novedades.0004`).
+
+- **Archivos:** `backend/apps/novedades/{excel,models,serializers,views,urls}.py`,
+  migración `0004_collaborator_import`, `src/components/novedades/{ImportDialog,CollaboratorsView}.tsx`,
+  `src/components/novedades/types.ts`.
+
+**Verificación:** 9 tests nuevos en
+`backend/apps/novedades/tests/test_collaborator_import.py`; probado en localhost
+(carga con cédula numérica sin cero, duplicado, fila vacía y existente).
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
 ## v1.166.1 — 2026-10-12
 
 **Tipo:** UX

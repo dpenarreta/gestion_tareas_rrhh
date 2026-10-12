@@ -176,9 +176,9 @@ export type RepositoryPeriod = {
 
 export type ImportBatch = {
   id: number;
-  kind: "WORKED_DAYS" | "OVERTIME";
+  kind: "WORKED_DAYS" | "OVERTIME" | "COLLABORATORS";
   status: "PREVIEW" | "CONFIRMED" | "CANCELLED";
-  period: string;
+  period: string | null;
   fileName: string;
   rows: Record<string, unknown>[];
   errors: { row: number; column?: string; message: string }[];
@@ -188,9 +188,19 @@ export type ImportBatch = {
     invalidRows: number;
     existingItems: number;
     newItems: number;
-    alreadyImported: boolean;
+    alreadyImported?: boolean;
     applied?: number;
     skipped?: number;
+    // Importación de la base de colaboradores
+    toUpdate?: number;
+    unchanged?: number;
+    duplicatesInFile?: number;
+    ignoredColumns?: string[];
+    supervisorId?: number;
+    supervisorName?: string;
+    created?: number;
+    updated?: number;
+    rejected?: number;
   };
   strategy: string;
   createdAt: string;

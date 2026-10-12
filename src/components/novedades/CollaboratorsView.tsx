@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Plus } from "lucide-react";
+import { Download, Plus, Upload } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Modal, ModalHeader } from "@/components/ui/Modal";
@@ -13,6 +13,7 @@ import { ErrorBox, Label, SelectInput, TextArea, TextInput } from "./fields";
 import { PERM, STATUS_LABEL, type Collaborator, type CollaboratorStatus } from "./types";
 import type { ModuleContext } from "./NovedadesModule";
 import StatusChangeDialog from "./StatusChangeDialog";
+import ImportDialog from "./ImportDialog";
 
 type History = {
   statuses: { previousStatus: CollaboratorStatus; newStatus: CollaboratorStatus; changedBy: string; reason: string; createdAt: string }[];
@@ -34,6 +35,7 @@ export default function CollaboratorsView({ ctx }: { ctx: ModuleContext }) {
   const [statusTarget, setStatusTarget] = useState<Collaborator | null>(null);
   const [history, setHistory] = useState<{ collaborator: Collaborator; data: History } | null>(null);
   const [reassigning, setReassigning] = useState<Collaborator | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
 
   const canManage = ctx.can(PERM.colaboradores) && !ctx.me.isAssistant;
 
@@ -77,9 +79,29 @@ export default function CollaboratorsView({ ctx }: { ctx: ModuleContext }) {
           </SelectInput>
         </div>
         {canManage && (
-          <Button size="sm" onClick={() => setEditing("new")}>
-            <Plus className="w-4 h-4" /> Agregar colaborador
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => novedadesApi.download("collaborators/template", {}, "plantilla-base-colaboradores.xlsx")}
+            >
+              <Download className="w-4 h-4" /> Plantilla
+            </Button>
+            {ctx.can(PERM.importar) && (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setImportOpen(true)}
+                disabled={ctx.me.nationalWrite && ctx.supervisorId === null}
+                title={ctx.me.nationalWrite && ctx.supervisorId === null ? "Seleccione arriba el supervisor de destino" : undefined}
+              >
+                <Upload className="w-4 h-4" /> Importar base
+              </Button>
+            )}
+            <Button size="sm" onClick={() => setEditing("new")}>
+              <Plus className="w-4 h-4" /> Agregar colaborador
+            </Button>
+          </div>
         )}
       </div>
       <ErrorBox message={error} />
@@ -152,6 +174,22 @@ export default function CollaboratorsView({ ctx }: { ctx: ModuleContext }) {
           onClose={() => setEditing(null)}
           onSaved={() => {
             setEditing(null);
+            load();
+          }}
+        />
+      )}
+      {importOpen && (
+        <ImportDialog
+          kind="COLLABORATORS"
+          supervisorId={ctx.me.isSupervisor && !ctx.me.nationalWrite ? ctx.me.user.id : ctx.supervisorId}
+          supervisorName={
+            ctx.me.isSupervisor && !ctx.me.nationalWrite
+              ? ctx.me.user.name
+              : ctx.supervisors.find((s) => s.id === ctx.supervisorId)?.name
+          }
+          onClose={() => setImportOpen(false)}
+          onImported={() => {
+            setImportOpen(false);
             load();
           }}
         />
