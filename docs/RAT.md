@@ -36,7 +36,9 @@ El tratamiento se apoya en más de una base de legitimación según el tipo de d
 
 ## 4. Categorías de titulares de los datos
 
-Personas colaboradoras de la organización con cuenta de usuario en Nexo (todos los roles definidos en `src/lib/roles.ts`: Jefe Nacional, Coordinador Nacional, Coordinador ZS, Analista de Clima y Cultura, Analista de Selección, Asistentes de Selección/Gestión Humana/GH ZS, Trabajo Social, Asistente de Nómina, Administrador).
+Personas colaboradoras de la organización con cuenta de usuario en Nexo (todos los roles definidos en `src/lib/roles.ts`: Jefe Nacional, Coordinador Nacional, Coordinador ZS, Analista de Clima y Cultura, Analista de Selección, Asistentes de Selección/Gestión Humana/GH ZS, Trabajo Social, Asistente de Nómina, Administrador), más los roles operativos del módulo Control Operativo de Novedades (Supervisor de Operaciones, Asistente de Operaciones).
+
+**Colaboradores operativos sin cuenta en Nexo** (desde v1.165.0): personas de la operación de LAARCOURIER cuyos días laborados y horas extras registran los Supervisores de Operaciones. No inician sesión; sus datos los carga el supervisor responsable (ver § 5, fila "Novedades operativas").
 
 ## 5. Categorías de datos personales tratados
 
@@ -57,6 +59,7 @@ Personas colaboradoras de la organización con cuenta de usuario en Nexo (todos 
 | Auditoría de depuraciones ejecutadas (qué se eliminó, cuándo y por quién) | Ejecución de la política de retención por el Administrador | `DataPurgeLog` |
 | **Permisos médicos y personales** (tipo, fecha, duración u observación) — **dato de salud cuando el tipo es `MEDICO`** | Registro manual exclusivo del Administrador, no autoservicio del titular | `LeaveRecord` |
 | **Estado especial de maternidad/lactancia** (tipo, fecha de inicio/fin, base y límites de jornada configurados) — **dato de salud/condición personal** | Registro manual exclusivo del Administrador, no autoservicio del titular | `SpecialStatus` |
+| **Novedades operativas** de colaboradores operativos: cédula, nombres, regional, área, cargo, estado operativo (Activo/Inactivo/Suspendido y su motivo), horas diarias laboradas, horas extras/sábado/domingo/feriado, trabajo realizado y observaciones | Registro por el Supervisor de Operaciones responsable (o importación de Excel), sin aprobación previa; el Administrador recibe aviso de cada alta y de cada inactivación/suspensión | `apps.novedades`: `Collaborator`, `CollaboratorStatusChange`, `CollaboratorAssignment`, `WorkedDay`, `OvertimeRecord`, `NovedadEvent` — solo en la base SQL Server; nunca en el repositorio de código. **Plazo de conservación: [Completar: definir con legal]** |
 
 ### 5.1 Categorías especiales de datos (Art. 26 LOPDP)
 

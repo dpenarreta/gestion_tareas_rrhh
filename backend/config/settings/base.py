@@ -100,6 +100,7 @@ INSTALLED_APPS = [
     "apps.announcements",
     "apps.dashboard",
     "apps.assistant",
+    "apps.novedades",
 ]
 
 MIDDLEWARE = [

@@ -198,6 +198,10 @@ urlpatterns = [
     # cálculo de embeddings sigue en Next.js (@xenova/transformers), acá
     # solo se persiste el resultado, ver docs/AUDIT_LOG.md § 2026-08-25 ---
     path("assistant/", include("apps.assistant.urls")),
+    # --- Control Operativo de Novedades: días laborados, horas extras,
+    # cierres por supervisor (corte 23 → 22), repositorio, importación/
+    # exportación Excel y permisos configurables del módulo ---
+    path("novedades/", include("apps.novedades.urls")),
     # Nota: apps.hierarchy (RoleVisibility/RoleNotificationTarget) no expone
     # rutas HTTP en esta fase — los módulos de negocio que la consuman viven
     # en el mismo proceso Django y la usan vía apps.hierarchy.services,

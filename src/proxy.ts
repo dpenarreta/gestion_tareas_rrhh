@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { jwtVerify } from "jose";
 import { SESSION_SECRET } from "@/lib/session-secret";
 import { requireHttps } from "@/lib/httpsPolicy";
+import { isOperationalRole, NOVEDADES_HOME, type Role } from "@/lib/roles";
 import {
   DJANGO_ACCESS_COOKIE,
   DJANGO_ACCESS_MAX_AGE_SECONDS,
@@ -30,6 +31,33 @@ const PUBLIC_PATHS = [
   "/api/auth/reset-password",
 ];
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+// Supervisores y Asistentes de Operaciones solo trabajan en Control
+// Operativo de Novedades (pedido explícito). Ocultar el menú no alcanza: acá
+// se cortan también las URLs escritas a mano y las APIs de otros módulos.
+// Lo permitido es el módulo y lo que el propio shell necesita para
+// funcionar (sesión, notificaciones, consentimiento, tema).
+const OPERATIONAL_ALLOWED_API = [
+  "/api/novedades",
+  "/api/auth",
+  "/api/notifications",
+  "/api/settings/consent-text",
+  "/api/desk-notes/unread-count",
+];
+const OPERATIONAL_THEME_API = /^\/api\/users\/[^/]+\/theme$/;
+
+function operationalGuard(request: NextRequest, role: unknown): NextResponse | null {
+  if (typeof role !== "string" || !isOperationalRole(role as Role)) return null;
+  const { pathname } = request.nextUrl;
+  if (pathname.startsWith("/api/")) {
+    const allowed =
+      OPERATIONAL_ALLOWED_API.some((p) => pathname === p || pathname.startsWith(p + "/")) ||
+      OPERATIONAL_THEME_API.test(pathname);
+    return allowed ? null : NextResponse.json({ error: "Sin permisos" }, { status: 403 });
+  }
+  if (pathname === NOVEDADES_HOME || pathname.startsWith(NOVEDADES_HOME + "/")) return null;
+  return NextResponse.redirect(new URL(NOVEDADES_HOME, request.url));
+}
 
 // Defensa adicional contra CSRF/cross-origin: para métodos que mutan estado en
 // la API, exige que el Origin (cuando el navegador lo envía) coincida con el
@@ -84,8 +112,10 @@ export async function proxy(request: NextRequest) {
     const token = request.cookies.get("nexo-session")?.value;
     if (token) {
       try {
-        await jwtVerify(token, secret, { algorithms: ["HS256"] });
-        return NextResponse.redirect(new URL("/dashboard", request.url));
+        const { payload } = await jwtVerify(token, secret, { algorithms: ["HS256"] });
+        const home =
+          typeof payload.role === "string" && isOperationalRole(payload.role as Role) ? NOVEDADES_HOME : "/dashboard";
+        return NextResponse.redirect(new URL(home, request.url));
       } catch {
         // Invalid token, continue to public route
       }
@@ -98,8 +128,21 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL("/login", request.url));
   }
 
+  let role: unknown;
   try {
-    await jwtVerify(token, secret, { algorithms: ["HS256"] });
+    ({
+      payload: { role },
+    } = await jwtVerify(token, secret, { algorithms: ["HS256"] }));
+  } catch {
+    const response = NextResponse.redirect(new URL("/login", request.url));
+    response.cookies.delete("nexo-session");
+    return response;
+  }
+
+  const blocked = operationalGuard(request, role);
+  if (blocked) return blocked;
+
+  try {
     return await withRefreshedDjangoTokens(request);
   } catch {
     const response = NextResponse.redirect(new URL("/login", request.url));

@@ -23,6 +23,75 @@
 
 ---
 
+## v1.165.0 — 2026-10-12
+
+**Tipo:** FEATURE
+**Módulo:** Control Operativo de Novedades (nuevo) — días laborados, horas
+extras, cierres mensuales y repositorio de la operación, con permisos
+configurables (ver docs/AUDIT_LOG.md § 2026-10-12).
+
+### Qué incluye
+
+- **Base de colaboradores por supervisor**: alta inmediata sin aprobación
+  (cédula única; si pertenece a otro supervisor no se reasigna y se avisa al
+  Administrador), edición, estados Activo/Inactivo/Suspendido con motivo e
+  historial, reasignación solo por el Administrador.
+- **Días laborados**: matriz tipo Excel por período 23 → 22, columnas
+  Supervisor | Cargo | Corte anterior | Cédula | Empleado + una por fecha;
+  sábados y domingos en amarillo y bloqueados (también en API e importación);
+  vacío ≠ 0; control de concurrencia por versión; cambio de estado desde la
+  fila.
+- **Horas extras**: tabla con los 13 encabezados exactos; consolidado
+  nacional automático para el Asistente de Operaciones (solo lectura),
+  filtros (incluido supervisor), indicadores y exportación con 14 columnas
+  (SUPERVISOR después de CARGO); el supervisor histórico se conserva.
+- **Cierre individual por supervisor**: resumen previo (celdas pendientes
+  distintas de cero), confirmación explícita, bloqueo de edición ordinaria,
+  apertura del período siguiente con la misma base y sin copiar novedades;
+  atómico e idempotente. Correcciones posteriores solo por el Administrador,
+  con motivo y valor original conservado.
+- **Importación de Excel** en dos pasos (vista previa sin escribir, filas
+  válidas/inválidas/existentes, reporte de errores descargable, omitir o
+  actualizar existentes), sin duplicados al reimportar.
+- **Historial de registros** y **Repositorio mensual** con avance del cierre
+  nacional.
+- **Notificaciones al Administrador** (alta de colaborador, inactivación,
+  suspensión, novedades, importaciones, cierres; resumen en operaciones
+  masivas) con reintento si fallan
+  (`manage.py novedades_retry_notifications`).
+- **Ajustes → Permisos del módulo Control Operativo de Novedades**: permisos
+  configurables por rol, excepciones individuales (conceder/restringir, con
+  motivo y revocación), permisos efectivos por usuario e historial.
+- **Roles nuevos** Supervisor y Asistente de Operaciones: solo ven este
+  módulo (menú y `src/proxy.ts`).
+
+- **Archivos:** `backend/apps/novedades/` (nueva app + migraciones 0001/0002),
+  `backend/apps/permissions/catalog.py` (+ migración 0007),
+  `backend/config/settings/base.py`, `backend/config/api_v1_urls.py`,
+  `src/app/(protected)/control-operativo/page.tsx`,
+  `src/app/api/novedades/[...path]/route.ts`,
+  `src/lib/djangoNovedadesAdapter.ts`, `src/components/novedades/`,
+  `src/components/settings/NovedadesPermissionsSection.tsx`,
+  `src/components/settings/{ConfigCenter,registry}.tsx|ts`,
+  `src/lib/{roles,navLinks}.ts`, `src/proxy.ts`,
+  `src/components/shell/AppShell.tsx`.
+
+**Verificación:** 44 tests nuevos en `backend/apps/novedades/tests/` (períodos,
+colaboradores, días laborados, horas extras, cierre, correcciones, permisos,
+ámbito vía API, importación/exportación), 10 en
+`src/__tests__/api/novedades.test.ts` y
+`src/__tests__/proxyOperationalRoles.test.ts`, más 2 aserciones de
+`roles.test.ts` actualizadas (los roles operativos quedan fuera de la
+jerarquía de tareas) y 1 nueva. Probado en localhost con Supervisor, Asistente
+y Administrador de prueba.
+
+**Impacto:** requiere `manage.py migrate` (crea tablas y siembra los dos
+roles). No modifica permisos de otros módulos. Solo verificado en desarrollo.
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
 ## v1.164.0 — 2026-10-02
 
 **Tipo:** FEATURE

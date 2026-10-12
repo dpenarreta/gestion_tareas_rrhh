@@ -13,10 +13,11 @@ import {
   StickyNote,
   Radar,
   ShieldCheck,
+  ClipboardList,
   type LucideIcon,
 } from "lucide-react";
 import type { Role } from "@/lib/roles";
-import { canManageUsers, canViewTeam, canUseDeskNotes } from "@/lib/roles";
+import { canManageUsers, canViewTeam, canUseDeskNotes, isOperationalRole, NOVEDADES_HOME } from "@/lib/roles";
 
 export type NavSection = "general" | "gestion" | "inteligencia";
 
@@ -33,7 +34,20 @@ export const NAV_SECTION_LABELS: Record<NavSection, string> = {
   inteligencia: "Inteligencia",
 };
 
+const NOVEDADES_LINK: NavLink = {
+  href: NOVEDADES_HOME,
+  label: "Control Operativo",
+  icon: ClipboardList,
+  section: "gestion",
+};
+
 export function getNavLinks(role: Role): NavLink[] {
+  // Supervisores y Asistentes de Operaciones solo usan este módulo — el
+  // resto de rutas también se les bloquea en src/proxy.ts, no solo se ocultan.
+  if (isOperationalRole(role)) {
+    return [{ ...NOVEDADES_LINK, section: "general" }];
+  }
+
   const isLevel1 = !canViewTeam(role);
 
   const links: NavLink[] = [
@@ -71,6 +85,9 @@ export function getNavLinks(role: Role): NavLink[] {
   }
 
   if (role === "ADMINISTRADOR") {
+    // Visibilidad cosmética: la pantalla consulta los permisos efectivos a
+    // Django (`novedades.acceder`), que es quien realmente autoriza.
+    links.push(NOVEDADES_LINK);
     links.push({ href: "/settings", label: "Ajustes", icon: Settings, section: "gestion" });
   }
 

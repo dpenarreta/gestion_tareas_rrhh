@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import type { Role } from "@/lib/roles";
+import { isOperationalRole, type Role } from "@/lib/roles";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 import CommandPalette from "./CommandPalette";
@@ -54,7 +54,8 @@ export default function AppShell({ role, djangoUserId, userName, roleLabel, onLo
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  const showNovaFab = pathname !== "/assistant";
+  // Los roles operativos solo usan Control Operativo: Gemini no está a su alcance.
+  const showNovaFab = pathname !== "/assistant" && !isOperationalRole(role);
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">

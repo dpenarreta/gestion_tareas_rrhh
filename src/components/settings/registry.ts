@@ -241,6 +241,15 @@ export const SETTINGS_REGISTRY: SettingDescriptor[] = [
     configKeys: [],
   },
   {
+    id: "novedades-permissions",
+    label: "Permisos del módulo Control Operativo de Novedades",
+    description:
+      "Facultades configurables por rol (Supervisor y Asistente de Operaciones), excepciones individuales, permisos efectivos e historial de cambios.",
+    keywords: ["novedades", "horas extras", "días laborados", "supervisor", "asistente", "operaciones", "excepciones", "permisos"],
+    category: "seguridad",
+    configKeys: [],
+  },
+  {
     id: "seguridad-config",
     label: "Política de contraseña y sesión",
     description: "Longitud mínima de contraseña, duración de sesión, cierre por inactividad y retención de intentos de login.",

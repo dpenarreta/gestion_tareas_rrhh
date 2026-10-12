@@ -15,6 +15,65 @@
 
 ---
 
+## 2026-10-12 — Control Operativo de Novedades: permisos híbridos sobre el sistema existente
+
+**Cómo apareció:** pedido explícito de un módulo que reemplace los Excel
+dispersos de días laborados y horas extras de la operación, usado por
+**usuarios que no trabajan en el resto de NEXO** (Supervisores y Asistentes de
+Operaciones), con permisos base por rol, facultades configurables desde
+Ajustes, excepciones individuales y restricciones de ámbito que ningún ajuste
+pueda desactivar.
+
+**Lo que había:** roles = `auth.Group`; catálogo versionado de permisos por
+módulo (`apps/permissions/catalog.py`) revalidado en Django en cada request
+(revocar surte efecto en la petición siguiente); permisos directos por usuario
+solo para **conceder** y sin pantalla; ámbito de datos modelado aparte del
+permiso (`apps.hierarchy`). En el frontend, `Role` es una unión fija y el menú
+se arma por rol.
+
+**Alternativas consideradas:**
+
+- *Un sistema de permisos propio del módulo* (tablas de roles/permisos
+  paralelas). Descartado: duplicaría la fuente de verdad y el pedido prohíbe
+  explícitamente un mecanismo paralelo.
+- *Modelar el ámbito (equipo propio / nacional) como permisos del catálogo.*
+  Descartado: cualquiera que pudiera editar el rol en "Roles y Permisos"
+  podría abrirle a un supervisor los equipos ajenos, y el pedido exige que
+  habilitar una facultad nunca amplíe el ámbito. Se mantuvo el mismo criterio
+  que ya separaba visibilidad de permisos.
+- *Reutilizar `user.user_permissions` para las excepciones.* Insuficiente:
+  solo concede; el pedido necesita también **restringir** con motivo, autor,
+  fecha y revocación.
+
+**Decisión:**
+
+1. Se agregan `novedades.*` al catálogo existente y dos grupos
+   (`SUPERVISOR_OPERACIONES`, `ASISTENTE_OPERACIONES`); el Administrador recibe
+   todo el módulo (misma política "todo por defecto" de `permissions/0004`).
+2. `apps/novedades/access.py` resuelve el permiso efectivo = permisos del
+   grupo/usuario + excepciones (`PermissionOverride`, DENY prevalece) +
+   una matriz por rol que marca cada facultad como obligatoria, configurable
+   o no disponible. Los permisos administrativos del módulo se descartan por
+   código para los roles operativos aunque alguien los asigne en Roles.
+3. El ámbito es por rol, no por permiso: el supervisor solo su equipo, el
+   Asistente lectura nacional y nunca escritura, el Administrador nacional.
+   Lo revalida cada servicio contra el registro concreto.
+4. Los roles operativos solo ven el módulo: `getNavLinks` y, sobre todo,
+   `src/proxy.ts`, que redirige cualquier otra pantalla y bloquea las APIs de
+   otros módulos.
+5. Período 23 → 22 identificado por el mes de cierre, calculado en un único
+   lugar (`apps/novedades/periods.py`); cierre individual por supervisor,
+   atómico e idempotente, que abre el período siguiente conservando la base de
+   colaboradores sin copiar novedades.
+
+**Impacto:** sin cambios en los permisos existentes de ningún otro módulo
+(el Administrador conserva todo). `roles.ts` suma dos roles (fuera de la
+jerarquía de tareas: Jefe/Coordinador Nacional no los ven como subordinados).
+Datos personales de colaboradores operativos sin cuenta en NEXO → nuevo
+registro en `RAT.md` con plazo de conservación pendiente de definir con legal.
+
+---
+
 ## 2026-10-02 — Una recurrente que no se cerró sigue viva Y genera la del mes siguiente
 
 **Cómo apareció:** pedido explícito — «cada vez que una tarea no se cierra en
