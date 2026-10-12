@@ -23,6 +23,46 @@
 
 ---
 
+## v1.167.1 — 2026-10-12
+
+**Tipo:** UX / FIX
+**Módulo:** Control Operativo de Novedades — Días laborados: nombre completo y
+plantilla de importación.
+
+- **Nombre completo en la matriz.** Causa: la columna Empleado limitaba el
+  nombre a 150 px con `truncate` (puntos suspensivos), p. ej.
+  «ACOSTA ACOSTA MARC…». Ahora el nombre se muestra entero (la columna crece con
+  el nombre más largo, mínimo 240 px) y sigue fija al desplazar las fechas. El
+  dato ya venía completo de `Collaborator.full_name`; no se tocó la base.
+- **Plantilla con las fechas reales del período.** Encabezados
+  `Supervisor | Cargo | Cédula | Empleado | 23/09/2026 | … | 22/10/2026`, con
+  las fechas como texto dd/mm/aaaa (iguales en cualquier configuración regional
+  de Excel), sábados y domingos en amarillo, y una hoja «Instrucciones» que
+  explica qué va en cada celda (horas del día, 0–24, hasta 2 decimales; vacío =
+  no reportado; 0 = cero horas; fines de semana vacíos).
+- **Importación.** Además de fechas fuera del período, rechaza fechas repetidas
+  en los encabezados y una fila cuyo «Empleado» no tiene ninguna palabra en común
+  con el nombre de la cédula en la base (probable cédula equivocada); si solo
+  difiere en forma, se avisa y se usa el nombre de la base. Avisa (sin bloquear)
+  si faltan días hábiles del período. Se mantienen todas las validaciones
+  previas (existencia, ámbito, fines de semana, período cerrado).
+- El diálogo de importación muestra el rango real del período, las reglas de
+  valores y el enlace a la plantilla del período.
+
+- **Archivos:** `backend/apps/novedades/excel.py`,
+  `src/components/novedades/{WorkedDaysGrid,ImportDialog}.tsx`,
+  `src/components/novedades/types.ts`.
+
+**Verificación:** 6 tests nuevos en
+`backend/apps/novedades/tests/test_worked_days_template.py` (nombre completo,
+encabezados = fechas del período, plantilla rellenada que se importa, fechas
+fuera/repetidas, nombre ↔ cédula, fines de semana y período cerrado). Probado
+en localhost con un nombre de 52 caracteres.
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
 ## v1.167.0 — 2026-10-12
 
 **Tipo:** FEATURE / FIX

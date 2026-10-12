@@ -191,6 +191,7 @@ export type ImportBatch = {
     alreadyImported?: boolean;
     applied?: number;
     skipped?: number;
+    warnings?: { row: number; column?: string; message: string }[];
     // Importación de la base de colaboradores
     toUpdate?: number;
     unchanged?: number;

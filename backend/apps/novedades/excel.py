@@ -205,11 +205,13 @@ class ExportService:
         ws.title = "Días laborados"
         columns = matrix["columns"]
         dates = [date.fromisoformat(c["date"]) for c in columns]
-        ws.append(WORKED_DAYS_FIXED_HEADERS + dates)
+        # Encabezados de fecha como TEXTO "23/09/2026": se ven igual en
+        # cualquier configuración regional de Excel y el importador los lee
+        # con el mismo parser que acepta fechas reales de Excel.
+        ws.append(WORKED_DAYS_FIXED_HEADERS + [f"{d:%d/%m/%Y}" for d in dates])
         fixed = len(WORKED_DAYS_FIXED_HEADERS)
         for idx in range(fixed + 1, fixed + len(dates) + 1):
-            cell = ws.cell(row=1, column=idx)
-            cell.number_format = "DD/MM/YYYY"
+            ws.cell(row=1, column=idx).number_format = "@"
         supervisor_name = matrix["supervisor"]["name"]
         for row in matrix["rows"]:
             values = []
@@ -235,7 +237,37 @@ class ExportService:
         for idx, width in enumerate([26, 20, 14, 32], start=1):
             ws.column_dimensions[get_column_letter(idx)].width = width
         ws.freeze_panes = ws.cell(row=2, column=fixed + 1)
+        if blank:
+            ExportService._worked_days_instructions(wb, matrix, dates)
         return _sheet_bytes(wb)
+
+    @staticmethod
+    def _worked_days_instructions(wb, matrix: dict, dates: list[date]) -> None:
+        period = matrix["period"]
+        ws = wb.create_sheet("Instrucciones")
+        lines = [
+            f"Plantilla de Días laborados — {period['label']}",
+            f"Período: {dates[0]:%d/%m/%Y} al {dates[-1]:%d/%m/%Y} (corte del 23 al 22).",
+            "",
+            "Columnas fijas (no cambie sus nombres): "
+            + " | ".join(WORKED_DAYS_FIXED_HEADERS)
+            + ".",
+            "• Cédula: identifica a la persona (debe existir en la Base de colaboradores del equipo).",
+            "• Empleado: nombre completo; debe corresponder a la cédula (se avisa si no coincide).",
+            "• Supervisor y Cargo son informativos: se toman de la base, no del archivo.",
+            "",
+            "Columnas de fecha: una por cada día del período, con encabezado dd/mm/aaaa.",
+            "• Escriba las HORAS laboradas de ese día: número de 0 a 24, hasta 2 decimales (ej. 8 o 7.5).",
+            "• Celda vacía = no reportado. 0 = reportó cero horas (no son lo mismo).",
+            "• Las columnas en amarillo (sábado y domingo) deben quedar vacías: no admiten registros.",
+            "• No agregue fechas fuera del período ni repita una fecha.",
+            "",
+            "Si el período ya está cerrado para el equipo, la importación no se aplica.",
+        ]
+        for line in lines:
+            ws.append([line])
+        ws["A1"].font = Font(bold=True)
+        ws.column_dimensions["A"].width = 110
 
     @staticmethod
     def import_errors(batch: ImportBatch) -> bytes:
@@ -322,8 +354,9 @@ class ImportService:
         content = file.read()
         file_hash = hashlib.sha256(content).hexdigest()
         rows = ImportService._load(io.BytesIO(content))
+        warnings = []
         if kind == ImportBatch.Kind.WORKED_DAYS:
-            parsed, errors = ImportService._parse_worked_days(acc, key, rows)
+            parsed, errors, warnings = ImportService._parse_worked_days(acc, key, rows)
         elif kind == ImportBatch.Kind.OVERTIME:
             parsed, errors = ImportService._parse_overtime(acc, key, rows)
         else:
@@ -343,6 +376,7 @@ class ImportService:
             "existing_items": sum(1 for p in parsed if p.get("existing")),
             "new_items": sum(1 for p in parsed if not p.get("existing")),
             "already_imported": already,
+            "warnings": warnings,
         }
         # Filas con algún error se descartan completas (nunca a medias).
         parsed = [p for p in parsed if p["row"] not in error_rows]
@@ -377,6 +411,7 @@ class ImportService:
                 + " | una columna por fecha del período."
             )
         cedula_idx = positions[_norm("Cédula")]
+        name_idx = positions[_norm("Empleado")]
         fixed_idx = {positions[_norm(h)] for h in WORKED_DAYS_FIXED_HEADERS} | {
             i for name, i in positions.items() if name in LEGACY_IGNORED_HEADERS
         }
@@ -400,9 +435,30 @@ class ImportService:
                     }
                 )
                 continue
+            if any(d == other for _, other in date_cols):
+                errors.append(
+                    {
+                        "row": 1,
+                        "column": f"{d:%d/%m/%Y}",
+                        "message": "Fecha repetida en los encabezados.",
+                    }
+                )
+                continue
             date_cols.append((idx, d))
         if errors:
-            return [], errors
+            return [], errors, []
+        present = {d for _, d in date_cols}
+        warnings = []
+        missing_days = [d for d in key.dates() if d not in present and not is_weekend(d)]
+        if missing_days:
+            warnings.append(
+                {
+                    "row": 1,
+                    "column": "Fechas",
+                    "message": f"El archivo no trae {len(missing_days)} día(s) hábil(es) del período "
+                    f"(p. ej. {missing_days[0]:%d/%m/%Y}); esas celdas no se modifican.",
+                }
+            )
 
         cedulas = {
             normalize_cedula(r[cedula_idx])
@@ -437,6 +493,27 @@ class ImportService:
             collaborator = ImportService._collaborator_for(acc, cedula, by_cedula, errors, offset)
             if collaborator is None:
                 continue
+            file_name = " ".join(str(row[name_idx] or "").split()) if name_idx < len(row) else ""
+            name_check = ImportService._name_matches(file_name, collaborator.full_name)
+            if name_check == "different":
+                errors.append(
+                    {
+                        "row": offset,
+                        "column": "Empleado",
+                        "message": f"La cédula {cedula} corresponde a {collaborator.full_name} en la base, "
+                        f"pero el archivo dice «{file_name}». Revise la cédula.",
+                    }
+                )
+                continue
+            if name_check == "partial":
+                warnings.append(
+                    {
+                        "row": offset,
+                        "column": "Empleado",
+                        "message": f"«{file_name}» no coincide exactamente con «{collaborator.full_name}» "
+                        "(cédula correcta en la base): se usará el nombre de la base.",
+                    }
+                )
             for idx, d in date_cols:
                 raw = row[idx] if idx < len(row) else None
                 if raw is None or (isinstance(raw, str) and raw.strip() == ""):
@@ -482,7 +559,21 @@ class ImportService:
                         ),
                     }
                 )
-        return parsed, errors
+        return parsed, errors, warnings
+
+    @staticmethod
+    def _name_matches(file_name: str, official: str) -> str:
+        """`same` / `partial` (mismas palabras en otro orden u omitidas) /
+        `different` (ninguna palabra en común: probable cédula equivocada).
+        Un nombre vacío en el archivo no se objeta: manda la cédula."""
+        if not file_name:
+            return "same"
+        a, b = _norm(file_name), _norm(official)
+        if a == b:
+            return "same"
+        words_a = {w for w in a.split() if len(w) > 2}
+        words_b = {w for w in b.split() if len(w) > 2}
+        return "partial" if words_a & words_b else "different"
 
     @staticmethod
     def _parse_overtime(acc, key: PeriodKey, rows):

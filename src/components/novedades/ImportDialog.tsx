@@ -18,6 +18,8 @@ type Props = {
   /** Equipo destino de la base importada (el Administrador debe elegirlo). */
   supervisorId?: number | null;
   supervisorName?: string;
+  /** Rango real del período (Días laborados): se muestra en las instrucciones. */
+  periodRange?: { startDate: string; endDate: string; label: string };
   onClose: () => void;
   onImported: () => void;
 };
@@ -43,7 +45,9 @@ const ROW_STATUS: Record<string, { text: string; variant: "info" | "warning" | "
 };
 const FIELD_LABEL: Record<string, string> = { fullName: "Nombre", regional: "Regional", area: "Área", cargo: "Cargo" };
 
-export default function ImportDialog({ kind, period, supervisorId, supervisorName, onClose, onImported }: Props) {
+const fmt = (iso: string) => iso.split("-").reverse().join("/");
+
+export default function ImportDialog({ kind, period, supervisorId, supervisorName, periodRange, onClose, onImported }: Props) {
   const { showToast } = useToast();
   const [file, setFile] = useState<File | null>(null);
   const [batch, setBatch] = useState<ImportBatch | null>(null);
@@ -131,10 +135,39 @@ export default function ImportDialog({ kind, period, supervisorId, supervisorNam
               </p>
             ) : (
               <p className="text-sm text-secondary">
-                Período <strong>{period}</strong>. El archivo (.xlsx) debe tener los encabezados:
+                Período <strong>{periodRange?.label ?? period}</strong>. El archivo (.xlsx) debe tener los encabezados:
               </p>
             )}
-            <p className="text-xs font-mono bg-surface2 rounded-lg p-2 break-words">{TEMPLATE_HINT[kind]}</p>
+            {kind === "WORKED_DAYS" && periodRange ? (
+              <div className="text-xs bg-surface2 rounded-lg p-3 space-y-1.5">
+                <p className="font-mono break-words">
+                  Supervisor | Cargo | Cédula | Empleado | {fmt(periodRange.startDate)} | … | {fmt(periodRange.endDate)}
+                </p>
+                <ul className="list-disc pl-4 space-y-0.5 text-secondary">
+                  <li>Una columna por cada día del período, con la fecha en el encabezado (dd/mm/aaaa).</li>
+                  <li>En cada celda, las <strong>horas laboradas</strong> de ese día: 0 a 24, hasta 2 decimales (8 o 7.5).</li>
+                  <li>Vacío = no reportado; 0 = cero horas. Sábados y domingos deben quedar vacíos.</li>
+                  <li>La persona se identifica por la Cédula; Empleado debe corresponder a esa cédula.</li>
+                </ul>
+                {supervisorId ? (
+                  <button
+                    type="button"
+                    className="text-primary hover:underline font-semibold"
+                    onClick={() =>
+                      novedadesApi.download(
+                        "worked-days/template",
+                        { period, supervisor: supervisorId },
+                        `plantilla-dias-laborados-${period}.xlsx`,
+                      )
+                    }
+                  >
+                    Descargar la plantilla de este período (con su equipo y las fechas exactas)
+                  </button>
+                ) : null}
+              </div>
+            ) : (
+              <p className="text-xs font-mono bg-surface2 rounded-lg p-2 break-words">{TEMPLATE_HINT[kind]}</p>
+            )}
             <input type="file" accept=".xlsx" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="block text-sm" />
             <p className="text-xs text-secondary">Primero se muestra una vista previa: no se guarda nada hasta que confirme.</p>
           </>
@@ -150,6 +183,18 @@ export default function ImportDialog({ kind, period, supervisorId, supervisorNam
             </div>
             {isBase && batch.summary.ignoredColumns && batch.summary.ignoredColumns.length > 0 && (
               <p className="text-xs text-secondary">Columnas ignoradas: {batch.summary.ignoredColumns.join(", ")}</p>
+            )}
+            {batch.summary.warnings && batch.summary.warnings.length > 0 && (
+              <div className="text-xs border border-warning/40 bg-warning/[.06] rounded-lg p-2 space-y-0.5">
+                <p className="font-semibold text-warning">Avisos (no impiden importar)</p>
+                {batch.summary.warnings.slice(0, 50).map((w, i) => (
+                  <p key={i}>
+                    {w.row > 1 ? `Fila ${w.row} · ` : ""}
+                    {w.column ? `${w.column}: ` : ""}
+                    {w.message}
+                  </p>
+                ))}
+              </div>
             )}
             {batch.summary.alreadyImported && (
               <p className="text-sm text-warning">

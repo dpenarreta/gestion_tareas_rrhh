@@ -8,6 +8,7 @@
 
 | Decisión | Motivo técnico | Detalle completo |
 |---|---|---|
+| Importación de Días laborados: «Empleado» sin ninguna palabra en común con el nombre de la cédula bloquea la fila; una diferencia parcial solo avisa (2026-10-12) | Evita cargar horas a la persona equivocada por una cédula mal digitada, sin rechazar planillas por tildes, orden de apellidos u omisión de un nombre | [CHANGELOG v1.167.1](CHANGELOG.md) |
 | La importación de la base crea/actualiza colaboradores; las de novedades siguen exigiendo que existan (2026-10-12) | Son flujos distintos: cargar personas vs. registrar novedades de personas ya conocidas. Relajar la validación en las novedades permitiría crear colaboradores sin control al cargar horas | [CHANGELOG v1.167.0](CHANGELOG.md) |
 | Política de actualización por importación: solo nombre, regional, área y cargo; nunca cédula, estado, supervisor ni permisos (2026-10-12) | El estado y la asignación tienen flujos propios auditados (cambio de estado con motivo, Reasignar); una planilla no debe saltárselos | [CHANGELOG v1.167.0](CHANGELOG.md) |
 | Cédula numérica de 9 dígitos se completa a 10 al importar (2026-10-12) | Excel guarda la cédula ecuatoriana como número y pierde el 0 inicial; sin esto la misma persona quedaría con dos cédulas distintas | [CHANGELOG v1.167.0](CHANGELOG.md) |

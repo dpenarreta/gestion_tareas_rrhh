@@ -272,7 +272,7 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
                 <th rowSpan={2} className="sticky top-0 left-0 z-30 bg-surface2 border-b border-r border-border px-2 py-1.5 text-left font-semibold text-secondary w-[96px] min-w-[96px]">
                   Cédula
                 </th>
-                <th rowSpan={2} className="sticky top-0 left-[96px] z-30 bg-surface2 border-b border-r border-border px-2 py-1.5 text-left font-semibold text-secondary min-w-[200px]">
+                <th rowSpan={2} className="sticky top-0 left-[96px] z-30 bg-surface2 border-b border-r border-border px-2 py-1.5 text-left font-semibold text-secondary min-w-[240px] whitespace-nowrap">
                   Empleado
                 </th>
                 {matrix.columns.map((c) => (
@@ -299,12 +299,13 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
                   <tr key={row.collaboratorId} className="group">
                     <td className="border-b border-r border-border px-2 py-1 whitespace-nowrap text-secondary">{matrix.supervisor.name}</td>
                     <td className="border-b border-r border-border px-2 py-1 whitespace-nowrap">{row.cargo}</td>
-                    <td className="sticky left-0 z-10 bg-surface border-b border-r border-border px-2 py-1 font-mono">{row.cedula}</td>
-                    <td className="sticky left-[96px] z-10 bg-surface border-b border-r border-border px-2 py-1">
-                      <div className="flex items-center gap-1.5">
-                        <span className="truncate max-w-[150px]" title={row.fullName}>
-                          {row.fullName}
-                        </span>
+                    <td className="sticky left-0 z-10 bg-surface border-b border-r border-border px-2 py-1 font-mono w-[96px] min-w-[96px]">{row.cedula}</td>
+                    <td className="sticky left-[96px] z-10 bg-surface border-b border-r border-border px-2 py-1 min-w-[240px]">
+                      {/* Nombre completo, sin recortar: la columna crece con el
+                          nombre más largo y las fechas se recorren con el
+                          desplazamiento horizontal. */}
+                      <div className="flex items-center gap-1.5 whitespace-nowrap">
+                        <span title={row.fullName}>{row.fullName}</span>
                         {row.status !== "ACTIVE" && (
                           <Badge variant={row.status === "SUSPENDED" ? "warning" : "neutral"}>{STATUS_LABEL[row.status]}</Badge>
                         )}
@@ -399,6 +400,8 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
         <ImportDialog
           kind="WORKED_DAYS"
           period={matrix.period.code}
+          supervisorId={matrix.supervisor.id}
+          periodRange={{ startDate: matrix.period.startDate, endDate: matrix.period.endDate, label: matrix.period.label }}
           onClose={() => setImportOpen(false)}
           onImported={() => {
             setImportOpen(false);
