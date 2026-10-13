@@ -124,6 +124,35 @@ def test_overtime_export_has_14_headers_with_supervisor_seventh(
     assert openpyxl.load_workbook(io.BytesIO(empty.content)).active.max_row == 1
 
 
+def test_overtime_export_marks_weekend_and_holiday_flags_with_x(client_for, admin, supervisor):
+    """SABADO/DOMINGO/FERIADO: "X" si es Sí, celda vacía si es No; la base no cambia."""
+    cid = _create(client_for(supervisor)).json()["id"]
+    client = client_for(admin)
+    for day, holiday in (("2026-10-10", False), ("2026-10-11", True), ("2026-10-09", False)):
+        client.post(
+            f"{BASE}/overtime/",
+            {"collaborator_id": cid, "date": day, "overtime_hours": "2", "is_holiday": holiday},
+            format="json",
+        )
+    response = client.get(f"{BASE}/overtime/export/?period=2026-10")
+    ws = openpyxl.load_workbook(io.BytesIO(response.content)).active
+    headers = [c.value for c in ws[1]]
+    assert headers == OVERTIME_EXPORT_HEADERS  # encabezados y orden intactos
+    flags = {
+        row[0].value.date().isoformat(): tuple(row[i].value for i in (9, 10, 11))
+        for row in ws.iter_rows(min_row=2)
+    }
+    assert headers[9:12] == ["SABADO", "DOMINGO", "FERIADO"]
+    assert flags == {
+        "2026-10-09": (None, None, None),  # viernes: todo No -> vacío
+        "2026-10-10": ("X", None, None),  # sábado
+        "2026-10-11": (None, "X", "X"),  # domingo y feriado
+    }
+    # Los datos guardados siguen siendo booleanos.
+    stored = OvertimeRecord.objects.get(date=date(2026, 10, 11))
+    assert stored.is_sunday is True and stored.is_holiday is True and stored.is_saturday is False
+
+
 def test_overtime_list_has_13_columns_payload_and_assistant_registers_past_dates_only(
     client_for, supervisor, assistant
 ):

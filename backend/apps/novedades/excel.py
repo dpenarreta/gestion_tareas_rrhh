@@ -87,6 +87,15 @@ def _norm(text) -> str:
     return " ".join(value.upper().split())
 
 
+def _mark(value: bool | None) -> str | None:
+    """SABADO/DOMINGO/FERIADO en el REPORTE exportado: "X" si es verdadero y
+    celda vacía si es falso o no hay dato (formato pedido, 2026-10-13). Solo
+    presentación: en la base siguen siendo booleanos, y la importación ya lee
+    "X" como Sí y la celda vacía como No, así que el reporte se puede volver
+    a importar. Solo `True` produce "X": nada ambiguo se toma como Sí."""
+    return "X" if value is True else None
+
+
 def _bool(value) -> bool | None:
     if value is None or (isinstance(value, str) and not value.strip()):
         return False
@@ -171,9 +180,9 @@ class ExportService:
                     _safe_text(user_display(r.supervisor)),
                     float(r.overtime_hours),
                     float(r.saturday_hours),
-                    "SI" if r.is_saturday else "NO",
-                    "SI" if r.is_sunday else "NO",
-                    "SI" if r.is_holiday else "NO",
+                    _mark(r.is_saturday),
+                    _mark(r.is_sunday),
+                    _mark(r.is_holiday),
                     _safe_text(r.work_done),
                     _safe_text(r.observations),
                 ]

@@ -23,6 +23,32 @@
 
 ---
 
+## v1.174.2 — 2026-10-13
+
+**Tipo:** UX
+**Módulo:** Control Operativo de Novedades — exportación de Horas extras.
+
+- En el reporte Excel exportado, las columnas **SABADO**, **DOMINGO** y
+  **FERIADO** muestran **X** cuando el valor es Sí y quedan **vacías** cuando es
+  No (antes "SI"/"NO"). Es solo presentación (`_mark` en
+  `ExportService.overtime`): en la base siguen siendo booleanos y solo un valor
+  verdadero produce "X". Encabezados, orden de columnas, filtros y demás datos
+  sin cambios. El archivo se puede volver a importar: la importación ya leía
+  "X" como Sí y la celda vacía como No. La pantalla de consulta y la captura no
+  cambian.
+
+- **Archivos:** `backend/apps/novedades/excel.py`,
+  `backend/apps/novedades/tests/test_api.py`.
+
+**Verificación:** test nuevo
+`test_overtime_export_marks_weekend_and_holiday_flags_with_x` (sábado → X en
+SABADO, domingo y feriado → X en DOMINGO y FERIADO, día hábil → todo vacío,
+encabezados intactos, datos guardados sin cambios).
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
 ## v1.174.1 — 2026-10-13
 
 **Tipo:** UX
