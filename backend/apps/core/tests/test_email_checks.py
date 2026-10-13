@@ -140,7 +140,9 @@ def test_la_advertencia_no_revela_la_contraseña():
 
 def test_credenciales_ascii_no_advierten():
     # Los símbolos ASCII poco habituales son válidos y no deben advertir.
-    configuracion = {**CONFIGURACION_VALIDA, "EMAIL_HOST_PASSWORD": "q3=y266Pp!#$%&*+-?@^_"}
+    # El valor es deliberadamente inventado: un fixture de contraseña nunca
+    # debe parecerse a una real, porque queda committeado y en el historial.
+    configuracion = {**CONFIGURACION_VALIDA, "EMAIL_HOST_PASSWORD": "Ej3mpl0!#$%&*+-?@^_"}
     assert "nexo.email.W008" not in _ids(configuracion)
 
 
