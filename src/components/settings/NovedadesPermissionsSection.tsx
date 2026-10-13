@@ -108,6 +108,7 @@ export default function NovedadesPermissionsSection() {
         puede otorgarse permisos a sí mismo. Habilitar una facultad nunca amplía el ámbito de datos.
       </p>
 
+      <RecordDeadlineSettings />
       <OvertimeGraceSetting />
 
       <div className="grid lg:grid-cols-2 gap-4">
@@ -498,6 +499,114 @@ function OvertimeGraceSetting() {
         </Button>
       </div>
       {!valid && <p className="text-xs text-danger">Ingrese un número entero entre {config.minHours} y {config.maxHours}.</p>}
+      <ErrorBox message={error} />
+    </div>
+  );
+}
+
+type DeadlineItem = {
+  kind: "worked_days" | "overtime";
+  label: string;
+  hours: number;
+  configured: boolean;
+  updatedAt: string | null;
+  updatedBy: string;
+};
+type DeadlineSettings = {
+  items: DeadlineItem[];
+  mode: string;
+  minHours: number;
+  maxHours: number;
+  canEdit: boolean;
+  policy: string;
+};
+
+// Control de plazos de registro por fecha de trabajo (Días laborados y Horas
+// extras, por separado). Solo el Administrador modifica (el servidor lo
+// revalida); el cálculo vive en Django (`RecordDeadlineService`).
+function RecordDeadlineSettings() {
+  const { showToast } = useToast();
+  const [config, setConfig] = useState<DeadlineSettings | null>(null);
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    novedadesApi.get<DeadlineSettings>("deadlines/settings").then((r) => {
+      if (!r.ok) return;
+      setConfig(r.data);
+      setValues(Object.fromEntries(r.data.items.map((i) => [i.kind, String(i.hours)])));
+    });
+  }, []);
+
+  if (!config) return null;
+  const changed = config.items.filter((i) => values[i.kind] !== String(i.hours));
+  const invalid = config.items.some((i) => {
+    const n = Number(values[i.kind]);
+    return !Number.isInteger(n) || n < config.minHours || n > config.maxHours;
+  });
+
+  return (
+    <div className="border border-border rounded-xl px-4 py-3 space-y-2">
+      <h4 className="font-semibold text-title">Control de plazos de registro</h4>
+      <p className="text-xs text-secondary">
+        Plazo para registrar o corregir cada fecha de trabajo. {config.mode} Vencido el plazo, el Supervisor ya no
+        modifica esa fecha; el Asistente de Operaciones y el Administrador sí (queda auditado). Nadie registra fechas
+        futuras. {config.policy}
+      </p>
+      <div className="grid sm:grid-cols-2 gap-3">
+        {config.items.map((i) => (
+          <label key={i.kind} className="block">
+            <Label hint={`${config.minHours}–${config.maxHours} h`}>{i.label}</Label>
+            <TextInput
+              type="number"
+              min={config.minHours}
+              max={config.maxHours}
+              step={1}
+              value={values[i.kind] ?? ""}
+              disabled={!config.canEdit}
+              onChange={(e) => setValues((prev) => ({ ...prev, [i.kind]: e.target.value }))}
+              className="w-28"
+              aria-label={`Plazo de registro de ${i.label} en horas laborables`}
+            />
+            <span className="block text-[11px] text-secondary mt-1">
+              {i.configured
+                ? `Última modificación: ${formatDateTime(i.updatedAt)} por ${i.updatedBy}`
+                : "Valor inicial (sin modificaciones)"}
+            </span>
+          </label>
+        ))}
+      </div>
+      {config.canEdit ? (
+        <Button
+          size="sm"
+          loading={saving}
+          disabled={!changed.length || invalid || saving}
+          onClick={async () => {
+            setSaving(true);
+            setError(null);
+            const body = Object.fromEntries(changed.map((i) => [i.kind === "worked_days" ? "workedDays" : "overtime", Number(values[i.kind])]));
+            const result = await novedadesApi.patch<DeadlineSettings>("deadlines/settings", body);
+            setSaving(false);
+            if (!result.ok) {
+              setError(result.error);
+              return;
+            }
+            setConfig(result.data);
+            setValues(Object.fromEntries(result.data.items.map((i) => [i.kind, String(i.hours)])));
+            showToast("Plazos de registro actualizados.", "success");
+          }}
+        >
+          Guardar plazos
+        </Button>
+      ) : (
+        <p className="text-xs text-secondary">Solo el Administrador puede modificar estos plazos.</p>
+      )}
+      {invalid && (
+        <p className="text-xs text-danger">
+          Ingrese números enteros entre {config.minHours} y {config.maxHours}.
+        </p>
+      )}
       <ErrorBox message={error} />
     </div>
   );

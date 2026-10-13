@@ -1,3 +1,5 @@
+import type { DeadlineRules } from "@/lib/novedadesAutosave";
+
 // Formas camelCase que devuelve `/api/novedades/*` (ya adaptadas desde
 // Django por `src/lib/djangoNovedadesAdapter.ts`).
 
@@ -14,6 +16,8 @@ export type NovedadesMe = {
   /** Mes calendario vigente de Horas extras (distinto del corte 23 → 22). */
   currentMonth?: { code: string; label: string };
   user: { id: number; name: string };
+  /** Plazo de registro por fecha (lo calcula Django). */
+  deadlineRules?: DeadlineRules;
 };
 
 export type PeriodOption = {
@@ -61,7 +65,18 @@ export type SupervisorOption = { id: number; name: string };
 
 export type CollaboratorStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED";
 
-export type MatrixColumn = { date: string; day: number; weekday: string; isWeekend: boolean; holiday: string };
+export type MatrixColumn = {
+  date: string;
+  day: number;
+  weekday: string;
+  isWeekend: boolean;
+  holiday: string;
+  /** Plazo por fecha ya resuelto por Django para este usuario: "" = en plazo,
+   * "future" = fecha futura, "expired" = vencida (bloqueada), "late" = vencida
+   * pero editable por excepción (Asistente/Administrador). */
+  deadlineState?: "" | "future" | "expired" | "late";
+  deadlineLabel?: string;
+};
 
 /** `otherTeam`: la celda la registró el equipo anterior (colaborador reasignado):
  * se muestra pero no se edita desde este equipo ni suma en su total. */

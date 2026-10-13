@@ -16,7 +16,7 @@ from django.db import IntegrityError, transaction
 from django.db.models import Count, Q, Sum
 from django.utils import timezone
 
-from apps.configuration.models import Holiday
+from apps.configuration.models import Holiday, SystemConfigHistory
 from apps.configuration.services import (
     get_effective_config_value,
     get_holiday_set,
@@ -255,6 +255,7 @@ class EventService:
                     field=change["date"].isoformat(),
                     old_value=_fmt(change["old"]),
                     new_value=_fmt(change["new"]),
+                    reason=change.get("reason", "")[:500],
                     source_file=source_file[:255],
                 )
                 for change in changes
@@ -1057,16 +1058,39 @@ class WorkedDayService:
                 cell["other_team"] = user_display(wd.supervisor)
             cells.setdefault(wd.collaborator_id, {})[wd.date.isoformat()] = cell
         holidays = WorkedDayService._holidays(key)
-        columns = [
-            {
-                "date": d.isoformat(),
-                "day": d.day,
-                "weekday": WEEKDAY_NAMES_ES[d.weekday()],
-                "is_weekend": is_weekend(d),
-                "holiday": holidays.get(d, ""),
-            }
-            for d in key.dates()
-        ]
+        # Plazo por fecha de trabajo, ya resuelto para este usuario: la
+        # pantalla bloquea la columna con el mismo criterio que el servidor.
+        holiday_set = get_holiday_set()
+        now = timezone.now()
+        current_day = today()
+
+        def lock_of(d: date) -> tuple[str, str]:
+            if d > current_day:
+                return "future", ""
+            deadline = RecordDeadlineService.deadline(
+                RecordDeadlineService.WORKED_DAYS, d, holiday_set
+            )
+            label = deadline_label(deadline)
+            if now >= deadline:
+                return ("late" if acc.can_bypass_deadline else "expired"), label
+            return "", label
+
+        columns = []
+        for d in key.dates():
+            lock, until = lock_of(d)
+            columns.append(
+                {
+                    "date": d.isoformat(),
+                    "day": d.day,
+                    "weekday": WEEKDAY_NAMES_ES[d.weekday()],
+                    "is_weekend": is_weekend(d),
+                    "holiday": holidays.get(d, ""),
+                    # "" = editable en plazo · "future" · "expired" (bloqueada
+                    # para el Supervisor) · "late" (vencida, editable por excepción)
+                    "deadline_state": lock,
+                    "deadline_label": until,
+                }
+            )
         rows = []
         for c in collaborators:
             row_cells = cells.get(c.pk, {})
@@ -1169,6 +1193,7 @@ class WorkedDayService:
         }
         errors, conflicts, plan = [], [], []
         seen_cells: set[tuple] = set()
+        holidays_set = get_holiday_set()
         for cell in cells:
             cid = int(cell["collaborator_id"])
             day = cell["date"]
@@ -1197,6 +1222,20 @@ class WorkedDayService:
                         "date": day,
                         "message": f"{collaborator.full_name} {day:%d/%m}: lo registró otro equipo; no se modifica desde aquí.",
                         "code": "other_team",
+                    }
+                )
+                continue
+            try:
+                late = RecordDeadlineService.check(
+                    acc, RecordDeadlineService.WORKED_DAYS, day, holidays=holidays_set
+                )
+            except NovedadesError as exc:
+                errors.append(
+                    {
+                        "collaborator_id": cid,
+                        "date": day,
+                        "message": exc.message,
+                        "code": exc.code,
                     }
                 )
                 continue
@@ -1251,7 +1290,7 @@ class WorkedDayService:
                 continue
             if current is not None and current.hours == value:
                 continue
-            plan.append((collaborator, day, current, old, value))
+            plan.append((collaborator, day, current, old, value, late))
 
         if errors:
             if any(e.get("code") == "weekend_locked" for e in errors):
@@ -1287,7 +1326,7 @@ class WorkedDayService:
                     code="period_closed",
                     status=409,
                 )
-            for collaborator, day, current, old, value in plan:
+            for collaborator, day, current, old, value, late in plan:
                 if current is None:
                     try:
                         with transaction.atomic():
@@ -1327,6 +1366,7 @@ class WorkedDayService:
                         "date": day,
                         "old": old,
                         "new": value,
+                        "reason": RecordDeadlineService.LATE_REASON if late else "",
                     }
                 )
             if changes:
@@ -1371,6 +1411,229 @@ OVERTIME_FIELDS = (
     "work_done",
     "observations",
 )
+
+
+# ── Plazo de registro por fecha de trabajo (Días laborados y Horas extras) ────
+
+
+BUSINESS_TZ = dt_timezone(-timedelta(hours=BUSINESS_TZ_OFFSET_HOURS))
+
+
+def business_deadline(first_day: date, hours: int, holidays) -> datetime:
+    """Fin EXCLUSIVO de un plazo de `hours` horas laborables que empieza a las
+    00:00 (hora de Ecuador) de `first_day`. Cuenta solo días hábiles (lunes a
+    viernes que no son feriados de Ajustes), 24 horas cada uno; si
+    `first_day` no es hábil, el cómputo arranca en el siguiente día hábil.
+    Única implementación de la regla: la usan el plazo por fecha de trabajo y
+    el plazo de cierre mensual de Horas extras."""
+    day = first_day
+    remaining = hours
+    # Tope de seguridad: ningún calendario real tiene 60 días seguidos no hábiles.
+    for _ in range(60):
+        if is_working_day(day, holidays):
+            if remaining <= 24:
+                start = datetime.combine(day, time.min, tzinfo=BUSINESS_TZ)
+                return start + timedelta(hours=remaining)
+            remaining -= 24
+        day += timedelta(days=1)
+    raise NovedadesError("No se pudo calcular el plazo: revise el calendario de feriados.")
+
+
+def deadline_label(deadline: datetime) -> str:
+    """Último minuto incluido, en hora de Ecuador: un plazo que termina a las
+    00:00 se muestra como las 23:59 del día anterior."""
+    local = deadline.astimezone(BUSINESS_TZ) - timedelta(minutes=1)
+    return f"{WEEKDAY_NAMES_ES[local.weekday()].lower()} {local:%d/%m/%Y %H:%M}"
+
+
+class RecordDeadlineService:
+    """Plazo para registrar o corregir UNA fecha de trabajo (pedido explícito,
+    2026-10-13, decisiones del usuario):
+
+    - Se cuenta desde el FIN del día de trabajo (00:00 del día siguiente, hora
+      de Ecuador) en horas laborables: 24 h por día hábil, lunes a viernes sin
+      feriados (misma regla que el plazo de cierre mensual). Valor inicial
+      48 h: el martes 13 se puede registrar hasta el jueves 15 23:59; el
+      viernes 16, hasta el martes 20 23:59.
+    - Se configura por separado para Días laborados y Horas extras, solo el
+      Administrador, en Ajustes. Cada fecha usa el valor vigente al empezar
+      su plazo (no retroactivo).
+    - Ninguna fecha futura se registra (nadie: tampoco Asistente ni
+      Administrador).
+    - Vencido el plazo, el Supervisor ya no crea, edita ni elimina esa fecha;
+      el Asistente de Operaciones y el Administrador sí (queda auditado como
+      "fuera de plazo"), sin saltarse cierres, equipos ni fechas futuras.
+    - Es independiente del período 23 → 22 y del cierre mensual de Horas
+      extras: vencer una fecha no cierra nada."""
+
+    WORKED_DAYS = "worked_days"
+    OVERTIME = "overtime"
+    CONFIG_KEYS = {
+        WORKED_DAYS: "novedades_worked_days_deadline_hours",
+        OVERTIME: "novedades_overtime_deadline_hours",
+    }
+    LABELS = {WORKED_DAYS: "Días laborados", OVERTIME: "Horas extras"}
+    DEFAULT_HOURS = 48
+    MIN_HOURS = 24
+    MAX_HOURS = 240
+    MODE = (
+        "Horas laborables desde el fin del día de trabajo: 24 h por día hábil "
+        "(lunes a viernes sin feriados), hora de Ecuador (UTC-5)."
+    )
+    LATE_REASON = "Registro fuera de plazo (excepción de Asistente/Administrador)"
+
+    @staticmethod
+    def window_start(day: date) -> datetime:
+        return datetime.combine(day + timedelta(days=1), time.min, tzinfo=BUSINESS_TZ)
+
+    @staticmethod
+    def hours_for(kind: str, day: date) -> int:
+        value = get_effective_config_value(
+            RecordDeadlineService.CONFIG_KEYS[kind],
+            RecordDeadlineService.window_start(day),
+            RecordDeadlineService.DEFAULT_HOURS,
+        )
+        return min(
+            max(int(value), RecordDeadlineService.MIN_HOURS), RecordDeadlineService.MAX_HOURS
+        )
+
+    @staticmethod
+    def deadline(kind: str, day: date, holidays=None) -> datetime:
+        if holidays is None:
+            holidays = get_holiday_set()
+        return business_deadline(
+            day + timedelta(days=1), RecordDeadlineService.hours_for(kind, day), holidays
+        )
+
+    @staticmethod
+    def check(acc: NovedadesAccess, kind: str, day: date, *, holidays=None, now=None) -> bool:
+        """Valida la fecha de trabajo para una escritura ordinaria. Devuelve
+        True si es una escritura FUERA de plazo permitida por excepción (para
+        dejarla marcada en el historial). Lanza NovedadesError si no procede.
+        Se evalúa siempre en el servidor, con su reloj y el día de Ecuador."""
+        current = today()
+        if day > current:
+            raise NovedadesError(
+                f"{day:%d/%m/%Y} es una fecha futura: no se registran novedades por adelantado.",
+                code="future_date",
+            )
+        deadline = RecordDeadlineService.deadline(kind, day, holidays)
+        expired = (now or timezone.now()) >= deadline
+        if not expired:
+            return False
+        if acc.can_bypass_deadline:
+            return True
+        raise NovedadesError(
+            f"El plazo para registrar {day:%d/%m/%Y} venció el {deadline_label(deadline)}. "
+            "Solicite la corrección al Asistente de Operaciones o al Administrador.",
+            code="deadline_passed",
+            status=409,
+        )
+
+    @staticmethod
+    def earliest_open_date(kind: str, *, holidays=None, now=None) -> date:
+        """Primera fecha cuyo plazo sigue vigente (para la pantalla)."""
+        if holidays is None:
+            holidays = get_holiday_set()
+        now = now or timezone.now()
+        day = today()
+        for _ in range(60):
+            previous = day - timedelta(days=1)
+            if RecordDeadlineService.deadline(kind, previous, holidays) <= now:
+                return day
+            day = previous
+        return day
+
+    @staticmethod
+    def rules(acc: NovedadesAccess) -> dict:
+        holidays = get_holiday_set()
+        return {
+            "today": today(),
+            "can_bypass_deadline": acc.can_bypass_deadline,
+            "mode": RecordDeadlineService.MODE,
+            **{
+                kind: {
+                    "hours": RecordDeadlineService.hours_for(kind, today()),
+                    "earliest_open_date": RecordDeadlineService.earliest_open_date(
+                        kind, holidays=holidays
+                    ),
+                }
+                for kind in (RecordDeadlineService.WORKED_DAYS, RecordDeadlineService.OVERTIME)
+            },
+        }
+
+    @staticmethod
+    def settings(acc: NovedadesAccess) -> dict:
+        if not acc.can(perms.ACCEDER):
+            raise _forbidden()
+        items = []
+        for kind, key in RecordDeadlineService.CONFIG_KEYS.items():
+            record = (
+                SystemConfigHistory.objects.filter(key=key, valid_until__isnull=True)
+                .select_related("updated_by")
+                .order_by("-valid_from")
+                .first()
+            )
+            items.append(
+                {
+                    "kind": kind,
+                    "label": RecordDeadlineService.LABELS[kind],
+                    "hours": RecordDeadlineService.hours_for(kind, today()),
+                    "configured": record is not None,
+                    "updated_at": record.valid_from if record else None,
+                    "updated_by": (
+                        user_display(record.updated_by) if record and record.updated_by else ""
+                    ),
+                }
+            )
+        return {
+            "items": items,
+            "mode": RecordDeadlineService.MODE,
+            "min_hours": RecordDeadlineService.MIN_HOURS,
+            "max_hours": RecordDeadlineService.MAX_HOURS,
+            "can_edit": acc.national_write,
+            "policy": "Un cambio aplica a las fechas cuyo plazo todavía no empezó; "
+            "no altera vencimientos en curso ni registros guardados.",
+        }
+
+    @staticmethod
+    def set_hours(acc: NovedadesAccess, changes: dict, *, context=None) -> dict:
+        if not acc.national_write:
+            raise _forbidden("Solo el Administrador configura los plazos de registro.")
+        for kind, hours in changes.items():
+            if kind not in RecordDeadlineService.CONFIG_KEYS:
+                raise NovedadesError("Plazo desconocido.")
+            if not isinstance(hours, int) or not (
+                RecordDeadlineService.MIN_HOURS <= hours <= RecordDeadlineService.MAX_HOURS
+            ):
+                raise NovedadesError(
+                    f"El plazo debe ser un número entero de horas entre "
+                    f"{RecordDeadlineService.MIN_HOURS} y {RecordDeadlineService.MAX_HOURS}.",
+                    details={kind: ["Fuera de rango."]},
+                )
+        with transaction.atomic():
+            for kind, hours in changes.items():
+                key = RecordDeadlineService.CONFIG_KEYS[kind]
+                previous = int(
+                    get_effective_config_value(
+                        key, timezone.now(), RecordDeadlineService.DEFAULT_HOURS
+                    )
+                )
+                if previous == hours:
+                    continue
+                set_config_value(key, str(hours), acc.user)
+                EventService.log(
+                    actor=acc.user,
+                    action="deadline.changed",
+                    target_type="config",
+                    target_id=key,
+                    target_label=f"Plazo de registro de {RecordDeadlineService.LABELS[kind]}",
+                    field=key,
+                    old_value=str(previous),
+                    new_value=str(hours),
+                    context=context,
+                )
+        return RecordDeadlineService.settings(acc)
 
 
 # ── Horas extras: mes calendario, plazo de cierre y cierre manual ─────────────
@@ -1476,17 +1739,7 @@ class OvertimeMonthService:
             hours = OvertimeMonthService.grace_hours(month)
         if holidays is None:
             holidays = get_holiday_set()
-        day = month.next().start_date
-        remaining = hours
-        # Tope de seguridad: ningún calendario real tiene 60 días seguidos no hábiles.
-        for _ in range(60):
-            if is_working_day(day, holidays):
-                if remaining <= 24:
-                    start = datetime.combine(day, time.min, tzinfo=OvertimeMonthService.BUSINESS_TZ)
-                    return start + timedelta(hours=remaining)
-                remaining -= 24
-            day += timedelta(days=1)
-        raise NovedadesError("No se pudo calcular el plazo: revise el calendario de feriados.")
+        return business_deadline(month.next().start_date, hours, holidays)
 
     @staticmethod
     def business_seconds_between(start: datetime, end: datetime, holidays) -> int:
@@ -1510,8 +1763,7 @@ class OvertimeMonthService:
     def deadline_label(deadline: datetime) -> str:
         """Último instante incluido, en hora de Ecuador: un plazo que termina a
         las 00:00 se muestra como las 23:59 del día anterior."""
-        local = deadline.astimezone(OvertimeMonthService.BUSINESS_TZ) - timedelta(minutes=1)
-        return f"{WEEKDAY_NAMES_ES[local.weekday()].lower()} {local:%d/%m/%Y %H:%M}"
+        return deadline_label(deadline)
 
     @staticmethod
     def closes_for(month: MonthKey, supervisor_ids=None):
@@ -2010,6 +2262,7 @@ class OvertimeService:
         day = data["date"]
         supervisor = collaborator.current_supervisor
         month = OvertimeMonthService.assert_writable(supervisor, day)
+        late = RecordDeadlineService.check(acc, RecordDeadlineService.OVERTIME, day)
         # `period` sigue apuntando al corte 23 → 22 de la fecha (dato de
         # referencia del modelo); el mes de Horas extras sale de `date`.
         legacy_period = PeriodService.get_period(period_for_date(day))
@@ -2045,6 +2298,7 @@ class OvertimeService:
                 target_id=record.pk,
                 target_label=f"{collaborator.full_name} ({collaborator.cedula}) {day:%d/%m/%Y}",
                 new_value=f"{_fmt(values['overtime_hours'])} h extra / {_fmt(values['saturday_hours'])} h sábado",
+                reason=RecordDeadlineService.LATE_REASON if late else "",
                 source_file=source_file,
                 context=context,
             )
@@ -2083,6 +2337,7 @@ class OvertimeService:
                 status=409,
             )
         OvertimeMonthService.assert_writable(record.supervisor, record.date)
+        late = RecordDeadlineService.check(acc, RecordDeadlineService.OVERTIME, record.date)
         merged = {f: getattr(record, f) for f in OVERTIME_FIELDS}
         merged.update({k: v for k, v in data.items() if k in OVERTIME_FIELDS})
         values = OvertimeService._clean_values(merged, record.date)
@@ -2111,6 +2366,7 @@ class OvertimeService:
                     field=field,
                     old_value=old,
                     new_value=new,
+                    reason=RecordDeadlineService.LATE_REASON if late else "",
                     source_file=source_file,
                     context=context,
                 )
@@ -2127,6 +2383,9 @@ class OvertimeService:
     def delete(acc: NovedadesAccess, record_id, reason: str = "", *, context=None) -> None:
         record = OvertimeService._get_for_write(acc, record_id)
         OvertimeMonthService.assert_writable(record.supervisor, record.date)
+        late = RecordDeadlineService.check(acc, RecordDeadlineService.OVERTIME, record.date)
+        if late and not reason:
+            reason = RecordDeadlineService.LATE_REASON
         label = (
             f"{record.collaborator.full_name} ({record.collaborator.cedula}) {record.date:%d/%m/%Y}"
         )
@@ -2196,7 +2455,7 @@ class OvertimeService:
         regional, área, cargo y supervisor salen de la base; del cliente
         solo se toman el id del colaborador, la fecha y los valores
         capturados."""
-        if not acc.can(perms.REGISTRAR) or acc.is_assistant:
+        if not acc.can(perms.REGISTRAR):
             raise _forbidden("No tiene habilitado el registro de novedades.")
         if not rows:
             raise NovedadesError("No hay filas para guardar.")
@@ -2246,6 +2505,7 @@ class OvertimeService:
         # Mes cerrado manualmente para el equipo = bloqueado (no hay cierre
         # automático: vencido el plazo, solo se avisa).
         closed_supervisors = OvertimeMonthService.closed_supervisor_ids(key, supervisor_ids)
+        deadline_holidays = get_holiday_set()
         legacy_periods: dict[tuple, OperationalPeriod] = {}
 
         def legacy_period(day):
@@ -2301,6 +2561,29 @@ class OvertimeService:
                 continue
             if not key.contains(day):
                 fail(row, "error", {"date": f"La fecha no pertenece al período {key.label}."})
+                continue
+            # Plazo por fecha de trabajo (y fecha futura): la nueva fecha y, si
+            # se mueve un registro, también la original.
+            try:
+                late = RecordDeadlineService.check(
+                    acc, RecordDeadlineService.OVERTIME, day, holidays=deadline_holidays
+                )
+                if record is not None and record.date != day:
+                    late = (
+                        RecordDeadlineService.check(
+                            acc,
+                            RecordDeadlineService.OVERTIME,
+                            record.date,
+                            holidays=deadline_holidays,
+                        )
+                        or late
+                    )
+            except NovedadesError as exc:
+                fail(
+                    row,
+                    "locked" if exc.code == "deadline_passed" else "error",
+                    {"date": exc.message},
+                )
                 continue
             if supervisor_id in closed_supervisors:
                 fail(
@@ -2394,12 +2677,19 @@ class OvertimeService:
             plan.append(
                 (
                     len(results),
-                    {"row": row, "record": record, "collaborator": collaborator, "values": values},
+                    {
+                        "row": row,
+                        "record": record,
+                        "collaborator": collaborator,
+                        "values": values,
+                        "late": late,
+                    },
                 )
             )
             results.append({"client_key": client_key, "status": "pending", "errors": {}})
 
         created = updated = unchanged = 0
+        late_ids: set[int] = set()
         events = []
         for index, item in plan:
             row, record, collaborator, values = (
@@ -2446,6 +2736,8 @@ class OvertimeService:
                             "version": new.version,
                         }
                         created += 1
+                        if item["late"]:
+                            late_ids.add(new.pk)
                         continue
                     changes = {
                         f: (getattr(record, f), v)
@@ -2500,6 +2792,8 @@ class OvertimeService:
                         "version": record.version + 1,
                     }
                     updated += 1
+                    if item["late"]:
+                        late_ids.add(record.pk)
             except NovedadesError as exc:
                 results[index] = {
                     "client_key": row.get("client_key"),
@@ -2534,6 +2828,7 @@ class OvertimeService:
                     field=field,
                     old_value=_fmt(old)[:1000],
                     new_value=_fmt(new)[:1000],
+                    reason=RecordDeadlineService.LATE_REASON if rid in late_ids else "",
                     source_file=source_file[:255],
                 )
                 for action, sid, rid, label, field, old, new, day in events

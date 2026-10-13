@@ -27,6 +27,7 @@ from .serializers import (
     CollaboratorCreateSerializer,
     CollaboratorSerializer,
     CollaboratorUpdateSerializer,
+    DeadlineSettingsSerializer,
     DeleteSerializer,
     EventSerializer,
     ImportBatchSerializer,
@@ -54,6 +55,7 @@ from .services import (
     OvertimeService,
     PeriodService,
     PermissionAdminService,
+    RecordDeadlineService,
     WorkedDayService,
     _parse_id_param,
     today,
@@ -146,6 +148,9 @@ class MeView(NovedadesView):
         }
         month = month_for_date(today())
         data["current_month"] = {"code": month.code, "label": month.label}
+        # Plazo por fecha de trabajo ya calculado por el servidor (la pantalla
+        # no recalcula reglas: solo bloquea lo que aquí se informa).
+        data["deadline_rules"] = RecordDeadlineService.rules(self.access)
         data["user"] = {"id": request.user.pk, "name": user_display(request.user)}
         return Response(data)
 
@@ -394,6 +399,18 @@ class OvertimeMonthListView(NovedadesView):
         if request.query_params.get("supervisor") or self.access.is_supervisor:
             supervisor = self.supervisor_param()
         return Response(OvertimeMonthService.months(self.access, supervisor))
+
+
+class DeadlineSettingsView(NovedadesView):
+    """Control de plazos de registro (Ajustes). Lectura: cualquier usuario del
+    módulo; modificación: solo el Administrador (se revalida en el servicio)."""
+
+    def get(self, request):
+        return Response(RecordDeadlineService.settings(self.access))
+
+    def patch(self, request):
+        data = self.validated(DeadlineSettingsSerializer)
+        return Response(RecordDeadlineService.set_hours(self.access, data, context=self.context))
 
 
 class OvertimeMonthCheckView(NovedadesView):

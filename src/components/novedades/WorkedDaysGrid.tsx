@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
-import { Download, Lock, Save, Undo2, Upload } from "lucide-react";
+import { Download, Lock, Undo2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { SearchInput } from "@/components/ui/SearchInput";
@@ -10,6 +10,14 @@ import { useToast } from "@/components/ui/Toast";
 import { formatDate, formatDateTime, novedadesApi } from "./api";
 import { ErrorBox } from "./fields";
 import { PERM, STATUS_LABEL, type MatrixRow, type WorkedDaysMatrix } from "./types";
+import {
+  AUTOSAVE_DEBOUNCE_MS,
+  SYNC_LABEL,
+  isRetryable,
+  pendingStore,
+  retryDelay,
+  type SyncState,
+} from "@/lib/novedadesAutosave";
 import type { ModuleContext } from "./NovedadesModule";
 import StatusChangeDialog from "./StatusChangeDialog";
 import ClosePeriodDialog from "./ClosePeriodDialog";
@@ -26,7 +34,8 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
   const [loadError, setLoadError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [cellErrors, setCellErrors] = useState<Record<string, string>>({});
-  const [saving, setSaving] = useState(false);
+  const [sync, setSync] = useState<SyncState>("idle");
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusTarget, setStatusTarget] = useState<MatrixRow | null>(null);
   const [closeOpen, setCloseOpen] = useState(false);
@@ -34,38 +43,173 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
   const [correction, setCorrection] = useState<{ row: MatrixRow; date: string } | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
 
-  const dirtyCount = Object.keys(drafts).length;
+  // Guardado automático: lo que la persona escribe se conserva aquí (y en el
+  // respaldo local) hasta que el servidor lo confirma. Una sola petición en
+  // vuelo; lo que llegue mientras tanto se envía en la siguiente.
+  const store = useMemo(
+    () => pendingStore<Record<string, string>>(`dias|${ctx.period}|${supervisorId}|${ctx.me.user.id}`),
+    [ctx.period, supervisorId, ctx.me.user.id],
+  );
+  const matrixRef = useRef<WorkedDaysMatrix | null>(null);
+  const draftsRef = useRef<Record<string, string>>({});
+  const errorsRef = useRef<Record<string, string>>({});
+  const inFlight = useRef(false);
+  const rerun = useRef(false);
+  const attempt = useRef(0);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mounted = useRef(true);
+  const flushRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    matrixRef.current = matrix;
+    draftsRef.current = drafts;
+    errorsRef.current = cellErrors;
+  }, [matrix, drafts, cellErrors]);
+
+  const pendingCount = Object.keys(drafts).length;
+
+  const fetchMatrix = useCallback(
+    () => novedadesApi.get<WorkedDaysMatrix>("worked-days", { period: ctx.period, supervisor: supervisorId }),
+    [ctx.period, supervisorId],
+  );
 
   const load = useCallback(async () => {
     setLoadError(null);
-    const result = await novedadesApi.get<WorkedDaysMatrix>("worked-days", {
-      period: ctx.period,
-      supervisor: supervisorId,
-    });
+    const result = await fetchMatrix();
+    if (!mounted.current) return;
     if (result.ok) {
       setMatrix(result.data);
-      setDrafts({});
+      // Cambios que quedaron sin confirmar (corte de red, cambio de pantalla):
+      // se recuperan y se vuelven a enviar solos.
+      const restored = store.load() ?? {};
+      setDrafts(restored);
       setCellErrors({});
+      if (Object.keys(restored).length) {
+        setSync("pending");
+        schedule(300);
+      }
     } else {
       setMatrix(null);
       setLoadError(result.error);
     }
-  }, [ctx.period, supervisorId]);
+  }, [fetchMatrix, store]);
 
   useEffect(() => {
+    mounted.current = true;
     queueMicrotask(load);
+    return () => {
+      mounted.current = false;
+      if (timer.current) clearTimeout(timer.current);
+    };
   }, [load]);
 
-  // Evita perder cambios sin guardar al cerrar o recargar la pestaña, y
-  // avisa al módulo para confirmar antes de cambiar de pestaña/período.
+  // Respaldo local de lo pendiente (se borra al confirmarse todo).
+  useEffect(() => {
+    if (!matrix) return;
+    if (pendingCount) store.save(drafts);
+    else store.clear();
+  }, [drafts, pendingCount, matrix, store]);
+
+  function schedule(delay: number) {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => flushRef.current(), delay);
+  }
+
+  async function flush() {
+    const current = matrixRef.current;
+    if (!current || !current.editable || !mounted.current) return;
+    if (inFlight.current) {
+      rerun.current = true;
+      return;
+    }
+    const entries = Object.entries(draftsRef.current).filter(([k]) => !(k in errorsRef.current));
+    if (!entries.length) return;
+    inFlight.current = true;
+    setSync("saving");
+    const cells = entries.map(([key, hours]) => {
+      const [cid, date] = key.split("|");
+      const row = current.rows.find((r) => r.collaboratorId === Number(cid));
+      return {
+        collaboratorId: Number(cid),
+        date,
+        hours: hours.trim() === "" ? null : hours.replace(",", "."),
+        // null explícito = la celda estaba vacía al cargar: si otro la llenó
+        // entretanto, el servidor responde conflicto en vez de pisarla.
+        version: row?.cells[date]?.version ?? null,
+      };
+    });
+    const result = await novedadesApi.post<{ saved: number }>("worked-days/save", {
+      period: current.period.code,
+      supervisorId: current.supervisor.id,
+      cells,
+    });
+    inFlight.current = false;
+    if (!mounted.current) return;
+    if (result.ok) {
+      attempt.current = 0;
+      const fresh = await fetchMatrix();
+      if (!mounted.current) return;
+      if (fresh.ok) setMatrix(fresh.data);
+      // Solo se descarta el borrador si sigue siendo el valor enviado: lo que
+      // se escribió mientras se guardaba queda pendiente para el próximo envío.
+      setDrafts((prev) => {
+        const next = { ...prev };
+        for (const [key, value] of entries) if (next[key] === value) delete next[key];
+        return next;
+      });
+      setSync("saved");
+      setSyncMessage(null);
+    } else if (isRetryable(result.status)) {
+      setSync("pending");
+      setSyncMessage(`${result.error} Los cambios se conservan y se reintentará automáticamente.`);
+      schedule(retryDelay(attempt.current++));
+    } else {
+      const detail = (result.details?.cells as CellError[] | undefined) ?? [];
+      if (detail.length) {
+        // Rechazo por celda (dato inválido, plazo vencido, fecha futura,
+        // conflicto): esas quedan marcadas y conservadas; las demás se
+        // vuelven a enviar sin ellas. No se reintenta lo rechazado.
+        setCellErrors((prev) => ({
+          ...prev,
+          ...Object.fromEntries(detail.map((c) => [cellKey(c.collaboratorId, c.date), c.message])),
+        }));
+        if (result.code === "conflict") {
+          const fresh = await fetchMatrix();
+          if (mounted.current && fresh.ok) setMatrix(fresh.data);
+        }
+        setSync("error");
+        setSyncMessage(`${detail.length} celda(s) no se guardaron: revise las marcadas en rojo.`);
+        rerun.current = true;
+      } else {
+        setSync("error");
+        setSyncMessage(result.error);
+      }
+    }
+    if (rerun.current) {
+      rerun.current = false;
+      schedule(50);
+    }
+  }
+  useEffect(() => {
+    flushRef.current = flush;
+  });
+
+  // Al volver la conexión, se envía lo pendiente sin esperar al reintento.
+  useEffect(() => {
+    const onOnline = () => schedule(0);
+    window.addEventListener("online", onOnline);
+    return () => window.removeEventListener("online", onOnline);
+  }, []);
+
+  // Avisa al módulo y al navegador mientras haya cambios sin confirmar (se
+  // conservan igual en el respaldo local y se reenvían al volver).
   const { setDirty } = ctx;
   useEffect(() => {
-    setDirty(dirtyCount > 0);
-    if (!dirtyCount) return;
+    setDirty(pendingCount > 0);
+    if (!pendingCount) return;
     const handler = (e: BeforeUnloadEvent) => e.preventDefault();
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [dirtyCount, setDirty]);
+  }, [pendingCount, setDirty]);
 
   const rows = useMemo(() => {
     if (!matrix) return [];
@@ -100,6 +244,7 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
       delete next[key];
       return next;
     });
+    schedule(AUTOSAVE_DEBOUNCE_MS);
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLInputElement>) {
@@ -117,8 +262,10 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
     if (!move) return;
     if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && target.selectionStart !== target.selectionEnd) return;
     e.preventDefault();
+    // Moverse confirma la celda: se guarda enseguida.
+    schedule(150);
     let [nr, nc] = [r + move[0], c + move[1]];
-    // Salta las columnas bloqueadas (sábado/domingo) al moverse en horizontal.
+    // Salta las columnas bloqueadas (sábado/domingo, vencidas, futuras) al moverse en horizontal.
     for (let guard = 0; guard < 60; guard++) {
       const next = tableRef.current?.querySelector<HTMLInputElement>(`input[data-r="${nr}"][data-c="${nc}"]`);
       if (next && !next.disabled) {
@@ -133,33 +280,11 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
     }
   }
 
-  async function save() {
-    if (!matrix || !dirtyCount) return;
-    setSaving(true);
-    const cells = Object.entries(drafts).map(([key, hours]) => {
-      const [cid, date] = key.split("|");
-      const row = matrix.rows.find((r) => r.collaboratorId === Number(cid));
-      return {
-        collaboratorId: Number(cid),
-        date,
-        hours: hours.trim() === "" ? null : hours.replace(",", "."),
-        version: row?.cells[date]?.version ?? null,
-      };
-    });
-    const result = await novedadesApi.post<{ saved: number }>("worked-days/save", {
-      period: matrix.period.code,
-      supervisorId: matrix.supervisor.id,
-      cells,
-    });
-    setSaving(false);
-    if (result.ok) {
-      showToast(`Guardado: ${result.data.saved} celda(s).`, "success");
-      await load();
-      return;
-    }
-    const detailCells = (result.details?.cells as CellError[] | undefined) ?? [];
-    setCellErrors(Object.fromEntries(detailCells.map((c) => [cellKey(c.collaboratorId, c.date), c.message])));
-    showToast(result.error, "error");
+  function discardRejected() {
+    setDrafts((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => !(k in cellErrors))));
+    setCellErrors({});
+    setSync("idle");
+    setSyncMessage(null);
   }
 
   if (loadError) return <ErrorBox message={loadError} />;
@@ -217,40 +342,43 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
             </Button>
           )}
           {(matrix.closable ?? (matrix.editable && ctx.can(PERM.cerrar))) && (
-            <Button variant="secondary" size="sm" onClick={() => setCloseOpen(true)} disabled={dirtyCount > 0}>
+            <Button variant="secondary" size="sm" onClick={() => setCloseOpen(true)} disabled={pendingCount > 0}>
               <Lock className="w-4 h-4" /> Cerrar período
             </Button>
           )}
         </div>
       </div>
 
-      {matrix.editable && (
-        <div
-          className={`flex flex-wrap items-center justify-between gap-2 rounded-lg px-3 py-2 text-sm border ${
-            dirtyCount ? "border-warning/40 bg-warning/[.08]" : "border-border bg-surface2"
-          }`}
-        >
-          <span className={dirtyCount ? "text-warning font-medium" : "text-secondary"}>
-            {dirtyCount
-              ? `${dirtyCount} cambio(s) sin guardar`
-              : "Sin cambios pendientes · vacío = no reportado, 0 = cero horas reportadas"}
+      {matrix.editable && (sync !== "idle" || pendingCount > 0) && (
+        // Indicador discreto del guardado automático: refleja lo que el
+        // servidor confirmó, nunca un éxito anticipado.
+        <div className="flex flex-wrap items-center gap-2 text-xs" aria-live="polite" data-sync={sync}>
+          <span
+            className={
+              sync === "error"
+                ? "text-danger font-medium"
+                : sync === "pending"
+                  ? "text-warning font-medium"
+                  : sync === "saved"
+                    ? "text-success"
+                    : "text-secondary"
+            }
+          >
+            {sync === "pending" || (sync === "idle" && pendingCount)
+              ? `${SYNC_LABEL.pending} (${pendingCount})`
+              : SYNC_LABEL[sync]}
           </span>
-          <div className="flex gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={!dirtyCount || saving}
-              onClick={() => {
-                setDrafts({});
-                setCellErrors({});
-              }}
-            >
-              <Undo2 className="w-4 h-4" /> Descartar
-            </Button>
-            <Button size="sm" onClick={save} loading={saving} disabled={!dirtyCount}>
-              <Save className="w-4 h-4" /> Guardar
-            </Button>
-          </div>
+          {syncMessage && <span className="text-secondary">{syncMessage}</span>}
+          {sync === "pending" && (
+            <button className="text-primary hover:underline" onClick={() => schedule(0)}>
+              Reintentar ahora
+            </button>
+          )}
+          {Object.keys(cellErrors).length > 0 && (
+            <button className="inline-flex items-center gap-1 text-secondary hover:underline" onClick={discardRejected}>
+              <Undo2 className="w-3 h-3" /> Deshacer celdas rechazadas
+            </button>
+          )}
         </div>
       )}
       <ErrorBox message={firstError} />
@@ -327,8 +455,14 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
                       const error = cellErrors[key];
                       const hasValue = (row.cells[c.date]?.hours ?? null) !== null;
                       const otherTeam = row.cells[c.date]?.otherTeam;
+                      // Plazo por fecha ya resuelto por el servidor para este usuario.
+                      const outOfTerm = c.deadlineState === "future" || c.deadlineState === "expired";
                       const blocked =
-                        c.isWeekend || !rowEditable || Boolean(otherTeam) || (row.status !== "ACTIVE" && !hasValue);
+                        c.isWeekend ||
+                        !rowEditable ||
+                        outOfTerm ||
+                        Boolean(otherTeam) ||
+                        (row.status !== "ACTIVE" && !hasValue);
                       if (canCorrect && !c.isWeekend) {
                         return (
                           <td key={c.date} className="border-b border-r border-border p-0 text-center">
@@ -352,7 +486,13 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
                             error ??
                             (c.isWeekend
                               ? "Sábado/domingo: no admite registros"
-                              : otherTeam
+                              : c.deadlineState === "future"
+                                ? "Fecha futura: no se registran novedades por adelantado"
+                                : c.deadlineState === "expired"
+                                  ? `Plazo vencido el ${c.deadlineLabel}: solicite la corrección al Asistente de Operaciones o al Administrador`
+                                  : c.deadlineState === "late"
+                                    ? `Plazo vencido el ${c.deadlineLabel}: su corrección queda registrada como fuera de plazo`
+                                    : otherTeam
                                 ? `Registrado por el equipo de ${otherTeam} (colaborador reasignado): no se modifica desde aquí`
                                 : undefined)
                           }
@@ -365,6 +505,7 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
                             inputMode="decimal"
                             aria-label={`${row.fullName} ${formatDate(c.date)}`}
                             onChange={(e) => onCellChange(row, c.date, e.target.value)}
+                            onBlur={() => schedule(150)}
                             onKeyDown={onKeyDown}
                             onFocus={(e) => e.target.select()}
                             className={`w-full h-7 px-1 text-center bg-transparent focus:outline-none focus:ring-2 focus:ring-primary focus:ring-inset ${

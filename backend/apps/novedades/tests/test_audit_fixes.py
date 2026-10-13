@@ -135,7 +135,7 @@ def test_save_cells_rechecks_period_inside_the_transaction(supervisor, monkeypat
     assert not WorkedDay.objects.exists()
 
 
-def test_overtime_write_rechecks_month_close_under_lock(clock, supervisor, monkeypatch):
+def test_overtime_write_rechecks_month_close_under_lock(clock, admin, supervisor, monkeypatch):
     clock(date(2026, 10, 12), datetime(2026, 10, 12, 15, tzinfo=UTC))
     c = _collab(supervisor)
     # Simula el cierre del mes entre la validación y la escritura.
@@ -146,8 +146,9 @@ def test_overtime_write_rechecks_month_close_under_lock(clock, supervisor, monke
         supervisor=supervisor, year=2026, month=9, closed_by=supervisor
     )
     with pytest.raises(NovedadesError) as exc:
+        # El Administrador (excepción al plazo por fecha) llega hasta el candado.
         OvertimeService.create(
-            access(supervisor),
+            access(admin),
             {"collaborator_id": c.pk, "date": date(2026, 9, 15), "overtime_hours": "2"},
         )
     assert exc.value.code == "period_closed"
@@ -323,7 +324,7 @@ def test_import_confirm_is_claimed_once_and_skip_respects_current_data(
     clock(date(2026, 10, 12), datetime(2026, 10, 12, 15, tzinfo=UTC))
     c = _collab(supervisor)
     row = [
-        date(2026, 10, 5),
+        date(2026, 10, 9),
         "0102030405",
         "Ana Pérez",
         "",
@@ -346,7 +347,7 @@ def test_import_confirm_is_claimed_once_and_skip_respects_current_data(
     # Otro usuario registra el mismo día DESPUÉS de la vista previa.
     OvertimeService.create(
         access(supervisor),
-        {"collaborator_id": c.pk, "date": date(2026, 10, 5), "overtime_hours": "1"},
+        {"collaborator_id": c.pk, "date": date(2026, 10, 9), "overtime_hours": "1"},
     )
     # Mientras otra solicitud está confirmando, la segunda recibe 409.
     assert ImportService._claim(preview["id"]) is True
@@ -471,7 +472,7 @@ def test_pre_close_check_reports_without_changing_data(clock, client_for, admin,
     clock(date(2026, 11, 2), datetime(2026, 11, 2, 15, tzinfo=UTC))
     c = _collab(supervisor)
     record = OvertimeService.create(
-        access(supervisor),
+        access(admin),  # 05/10 ya pasó su plazo por fecha: excepción del Administrador
         {"collaborator_id": c.pk, "date": date(2026, 10, 5), "overtime_hours": "2"},
     )
     # Dato inválido que no pudo entrar por la validación normal (p. ej. histórico).

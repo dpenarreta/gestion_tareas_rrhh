@@ -60,6 +60,11 @@ urlpatterns = [
         name="novedades-overtime-month-close",
     ),
     path(
+        "deadlines/settings/",
+        views.DeadlineSettingsView.as_view(),
+        name="novedades-deadline-settings",
+    ),
+    path(
         "overtime/settings/",
         views.OvertimeSettingsView.as_view(),
         name="novedades-overtime-settings",

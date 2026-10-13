@@ -58,7 +58,8 @@ type Indicators = OvertimeIndicators & {
 // principal de registro; la consulta muestra el consolidado del ámbito del
 // usuario (nacional para el Asistente/Administrador).
 export default function OvertimeView({ ctx }: { ctx: ModuleContext }) {
-  const canCapture = ctx.can(PERM.registrar) && !ctx.me.isAssistant;
+  // El Asistente también captura y corrige fechas pasadas (decisión del 2026-10-13).
+  const canCapture = ctx.can(PERM.registrar);
   const [mode, setMode] = useState<"CAPTURA" | "CONSULTA">(canCapture ? "CAPTURA" : "CONSULTA");
   const month = ctx.overtimeMonths.find((m) => m.code === ctx.overtimeMonth);
   return (
@@ -115,7 +116,7 @@ function OvertimeConsult({ ctx }: { ctx: ModuleContext }) {
   const [deleting, setDeleting] = useState<OvertimeRecord | null>(null);
   const [correcting, setCorrecting] = useState<OvertimeRecord | null>(null);
 
-  const canWrite = ctx.can(PERM.registrar) && !ctx.me.isAssistant;
+  const canWrite = ctx.can(PERM.registrar);
   // Horas extras se consulta por MES CALENDARIO (no por el corte 23 → 22).
   const query = { period: ctx.overtimeMonth, supervisor: ctx.supervisorId ?? undefined, ...applied };
 

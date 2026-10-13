@@ -193,6 +193,13 @@ class CloseSerializer(serializers.Serializer):
         return value
 
 
+class DeadlineSettingsSerializer(serializers.Serializer):
+    """Horas del plazo de registro por fecha de trabajo; cada clave es opcional."""
+
+    worked_days = serializers.IntegerField(required=False)
+    overtime = serializers.IntegerField(required=False)
+
+
 class OvertimeSettingsSerializer(serializers.Serializer):
     grace_hours = serializers.IntegerField()
 

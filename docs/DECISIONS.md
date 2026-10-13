@@ -8,6 +8,10 @@
 
 | Decisión | Motivo técnico | Detalle completo |
 |---|---|---|
+| Plazo de registro por fecha de trabajo: 48 h laborables (24 h por día hábil) desde el fin del día, configurable por separado para Días laborados y Horas extras (2026-10-13) | Decisión del usuario; misma regla que el plazo de cierre mensual, con una sola implementación (`business_deadline`). Valor vigente al empezar cada plazo: no retroactivo | [AUDIT_LOG § 2026-10-13](AUDIT_LOG.md) |
+| Nadie registra fechas futuras, ni el Administrador (2026-10-13) | Pedido explícito; no existía una política aprobada que habilitara registros anticipados | [AUDIT_LOG § 2026-10-13](AUDIT_LOG.md) |
+| El Asistente de Operaciones registra y corrige fechas pasadas de cualquier equipo, también fuera de plazo (2026-10-13) | Decisión del usuario. Reemplaza la restricción "el Asistente nunca escribe"; sigue sin importar, cerrar, gestionar colaboradores, corregir meses cerrados ni cambiar Ajustes | [AUDIT_LOG § 2026-10-13](AUDIT_LOG.md) |
+| Guardado automático con respaldo local de lo pendiente, sin botón de guardar (2026-10-13) | El personal operativo olvida guardar. Reutiliza los endpoints idempotentes y con versión; el respaldo local solo guarda lo no confirmado | [AUDIT_LOG § 2026-10-13](AUDIT_LOG.md) |
 | Las celdas de Días laborados de un colaborador reasignado quedan en solo lectura para el equipo nuevo (2026-10-13) | Cada novedad guarda al supervisor que la registró; el equipo nuevo no puede reescribir lo del anterior (ni su período cerrado). Corregirlo va por la corrección autorizada | [AUDIT_LOG § 2026-10-13](AUDIT_LOG.md) |
 | El cierre de Días laborados ya no informa horas extras (2026-10-13) | Desde v1.172.0 Horas extras va por mes calendario con cierre propio; contarlas por el corte 23 → 22 daba cifras engañosas | [AUDIT_LOG § 2026-10-13](AUDIT_LOG.md) |
 | Revisión previa al cierre de Horas extras: solo informa, no bloquea (2026-10-13) | Reutiliza la validación del guardado; no hay límites legales ni recargos documentados, así que no se inventan reglas. El cierre sigue siendo manual | [AUDIT_LOG § 2026-10-13](AUDIT_LOG.md) |

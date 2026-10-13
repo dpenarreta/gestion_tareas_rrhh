@@ -10,7 +10,7 @@ import {
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
 } from "react";
-import { ArrowDownToLine, ClipboardPaste, Download, FileSpreadsheet, Plus, RotateCw, Save, Trash2, Upload } from "lucide-react";
+import { ArrowDownToLine, ClipboardPaste, Download, FileSpreadsheet, Plus, RotateCw, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { Modal, ModalHeader } from "@/components/ui/Modal";
@@ -37,6 +37,14 @@ import { ErrorBox, Label, TextArea, TextInput } from "./fields";
 import { PERM, type OvertimeMonth, type OvertimeRecord } from "./types";
 import type { ModuleContext } from "./NovedadesModule";
 import ImportDialog from "./ImportDialog";
+import {
+  AUTOSAVE_DEBOUNCE_MS,
+  SYNC_LABEL,
+  isRetryable,
+  pendingStore,
+  retryDelay,
+  type SyncState,
+} from "@/lib/novedadesAutosave";
 import OvertimeDeleteDialog, { type OvertimeDeleteTarget } from "./OvertimeDeleteDialog";
 
 type RowResult = {
@@ -103,7 +111,12 @@ export default function OvertimeCapture({
 }) {
   const { showToast } = useToast();
   const [team, setTeam] = useState<CollaboratorRef[]>([]);
-  const [rows, setRows] = useState<CaptureRow[]>([]);
+  // Respaldo local de lo que quedó sin confirmar: se recupera AL CREAR el
+  // estado (antes de cualquier efecto). Si se leyera en un efecto, el efecto
+  // que guarda el respaldo correría antes con la tabla vacía y lo borraría.
+  const storeScope = `horas|${month.code}|${supervisorId}|${ctx.me.user.id}`;
+  const [restored] = useState<CaptureRow[]>(() => pendingStore<CaptureRow[]>(storeScope).load() ?? []);
+  const [rows, setRows] = useState<CaptureRow[]>(restored);
   // Fecha de trabajo por defecto: hoy si cae en el mes elegido; si no, el día 1
   // (la captura se monta de nuevo al cambiar de mes: ver `key` en OvertimeView).
   const [defaultDate, setDefaultDate] = useState(() => {
@@ -122,13 +135,26 @@ export default function OvertimeCapture({
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
-  const [confirmOpen, setConfirmOpen] = useState(false);
-  const [saving, setSaving] = useState<string | null>(null);
-  const [saveError, setSaveError] = useState<string | null>(null);
+  const [sync, setSync] = useState<SyncState>(restored.length ? "pending" : "idle");
+  const [syncMessage, setSyncMessage] = useState<string | null>(
+    restored.length ? "Se recuperaron cambios que no se habían confirmado; se envían automáticamente." : null,
+  );
+  // Guardado automático: una sola petición en vuelo; lo que cambie mientras
+  // tanto se envía en la siguiente. Respaldo local de las filas pendientes.
+  const store = useMemo(() => pendingStore<CaptureRow[]>(storeScope), [storeScope]);
+  const rowsRef = useRef<CaptureRow[]>([]);
+  const inFlight = useRef(false);
+  const rerun = useRef(false);
+  const attempt = useRef(0);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mounted = useRef(true);
+  const flushRef = useRef<() => void>(() => {});
   const [deleting, setDeleting] = useState<{ key: string; target: OvertimeDeleteTarget } | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
 
-  const canWrite = ctx.can(PERM.registrar) && !ctx.me.isAssistant;
+  // El Asistente de Operaciones también registra y corrige fechas pasadas
+  // (decisión del 2026-10-13); el servidor revalida plazo, equipo y cierre.
+  const canWrite = ctx.can(PERM.registrar);
   // Horas extras va por mes calendario: solo el cierre manual del mes bloquea
   // (un plazo vencido sin cerrar sigue editable). El servidor vuelve a validar.
   const period = month;
@@ -148,11 +174,11 @@ export default function OvertimeCapture({
     () =>
       rows.map((r) => {
         if (!period || !r.dirty || r.state === "locked") return r;
-        const local = validateRow(r, period, dupKeys);
+        const local = validateRow(r, period, dupKeys, ctx.me.deadlineRules);
         const server = r.state === "error" ? r.errors : {};
         return { ...r, errors: { ...server, ...local } };
       }),
-    [rows, period, dupKeys],
+    [rows, period, dupKeys, ctx.me.deadlineRules],
   );
   const summary = useMemo(() => summarize(validated, dupKeys), [validated, dupKeys]);
   const pendingCount = validated.filter((r) => r.dirty).length;
@@ -170,6 +196,7 @@ export default function OvertimeCapture({
   // se revalida en vivo y otra vez al guardar.
   const touched = (r: CaptureRow): CaptureRow => ({
     ...r,
+    rev: (r.rev ?? 0) + 1,
     dirty: true,
     errors: {},
     state: r.state === "locked" ? "locked" : r.id === null ? "new" : "existing",
@@ -416,15 +443,39 @@ export default function OvertimeCapture({
     showToast(notes.length ? `Pegado con observaciones: ${notes.join("; ")}.` : "Datos pegados.", notes.length ? "warning" : "success");
   }
 
-  async function save() {
-    setConfirmOpen(false);
-    setSaveError(null);
-    const toSend = validated.filter((r) => r.dirty && r.state !== "locked" && Object.keys(r.errors).length === 0);
+  function schedule(delay: number) {
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => flushRef.current(), delay);
+  }
+
+  /** Filas listas para enviarse: con cambios, válidas y no bloqueadas. Las
+   * incompletas quedan como borrador (no se crea nada inválido). */
+  function sendable(list: CaptureRow[]): CaptureRow[] {
+    const dups = duplicateKeysOf(list);
+    return list.filter(
+      (r) =>
+        r.dirty &&
+        r.state !== "locked" &&
+        r.state !== "error" &&
+        Object.keys(validateRow(r, period, dups, ctx.me.deadlineRules)).length === 0,
+    );
+  }
+
+  async function flush() {
+    if (!mounted.current || !canWrite || !isOpen) return;
+    if (inFlight.current) {
+      rerun.current = true;
+      return;
+    }
+    const toSend = sendable(rowsRef.current);
     if (!toSend.length) return;
+    inFlight.current = true;
+    setSync("saving");
+    const sentRev = new Map(toSend.map((r) => [r.key, r.rev ?? 0]));
     const results = new Map<string, RowResult>();
+    let failure: { status: number; error: string } | null = null;
     for (let start = 0; start < toSend.length; start += BATCH) {
       const chunk = toSend.slice(start, start + BATCH);
-      setSaving(toSend.length > BATCH ? `Guardando ${Math.min(start + BATCH, toSend.length)} de ${toSend.length}…` : "Guardando…");
       const response = await novedadesApi.post<BulkResponse>("overtime/bulk", {
         period: month.code,
         rows: chunk.map((r) => ({
@@ -443,39 +494,91 @@ export default function OvertimeCapture({
         })),
       });
       if (!response.ok) {
-        // Nada se borra: las filas quedan en la tabla y el reintento no
-        // duplica (el servidor reconoce lo que ya guardó).
-        setSaving(null);
-        setSaveError(`${response.error} Los datos siguen en la tabla: puede reintentar sin riesgo de duplicar.`);
-        applyResults(results);
-        return;
+        // Nada se borra: las filas quedan en la tabla (y en el respaldo
+        // local) y el reintento no duplica: el servidor reconoce lo guardado.
+        failure = { status: response.status, error: response.error };
+        break;
       }
       response.data.rows.forEach((r) => results.set(r.clientKey, r));
     }
-    setSaving(null);
-    applyResults(results);
+    inFlight.current = false;
+    if (!mounted.current) return;
+    applyResults(results, sentRev);
     const values = [...results.values()];
-    const ok = values.filter((r) => ["created", "updated", "unchanged"].includes(r.status)).length;
-    const failed = values.length - ok;
-    showToast(
-      failed ? `Guardado parcial: ${ok} fila(s) guardadas, ${failed} requieren corrección.` : `Guardado: ${ok} fila(s).`,
-      failed ? "warning" : "success",
-    );
+    const rejected = values.filter((r) => !["created", "updated", "unchanged"].includes(r.status)).length;
+    if (failure && isRetryable(failure.status)) {
+      setSync("pending");
+      setSyncMessage(`${failure.error} Los cambios se conservan y se reintentará automáticamente.`);
+      schedule(retryDelay(attempt.current++));
+    } else if (failure) {
+      setSync("error");
+      setSyncMessage(failure.error);
+    } else if (rejected) {
+      // Guardado parcial: nunca se presenta como éxito total.
+      setSync("error");
+      setSyncMessage(`${values.length - rejected} fila(s) guardadas; ${rejected} no se guardaron: revise las marcadas.`);
+      attempt.current = 0;
+    } else {
+      setSync("saved");
+      setSyncMessage(null);
+      attempt.current = 0;
+    }
+    if (rerun.current) {
+      rerun.current = false;
+      schedule(50);
+    }
   }
 
-  function applyResults(results: Map<string, RowResult>) {
+  function applyResults(results: Map<string, RowResult>, sentRev: Map<string, number>) {
     if (!results.size) return;
     setRows((prev) =>
       prev.map((r) => {
         const res = results.get(r.key);
         if (!res) return r;
+        const current = (r.rev ?? 0) === sentRev.get(r.key);
         if (["created", "updated", "unchanged"].includes(res.status)) {
-          return { ...r, id: res.recordId ?? r.id, version: res.version ?? r.version, state: "saved", dirty: false, errors: {} };
+          const saved = { ...r, id: res.recordId ?? r.id, version: res.version ?? r.version };
+          // Si la fila cambió mientras se guardaba, se conserva la edición
+          // nueva como pendiente (con el id/versión ya confirmados).
+          return current ? { ...saved, state: "saved", dirty: false, errors: {} } : saved;
         }
+        if (!current) return r;
         return { ...r, state: res.status === "locked" ? "locked" : "error", errors: res.errors as CaptureRow["errors"] };
       }),
     );
   }
+
+  useEffect(() => {
+    rowsRef.current = rows;
+    flushRef.current = flush;
+  });
+
+  // Cada cambio válido se envía solo, tras una breve pausa (no por tecla).
+  useEffect(() => {
+    if (sendable(rows).length) schedule(AUTOSAVE_DEBOUNCE_MS);
+    // `sendable` y `schedule` solo leen props/refs estables para este render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows]);
+
+  // Respaldo local de lo pendiente; se recupera al volver a la pantalla.
+  useEffect(() => {
+    const pending = rows.filter((r) => r.dirty);
+    if (pending.length) store.save(pending);
+    else store.clear();
+  }, [rows, store]);
+
+  useEffect(() => {
+    mounted.current = true;
+    const onOnline = () => schedule(0);
+    window.addEventListener("online", onOnline);
+    return () => {
+      mounted.current = false;
+      if (timer.current) clearTimeout(timer.current);
+      window.removeEventListener("online", onOnline);
+    };
+    // Solo al montar (la captura se monta de nuevo por mes y equipo).
+     
+  }, [store]);
 
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.key));
   const errorList = validated.flatMap((r, i) =>
@@ -557,24 +660,35 @@ export default function OvertimeCapture({
           <span>Bloqueadas: <strong>{summary.locked}</strong></span>
         </span>
         <div className="flex gap-2">
+          {/* Indicador discreto del guardado automático (estado real del servidor). */}
+          <span
+            data-sync={sync}
+            className={`text-xs self-center ${
+              sync === "error" ? "text-danger font-medium" : sync === "pending" ? "text-warning font-medium" : sync === "saved" ? "text-success" : "text-secondary"
+            }`}
+          >
+            {sync === "idle" && pendingCount ? `Borradores: ${pendingCount}` : SYNC_LABEL[sync]}
+          </span>
+          {sync === "pending" && (
+            <Button size="sm" variant="ghost" onClick={() => schedule(0)}>
+              Reintentar ahora
+            </Button>
+          )}
           <Button
             size="sm"
             variant="ghost"
-            disabled={!pendingCount || Boolean(saving)}
+            disabled={!pendingCount || sync === "saving"}
             onClick={() => {
-              if (window.confirm("¿Descartar todos los cambios sin guardar? Las filas con cambios se quitan de la tabla.")) {
+              if (window.confirm("¿Descartar los borradores sin guardar? Esas filas se quitan de la tabla.")) {
                 setRows((prev) => prev.filter((r) => !r.dirty));
               }
             }}
           >
-            Descartar
-          </Button>
-          <Button size="sm" onClick={() => setConfirmOpen(true)} disabled={!summary.valid || Boolean(saving)} loading={Boolean(saving)}>
-            <Save className="w-4 h-4" /> {saving ?? `Guardar ${summary.valid} fila(s)`}
+            Descartar borradores
           </Button>
         </div>
       </div>
-      <ErrorBox message={saveError} />
+      {syncMessage && <p className="text-xs text-secondary" aria-live="polite">{syncMessage}</p>}
       {rows.length > 0 && canWrite && isOpen && (
         <p className="text-[11px] text-secondary">
           Relleno tipo Excel: arrastre el cuadrito azul de la celda activa hacia abajo (Esc cancela), o elija el rango con
@@ -837,37 +951,6 @@ export default function OvertimeCapture({
             setDeleting(null);
           }}
         />
-      )}
-      {confirmOpen && (
-        <Modal open onClose={() => setConfirmOpen(false)} size="sm">
-          <ModalHeader title="Guardar lote de horas extras" onClose={() => setConfirmOpen(false)} />
-          <div className="p-5 space-y-3 text-sm">
-            <dl className="grid grid-cols-2 gap-y-1 bg-surface2 rounded-lg p-3">
-              <dt className="text-secondary">Filas nuevas</dt>
-              <dd className="text-right font-semibold">{summary.newRows}</dd>
-              <dt className="text-secondary">Filas modificadas</dt>
-              <dd className="text-right font-semibold">{summary.modified}</dd>
-              <dt className="text-secondary">Se enviarán (válidas)</dt>
-              <dd className="text-right font-semibold">{summary.valid}</dd>
-              <dt className="text-secondary">Con errores (no se envían)</dt>
-              <dd className="text-right font-semibold">{summary.withErrors}</dd>
-              <dt className="text-secondary">Posibles duplicados</dt>
-              <dd className="text-right font-semibold">{summary.duplicates}</dd>
-              <dt className="text-secondary">Bloqueadas</dt>
-              <dd className="text-right font-semibold">{summary.locked}</dd>
-            </dl>
-            <p className="text-xs text-secondary">
-              El servidor vuelve a validar cada fila. Las que no pasen quedan marcadas en la tabla, con su motivo, sin
-              perder lo escrito.
-            </p>
-            <div className="flex justify-end gap-2">
-              <Button variant="secondary" onClick={() => setConfirmOpen(false)}>
-                Cancelar
-              </Button>
-              <Button onClick={save}>Guardar {summary.valid} fila(s)</Button>
-            </div>
-          </div>
-        </Modal>
       )}
     </div>
   );

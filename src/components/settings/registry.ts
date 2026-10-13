@@ -245,7 +245,7 @@ export const SETTINGS_REGISTRY: SettingDescriptor[] = [
     label: "Permisos del módulo Control Operativo de Novedades",
     description:
       "Facultades configurables por rol (Supervisor y Asistente de Operaciones), excepciones individuales, permisos efectivos, historial de cambios y plazo de cierre de Horas extras (48–72 horas laborables).",
-    keywords: ["novedades", "horas extras", "días laborados", "supervisor", "asistente", "operaciones", "excepciones", "permisos", "plazo", "cierre", "48 horas"],
+    keywords: ["novedades", "horas extras", "días laborados", "supervisor", "asistente", "operaciones", "excepciones", "permisos", "plazo", "cierre", "48 horas", "plazos de registro", "fecha futura", "vencido"],
     category: "seguridad",
     configKeys: [],
   },

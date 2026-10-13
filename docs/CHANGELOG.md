@@ -23,6 +23,79 @@
 
 ---
 
+## v1.174.0 — 2026-10-13
+
+**Tipo:** FEATURE / SECURITY / UX / BREAKING CHANGE (reglas de registro)
+**Módulo:** Control Operativo de Novedades — plazos de registro por fecha,
+guardado automático, permisos del Asistente y limpieza visual.
+
+- **Plazo de registro por fecha de trabajo** (Días laborados y Horas extras,
+  configurables por separado, valor inicial 48 h): se cuenta desde el FIN del
+  día de trabajo en horas laborables (24 h por día hábil, lunes a viernes sin
+  feriados de Ajustes), hora de Ecuador. Martes 13 → hasta jueves 15 23:59;
+  viernes 16 → hasta martes 20 23:59. Vencido, el Supervisor ya no crea, edita
+  ni elimina esa fecha (formulario, captura, guardado masivo, importación,
+  eliminación y API directa → 409 `deadline_passed`). Cada fecha usa el valor
+  vigente al empezar su plazo (no retroactivo). Una sola implementación de la
+  regla (`business_deadline`), compartida con el plazo de cierre mensual.
+- **Sin fechas futuras para nadie** (Supervisor, Asistente ni Administrador):
+  400 `future_date` en todas las vías de escritura.
+- **Asistente de Operaciones:** registra y corrige fechas pasadas de cualquier
+  equipo, también fuera de plazo (decisión del usuario). `novedades.registrar`
+  pasa a configurable para ese rol y se habilita por defecto (migración
+  `0007_assistant_registrar`). Sigue sin gestionar colaboradores, importar,
+  cerrar períodos/meses, corregir meses cerrados ni cambiar Ajustes. La
+  excepción al plazo (Asistente y Administrador) nunca habilita fechas futuras
+  ni períodos/meses cerrados; queda en el historial como "Registro fuera de
+  plazo".
+- **Ajustes → Control de plazos de registro** (sección de Control Operativo de
+  Novedades): plazo de Días laborados y de Horas extras (24–240 h), modalidad,
+  última modificación y responsable. Solo el Administrador modifica (403 para
+  los demás, revalidado en Django); cada cambio queda en el historial y la
+  auditoría con valor anterior y nuevo.
+- **Guardado automático** en Días laborados y en la captura de Horas extras: sin
+  botones de guardar ni confirmaciones. Cada celda o fila válida se envía al
+  confirmarla (salir de la celda, Enter/flechas) o tras una pausa breve; una
+  sola petición en vuelo; lo pendiente se conserva en un respaldo local del
+  equipo y se reenvía solo (reintentos escalonados con tope, al recuperar la
+  conexión o al volver a la pantalla). Los rechazos de reglas (fecha futura,
+  plazo vencido, cierre, permisos, dato inválido, conflicto) no se reintentan:
+  se marcan y se conserva lo escrito. Una respuesta atrasada no pisa una
+  edición más reciente (revisión por fila/celda). Indicadores discretos:
+  "Guardando…", "Guardado", "Pendiente de sincronización", "Error al guardar".
+- **Limpieza visual:** se retiró «Sin cambios pendientes · vacío = no
+  reportado, 0 = cero horas reportadas» (la distinción vacío/0 se mantiene en
+  los datos). Las columnas vencidas o futuras quedan bloqueadas con el motivo.
+- **Cuentas de prueba Carlos Norte y María Sur** (`supervisor.norte@prueba.local`,
+  `supervisor.sur@prueba.local`): no se eliminaron físicamente porque tienen
+  registros operativos protegidos y auditoría que se borraría en cascada; ya
+  estaban deshabilitadas (no autentican) y se verificó que no tienen sesiones
+  abiertas. Ningún dato operativo se modificó.
+
+- **Archivos:** `backend/apps/novedades/{access,services,excel,views,serializers,urls}.py`,
+  migración `0007_assistant_registrar`, tests del módulo,
+  `src/lib/{novedadesAutosave,novedadesCapture}.ts`,
+  `src/components/novedades/{WorkedDaysGrid,OvertimeCapture,OvertimeView,NovedadesModule,types}.tsx|ts`,
+  `src/components/settings/{NovedadesPermissionsSection.tsx,registry.ts}`.
+
+**Verificación:** 14 tests nuevos en
+`backend/apps/novedades/tests/test_record_deadlines.py` (cálculo con fines de
+semana, feriados y cambio de mes; límite exacto; fechas futuras para todos los
+roles; bloqueo del Supervisor en todas las vías y por API; excepción auditada
+del Asistente/Administrador; cierres respetados; Ajustes solo Administrador,
+independientes y no retroactivos; importación; plazo individual independiente
+del cierre mensual). Se actualizaron 23 tests que reflejaban las reglas
+anteriores (el Asistente no escribía; fechas futuras permitidas). El reloj de
+los tests del módulo quedó fijo y coherente con su "hoy". 5 tests en
+`src/__tests__/novedadesAutosave.test.ts` y 6 en
+`src/__tests__/components/NovedadesAutosave.test.tsx` (guardado sin botón,
+bloqueo de fechas, sin conexión y reintento, recuperación tras recargar,
+rechazos sin bucle, filas incompletas o vencidas que no se envían).
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
 ## v1.173.0 — 2026-10-13
 
 **Tipo:** FIX / SECURITY / PERFORMANCE (concurrencia)

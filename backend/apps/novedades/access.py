@@ -11,14 +11,17 @@ comprobación sin requerir relogin):
    CONFIGURABLES: una restricción (DENY) prevalece sobre una concesión.
 3. Ámbito de datos, que NO es un permiso y no se configura: el Supervisor
    de Operaciones ve y edita solo su equipo; el Asistente de Operaciones
-   lee el consolidado nacional y nunca escribe; quien tiene
+   lee el consolidado nacional y, desde el 2026-10-13 (decisión del
+   usuario), registra y corrige novedades de fechas pasadas de cualquier
+   equipo —también fuera del plazo por fecha—; quien tiene
    `novedades.administrar` opera a nivel nacional.
 
 Restricciones obligatorias que ningún ajuste ordinario puede desactivar
 (se aplican aquí, por código): un rol operativo nunca obtiene permisos
-administrativos del módulo aunque alguien se los asigne en Roles, el
-Asistente nunca escribe registros originales, y un usuario no administra
-sus propios permisos.
+administrativos del módulo aunque alguien se los asigne en Roles; el
+Asistente no gestiona colaboradores, no importa, no cierra períodos ni
+meses, no corrige meses cerrados ni cambia Ajustes; nadie registra fechas
+futuras; y un usuario no administra sus propios permisos.
 """
 
 from dataclasses import dataclass, field
@@ -78,7 +81,9 @@ ROLE_MATRIX = {
     ASSISTANT_ROLE: {
         ACCEDER: "configurable",
         COLABORADORES: "unavailable",
-        REGISTRAR: "unavailable",
+        # Registra y corrige fechas pasadas (decisión del 2026-10-13); se
+        # habilita por defecto en la migración 0007 y se puede apagar.
+        REGISTRAR: "configurable",
         CONSOLIDADO: "configurable",
         HISTORIAL: "configurable",
         IMPORTAR: "unavailable",
@@ -197,13 +202,20 @@ class NovedadesAccess:
         return ids is None or supervisor_id in ids
 
     def can_write_for_supervisor(self, supervisor_id: int) -> bool:
-        """Escritura sobre registros originales. El Asistente NUNCA escribe
-        (restricción obligatoria, no configurable)."""
-        if self.is_assistant:
-            return False
-        if self.national_write:
+        """Ámbito de escritura de novedades (la facultad la da REGISTRAR):
+        el Supervisor, su equipo; el Asistente, todos los equipos (su mismo
+        ámbito de consulta); el Administrador, nacional. Los cierres, la
+        gestión de colaboradores y las correcciones de períodos cerrados
+        siguen exigiendo sus propias facultades, que el Asistente no tiene."""
+        if self.national_write or self.is_assistant:
             return True
         return self.is_supervisor and supervisor_id == self.user.pk
+
+    @property
+    def can_bypass_deadline(self) -> bool:
+        """Puede registrar o corregir una fecha cuyo plazo ya venció (queda
+        auditado). Nunca habilita fechas futuras ni meses/períodos cerrados."""
+        return self.national_write or self.is_assistant
 
     def as_dict(self) -> dict:
         return {
@@ -214,4 +226,5 @@ class NovedadesAccess:
             "national_read": self.national_read,
             "national_write": self.national_write,
             "can_view_history": self.can_view_event_history,
+            "can_bypass_deadline": self.can_bypass_deadline,
         }

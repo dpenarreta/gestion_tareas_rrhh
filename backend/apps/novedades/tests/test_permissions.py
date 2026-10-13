@@ -18,9 +18,10 @@ def test_base_matrix(admin, supervisor, assistant, other_user):
     assert sup.can(perms.ACCEDER) and sup.can(perms.REGISTRAR) and sup.can(perms.COLABORADORES)
     assert not sup.can(perms.IMPORTAR) and not sup.can(perms.EXPORTAR)  # se habilitan expresamente
     assert not sup.national_read and sup.readable_supervisor_ids() == [supervisor.pk]
-    assert (
-        asis.can(perms.CONSOLIDADO) and asis.can(perms.EXPORTAR) and not asis.can(perms.REGISTRAR)
-    )
+    # Desde el 2026-10-13 el Asistente registra y corrige fechas pasadas
+    # (REGISTRAR habilitado por defecto); sigue sin importar ni gestionar la base.
+    assert asis.can(perms.CONSOLIDADO) and asis.can(perms.EXPORTAR) and asis.can(perms.REGISTRAR)
+    assert not asis.can(perms.IMPORTAR) and not asis.can(perms.COLABORADORES)
     assert asis.national_read and not asis.national_write
     assert access(admin).national_write and access(admin).can(perms.PERMISOS)
     assert not access(other_user).can(perms.ACCEDER)
@@ -61,7 +62,7 @@ def test_mandatory_and_unavailable_permissions_are_not_configurable(admin):
         PermissionAdminService.set_role_permission(
             access(admin),
             role=perms.ASSISTANT_ROLE,
-            codename=perms.REGISTRAR,
+            codename=perms.IMPORTAR,  # sigue no disponible para el Asistente
             enabled=True,
             reason="",
         )
@@ -110,7 +111,7 @@ def test_overrides_cannot_target_self_or_non_configurable(admin, supervisor, ass
         )
     with pytest.raises(NovedadesError):
         PermissionAdminService.create_override(
-            adm, user_id=assistant.pk, codename=perms.REGISTRAR, effect="GRANT", reason="no"
+            adm, user_id=assistant.pk, codename=perms.IMPORTAR, effect="GRANT", reason="no"
         )
     with pytest.raises(NovedadesError):
         PermissionAdminService.create_override(

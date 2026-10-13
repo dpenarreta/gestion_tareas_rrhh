@@ -31,7 +31,9 @@ pytestmark = pytest.mark.django_db
 
 OCT = PeriodKey(2026, 10)
 MON = date(2026, 10, 12)
-TUE = date(2026, 10, 13)
+# Otro día hábil ya transcurrido y dentro del plazo de 48 h laborables (el
+# martes 13 sería fecha futura: hoy es el lunes 12).
+FRI = date(2026, 10, 9)
 SAT = date(2026, 10, 10)
 SUN = date(2026, 10, 11)
 
@@ -104,7 +106,7 @@ def test_status_change_requires_reason_notifies_and_keeps_history(admin, supervi
             access(supervisor),
             OCT,
             supervisor,
-            [{"collaborator_id": c.pk, "date": TUE, "hours": "8"}],
+            [{"collaborator_id": c.pk, "date": FRI, "hours": "8"}],
         )
     assert exc.value.details["cells"][0]["message"].endswith("no admite nuevos registros.")
 
@@ -147,7 +149,7 @@ def test_empty_is_not_zero_and_values_persist(supervisor):
     matrix = WorkedDayService.matrix(acc, OCT, supervisor)
     row = matrix["rows"][0]
     assert row["cells"][MON.isoformat()]["hours"] == "0"
-    assert TUE.isoformat() not in row["cells"]
+    assert FRI.isoformat() not in row["cells"]
     assert "cut_label" not in row  # "Corte anterior" ya no forma parte de la matriz
     assert [c["date"] for c in matrix["columns"]][0] == "2026-09-23"
     assert len(matrix["columns"]) == 30
@@ -210,20 +212,25 @@ def test_optimistic_concurrency_conflict(supervisor):
     assert WorkedDay.objects.get().hours == Decimal("6.00")
 
 
-def test_assistant_never_writes(assistant, supervisor):
+def test_assistant_registers_past_dates_but_keeps_its_restrictions(assistant, supervisor):
+    """Regla del 2026-10-13: el Asistente registra y corrige fechas pasadas de
+    cualquier equipo (también vencidas), pero no fechas futuras, no gestiona
+    colaboradores, no importa y no cierra períodos."""
     c = _collab(supervisor)
     acc = access(assistant)
-    assert acc.national_read and not acc.can_write_for_supervisor(supervisor.pk)
-    with pytest.raises(NovedadesError):
-        WorkedDayService.save_cells(
-            acc, OCT, supervisor, [{"collaborator_id": c.pk, "date": MON, "hours": "8"}]
-        )
-    with pytest.raises(NovedadesError):
-        OvertimeService.create(acc, {"collaborator_id": c.pk, "date": MON, "overtime_hours": "2"})
-    # Pero sí lee el consolidado nacional.
-    OvertimeService.create(
-        access(supervisor), {"collaborator_id": c.pk, "date": MON, "overtime_hours": "2"}
+    assert acc.national_read and acc.can_write_for_supervisor(supervisor.pk)
+    WorkedDayService.save_cells(
+        acc, OCT, supervisor, [{"collaborator_id": c.pk, "date": MON, "hours": "8"}]
     )
+    OvertimeService.create(acc, {"collaborator_id": c.pk, "date": MON, "overtime_hours": "2"})
+    with pytest.raises(NovedadesError):  # fecha futura
+        OvertimeService.create(
+            acc, {"collaborator_id": c.pk, "date": date(2026, 10, 13), "overtime_hours": "1"}
+        )
+    with pytest.raises(NovedadesError):  # no gestiona la base de colaboradores
+        CollaboratorService.change_status(acc, c.pk, "INACTIVE", "x")
+    with pytest.raises(NovedadesError):  # no cierra períodos
+        PeriodService.close(acc, OCT, supervisor)
     assert OvertimeService.queryset_for(acc).count() == 1
 
 
@@ -272,7 +279,7 @@ def test_overtime_indicators_respect_filters(supervisor, supervisor2):
     )
     OvertimeService.create(
         access(supervisor2),
-        {"collaborator_id": b.pk, "date": TUE, "overtime_hours": "1.5", "saturday_hours": "1"},
+        {"collaborator_id": b.pk, "date": FRI, "overtime_hours": "1.5", "saturday_hours": "1"},
     )
     qs = OvertimeService.filter(
         OvertimeRecord.objects.filter(deleted_at__isnull=True), {"period": OCT}
@@ -315,12 +322,12 @@ def test_close_is_individual_atomic_idempotent_and_opens_next_period(
     # Edición ordinaria bloqueada para ese supervisor y período.
     with pytest.raises(NovedadesError) as exc:
         WorkedDayService.save_cells(
-            acc, OCT, supervisor, [{"collaborator_id": c.pk, "date": TUE, "hours": "8"}]
+            acc, OCT, supervisor, [{"collaborator_id": c.pk, "date": FRI, "hours": "8"}]
         )
     assert exc.value.code == "period_closed"
     # Horas extras ya NO depende del corte 23 → 22 (regla del 2026-10-12): va
     # por mes calendario con cierre propio, así que sigue abierto.
-    OvertimeService.create(acc, {"collaborator_id": c.pk, "date": TUE, "overtime_hours": "1"})
+    OvertimeService.create(acc, {"collaborator_id": c.pk, "date": FRI, "overtime_hours": "1"})
 
     # El otro supervisor sigue trabajando en octubre.
     WorkedDayService.save_cells(

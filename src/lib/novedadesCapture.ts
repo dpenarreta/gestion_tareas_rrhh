@@ -1,3 +1,4 @@
+import { deadlineError, type DeadlineRules } from "@/lib/novedadesAutosave";
 // Lógica pura de la captura masiva de Horas extras (Control Operativo de
 // Novedades). La validación de acá es una AYUDA para que la persona corrija
 // antes de guardar; la autoridad es Django (`OvertimeService.bulk_save`), que
@@ -28,6 +29,9 @@ export type CaptureRow = {
   observations: string;
   state: CaptureState;
   dirty: boolean;
+  /** Revisión local: sube con cada edición. Una respuesta del servidor solo
+   * marca la fila como guardada si corresponde a la revisión enviada. */
+  rev?: number;
   errors: Partial<Record<CaptureField | "row" | "collaborator", string>>;
 };
 
@@ -121,10 +125,13 @@ export function validateRow(
   row: CaptureRow,
   period: { startDate: string; endDate: string },
   duplicateKeys: Set<string>,
+  deadline?: DeadlineRules,
 ): CaptureRow["errors"] {
   const errors: CaptureRow["errors"] = {};
+  const late = deadlineError(row.date, deadline, "overtime");
   if (!row.date) errors.date = "La fecha es obligatoria.";
   else if (row.date < period.startDate || row.date > period.endDate) errors.date = "Fuera del período seleccionado.";
+  else if (late) errors.date = late;
   else if (duplicateKeys.has(`${row.collaboratorId}|${row.date}`)) errors.date = "Persona y fecha repetidas en la tabla.";
   const oe = hoursError(row.overtimeHours);
   const se = hoursError(row.saturdayHours);

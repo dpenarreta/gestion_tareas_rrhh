@@ -28,7 +28,9 @@ pytestmark = pytest.mark.django_db
 OCT = MonthKey(2026, 10)
 SEP = MonthKey(2026, 9)
 MON = date(2026, 10, 12)
-TUE = date(2026, 10, 13)
+# Otro día hábil ya transcurrido y dentro del plazo de 48 h laborables (el
+# martes 13 sería fecha futura: hoy es el lunes 12).
+FRI = date(2026, 10, 9)
 SAT = date(2026, 10, 10)
 SUN = date(2026, 10, 11)
 BASE = "/api/v1/novedades"
@@ -118,11 +120,11 @@ def test_editing_existing_rows_updates_without_copies_and_allows_date_change(sup
         access(supervisor), OCT, [_row("a", team[0], overtime_hours="2")]
     )
     rid, version = saved["rows"][0]["record_id"], saved["rows"][0]["version"]
-    edit = {"client_key": "a", "id": rid, "version": version, "date": TUE, "overtime_hours": "4"}
+    edit = {"client_key": "a", "id": rid, "version": version, "date": FRI, "overtime_hours": "4"}
     result = OvertimeService.bulk_save(access(supervisor), OCT, [edit])
     assert result["rows"][0]["status"] == "updated"
     record = OvertimeRecord.objects.get()
-    assert (record.date, record.overtime_hours, record.version) == (TUE, Decimal("4.00"), 2)
+    assert (record.date, record.overtime_hours, record.version) == (FRI, Decimal("4.00"), 2)
     # Versión vieja: conflicto, no se pisa.
     stale = OvertimeService.bulk_save(access(supervisor), OCT, [{**edit, "overtime_hours": "6"}])
     assert stale["rows"][0]["status"] == "conflict"
@@ -131,11 +133,11 @@ def test_editing_existing_rows_updates_without_copies_and_allows_date_change(sup
 def test_weekends_and_holidays_are_allowed_in_overtime(supervisor, team):
     from apps.configuration.models import Holiday
 
-    Holiday.objects.create(date=TUE, name="Feriado de prueba", year=2026)
+    Holiday.objects.create(date=FRI, name="Feriado de prueba", year=2026)
     rows = [
         _row("sat", team[0], SAT, saturday_hours="4"),
         _row("sun", team[1], SUN, overtime_hours="3"),
-        _row("hol", team[2], TUE, overtime_hours="2"),
+        _row("hol", team[2], FRI, overtime_hours="2"),
     ]
     result = OvertimeService.bulk_save(access(supervisor), OCT, rows)
     assert {r["status"] for r in result["rows"]} == {"created"}
@@ -145,7 +147,7 @@ def test_weekends_and_holidays_are_allowed_in_overtime(supervisor, team):
     assert flags == {
         SAT: (True, False, False),
         SUN: (False, True, False),
-        TUE: (False, False, True),
+        FRI: (False, False, True),
     }
 
 
@@ -183,8 +185,11 @@ def test_dates_outside_period_and_missing_fields(supervisor, team):
 
 
 def test_assistant_and_batch_limit(assistant, supervisor, team):
-    with pytest.raises(NovedadesError):
-        OvertimeService.bulk_save(access(assistant), OCT, [_row("a", team[0], overtime_hours="1")])
+    # El Asistente registra fechas pasadas (regla del 2026-10-13).
+    result = OvertimeService.bulk_save(
+        access(assistant), OCT, [_row("a", team[0], overtime_hours="1")]
+    )
+    assert result["rows"][0]["status"] == "created"
     big = [_row(str(i), team[0], overtime_hours="1") for i in range(OvertimeService.BULK_LIMIT + 1)]
     with pytest.raises(NovedadesError) as exc:
         OvertimeService.bulk_save(access(supervisor), OCT, big)
@@ -236,7 +241,7 @@ def test_bulk_endpoint_returns_per_row_results(client_for, supervisor, team):
 def test_consolidated_pagination_keeps_totals_and_export_is_complete(
     client_for, admin, supervisor, assistant, team
 ):
-    rows = [_row(f"{c.pk}-{d}", c, d, overtime_hours="1") for c in team for d in (MON, TUE)]
+    rows = [_row(f"{c.pk}-{d}", c, d, overtime_hours="1") for c in team for d in (MON, FRI)]
     OvertimeService.bulk_save(access(supervisor), OCT, rows)
     page = client_for(assistant).get(f"{BASE}/overtime/?period=2026-10&limit=2&offset=0").json()
     assert len(page["records"]) == 2 and page["count"] == 6 and page["indicators"]["records"] == 6

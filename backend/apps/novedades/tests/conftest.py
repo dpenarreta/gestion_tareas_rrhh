@@ -1,4 +1,5 @@
-from datetime import date
+from datetime import date, datetime
+from datetime import timezone as dt_timezone
 
 import pytest
 from django.contrib.auth.models import Group
@@ -11,10 +12,17 @@ from apps.users.models import User
 TODAY = date(2026, 10, 12)  # período vigente: Octubre 2026 (23/09 → 22/10)
 
 
+# Reloj coherente con TODAY (lunes 12/10/2026, 12:00 en Ecuador): el plazo por
+# fecha de trabajo compara el día del negocio con el instante actual, y
+# mezclar un día fijo con el reloj real hacía depender los tests de la hora.
+NOW = datetime(2026, 10, 12, 17, tzinfo=dt_timezone.utc)
+
+
 @pytest.fixture(autouse=True)
 def fixed_today(monkeypatch):
     monkeypatch.setattr("apps.novedades.services.today", lambda: TODAY)
     monkeypatch.setattr("apps.novedades.views.today", lambda: TODAY)
+    monkeypatch.setattr("django.utils.timezone.now", lambda: NOW)
 
 
 @pytest.fixture(autouse=True)

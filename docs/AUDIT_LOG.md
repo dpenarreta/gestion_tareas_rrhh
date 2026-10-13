@@ -15,6 +15,54 @@
 
 ---
 
+## 2026-10-13 — Plazos de registro por fecha, Asistente que corrige y guardado automático
+
+**Cómo apareció:** pedido explícito: plazo inicial de 48 horas desde la fecha
+de trabajo en Días laborados y Horas extras, configurable solo por el
+Administrador; sin fechas futuras; el Asistente de Operaciones corrige fuera
+de plazo; guardado automático sin botones.
+
+**Lo que había:** sin plazo por fecha (solo cierres: 23 → 22 en Días
+laborados y mes calendario con cierre manual en Horas extras); el Asistente
+"nunca escribe" como restricción obligatoria en `access.py`; guardado manual
+con botón y confirmación.
+
+**Decisiones del usuario (confirmadas en la sesión):**
+
+1. Las 48 h se cuentan en **días hábiles** (24 h por día hábil, lunes a
+   viernes sin feriados) desde el **fin** del día de trabajo, igual que el
+   plazo de cierre mensual ya aprobado.
+2. El Asistente registra y corrige **cualquier fecha pasada** de cualquier
+   equipo (dentro o fuera del plazo), nunca futuras ni meses cerrados.
+3. Un mes de Horas extras cerrado lo corrige **solo el Administrador**.
+
+**Alternativas consideradas:** horas corridas desde el fin del día (un
+viernes vencía el domingo) o desde el inicio del día; Asistente limitado a
+fechas vencidas o solo a corregir. Descartadas por el usuario.
+
+**Decisión técnica:**
+
+- `RecordDeadlineService` centraliza el plazo, la fecha futura y la excepción
+  (`NovedadesAccess.can_bypass_deadline`: Asistente y Administrador). Lo usan
+  todas las vías de escritura; la pantalla recibe el estado ya resuelto
+  (columnas de la matriz y `me.deadline_rules`) y no recalcula reglas.
+- `business_deadline` es la única implementación de "horas laborables"; el
+  plazo de cierre mensual pasó a usarla.
+- Configuración en `SystemConfigHistory` (mismo mecanismo de Ajustes), valor
+  vigente al empezar el plazo de cada fecha: un cambio no altera vencimientos
+  en curso ni registros guardados.
+- Guardado automático sin infraestructura nueva en el servidor: reutiliza
+  `worked-days/save` y `overtime/bulk` (que ya eran idempotentes y con control
+  de versión). El respaldo local solo guarda lo pendiente y se borra al
+  confirmarse; nunca sustituye a la base.
+
+**Cuentas de prueba:** Carlos Norte y María Sur no se borraron físicamente:
+tienen registros operativos con protección (PROTECT) o auditoría que se
+eliminaría en cascada. Se mantienen deshabilitadas, que es el mecanismo
+existente; no autentican.
+
+---
+
 ## 2026-10-13 — Auditoría integral de Control Operativo de Novedades
 
 **Cómo apareció:** pedido explícito de una auditoría funcional, técnica y de

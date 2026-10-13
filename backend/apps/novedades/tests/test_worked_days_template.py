@@ -95,14 +95,14 @@ def test_filled_template_imports_back(setup):
     ws = wb["Días laborados"]
     headers = [c.value for c in ws[1]]
     ws.cell(row=2, column=headers.index("12/10/2026") + 1).value = 8
-    ws.cell(row=2, column=headers.index("13/10/2026") + 1).value = "7,5"
+    ws.cell(row=2, column=headers.index("09/10/2026") + 1).value = "7,5"  # 13/10 sería futura
     body = _upload(client, wb).json()
     assert body["errors"] == [] and body["summary"]["valid_rows"] == 1
     client.post(f"{BASE}/imports/{body['id']}/confirm/", {"strategy": "skip"}, format="json")
     hours = dict(WorkedDay.objects.filter(collaborator=collaborator).values_list("date", "hours"))
     assert {d: float(h) for d, h in hours.items()} == {
         date(2026, 10, 12): 8.0,
-        date(2026, 10, 13): 7.5,
+        date(2026, 10, 9): 7.5,
     }
 
 

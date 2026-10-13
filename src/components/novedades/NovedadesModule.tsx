@@ -71,7 +71,15 @@ export default function NovedadesModule({ me }: { me: NovedadesMe }) {
   // Cambiar de pestaña, período o supervisor desmonta la tabla en edición:
   // se pide confirmación para no perder lo escrito.
   const guard = useCallback((action: () => void) => {
-    if (dirtyRef.current && !window.confirm("Hay cambios sin guardar que se perderán. ¿Continuar?")) return;
+    // Con el guardado automático no se pierde nada: lo pendiente queda en el
+    // respaldo local de este equipo y se envía solo al volver a esa pantalla.
+    if (
+      dirtyRef.current &&
+      !window.confirm(
+        "Hay cambios que el servidor todavía no confirmó. Se conservan en este equipo y se enviarán automáticamente al volver a esa pantalla. ¿Continuar?",
+      )
+    )
+      return;
     dirtyRef.current = false;
     action();
   }, []);

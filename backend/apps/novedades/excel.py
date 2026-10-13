@@ -21,6 +21,7 @@ from django.utils import timezone
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+from apps.configuration.services import get_holiday_set
 from apps.core.audit import record_audit_event
 from apps.tasks.task_import import parse_date
 
@@ -43,6 +44,7 @@ from .services import (
     OvertimeMonthService,
     OvertimeService,
     PeriodService,
+    RecordDeadlineService,
     WorkedDayService,
     _fmt,
     _forbidden,
@@ -421,6 +423,7 @@ class ImportService:
 
     @staticmethod
     def _parse_worked_days(acc, key: PeriodKey, rows):
+        deadline_holidays = get_holiday_set()
         header = list(rows[0])
         errors, parsed = [], []
         # Las columnas fijas se ubican por su encabezado: así un archivo del
@@ -558,6 +561,11 @@ class ImportService:
                     )
                     continue
                 try:
+                    # Mismo plazo por fecha y prohibición de fechas futuras que
+                    # la captura: se avisa en la vista previa, no al confirmar.
+                    RecordDeadlineService.check(
+                        acc, RecordDeadlineService.WORKED_DAYS, d, holidays=deadline_holidays
+                    )
                     value = parse_hours(raw, field_label="Horas")
                 except NovedadesError as exc:
                     errors.append({"row": offset, "column": column, "message": exc.message})
@@ -605,6 +613,7 @@ class ImportService:
 
     @staticmethod
     def _parse_overtime(acc, key: PeriodKey, rows):
+        deadline_holidays = get_holiday_set()
         header = [_norm(h) for h in rows[0][: len(OVERTIME_HEADERS)]]
         if header != [_norm(h) for h in OVERTIME_HEADERS]:
             raise NovedadesError(
@@ -670,6 +679,13 @@ class ImportService:
                 )
                 continue
             seen.add((cedula, d))
+            try:
+                RecordDeadlineService.check(
+                    acc, RecordDeadlineService.OVERTIME, d, holidays=deadline_holidays
+                )
+            except NovedadesError as exc:
+                errors.append({"row": offset, "column": "FECHA", "message": exc.message})
+                continue
             try:
                 overtime = parse_hours(row[6], field_label="# HORAS EXTRAS") or Decimal("0")
                 saturday = parse_hours(row[7], field_label="# HORAS SABADO") or Decimal("0")

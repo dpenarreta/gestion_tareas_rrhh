@@ -124,16 +124,24 @@ def test_overtime_export_has_14_headers_with_supervisor_seventh(
     assert openpyxl.load_workbook(io.BytesIO(empty.content)).active.max_row == 1
 
 
-def test_overtime_list_has_13_columns_payload_and_assistant_cannot_write(
+def test_overtime_list_has_13_columns_payload_and_assistant_registers_past_dates_only(
     client_for, supervisor, assistant
 ):
     cid = _create(client_for(supervisor)).json()["id"]
+    # Desde el 2026-10-13 el Asistente registra fechas pasadas de cualquier equipo...
     response = client_for(assistant).post(
         f"{BASE}/overtime/",
         {"collaborator_id": cid, "date": "2026-10-12", "overtime_hours": "2"},
         format="json",
     )
-    assert response.status_code == 403  # el Asistente nunca registra novedades
+    assert response.status_code == 201
+    # ...pero nunca fechas futuras.
+    future = client_for(assistant).post(
+        f"{BASE}/overtime/",
+        {"collaborator_id": cid, "date": "2026-10-13", "overtime_hours": "2"},
+        format="json",
+    )
+    assert future.status_code == 400 and future.json()["error"]["code"] == "future_date"
     assert len(OVERTIME_HEADERS) == 13
 
 

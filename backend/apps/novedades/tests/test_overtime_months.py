@@ -148,7 +148,7 @@ def test_grace_hours_setting_range_permissions_and_not_retroactive(
 def test_record_belongs_to_calendar_month_of_its_date(clock, client_for, admin, supervisor):
     clock(date(2026, 10, 12), utc(2026, 10, 12, 15))
     c = _collab(supervisor)
-    record = _ot(supervisor, c, date(2026, 9, 25))  # antes iba a "octubre" (23 → 22)
+    record = _ot(admin, c, date(2026, 9, 25))  # antes iba a "octubre" (23 → 22)
     assert month_for_date(record.date) == SEP
     client = client_for(admin)
     sep = client.get(f"{BASE}/overtime/", {"period": "2026-09"}).json()
@@ -228,7 +228,9 @@ def test_states_grace_then_overdue_without_automatic_close(clock, client_for, ad
             m["code"]: m for m in client_for(supervisor).get(f"{BASE}/overtime/months/").json()
         }
     assert months["2026-10"]["status"] == "OVERDUE"
-    record = _ot(supervisor, c, date(2026, 10, 30))
+    # El mes vencido no se bloquea (no hay cierre automático); la fecha 30/10
+    # ya pasó su plazo individual, así que la registra el Administrador.
+    record = _ot(admin, c, date(2026, 10, 30))
     assert record.pk is not None
     assert not OvertimeMonthClose.objects.exists()
     warnings = Notification.objects.filter(
@@ -413,7 +415,7 @@ def test_authorized_correction_requires_reason_is_audited_and_does_not_reopen(
 ):
     clock(date(2026, 11, 5), utc(2026, 11, 5, 15))
     c = _collab(supervisor)
-    record = _ot(supervisor, c, date(2026, 10, 30))
+    record = _ot(admin, c, date(2026, 10, 30))  # plazo por fecha vencido: excepción
     # Sin cierre, la corrección no aplica: se usa la edición ordinaria.
     with pytest.raises(NovedadesError) as exc:
         CorrectionService.correct_overtime(
@@ -489,7 +491,7 @@ def test_worked_days_cutoff_and_close_are_untouched(clock, supervisor):
     assert WorkedDay.objects.count() == 1
     # Cerrar Días laborados no cierra Horas extras, y viceversa.
     assert not OvertimeMonthClose.objects.exists()
-    _ot(supervisor, c, date(2026, 10, 13))
+    _ot(supervisor, c, date(2026, 10, 9))  # 13/10 sería futura (hoy es 12/10)
     clock(date(2026, 11, 2), utc(2026, 11, 2, 15))
     OvertimeMonthService.close(access(supervisor), OCT, supervisor)
     assert SupervisorPeriod.objects.get(period__month=11, supervisor=supervisor).status == "OPEN"
