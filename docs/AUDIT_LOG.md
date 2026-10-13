@@ -15,6 +15,60 @@
 
 ---
 
+## 2026-10-13 — El correo nunca funcionó: la contraseña SMTP era el texto de ejemplo
+
+**Cómo apareció:** se pidió una prueba de envío real. Falló, y al buscar por qué
+resultó que el diagnóstico vigente desde v1.156.1 era incompleto.
+
+**Lo que decía el sistema:** la advertencia `nexo.email.W008` avisaba que
+`EMAIL_HOST_PASSWORD` tenía un carácter no-ASCII y recomendaba cambiar la
+contraseña del buzón por una sin tildes. El dato era cierto; la conclusión,
+equivocada.
+
+**Lo que era en realidad:** el valor en el `.env` del servidor era el
+**placeholder sin reemplazar** — una cadena entre ángulos con un espacio, de la
+forma `<xx yyyyyyyyyy>`. La `ñ` venía de la palabra «contraseña» del propio
+texto de ejemplo. El correo no fallaba por una tilde mal puesta: fallaba porque
+nunca se configuró la credencial.
+
+**Por qué el diagnóstico sobrevivió tanto:** el check estático detectó un hecho
+verdadero (hay un carácter no-ASCII) y de ahí dedujo una causa plausible (una
+contraseña real con tilde). Nadie verificó el supuesto intermedio —que hubiera
+una contraseña— porque el síntoma encajaba. Es el patrón de medir algo cierto y
+concluir de más: el mismo que ya había costado caro en el diagnóstico de
+sesiones (§ 2026-09-25).
+
+**Cómo se descartó la hipótesis alternativa:** antes de pedir una credencial se
+comprobó si el problema podía ser solo de codificación. El RFC 4616 dice que
+SASL PLAIN usa UTF-8, mientras `smtplib` fuerza ASCII: si el servidor aceptaba
+UTF-8, el arreglo era de código y no hacía falta tocar el buzón. Se probaron 3
+codificaciones (UTF-8, latin-1, cp1252) × 2 mecanismos (PLAIN, LOGIN). Las 6
+devolvieron `535 Incorrect authentication data`, lo que descartó la
+codificación y señaló que no había credencial válida en absoluto.
+
+**Decisión:** la credencial se carga en `backend/.env` del servidor y en ningún
+otro lado — no va al repositorio, ni a la documentación, ni a un test. Se dejó
+respaldo del `.env` anterior antes de modificarlo, y se verificó por longitud y
+forma (nunca imprimiendo el valor) que Django la lee tal cual, sin que el
+parseo se coma el apóstrofo final ni se confunda con el `=` interno.
+
+**Hallazgo colateral:** al verificar que no quedaran rastros de la credencial
+apareció uno dentro del propio repositorio. El fixture de
+`test_credenciales_ascii_no_advierten` compartía los primeros 9 de los 10
+caracteres de la contraseña real, committeado desde `ebb7f6c`. Un valor de
+prueba que se parece a una credencial real es una credencial filtrada: se
+reemplazó por uno inventado (`fca4ff1`). **El historial de git lo conserva**, de
+modo que la exposición se reduce pero no se cierra; lo único que la cierra es
+rotar la contraseña del buzón.
+
+**Impacto:** la recuperación de contraseña por correo funciona por primera vez.
+Queda pendiente que `nexo.email.W008` deje de recomendar lo que desvió el
+diagnóstico y detecte además un valor con forma de placeholder, y que
+`FRONTEND_URL` (hoy `http://10.0.2.33:4080`) permita que el enlace de
+recuperación abra desde fuera de la red.
+
+---
+
 ## 2026-10-02 — Una recurrente que no se cerró sigue viva Y genera la del mes siguiente
 
 **Cómo apareció:** pedido explícito — «cada vez que una tarea no se cierra en
