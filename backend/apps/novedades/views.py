@@ -19,7 +19,7 @@ from apps.core.responses import error_response
 from .access import NovedadesAccess
 from .excel import CollaboratorImportService, ExportService, ImportService
 from .models import ImportBatch
-from .periods import parse_period_code, period_for_date
+from .periods import month_for_date, parse_month_code, parse_period_code, period_for_date
 from .permissions import CanAccessNovedades
 from .serializers import (
     BulkOvertimeSerializer,
@@ -36,6 +36,7 @@ from .serializers import (
     OverrideRevokeSerializer,
     OvertimeCorrectionSerializer,
     OvertimeRecordSerializer,
+    OvertimeSettingsSerializer,
     OvertimeWriteSerializer,
     ReassignSerializer,
     RolePermissionSerializer,
@@ -49,6 +50,7 @@ from .services import (
     CorrectionService,
     HistoryService,
     NovedadesError,
+    OvertimeMonthService,
     OvertimeService,
     PeriodService,
     PermissionAdminService,
@@ -82,6 +84,16 @@ class NovedadesView(APIView):
             return period_for_date(today())
         try:
             return parse_period_code(raw)
+        except ValueError as exc:
+            raise NovedadesError(str(exc)) from exc
+
+    def month_param(self, value=None):
+        """Mes calendario de Horas extras (`AAAA-MM`); por defecto, el actual."""
+        raw = value if value is not None else self.request.query_params.get("period")
+        if not raw:
+            return month_for_date(today())
+        try:
+            return parse_month_code(raw)
         except ValueError as exc:
             raise NovedadesError(str(exc)) from exc
 
@@ -131,6 +143,8 @@ class MeView(NovedadesView):
             "label": period_for_date(today()).label,
             "status": None,
         }
+        month = month_for_date(today())
+        data["current_month"] = {"code": month.code, "label": month.label}
         data["user"] = {"id": request.user.pk, "name": user_display(request.user)}
         return Response(data)
 
@@ -285,7 +299,7 @@ def _overtime_filters(view) -> dict:
         )
     }
     if params.get("period"):
-        filters["period"] = view.period_param()
+        filters["period"] = view.month_param()  # mes calendario, no 23 → 22
     if params.get("supervisor"):
         filters["supervisor"] = params["supervisor"]
     return filters
@@ -304,9 +318,11 @@ class OvertimeListView(NovedadesView):
             offset, limit = 0, 200
         indicators = OvertimeService.indicators(qs)
         if params.get("period") and self.access.national_read:
-            statuses = PeriodService.status_overview(self.access, self.period_param())
-            indicators["supervisors_closed"] = sum(1 for s in statuses if s["status"] == "CLOSED")
-            indicators["supervisors_pending"] = sum(1 for s in statuses if s["status"] != "CLOSED")
+            # Cierre manual del MES de Horas extras, independiente de Días laborados.
+            total = PeriodService.supervisors().count()
+            closed = len(OvertimeMonthService.closes_for(self.month_param()))
+            indicators["supervisors_closed"] = closed
+            indicators["supervisors_pending"] = max(total - closed, 0)
         # Los totales salen del filtro completo; la página solo limita filas.
         return Response(
             {
@@ -358,9 +374,49 @@ class OvertimeBulkView(NovedadesView):
     def post(self, request):
         data = self.validated(BulkOvertimeSerializer)
         result = OvertimeService.bulk_save(
-            self.access, self.period_param(data["period"]), data["rows"], context=self.context
+            self.access, self.month_param(data["period"]), data["rows"], context=self.context
         )
         return Response(result)
+
+
+class OvertimeMonthListView(NovedadesView):
+    """Meses de Horas extras con su estado, fecha límite y tiempo restante."""
+
+    def get(self, request):
+        supervisor = None
+        if request.query_params.get("supervisor") or self.access.is_supervisor:
+            supervisor = self.supervisor_param()
+        return Response(OvertimeMonthService.months(self.access, supervisor))
+
+
+class OvertimeMonthCloseView(NovedadesView):
+    """Cierre MANUAL del mes de Horas extras de un equipo (idempotente)."""
+
+    def post(self, request):
+        data = self.validated(CloseSerializer)
+        supervisor = self.supervisor_param(data.get("supervisor_id"))
+        result = OvertimeMonthService.close(
+            self.access, self.month_param(data["period"]), supervisor, context=self.context
+        )
+        return Response(result)
+
+
+class OvertimeSettingsView(NovedadesView):
+    """Plazo de cierre de Horas extras (48–72 horas laborables, Ajustes)."""
+
+    def get(self, request):
+        return Response(
+            {
+                "grace_hours": OvertimeMonthService.current_grace_hours(),
+                "min_hours": OvertimeMonthService.MIN_HOURS,
+                "max_hours": OvertimeMonthService.MAX_HOURS,
+            }
+        )
+
+    def patch(self, request):
+        data = self.validated(OvertimeSettingsSerializer)
+        OvertimeMonthService.set_grace_hours(self.access, data["grace_hours"], context=self.context)
+        return self.get(request)
 
 
 class CollaboratorTemplateView(NovedadesView):

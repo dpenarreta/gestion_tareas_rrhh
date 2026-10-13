@@ -11,20 +11,22 @@ from django.db import IntegrityError, transaction
 
 from apps.novedades.excel import OVERTIME_EXPORT_HEADERS, OVERTIME_HEADERS
 from apps.novedades.models import NovedadEvent, OvertimeRecord
-from apps.novedades.periods import PeriodKey
+from apps.novedades.periods import MonthKey
 from apps.novedades.services import (
     CollaboratorInput,
     CollaboratorService,
     NovedadesError,
+    OvertimeMonthService,
     OvertimeService,
-    PeriodService,
 )
 
 from .conftest import access
 
 pytestmark = pytest.mark.django_db
 
-OCT = PeriodKey(2026, 10)
+# Horas extras trabaja por MES CALENDARIO (1–31 de octubre), no por el corte 23 → 22.
+OCT = MonthKey(2026, 10)
+SEP = MonthKey(2026, 9)
 MON = date(2026, 10, 12)
 TUE = date(2026, 10, 13)
 SAT = date(2026, 10, 10)
@@ -155,9 +157,11 @@ def test_out_of_scope_and_closed_period_rows_are_locked(supervisor, supervisor2,
         [_row("mine", team[0], overtime_hours="1"), _row("other", other, overtime_hours="1")],
     )
     assert [r["status"] for r in result["rows"]] == ["created", "locked"]
-    PeriodService.close(access(supervisor), OCT, supervisor)
+    # Horas extras se bloquea con el cierre manual de SU mes (septiembre ya
+    # terminó); cerrar Días laborados (23 → 22) ya no lo bloquea.
+    OvertimeMonthService.close(access(supervisor), SEP, supervisor)
     closed = OvertimeService.bulk_save(
-        access(supervisor), OCT, [_row("x", team[1], overtime_hours="1")]
+        access(supervisor), SEP, [_row("x", team[1], date(2026, 9, 15), overtime_hours="1")]
     )
     assert closed["rows"][0]["status"] == "locked"
     assert OvertimeRecord.objects.count() == 1
@@ -165,7 +169,7 @@ def test_out_of_scope_and_closed_period_rows_are_locked(supervisor, supervisor2,
 
 def test_dates_outside_period_and_missing_fields(supervisor, team):
     rows = [
-        _row("out", team[0], date(2026, 10, 25), overtime_hours="1"),
+        _row("out", team[0], date(2026, 9, 30), overtime_hours="1"),  # septiembre, no octubre
         {
             "client_key": "nodate",
             "collaborator_id": team[1].pk,

@@ -23,6 +23,64 @@
 
 ---
 
+## v1.172.0 — 2026-10-12
+
+**Tipo:** FEATURE / BREAKING CHANGE (regla de negocio de Horas extras)
+**Módulo:** Control Operativo de Novedades — Horas extras: mes calendario,
+plazo de cierre configurable y cierre manual propio.
+
+- **Mes calendario:** Horas extras deja de usar el corte 23 → 22. Cada registro
+  pertenece al mes de su fecha de trabajo (del 1 al último día). Días laborados
+  no cambia. La consulta, la exportación, la captura masiva y la importación
+  usan el mes calendario. Los registros existentes no se modificaron: el mes
+  se deriva de la fecha.
+- **Plazo para el mes anterior:** de 48 a 72 horas laborables, configurable en
+  Ajustes → Permisos del módulo Control Operativo de Novedades → "Plazo de
+  cierre de Horas extras" (por defecto 48). Se cuentan solo los días hábiles
+  (lunes a viernes que no son feriados de Ajustes → Feriados), 24 horas cada
+  uno, desde las 00:00 (hora de Ecuador) del primer día hábil del mes
+  siguiente. Ejemplo: octubre de 2026 → hasta el martes 03/11/2026 23:59 sin
+  feriados cargados.
+- **Dos meses a la vez:** durante el plazo se registra el mes nuevo y se
+  completa o corrige el anterior, cada uno por separado.
+- **Sin cierre automático:** vencido el plazo, el mes sigue editable; la
+  pantalla lo marca "plazo vencido, sin cerrar" y el Administrador recibe un
+  aviso (una sola vez por equipo y mes).
+- **"Cerrar mes":** el Supervisor (su equipo) o el Administrador cierra el mes
+  de Horas extras una vez terminado; es idempotente. Desde ahí se bloquean la
+  creación, la edición, la eliminación, la captura masiva, la importación y las
+  solicitudes directas a la API (409). La consulta y la exportación siguen
+  disponibles. Los cambios posteriores van por la corrección autorizada del
+  Administrador (motivo obligatorio, valores anteriores y nuevos, auditada),
+  que no reabre el mes.
+- **Pantalla:** en la pestaña Horas extras, selector "Mes (horas extras)" y un
+  aviso con el estado del mes, la fecha y hora límite exactas, el tiempo
+  restante, el aviso de "próximo a vencer" (últimas 24 h), el estado de solo
+  lectura y el botón "Cerrar mes".
+- **Base de datos:** nuevo modelo `OvertimeMonthClose` (migración
+  `novedades/0006_overtime_month_close`).
+
+- **Archivos:** `backend/apps/novedades/{periods,models,services,excel,views,serializers,urls}.py`,
+  migración nueva, `src/components/novedades/{NovedadesModule,OvertimeView,OvertimeCapture,OvertimeMonthBanner}.tsx`,
+  `src/components/novedades/types.ts`,
+  `src/components/settings/{NovedadesPermissionsSection.tsx,registry.ts}`.
+
+**Verificación:** 14 tests nuevos en
+`backend/apps/novedades/tests/test_overtime_months.py` (plazo con fines de
+semana, feriados, cambio de año, horas no múltiplo de 24 y feriados de la
+tabla; ajuste 48–72, permisos y no retroactividad; mes calendario; dos meses a
+la vez; mes futuro; plazo, vencido sin bloqueo y aviso único; cierre
+idempotente por equipo; bloqueo de todas las vías de escritura y de la API con
+consulta y exportación disponibles; importación sin duplicados; corrección
+autorizada auditada que no reabre; Días laborados intacto e independiente). Se
+actualizaron 4 tests que cerraban Días laborados esperando que eso bloqueara
+Horas extras (regla anterior). 6 tests en
+`src/__tests__/components/OvertimeMonthBanner.test.tsx`.
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
 ## v1.171.2 — 2026-10-12
 
 **Tipo:** FIX

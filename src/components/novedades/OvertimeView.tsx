@@ -14,6 +14,7 @@ import OvertimeFormDialog from "./OvertimeFormDialog";
 import CorrectionDialog from "./CorrectionDialog";
 import OvertimeCapture from "./OvertimeCapture";
 import OvertimeDeleteDialog from "./OvertimeDeleteDialog";
+import OvertimeMonthBanner from "./OvertimeMonthBanner";
 import { SelectInput } from "./fields";
 
 // Encabezados EXACTOS de la tabla en pantalla (13). La exportación agrega
@@ -59,8 +60,17 @@ type Indicators = OvertimeIndicators & {
 export default function OvertimeView({ ctx }: { ctx: ModuleContext }) {
   const canCapture = ctx.can(PERM.registrar) && !ctx.me.isAssistant;
   const [mode, setMode] = useState<"CAPTURA" | "CONSULTA">(canCapture ? "CAPTURA" : "CONSULTA");
+  const month = ctx.overtimeMonths.find((m) => m.code === ctx.overtimeMonth);
   return (
     <div className="space-y-3">
+      {month && (
+        <OvertimeMonthBanner
+          key={`${month.code}-${month.status}-${month.remainingSeconds}`}
+          ctx={ctx}
+          month={month}
+          supervisorId={ctx.supervisorId}
+        />
+      )}
       {canCapture && (
         <div className="inline-flex rounded-lg border border-border p-0.5 bg-surface2 text-sm">
           {(["CAPTURA", "CONSULTA"] as const).map((m) => (
@@ -76,7 +86,11 @@ export default function OvertimeView({ ctx }: { ctx: ModuleContext }) {
       )}
       {mode === "CAPTURA" && canCapture ? (
         ctx.supervisorId !== null ? (
-          <OvertimeCapture key={`${ctx.period}-${ctx.supervisorId}`} ctx={ctx} supervisorId={ctx.supervisorId} />
+          month ? (
+            <OvertimeCapture key={`${month.code}-${ctx.supervisorId}`} ctx={ctx} supervisorId={ctx.supervisorId} month={month} />
+          ) : (
+            <p className="text-sm text-secondary py-6">Cargando mes…</p>
+          )
         ) : (
           <p className="text-sm text-secondary py-6">Seleccione un supervisor para capturar horas extras de su equipo.</p>
         )
@@ -102,12 +116,13 @@ function OvertimeConsult({ ctx }: { ctx: ModuleContext }) {
   const [correcting, setCorrecting] = useState<OvertimeRecord | null>(null);
 
   const canWrite = ctx.can(PERM.registrar) && !ctx.me.isAssistant;
-  const query = { period: ctx.period, supervisor: ctx.supervisorId ?? undefined, ...applied };
+  // Horas extras se consulta por MES CALENDARIO (no por el corte 23 → 22).
+  const query = { period: ctx.overtimeMonth, supervisor: ctx.supervisorId ?? undefined, ...applied };
 
   const load = useCallback(async () => {
     setError(null);
     const result = await novedadesApi.get<{ indicators: Indicators; count: number; records: OvertimeRecord[] }>("overtime", {
-      period: ctx.period,
+      period: ctx.overtimeMonth,
       supervisor: ctx.supervisorId ?? undefined,
       ...applied,
       offset,
@@ -121,7 +136,7 @@ function OvertimeConsult({ ctx }: { ctx: ModuleContext }) {
       setRecords([]);
       setError(result.error);
     }
-  }, [ctx.period, ctx.supervisorId, applied, offset]);
+  }, [ctx.overtimeMonth, ctx.supervisorId, applied, offset]);
 
   useEffect(() => {
     queueMicrotask(load);
@@ -140,8 +155,8 @@ function OvertimeConsult({ ctx }: { ctx: ModuleContext }) {
           ["Supervisores que reportaron", indicators?.supervisorsReporting],
           ...(indicators?.supervisorsClosed !== undefined
             ? [
-                ["Supervisores con período cerrado", indicators.supervisorsClosed],
-                ["Supervisores con captura pendiente", indicators.supervisorsPending],
+                ["Supervisores con el mes cerrado", indicators.supervisorsClosed],
+                ["Supervisores sin cerrar el mes", indicators.supervisorsPending],
               ]
             : []),
         ].map(([label, value]) => (
@@ -216,7 +231,7 @@ function OvertimeConsult({ ctx }: { ctx: ModuleContext }) {
             variant="secondary"
             size="sm"
             onClick={async () => {
-              const err = await novedadesApi.download("overtime/export", query, `horas-extras-${ctx.period}.xlsx`);
+              const err = await novedadesApi.download("overtime/export", query, `horas-extras-${ctx.overtimeMonth}.xlsx`);
               if (err) showToast(err, "error");
             }}
           >
@@ -356,7 +371,7 @@ function OvertimeConsult({ ctx }: { ctx: ModuleContext }) {
                     setDetail(null);
                   }}
                 >
-                  Corrección (período cerrado)
+                  Corrección (mes cerrado)
                 </Button>
               )}
             </div>

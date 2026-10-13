@@ -121,7 +121,13 @@ class OvertimeRecordSerializer(serializers.ModelSerializer):
     area = serializers.CharField(source="collaborator.area")
     cargo = serializers.CharField(source="collaborator.cargo")
     supervisor_name = serializers.SerializerMethodField()
-    period = serializers.CharField(source="period.code")
+    # Mes calendario de la fecha de trabajo: es el período de Horas extras
+    # (el FK `period` del modelo conserva el corte 23 → 22 como referencia).
+    period = serializers.SerializerMethodField()
+
+    def get_period(self, obj) -> str:
+        return f"{obj.date.year:04d}-{obj.date.month:02d}"
+
     overtime_hours = serializers.SerializerMethodField()
     saturday_hours = serializers.SerializerMethodField()
     created_by_name = serializers.SerializerMethodField()
@@ -180,6 +186,10 @@ class CloseSerializer(serializers.Serializer):
     period = serializers.CharField()
     supervisor_id = serializers.IntegerField(required=False, allow_null=True)
     confirm = serializers.BooleanField()
+
+
+class OvertimeSettingsSerializer(serializers.Serializer):
+    grace_hours = serializers.IntegerField()
 
     def validate_confirm(self, value):
         if not value:

@@ -15,6 +15,67 @@
 
 ---
 
+## 2026-10-12 — Horas extras por mes calendario, con plazo de 48–72 horas laborables y sin cierre automático
+
+**Cómo apareció:** pedido explícito de un ciclo mensual propio para Horas
+extras: período del 1 al último día del mes (zona `America/Guayaquil`), con un
+plazo al empezar el mes siguiente para completar y corregir el anterior.
+
+**Lo que había:** Horas extras compartía el corte **23 → 22** de Días
+laborados (`periods.period_for_date`, FK `OvertimeRecord.period` →
+`OperationalPeriod`) y se bloqueaba con el cierre manual por supervisor de ese
+corte (`SupervisorPeriod`, `PeriodService.assert_open_for`). No existía un
+calendario laboral con horario de inicio: solo feriados (`configuration.Holiday`,
+sin alcance local, cargados a mano), `HORAS_EFECTIVAS_DIA` y una hora de fin de
+jornada (17) para el pronóstico de capacidad. No hay tareas programadas en el
+backend.
+
+**Decisiones del usuario (confirmadas en la sesión):**
+
+1. Horas extras pasa a **mes calendario**; Días laborados sigue con 23 → 22.
+2. El plazo es **configurable en Ajustes entre 48 y 72 horas** y se cuenta en
+   **días hábiles de 24 horas** (lunes a viernes sin feriados): 48 h = 2 días
+   hábiles.
+3. **No hay cierre automático.** Al vencer el plazo **solo se avisa**, sin
+   bloquear; el mes se cierra con "Cerrar mes", que pueden usar el Supervisor
+   (su equipo) y el Administrador.
+
+**Alternativas consideradas:**
+
+- *Contar horas de una jornada (p. ej. 08:00–17:00).* Descartado por el
+  usuario: el proyecto no tiene horario de inicio configurado e inventarlo
+  sería presentar una política no aprobada.
+- *Bloquear automáticamente al vencer (con o sin tarea programada).*
+  Descartado por el usuario. Además no hay planificador en el proyecto.
+- *Reasignar el FK `period` de los registros existentes al mes calendario.*
+  Descartado: alteraría datos históricos sin necesidad. El mes de Horas extras
+  se deriva de `date`; el FK conserva el corte 23 → 22 como referencia.
+- *Reutilizar `SupervisorPeriod` para el cierre del mes.* Descartado: está
+  atado al corte 23 → 22 (`OperationalPeriod`) y cerrar uno no debe cerrar el
+  otro.
+
+**Decisión técnica:**
+
+- `periods.MonthKey` (misma interfaz que `PeriodKey`) es el único cálculo del
+  mes calendario.
+- `OvertimeMonthService` (`apps/novedades/services.py`) centraliza el plazo
+  (`deadline`), los estados (OPEN, GRACE, OVERDUE, CLOSED, FUTURE), el aviso de
+  vencido deduplicado, el ajuste y el cierre manual. El plazo usa el valor de
+  configuración **vigente al empezar ese plazo** (no retroactivo).
+- `OvertimeMonthClose` (una fila por supervisor y mes, restricción única)
+  registra el cierre. `assert_writable` es la única comprobación de escritura
+  ordinaria; la usan el formulario, la edición, la eliminación, la captura
+  masiva y la importación. La corrección autorizada exige el mes cerrado.
+- Hora de Ecuador como desfase fijo UTC-5 (`BUSINESS_TZ_OFFSET_HOURS`):
+  Ecuador no tiene horario de verano.
+
+**Impacto:** un registro del 25/09 deja de consultarse en "octubre" y pasa a
+septiembre. Cerrar Días laborados ya no bloquea Horas extras, y al revés. Los
+feriados deben cargarse en Ajustes → Feriados para que el plazo los salte (hoy
+la tabla está vacía en el entorno local).
+
+---
+
 ## 2026-10-12 — Control Operativo de Novedades: permisos híbridos sobre el sistema existente
 
 **Cómo apareció:** pedido explícito de un módulo que reemplace los Excel

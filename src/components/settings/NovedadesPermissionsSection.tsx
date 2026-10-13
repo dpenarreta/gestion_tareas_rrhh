@@ -7,7 +7,7 @@ import { Modal, ModalHeader } from "@/components/ui/Modal";
 import { Spinner } from "@/components/ui/Skeleton";
 import { useToast } from "@/components/ui/Toast";
 import { formatDateTime, novedadesApi } from "@/components/novedades/api";
-import { ErrorBox, Label, SelectInput, TextArea } from "@/components/novedades/fields";
+import { ErrorBox, Label, SelectInput, TextArea, TextInput } from "@/components/novedades/fields";
 import type { NovedadEvent } from "@/components/novedades/types";
 import { ROLE_LABEL, type Role } from "@/lib/roles";
 import SectionCard from "@/components/settings/SectionCard";
@@ -107,6 +107,8 @@ export default function NovedadesPermissionsSection() {
         Operaciones nunca modifica registros originales; los períodos cerrados no admiten edición ordinaria; nadie
         puede otorgarse permisos a sí mismo. Habilitar una facultad nunca amplía el ámbito de datos.
       </p>
+
+      <OvertimeGraceSetting />
 
       <div className="grid lg:grid-cols-2 gap-4">
         {roles.map((r) => (
@@ -424,5 +426,79 @@ function OverrideDialog({
         </div>
       </div>
     </Modal>
+  );
+}
+
+// Plazo para completar y corregir el mes anterior de Horas extras (48–72 horas
+// laborables). El cálculo de la fecha límite vive en Django
+// (`OvertimeMonthService.deadline`); aquí solo se edita el número.
+function OvertimeGraceSetting() {
+  const { showToast } = useToast();
+  const [config, setConfig] = useState<{ graceHours: number; minHours: number; maxHours: number } | null>(null);
+  const [value, setValue] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    novedadesApi.get<{ graceHours: number; minHours: number; maxHours: number }>("overtime/settings").then((r) => {
+      if (!r.ok) return;
+      setConfig(r.data);
+      setValue(String(r.data.graceHours));
+    });
+  }, []);
+
+  if (!config) return null;
+  const hours = Number(value);
+  const valid = Number.isInteger(hours) && hours >= config.minHours && hours <= config.maxHours;
+
+  return (
+    <div className="border border-border rounded-xl px-4 py-3 space-y-2">
+      <h4 className="font-semibold text-title">Plazo de cierre de Horas extras</h4>
+      <p className="text-xs text-secondary">
+        Horas extras va por mes calendario (del 1 al último día). Al empezar el mes siguiente, el anterior se puede
+        completar y corregir durante este plazo, contado en días hábiles (lunes a viernes sin feriados, 24 horas cada
+        uno, hora de Ecuador). No hay cierre automático: al vencer solo se avisa, y el mes se cierra con «Cerrar mes».
+        Un cambio aplica a los plazos que todavía no empezaron.
+      </p>
+      <div className="flex flex-wrap items-end gap-2">
+        <label>
+          <Label hint={`${config.minHours}–${config.maxHours}`}>Horas laborables</Label>
+          <TextInput
+            type="number"
+            min={config.minHours}
+            max={config.maxHours}
+            step={1}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            className="w-28"
+            aria-label="Plazo de cierre de Horas extras en horas laborables"
+          />
+        </label>
+        <Button
+          size="sm"
+          loading={saving}
+          disabled={!valid || hours === config.graceHours || saving}
+          onClick={async () => {
+            setSaving(true);
+            setError(null);
+            const result = await novedadesApi.patch<{ graceHours: number; minHours: number; maxHours: number }>(
+              "overtime/settings",
+              { graceHours: hours },
+            );
+            setSaving(false);
+            if (!result.ok) {
+              setError(result.error);
+              return;
+            }
+            setConfig(result.data);
+            showToast(`Plazo de Horas extras: ${result.data.graceHours} horas laborables.`, "success");
+          }}
+        >
+          Guardar
+        </Button>
+      </div>
+      {!valid && <p className="text-xs text-danger">Ingrese un número entero entre {config.minHours} y {config.maxHours}.</p>}
+      <ErrorBox message={error} />
+    </div>
   );
 }

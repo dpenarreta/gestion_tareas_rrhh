@@ -100,3 +100,72 @@ def parse_period_code(code: str) -> PeriodKey:
 def is_weekend(day: date) -> bool:
     """Sábado o domingo — columnas bloqueadas en Días laborados."""
     return day.weekday() >= 5
+
+
+# ── Horas extras: mes calendario ──────────────────────────────────────────────
+#
+# Regla de negocio (pedido explícito, 2026-10-12): Horas extras NO usa el corte
+# 23 → 22 de Días laborados. Cada registro pertenece al MES CALENDARIO de su
+# fecha de trabajo (del día 1 al último día). Es el único lugar donde se
+# calcula ese mes.
+
+
+@dataclass(frozen=True)
+class MonthKey:
+    """Mes calendario de Horas extras (año y mes de la fecha de trabajo).
+    Misma interfaz que `PeriodKey` (code/label/start_date/end_date/contains)
+    para que las validaciones del guardado masivo y la importación sirvan
+    igual con cualquiera de los dos."""
+
+    year: int
+    month: int
+
+    def __post_init__(self):
+        if not 1 <= self.month <= 12:
+            raise ValueError(f"Mes inválido: {self.month}")
+
+    @property
+    def code(self) -> str:
+        return f"{self.year:04d}-{self.month:02d}"
+
+    @property
+    def label(self) -> str:
+        return f"{MONTH_NAMES_ES[self.month - 1]} {self.year}"
+
+    @property
+    def start_date(self) -> date:
+        return date(self.year, self.month, 1)
+
+    @property
+    def end_date(self) -> date:
+        return self.next().start_date - timedelta(days=1)
+
+    def previous(self) -> "MonthKey":
+        if self.month == 1:
+            return MonthKey(self.year - 1, 12)
+        return MonthKey(self.year, self.month - 1)
+
+    def next(self) -> "MonthKey":
+        if self.month == 12:
+            return MonthKey(self.year + 1, 1)
+        return MonthKey(self.year, self.month + 1)
+
+    def contains(self, day: date) -> bool:
+        return self.start_date <= day <= self.end_date
+
+    def dates(self) -> list[date]:
+        start, end = self.start_date, self.end_date
+        return [start + timedelta(days=offset) for offset in range((end - start).days + 1)]
+
+    def __lt__(self, other: "MonthKey") -> bool:
+        return (self.year, self.month) < (other.year, other.month)
+
+
+def month_for_date(day: date) -> MonthKey:
+    return MonthKey(day.year, day.month)
+
+
+def parse_month_code(code: str) -> MonthKey:
+    """`"2026-10"` -> MonthKey(2026, 10). Lanza ValueError si no es válido."""
+    key = parse_period_code(code)
+    return MonthKey(key.year, key.month)

@@ -33,12 +33,13 @@ from .models import (
     SupervisorPeriod,
     WorkedDay,
 )
-from .periods import WEEKDAY_NAMES_ES, PeriodKey, is_weekend
+from .periods import WEEKDAY_NAMES_ES, MonthKey, PeriodKey, is_weekend
 from .services import (
     ALERT_NEW_COLLABORATOR,
     EventService,
     NotificationService,
     NovedadesError,
+    OvertimeMonthService,
     OvertimeService,
     PeriodService,
     WorkedDayService,
@@ -353,6 +354,9 @@ class ImportService:
         acc: NovedadesAccess, *, kind: str, key: PeriodKey, file, file_name: str
     ) -> ImportBatch:
         ImportService._check(acc)
+        if kind == ImportBatch.Kind.OVERTIME:
+            # Horas extras se importa por MES CALENDARIO (1 al último día).
+            key = MonthKey(key.year, key.month)
         content = file.read()
         file_hash = hashlib.sha256(content).hexdigest()
         rows = ImportService._load(io.BytesIO(content))
@@ -384,7 +388,8 @@ class ImportService:
         parsed = [p for p in parsed if p["row"] not in error_rows]
         return ImportBatch.objects.create(
             kind=kind,
-            period=PeriodService.get_period(key),
+            # Mismo año/mes; para Horas extras se interpreta como mes calendario.
+            period=PeriodService.get_period(PeriodKey(key.year, key.month)),
             uploaded_by=acc.user,
             file_name=file_name[:255],
             file_hash=file_hash,
@@ -715,7 +720,16 @@ class ImportService:
         ImportService._check(acc)
         key = batch.period.key
         items = [i for i in batch.rows if strategy == "update" or not i.get("existing")]
-        open_ids = ImportService._open_supervisor_ids(key, {i["supervisor_id"] for i in items})
+        supervisor_ids = {i["supervisor_id"] for i in items}
+        if batch.kind == ImportBatch.Kind.OVERTIME:
+            # Mes calendario; bloquea solo el cierre manual del mes (no hay
+            # cierre automático por plazo vencido).
+            key = MonthKey(key.year, key.month)
+            open_ids = supervisor_ids - OvertimeMonthService.closed_supervisor_ids(
+                key, supervisor_ids
+            )
+        else:
+            open_ids = ImportService._open_supervisor_ids(key, supervisor_ids)
         closed = [i for i in items if i["supervisor_id"] not in open_ids]
         if closed:
             raise NovedadesError(

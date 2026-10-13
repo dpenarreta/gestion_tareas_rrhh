@@ -47,6 +47,19 @@ urlpatterns = [
     path("overtime/", views.OvertimeListView.as_view(), name="novedades-overtime"),
     path("overtime/bulk/", views.OvertimeBulkView.as_view(), name="novedades-overtime-bulk"),
     path(
+        "overtime/months/", views.OvertimeMonthListView.as_view(), name="novedades-overtime-months"
+    ),
+    path(
+        "overtime/months/close/",
+        views.OvertimeMonthCloseView.as_view(),
+        name="novedades-overtime-month-close",
+    ),
+    path(
+        "overtime/settings/",
+        views.OvertimeSettingsView.as_view(),
+        name="novedades-overtime-settings",
+    ),
+    path(
         "overtime/template/",
         views.OvertimeTemplateView.as_view(),
         name="novedades-overtime-template",

@@ -34,7 +34,7 @@ import {
 } from "@/lib/novedadesCapture";
 import { formatDate, novedadesApi } from "./api";
 import { ErrorBox, Label, TextArea, TextInput } from "./fields";
-import { PERM, type OvertimeRecord, type PeriodOption } from "./types";
+import { PERM, type OvertimeMonth, type OvertimeRecord } from "./types";
 import type { ModuleContext } from "./NovedadesModule";
 import ImportDialog from "./ImportDialog";
 import OvertimeDeleteDialog, { type OvertimeDeleteTarget } from "./OvertimeDeleteDialog";
@@ -91,12 +91,25 @@ function recordToRow(r: OvertimeRecord): CaptureRow {
   };
 }
 
-export default function OvertimeCapture({ ctx, supervisorId }: { ctx: ModuleContext; supervisorId: number }) {
+export default function OvertimeCapture({
+  ctx,
+  supervisorId,
+  month,
+}: {
+  ctx: ModuleContext;
+  supervisorId: number;
+  /** Mes calendario elegido, con el estado que calcula Django. */
+  month: OvertimeMonth;
+}) {
   const { showToast } = useToast();
-  const [period, setPeriod] = useState<PeriodOption | null>(null);
   const [team, setTeam] = useState<CollaboratorRef[]>([]);
   const [rows, setRows] = useState<CaptureRow[]>([]);
-  const [defaultDate, setDefaultDate] = useState("");
+  // Fecha de trabajo por defecto: hoy si cae en el mes elegido; si no, el día 1
+  // (la captura se monta de nuevo al cambiar de mes: ver `key` en OvertimeView).
+  const [defaultDate, setDefaultDate] = useState(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return today >= month.startDate && today <= month.endDate ? today : month.startDate;
+  });
   const [selected, setSelected] = useState<Set<string>>(new Set());
   // Celda activa y rango vertical (una columna) para el relleno tipo Excel.
   const [active, setActive] = useState<{ r: number; c: number } | null>(null);
@@ -113,24 +126,18 @@ export default function OvertimeCapture({ ctx, supervisorId }: { ctx: ModuleCont
   const tableRef = useRef<HTMLDivElement>(null);
 
   const canWrite = ctx.can(PERM.registrar) && !ctx.me.isAssistant;
-  const isOpen = period?.status === "OPEN";
+  // Horas extras va por mes calendario: solo el cierre manual del mes bloquea
+  // (un plazo vencido sin cerrar sigue editable). El servidor vuelve a validar.
+  const period = month;
+  const isOpen = month.status !== "CLOSED" && month.status !== "FUTURE";
   const editable = useCallback((row: CaptureRow) => Boolean(canWrite && isOpen && row.state !== "locked"), [canWrite, isOpen]);
 
-  // Período y equipo del supervisor: se cargan una vez por período/equipo.
+  // Equipo del supervisor: se carga una vez por equipo.
   useEffect(() => {
-    novedadesApi.get<PeriodOption[]>("periods", { supervisor: supervisorId }).then((r) => {
-      if (!r.ok) return;
-      const p = r.data.find((x) => x.code === ctx.period) ?? null;
-      setPeriod(p);
-      if (p) {
-        const today = new Date().toISOString().slice(0, 10);
-        setDefaultDate(today >= p.startDate && today <= p.endDate ? today : p.startDate);
-      }
-    });
     novedadesApi
       .get<CollaboratorRef[]>("collaborators", { status: "ACTIVE", supervisor: supervisorId })
       .then((r) => r.ok && setTeam(r.data));
-  }, [ctx.period, supervisorId]);
+  }, [supervisorId]);
 
   const dupKeys = useMemo(() => duplicateKeysOf(rows), [rows]);
   // Validación en vivo (ayuda): solo para filas con cambios pendientes.
@@ -178,7 +185,7 @@ export default function OvertimeCapture({ ctx, supervisorId }: { ctx: ModuleCont
   async function loadExisting() {
     if (!defaultDate) return;
     const r = await novedadesApi.get<{ records: OvertimeRecord[] }>("overtime", {
-      period: ctx.period,
+      period: month.code,
       supervisor: supervisorId,
       date_from: defaultDate,
       date_to: defaultDate,
@@ -416,7 +423,7 @@ export default function OvertimeCapture({ ctx, supervisorId }: { ctx: ModuleCont
       const chunk = toSend.slice(start, start + BATCH);
       setSaving(toSend.length > BATCH ? `Guardando ${Math.min(start + BATCH, toSend.length)} de ${toSend.length}…` : "Guardando…");
       const response = await novedadesApi.post<BulkResponse>("overtime/bulk", {
-        period: ctx.period,
+        period: month.code,
         rows: chunk.map((r) => ({
           clientKey: r.key,
           id: r.id,
@@ -467,8 +474,6 @@ export default function OvertimeCapture({ ctx, supervisorId }: { ctx: ModuleCont
     );
   }
 
-  if (!period) return <p className="text-sm text-secondary py-6">Cargando período…</p>;
-
   const allSelected = rows.length > 0 && rows.every((r) => selected.has(r.key));
   const errorList = validated.flatMap((r, i) =>
     Object.entries(r.errors).map(([field, msg]) => ({ i, name: r.fullName, field, msg })),
@@ -477,8 +482,8 @@ export default function OvertimeCapture({ ctx, supervisorId }: { ctx: ModuleCont
 
   return (
     <div className="space-y-3">
-      {!isOpen && (
-        <ErrorBox message={`${period.label} está cerrado para este equipo: la captura ordinaria está bloqueada.`} />
+      {month.status === "CLOSED" && (
+        <ErrorBox message={`${month.label} de Horas extras está cerrado para este equipo: la captura ordinaria está bloqueada.`} />
       )}
       {!canWrite && <ErrorBox message="No tiene habilitado el registro de novedades." />}
 
@@ -811,7 +816,8 @@ export default function OvertimeCapture({ ctx, supervisorId }: { ctx: ModuleCont
       {importOpen && (
         <ImportDialog
           kind="OVERTIME"
-          period={ctx.period}
+          period={month.code}
+          periodRange={{ startDate: month.startDate, endDate: month.endDate, label: month.label }}
           onClose={() => setImportOpen(false)}
           onImported={() => {
             setImportOpen(false);

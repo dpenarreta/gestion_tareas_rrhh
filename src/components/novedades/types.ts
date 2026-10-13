@@ -11,6 +11,8 @@ export type NovedadesMe = {
   /** Historial de registros: Administrador y Asistente; nunca el Supervisor (lo decide Django). */
   canViewHistory?: boolean;
   currentPeriod: { code: string; label: string; status: string | null };
+  /** Mes calendario vigente de Horas extras (distinto del corte 23 → 22). */
+  currentMonth?: { code: string; label: string };
   user: { id: number; name: string };
 };
 
@@ -20,6 +22,37 @@ export type PeriodOption = {
   startDate: string;
   endDate: string;
   status: "OPEN" | "CLOSED" | null;
+};
+
+/** Estado del mes de Horas extras (lo calcula Django; solo CLOSED bloquea). */
+export type OvertimeMonthStatus = "OPEN" | "GRACE" | "OVERDUE" | "CLOSED" | "FUTURE";
+
+/** Mes calendario de Horas extras con su plazo de cierre (48–72 h laborables). */
+export type OvertimeMonth = {
+  code: string;
+  label: string;
+  startDate: string;
+  endDate: string;
+  status: OvertimeMonthStatus;
+  graceHours: number;
+  /** Fin exclusivo del plazo (ISO, UTC). */
+  deadline: string;
+  /** Último minuto incluido, ya en hora de Ecuador (p. ej. "martes 03/11/2026 23:59"). */
+  deadlineLabel: string;
+  remainingSeconds: number;
+  closingSoon: boolean;
+  closedAt: string | null;
+  closedBy: string;
+  supervisorsClosed?: number;
+  supervisorsTotal?: number;
+};
+
+export const OVERTIME_STATUS_LABEL: Record<OvertimeMonthStatus, string> = {
+  OPEN: "en curso",
+  GRACE: "en plazo de cierre",
+  OVERDUE: "plazo vencido, sin cerrar",
+  CLOSED: "cerrado",
+  FUTURE: "no iniciado",
 };
 
 export type SupervisorOption = { id: number; name: string };

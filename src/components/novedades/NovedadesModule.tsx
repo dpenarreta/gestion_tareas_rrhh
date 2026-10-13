@@ -5,7 +5,14 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { Users } from "lucide-react";
 import { novedadesApi } from "./api";
 import { SelectInput } from "./fields";
-import { PERM, type NovedadesMe, type PeriodOption, type SupervisorOption } from "./types";
+import {
+  OVERTIME_STATUS_LABEL,
+  PERM,
+  type NovedadesMe,
+  type OvertimeMonth,
+  type PeriodOption,
+  type SupervisorOption,
+} from "./types";
 import WorkedDaysGrid from "./WorkedDaysGrid";
 import OvertimeView from "./OvertimeView";
 import CollaboratorsView from "./CollaboratorsView";
@@ -26,6 +33,10 @@ export type ModuleContext = {
   me: NovedadesMe;
   can: (codename: string) => boolean;
   period: string;
+  /** Mes calendario de Horas extras (`AAAA-MM`), independiente de `period` (23 → 22). */
+  overtimeMonth: string;
+  overtimeMonths: OvertimeMonth[];
+  refreshOvertimeMonths: () => void;
   supervisorId: number | null;
   supervisors: SupervisorOption[];
   refreshPeriods: () => void;
@@ -49,6 +60,9 @@ export default function NovedadesModule({ me }: { me: NovedadesMe }) {
   const [periods, setPeriods] = useState<PeriodOption[]>([]);
   const [period, setPeriod] = useState<string>(me.currentPeriod.code);
   const [periodsVersion, setPeriodsVersion] = useState(0);
+  const [overtimeMonth, setOvertimeMonth] = useState<string>(me.currentMonth?.code ?? me.currentPeriod.code);
+  const [overtimeMonths, setOvertimeMonths] = useState<OvertimeMonth[]>([]);
+  const [monthsVersion, setMonthsVersion] = useState(0);
   // Ref (no estado): avisar cambios sin guardar no debe re-renderizar el módulo.
   const dirtyRef = useRef(false);
   const setDirty = useCallback((dirty: boolean) => {
@@ -79,10 +93,19 @@ export default function NovedadesModule({ me }: { me: NovedadesMe }) {
     });
   }, [supervisorId, periodsVersion]);
 
+  useEffect(() => {
+    novedadesApi
+      .get<OvertimeMonth[]>("overtime/months", { supervisor: supervisorId ?? undefined })
+      .then((r) => r.ok && setOvertimeMonths(r.data));
+  }, [supervisorId, monthsVersion]);
+
   const ctx: ModuleContext = {
     me,
     can,
     period,
+    overtimeMonth,
+    overtimeMonths,
+    refreshOvertimeMonths: () => setMonthsVersion((v) => v + 1),
     supervisorId,
     supervisors,
     refreshPeriods: () => setPeriodsVersion((v) => v + 1),
@@ -98,6 +121,7 @@ export default function NovedadesModule({ me }: { me: NovedadesMe }) {
   const showSupervisorPicker = !me.isSupervisor || me.nationalWrite;
   const needsSupervisor = tab === "DIAS" && supervisorId === null;
   const selectedPeriod = periods.find((p) => p.code === period);
+  const selectedMonth = overtimeMonths.find((m) => m.code === overtimeMonth);
 
   return (
     <div className="flex flex-col min-h-0 space-y-4">
@@ -105,7 +129,7 @@ export default function NovedadesModule({ me }: { me: NovedadesMe }) {
         <div>
           <h1 className="text-xl font-bold text-title">Control Operativo de Novedades</h1>
           <p className="text-secondary text-sm">
-            Días laborados y horas extras de la operación · corte del 23 al 22 de cada mes
+            Días laborados (corte del 23 al 22) y horas extras (mes calendario) de la operación
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
@@ -128,6 +152,22 @@ export default function NovedadesModule({ me }: { me: NovedadesMe }) {
               </SelectInput>
             </label>
           )}
+          {tab === "HORAS" ? (
+            <label className="min-w-[230px]">
+              <span className="block text-xs font-semibold text-secondary mb-1">Mes (horas extras)</span>
+              <SelectInput value={overtimeMonth} onChange={(e) => {
+                const value = e.target.value;
+                guard(() => setOvertimeMonth(value));
+              }}>
+                {!overtimeMonths.some((m) => m.code === overtimeMonth) && <option value={overtimeMonth}>{overtimeMonth}</option>}
+                {overtimeMonths.map((m) => (
+                  <option key={m.code} value={m.code}>
+                    {m.label} · {OVERTIME_STATUS_LABEL[m.status]}
+                  </option>
+                ))}
+              </SelectInput>
+            </label>
+          ) : (
           <label className="min-w-[230px]">
             <span className="block text-xs font-semibold text-secondary mb-1">Período</span>
             <SelectInput
@@ -146,9 +186,17 @@ export default function NovedadesModule({ me }: { me: NovedadesMe }) {
               ))}
             </SelectInput>
           </label>
+          )}
         </div>
       </div>
-      {selectedPeriod && (
+      {tab === "HORAS" ? (
+        selectedMonth && (
+          <p className="text-xs text-secondary -mt-2">
+            Mes calendario: {selectedMonth.startDate.split("-").reverse().join("/")} al{" "}
+            {selectedMonth.endDate.split("-").reverse().join("/")}
+          </p>
+        )
+      ) : selectedPeriod && (
         <p className="text-xs text-secondary -mt-2">
           Corte: {selectedPeriod.startDate.split("-").reverse().join("/")} al{" "}
           {selectedPeriod.endDate.split("-").reverse().join("/")}

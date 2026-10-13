@@ -17,6 +17,12 @@ from django.db.models import Count, Q, Sum
 from django.utils import timezone
 
 from apps.configuration.models import Holiday
+from apps.configuration.services import (
+    get_effective_config_value,
+    get_holiday_set,
+    is_working_day,
+    set_config_value,
+)
 from apps.core.audit import record_audit_event
 from apps.core.models import AuditLog
 from apps.notifications.services import notify_many
@@ -31,13 +37,21 @@ from .models import (
     CollaboratorStatusChange,
     NovedadEvent,
     OperationalPeriod,
+    OvertimeMonthClose,
     OvertimeRecord,
     PendingNotification,
     PermissionOverride,
     SupervisorPeriod,
     WorkedDay,
 )
-from .periods import WEEKDAY_NAMES_ES, PeriodKey, is_weekend, period_for_date
+from .periods import (
+    WEEKDAY_NAMES_ES,
+    MonthKey,
+    PeriodKey,
+    is_weekend,
+    month_for_date,
+    period_for_date,
+)
 
 logger = logging.getLogger("apps.novedades")
 User = get_user_model()
@@ -1249,6 +1263,334 @@ OVERTIME_FIELDS = (
 )
 
 
+# ── Horas extras: mes calendario, plazo de cierre y cierre manual ─────────────
+
+
+class OvertimeMonthService:
+    """Ciclo mensual de Horas extras (pedido explícito, 2026-10-12):
+
+    - Cada registro pertenece al MES CALENDARIO de su fecha de trabajo
+      (`periods.MonthKey`), independiente del corte 23 → 22 de Días laborados.
+    - Al empezar un mes, el anterior sigue editable durante un plazo de
+      48 a 72 horas laborables (configurable en Ajustes). Se cuentan solo
+      los días hábiles —lunes a viernes que no son feriados de
+      `configuration.Holiday`—, cada uno con sus 24 horas, en hora de
+      Ecuador (UTC-5, sin horario de verano). Si el mes nuevo empieza un
+      día no hábil, el cómputo arranca a las 00:00 del siguiente día hábil.
+    - NO hay cierre automático: vencido el plazo, el mes sigue editable,
+      la pantalla lo marca "vencido" y se avisa al Administrador. El mes se
+      cierra solo cuando el Supervisor (su equipo) o el Administrador pulsa
+      "Cerrar mes"; desde ahí se bloquea toda escritura ordinaria —
+      formulario, captura masiva, importación y API directa— y solo cabe la
+      corrección autorizada del Administrador (`CorrectionService`)."""
+
+    CONFIG_KEY = "novedades_overtime_grace_hours"
+    DEFAULT_HOURS = 48
+    MIN_HOURS = 48
+    MAX_HOURS = 72
+    BUSINESS_TZ = dt_timezone(-timedelta(hours=BUSINESS_TZ_OFFSET_HOURS))
+
+    # Estados que ve la pantalla. Solo CLOSED bloquea.
+    OPEN = "OPEN"  # mes en curso
+    GRACE = "GRACE"  # mes terminado, dentro del plazo
+    OVERDUE = "OVERDUE"  # plazo vencido, sin cerrar: solo aviso
+    CLOSED = "CLOSED"
+    FUTURE = "FUTURE"
+
+    @staticmethod
+    def current_month() -> MonthKey:
+        return month_for_date(today())
+
+    @staticmethod
+    def window_start(month: MonthKey) -> datetime:
+        """Primer instante (00:00 hora de Ecuador) del mes siguiente, en UTC."""
+        first = month.next().start_date
+        return datetime.combine(first, time.min, tzinfo=OvertimeMonthService.BUSINESS_TZ)
+
+    @staticmethod
+    def grace_hours(month: MonthKey) -> int:
+        """Horas configuradas VIGENTES al empezar el plazo de ese mes: cambiar
+        el ajuste no altera los plazos que ya empezaron (mismo criterio no
+        retroactivo de `get_effective_config_value`)."""
+        value = get_effective_config_value(
+            OvertimeMonthService.CONFIG_KEY,
+            OvertimeMonthService.window_start(month),
+            OvertimeMonthService.DEFAULT_HOURS,
+        )
+        hours = int(value)
+        return min(max(hours, OvertimeMonthService.MIN_HOURS), OvertimeMonthService.MAX_HOURS)
+
+    @staticmethod
+    def current_grace_hours() -> int:
+        value = get_effective_config_value(
+            OvertimeMonthService.CONFIG_KEY, timezone.now(), OvertimeMonthService.DEFAULT_HOURS
+        )
+        return min(max(int(value), OvertimeMonthService.MIN_HOURS), OvertimeMonthService.MAX_HOURS)
+
+    @staticmethod
+    def set_grace_hours(acc: NovedadesAccess, hours: int, *, context=None) -> int:
+        if not acc.national_write:
+            raise _forbidden("Solo el Administrador configura el plazo de Horas extras.")
+        if not isinstance(hours, int) or not (
+            OvertimeMonthService.MIN_HOURS <= hours <= OvertimeMonthService.MAX_HOURS
+        ):
+            raise NovedadesError(
+                f"El plazo debe ser un número entero de horas entre {OvertimeMonthService.MIN_HOURS} "
+                f"y {OvertimeMonthService.MAX_HOURS}.",
+                details={"grace_hours": ["Fuera de rango."]},
+            )
+        previous = OvertimeMonthService.current_grace_hours()
+        if previous == hours:
+            return hours
+        with transaction.atomic():
+            set_config_value(OvertimeMonthService.CONFIG_KEY, str(hours), acc.user)
+            EventService.log(
+                actor=acc.user,
+                action="overtime_month.grace_changed",
+                target_type="config",
+                target_id=OvertimeMonthService.CONFIG_KEY,
+                target_label="Plazo de cierre de Horas extras (horas laborables)",
+                field="grace_hours",
+                old_value=str(previous),
+                new_value=str(hours),
+                context=context,
+            )
+        return hours
+
+    @staticmethod
+    def deadline(month: MonthKey, *, hours: int | None = None, holidays=None) -> datetime:
+        """Fin EXCLUSIVO del plazo del mes `month`: hasta este instante (sin
+        incluirlo) el plazo está vigente. Determinista: mismo resultado en
+        servidor y pantalla, que lo recibe ya calculado."""
+        if hours is None:
+            hours = OvertimeMonthService.grace_hours(month)
+        if holidays is None:
+            holidays = get_holiday_set()
+        day = month.next().start_date
+        remaining = hours
+        # Tope de seguridad: ningún calendario real tiene 60 días seguidos no hábiles.
+        for _ in range(60):
+            if is_working_day(day, holidays):
+                if remaining <= 24:
+                    start = datetime.combine(day, time.min, tzinfo=OvertimeMonthService.BUSINESS_TZ)
+                    return start + timedelta(hours=remaining)
+                remaining -= 24
+            day += timedelta(days=1)
+        raise NovedadesError("No se pudo calcular el plazo: revise el calendario de feriados.")
+
+    @staticmethod
+    def deadline_label(deadline: datetime) -> str:
+        """Último instante incluido, en hora de Ecuador: un plazo que termina a
+        las 00:00 se muestra como las 23:59 del día anterior."""
+        local = deadline.astimezone(OvertimeMonthService.BUSINESS_TZ) - timedelta(minutes=1)
+        return f"{WEEKDAY_NAMES_ES[local.weekday()].lower()} {local:%d/%m/%Y %H:%M}"
+
+    @staticmethod
+    def closes_for(month: MonthKey, supervisor_ids=None):
+        qs = OvertimeMonthClose.objects.filter(year=month.year, month=month.month).select_related(
+            "closed_by"
+        )
+        if supervisor_ids is not None:
+            qs = qs.filter(supervisor_id__in=supervisor_ids)
+        return {c.supervisor_id: c for c in qs}
+
+    @staticmethod
+    def closed_supervisor_ids(month: MonthKey, supervisor_ids) -> set[int]:
+        return set(OvertimeMonthService.closes_for(month, supervisor_ids))
+
+    @staticmethod
+    def assert_writable(supervisor, day: date) -> MonthKey:
+        """Única comprobación de escritura ordinaria de Horas extras (formulario,
+        captura masiva, importación, eliminación). Se valida en el servidor en
+        cada solicitud: la pantalla solo refleja el mismo resultado."""
+        month = month_for_date(day)
+        if OvertimeMonthService.current_month() < month:
+            raise NovedadesError(
+                f"{month.label} todavía no empieza: no se registran horas extras de meses futuros.",
+                code="period_not_open",
+            )
+        if OvertimeMonthClose.objects.filter(
+            supervisor=supervisor, year=month.year, month=month.month
+        ).exists():
+            raise NovedadesError(
+                f"{month.label} de Horas extras ya fue cerrado para {user_display(supervisor)}: "
+                "los cambios requieren una corrección autorizada.",
+                code="period_closed",
+                status=409,
+            )
+        return month
+
+    @staticmethod
+    def status(month: MonthKey, close=None, *, now=None, holidays=None) -> dict:
+        now = now or timezone.now()
+        hours = OvertimeMonthService.grace_hours(month)
+        deadline = OvertimeMonthService.deadline(month, hours=hours, holidays=holidays)
+        current = OvertimeMonthService.current_month()
+        if close is not None:
+            state = OvertimeMonthService.CLOSED
+        elif current < month:
+            state = OvertimeMonthService.FUTURE
+        elif month == current:
+            state = OvertimeMonthService.OPEN
+        elif now < deadline:
+            state = OvertimeMonthService.GRACE
+        else:
+            state = OvertimeMonthService.OVERDUE
+        remaining = max(int((deadline - now).total_seconds()), 0)
+        return {
+            "code": month.code,
+            "label": month.label,
+            "start_date": month.start_date,
+            "end_date": month.end_date,
+            "status": state,
+            "grace_hours": hours,
+            "deadline": deadline,
+            "deadline_label": OvertimeMonthService.deadline_label(deadline),
+            "remaining_seconds": remaining if state in ("OPEN", "GRACE") else 0,
+            # Aviso de "próximo a cerrarse": últimas 24 horas del plazo.
+            "closing_soon": state == "GRACE" and remaining <= 24 * 3600,
+            "closed_at": close.closed_at if close else None,
+            "closed_by": user_display(close.closed_by) if close else "",
+        }
+
+    @staticmethod
+    def months(acc: NovedadesAccess, supervisor=None) -> list[dict]:
+        """Meses para el selector: el actual, el anterior y los anteriores que
+        tengan registros o cierres (máximo 24). Con `supervisor`, el estado es
+        el de ese equipo; sin él (vista nacional), se informa cuántos
+        supervisores cerraron."""
+        if not acc.can(perms.ACCEDER):
+            raise _forbidden()
+        if supervisor is not None and not acc.can_read_supervisor(supervisor.pk):
+            raise _forbidden("No puede consultar el equipo de otro supervisor.")
+        current = OvertimeMonthService.current_month()
+        records = OvertimeRecord.objects.filter(deleted_at__isnull=True)
+        closes = OvertimeMonthClose.objects.all()
+        if supervisor is not None:
+            records = records.filter(supervisor=supervisor)
+            closes = closes.filter(supervisor=supervisor)
+        else:
+            ids = acc.readable_supervisor_ids()
+            if ids is not None:
+                records = records.filter(supervisor_id__in=ids)
+                closes = closes.filter(supervisor_id__in=ids)
+        keys = {current, current.previous()}
+        keys |= {MonthKey(d.year, d.month) for d in records.dates("date", "month")}
+        keys |= {MonthKey(y, m) for y, m in closes.values_list("year", "month")}
+        keys = sorted((k for k in keys if not current < k), reverse=True)[:24]
+        holidays = get_holiday_set()
+        total = PeriodService.supervisors().count() if supervisor is None else 1
+        result = []
+        for key in keys:
+            month_closes = OvertimeMonthService.closes_for(
+                key, [supervisor.pk] if supervisor is not None else acc.readable_supervisor_ids()
+            )
+            if supervisor is not None:
+                item = OvertimeMonthService.status(
+                    key, month_closes.get(supervisor.pk), holidays=holidays
+                )
+            else:
+                item = OvertimeMonthService.status(key, None, holidays=holidays)
+                item["supervisors_closed"] = len(month_closes)
+                item["supervisors_total"] = total
+                if total and len(month_closes) >= total:
+                    item["status"] = OvertimeMonthService.CLOSED
+            result.append(item)
+            if item["status"] == OvertimeMonthService.OVERDUE and supervisor is not None:
+                OvertimeMonthService._warn_overdue(key, supervisor, item)
+        return result
+
+    @staticmethod
+    def _warn_overdue(month: MonthKey, supervisor, item: dict) -> None:
+        """Aviso único (deduplicado) al Administrador de un plazo vencido sin
+        cierre. No hay tarea programada en el proyecto: se emite la primera vez
+        que alguien consulta ese mes después del vencimiento."""
+        NotificationService.notify_admins(
+            f"Horas extras: venció el plazo de {month.label} para {user_display(supervisor)} "
+            f"({item['deadline_label']}) y el mes sigue sin cerrar. Puede seguir editándose hasta "
+            "que el supervisor o el Administrador pulse «Cerrar mes».",
+            dedup_key=f"novedades:overtime-overdue:{supervisor.pk}:{month.code}",
+        )
+
+    @staticmethod
+    def close(acc: NovedadesAccess, month: MonthKey, supervisor, *, context=None) -> dict:
+        if not acc.can(perms.CERRAR):
+            raise _forbidden("No tiene habilitado el cierre de períodos.")
+        if not acc.can_write_for_supervisor(supervisor.pk):
+            raise _forbidden()
+        if not month < OvertimeMonthService.current_month():
+            raise NovedadesError(
+                f"{month.label} todavía está en curso: el mes de Horas extras se cierra cuando termina.",
+                code="month_in_progress",
+                status=409,
+            )
+        existing = OvertimeMonthClose.objects.filter(
+            supervisor=supervisor, year=month.year, month=month.month
+        ).first()
+        if existing is not None:  # idempotente: repetir el cierre no crea nada
+            return {"already_closed": True, **OvertimeMonthService.status(month, existing)}
+        records = OvertimeRecord.objects.filter(
+            supervisor=supervisor,
+            date__gte=month.start_date,
+            date__lte=month.end_date,
+            deleted_at__isnull=True,
+        ).aggregate(
+            records=Count("pk"),
+            collaborators=Count("collaborator", distinct=True),
+            extra=Sum("overtime_hours"),
+            saturday=Sum("saturday_hours"),
+        )
+        hours = OvertimeMonthService.grace_hours(month)
+        deadline = OvertimeMonthService.deadline(month, hours=hours)
+        summary = {
+            "records": records["records"] or 0,
+            "collaborators": records["collaborators"] or 0,
+            "overtime_hours": _fmt(records["extra"] or Decimal("0")),
+            "saturday_hours": _fmt(records["saturday"] or Decimal("0")),
+            "grace_hours": hours,
+            "deadline": deadline.isoformat(),
+            "closed_after_deadline": timezone.now() >= deadline,
+        }
+        try:
+            with transaction.atomic():
+                close = OvertimeMonthClose.objects.create(
+                    supervisor=supervisor,
+                    year=month.year,
+                    month=month.month,
+                    closed_by=acc.user,
+                    summary=summary,
+                )
+                EventService.log(
+                    actor=acc.user,
+                    action="overtime_month.closed",
+                    supervisor=supervisor,
+                    target_type="overtime_month",
+                    target_id=close.pk,
+                    target_label=f"Horas extras {month.label} — {user_display(supervisor)}",
+                    new_value="CERRADO",
+                    context=context,
+                )
+                NotificationService.notify_admins(
+                    f"Horas extras: {user_display(acc.user)} cerró {month.label} del equipo de "
+                    f"{user_display(supervisor)} ({summary['records']} registros, "
+                    f"{summary['overtime_hours']} h extra, {summary['saturday_hours']} h sábado)"
+                    + (" después del plazo." if summary["closed_after_deadline"] else "."),
+                    exclude_user=acc.user,
+                    dedup_key=f"novedades:overtime-month-closed:{close.pk}",
+                )
+        except IntegrityError:
+            # Otra solicitud lo cerró entre la verificación y la escritura.
+            close = OvertimeMonthClose.objects.get(
+                supervisor=supervisor, year=month.year, month=month.month
+            )
+            return {"already_closed": True, **OvertimeMonthService.status(month, close)}
+        return {
+            "already_closed": False,
+            "summary": summary,
+            **OvertimeMonthService.status(month, close),
+        }
+
+
 class OvertimeService:
     @staticmethod
     def queryset_for(acc: NovedadesAccess):
@@ -1267,8 +1609,10 @@ class OvertimeService:
     @staticmethod
     def filter(qs, params: dict):
         if params.get("period"):
+            # Mes calendario de la fecha de trabajo (`MonthKey`), no el corte
+            # 23 → 22: así un registro del 25/09 se consulta en septiembre.
             key = params["period"]
-            qs = qs.filter(period__year=key.year, period__month=key.month)
+            qs = qs.filter(date__gte=key.start_date, date__lte=key.end_date)
         if params.get("date"):
             qs = qs.filter(date=params["date"])
         if params.get("date_from"):
@@ -1383,7 +1727,10 @@ class OvertimeService:
             )
         day = data["date"]
         supervisor = collaborator.current_supervisor
-        sp = PeriodService.assert_open_for(supervisor, day)
+        month = OvertimeMonthService.assert_writable(supervisor, day)
+        # `period` sigue apuntando al corte 23 → 22 de la fecha (dato de
+        # referencia del modelo); el mes de Horas extras sale de `date`.
+        legacy_period = PeriodService.get_period(period_for_date(day))
         values = OvertimeService._clean_values(data, day)
         duplicate = OvertimeRecord.objects.filter(
             collaborator=collaborator, date=day, deleted_at__isnull=True
@@ -1399,7 +1746,7 @@ class OvertimeService:
         with transaction.atomic():
             record = OvertimeRecord.objects.create(
                 collaborator=collaborator,
-                period=sp.period,
+                period=legacy_period,
                 supervisor=supervisor,
                 date=day,
                 created_by=acc.user,
@@ -1410,7 +1757,7 @@ class OvertimeService:
                 actor=acc.user,
                 action="overtime.created",
                 supervisor=supervisor,
-                period=sp.period,
+                period=legacy_period,
                 target_type="overtime",
                 target_id=record.pk,
                 target_label=f"{collaborator.full_name} ({collaborator.cedula}) {day:%d/%m/%Y}",
@@ -1422,7 +1769,7 @@ class OvertimeService:
                 NotificationService.notify_admins(
                     f"Horas extras: {user_display(acc.user)} registró {_fmt(values['overtime_hours'])} h extra y "
                     f"{_fmt(values['saturday_hours'])} h de sábado para {collaborator.full_name} "
-                    f"({collaborator.cedula}) el {day:%d/%m/%Y} — {sp.period.key.label}.",
+                    f"({collaborator.cedula}) el {day:%d/%m/%Y} — Horas extras de {month.label}.",
                     exclude_user=acc.user,
                 )
         return record
@@ -1452,7 +1799,7 @@ class OvertimeService:
                 code="conflict",
                 status=409,
             )
-        PeriodService.assert_open_for(record.supervisor, record.date)
+        OvertimeMonthService.assert_writable(record.supervisor, record.date)
         merged = {f: getattr(record, f) for f in OVERTIME_FIELDS}
         merged.update({k: v for k, v in data.items() if k in OVERTIME_FIELDS})
         values = OvertimeService._clean_values(merged, record.date)
@@ -1495,7 +1842,7 @@ class OvertimeService:
     @staticmethod
     def delete(acc: NovedadesAccess, record_id, reason: str = "", *, context=None) -> None:
         record = OvertimeService._get_for_write(acc, record_id)
-        PeriodService.assert_open_for(record.supervisor, record.date)
+        OvertimeMonthService.assert_writable(record.supervisor, record.date)
         label = (
             f"{record.collaborator.full_name} ({record.collaborator.cedula}) {record.date:%d/%m/%Y}"
         )
@@ -1524,8 +1871,8 @@ class OvertimeService:
             )
             NotificationService.notify_admins(
                 f"Registro de horas extras eliminado: {record.collaborator.full_name} "
-                f"(cédula {record.collaborator.cedula}) — {record.date:%d/%m/%Y}, período "
-                f"{record.period.key.label}, {_fmt(record.overtime_hours)} h extra / "
+                f"(cédula {record.collaborator.cedula}) — {record.date:%d/%m/%Y}, Horas extras de "
+                f"{month_for_date(record.date).label}, {_fmt(record.overtime_hours)} h extra / "
                 f"{_fmt(record.saturday_hours)} h sábado. Eliminado por {user_display(acc.user)} el "
                 f"{business_stamp()}. El colaborador sigue en la base."
                 + (f" Motivo: {reason}." if reason else ""),
@@ -1539,7 +1886,7 @@ class OvertimeService:
     @staticmethod
     def bulk_save(
         acc: NovedadesAccess,
-        key: PeriodKey,
+        key: MonthKey,
         rows: list[dict],
         *,
         source_file: str = "",
@@ -1568,6 +1915,11 @@ class OvertimeService:
             raise _forbidden("No tiene habilitado el registro de novedades.")
         if not rows:
             raise NovedadesError("No hay filas para guardar.")
+        if OvertimeMonthService.current_month() < key:
+            raise NovedadesError(
+                f"{key.label} todavía no empieza: no se registran horas extras de meses futuros.",
+                code="period_not_open",
+            )
         if len(rows) > OvertimeService.BULK_LIMIT:
             raise NovedadesError(
                 f"El lote tiene {len(rows)} filas y el máximo es {OvertimeService.BULK_LIMIT}. "
@@ -1606,17 +1958,16 @@ class OvertimeService:
         supervisor_ids = {c.current_supervisor_id for c in collaborators.values()} | {
             r.supervisor_id for r in by_id.values()
         }
-        for sid in supervisor_ids:
-            PeriodService.ensure_current(User.objects.get(pk=sid))
-        open_supervisors = set(
-            SupervisorPeriod.objects.filter(
-                period__year=key.year,
-                period__month=key.month,
-                supervisor_id__in=supervisor_ids,
-                status=SupervisorPeriod.Status.OPEN,
-            ).values_list("supervisor_id", flat=True)
-        )
-        period = PeriodService.get_period(key)
+        # Mes cerrado manualmente para el equipo = bloqueado (no hay cierre
+        # automático: vencido el plazo, solo se avisa).
+        closed_supervisors = OvertimeMonthService.closed_supervisor_ids(key, supervisor_ids)
+        legacy_periods: dict[tuple, OperationalPeriod] = {}
+
+        def legacy_period(day):
+            pk = period_for_date(day)
+            if (pk.year, pk.month) not in legacy_periods:
+                legacy_periods[(pk.year, pk.month)] = PeriodService.get_period(pk)
+            return legacy_periods[(pk.year, pk.month)]
 
         results: list[dict] = []
         plan: list[tuple[int, dict]] = []
@@ -1666,7 +2017,7 @@ class OvertimeService:
             if not key.contains(day):
                 fail(row, "error", {"date": f"La fecha no pertenece al período {key.label}."})
                 continue
-            if supervisor_id not in open_supervisors:
+            if supervisor_id in closed_supervisors:
                 fail(
                     row,
                     "locked",
@@ -1761,7 +2112,7 @@ class OvertimeService:
                     if record is None:
                         new = OvertimeRecord.objects.create(
                             collaborator=collaborator,
-                            period=period,
+                            period=legacy_period(day),
                             supervisor=collaborator.current_supervisor,
                             date=day,
                             created_by=acc.user,
@@ -1777,6 +2128,7 @@ class OvertimeService:
                                 "",
                                 "",
                                 "",
+                                day,
                             )
                         )
                         results[index] = {
@@ -1810,6 +2162,7 @@ class OvertimeService:
                     ).update(
                         **values,
                         date=day,
+                        period=legacy_period(day),
                         version=record.version + 1,
                         updated_by=acc.user,
                         updated_at=timezone.now(),
@@ -1829,6 +2182,7 @@ class OvertimeService:
                                 field,
                                 old,
                                 new_value,
+                                day,
                             )
                         )
                     results[index] = {
@@ -1866,7 +2220,7 @@ class OvertimeService:
                     actor=acc.user,
                     actor_role=role,
                     supervisor_id=sid,
-                    period=period,
+                    period=legacy_period(day),
                     target_type="overtime",
                     target_id=str(rid),
                     target_label=label[:255],
@@ -1875,7 +2229,7 @@ class OvertimeService:
                     new_value=_fmt(new)[:1000],
                     source_file=source_file[:255],
                 )
-                for action, sid, rid, label, field, old, new in events
+                for action, sid, rid, label, field, old, new, day in events
             ]
         )
         summary = {
@@ -1892,7 +2246,7 @@ class OvertimeService:
                 actor=acc.user,
                 action="novedades.overtime.bulk_saved",
                 target_type="overtime_batch",
-                target_id=period.code,
+                target_id=key.code,
                 module=MODULE,
                 new_values={**summary, "period": key.code, "source_file": source_file},
                 context=context,
@@ -2006,7 +2360,18 @@ class CorrectionService:
         )
         if record is None:
             raise _not_found("Registro no encontrado.")
-        sp = CorrectionService._closed_sp(record.supervisor, record.date)
+        month = month_for_date(record.date)
+        if not OvertimeMonthClose.objects.filter(
+            supervisor=record.supervisor, year=month.year, month=month.month
+        ).exists():
+            raise NovedadesError(
+                f"{month.label} de Horas extras no está cerrado para {user_display(record.supervisor)}: "
+                "use la edición ordinaria.",
+                code="period_open",
+                status=409,
+            )
+        # El registro de corrección guarda el mes afectado (mismo año/mes).
+        affected_period = PeriodService.get_period(PeriodKey(month.year, month.month))
         original = {f: _fmt(getattr(record, f)) for f in OVERTIME_FIELDS}
         with transaction.atomic():
             if delete:
@@ -2031,7 +2396,7 @@ class CorrectionService:
             correction = ClosedPeriodCorrection.objects.create(
                 target=ClosedPeriodCorrection.Target.OVERTIME,
                 target_id=record.pk,
-                period=sp.period,
+                period=affected_period,
                 supervisor=record.supervisor,
                 original_values=original,
                 new_values=new_values,
@@ -2042,7 +2407,7 @@ class CorrectionService:
                 actor=acc.user,
                 action="correction.overtime",
                 supervisor=record.supervisor,
-                period=sp.period,
+                period=record.period,
                 target_type="overtime",
                 target_id=record.pk,
                 target_label=f"{record.collaborator.full_name} ({record.collaborator.cedula}) {record.date:%d/%m/%Y}",
@@ -2055,7 +2420,7 @@ class CorrectionService:
                 NotificationService.notify_admins(
                     f"Registro de horas extras eliminado (corrección de período cerrado): "
                     f"{record.collaborator.full_name} (cédula {record.collaborator.cedula}) — "
-                    f"{record.date:%d/%m/%Y}, período {sp.period.key.label}. Eliminado por "
+                    f"{record.date:%d/%m/%Y}, Horas extras de {month.label}. Eliminado por "
                     f"{user_display(acc.user)} el {business_stamp()}. Motivo: {reason.strip()}. "
                     "El colaborador sigue en la base.",
                     exclude_user=acc.user,

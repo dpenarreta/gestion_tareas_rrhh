@@ -7,14 +7,14 @@ import pytest
 
 from apps.notifications.models import Notification
 from apps.novedades.models import Collaborator, NovedadEvent, OvertimeRecord
-from apps.novedades.periods import PeriodKey
+from apps.novedades.periods import MonthKey, PeriodKey
 from apps.novedades.services import (
     CollaboratorInput,
     CollaboratorService,
     CorrectionService,
     NovedadesError,
+    OvertimeMonthService,
     OvertimeService,
-    PeriodService,
 )
 
 from .conftest import access
@@ -88,9 +88,17 @@ def test_overtime_delete_without_permission_or_out_of_scope_fails_without_alert(
     assert _alerts(admin, "deletion") == []
 
 
+def _september_overtime(sup, collaborator):
+    return OvertimeService.create(
+        access(sup),
+        {"collaborator_id": collaborator.pk, "date": date(2026, 9, 15), "overtime_hours": "2"},
+    )
+
+
 def test_overtime_delete_in_closed_period_is_rejected_without_alert(admin, supervisor):
-    record = _overtime(supervisor, _collab(supervisor))
-    PeriodService.close(access(supervisor), OCT, supervisor)
+    # El bloqueo de Horas extras es el cierre manual de SU mes calendario.
+    record = _september_overtime(supervisor, _collab(supervisor))
+    OvertimeMonthService.close(access(supervisor), MonthKey(2026, 9), supervisor)
     with pytest.raises(NovedadesError):
         OvertimeService.delete(access(supervisor), record.pk, "x")
     record.refresh_from_db()
@@ -106,8 +114,8 @@ def test_correction_that_deletes_closed_period_overtime_sends_red_alert(
     from .conftest import _user
 
     other_admin = _user("admin2", "ADMINISTRADOR", superuser=True)
-    record = _overtime(supervisor, _collab(supervisor))
-    PeriodService.close(access(supervisor), OCT, supervisor)
+    record = _september_overtime(supervisor, _collab(supervisor))
+    OvertimeMonthService.close(access(supervisor), MonthKey(2026, 9), supervisor)
     CorrectionService.correct_overtime(
         access(admin), record_id=record.pk, changes={}, delete=True, reason="Duplicado"
     )

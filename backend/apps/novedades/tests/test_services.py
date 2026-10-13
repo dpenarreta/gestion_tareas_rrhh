@@ -318,8 +318,9 @@ def test_close_is_individual_atomic_idempotent_and_opens_next_period(
             acc, OCT, supervisor, [{"collaborator_id": c.pk, "date": TUE, "hours": "8"}]
         )
     assert exc.value.code == "period_closed"
-    with pytest.raises(NovedadesError):
-        OvertimeService.create(acc, {"collaborator_id": c.pk, "date": TUE, "overtime_hours": "1"})
+    # Horas extras ya NO depende del corte 23 → 22 (regla del 2026-10-12): va
+    # por mes calendario con cierre propio, así que sigue abierto.
+    OvertimeService.create(acc, {"collaborator_id": c.pk, "date": TUE, "overtime_hours": "1"})
 
     # El otro supervisor sigue trabajando en octubre.
     WorkedDayService.save_cells(

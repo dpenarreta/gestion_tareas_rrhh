@@ -161,6 +161,38 @@ class SupervisorPeriod(models.Model):
         ]
 
 
+class OvertimeMonthClose(models.Model):
+    """Cierre MANUAL del mes calendario de Horas extras para UN supervisor
+    (independiente del cierre 23 → 22 de Días laborados). Que exista la fila
+    = el mes está cerrado para ese equipo: no hay cierre automático; vencido
+    el plazo configurado solo se avisa. La restricción única hace idempotente
+    el cierre aunque lleguen dos solicitudes a la vez."""
+
+    supervisor = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="novedades_overtime_month_closes",
+    )
+    year = models.PositiveSmallIntegerField()
+    month = models.PositiveSmallIntegerField()
+    closed_at = models.DateTimeField(auto_now_add=True)
+    closed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="novedades_overtime_months_closed",
+    )
+    # Plazo vigente al cerrar (fecha límite y horas configuradas) y totales.
+    summary = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-year", "-month"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["supervisor", "year", "month"], name="novedades_overtime_month_close_uniq"
+            )
+        ]
+
+
 class WorkedDay(BaseModel):
     """Una celda de la matriz Días laborados. `hours=None` = vacío (no
     reportado); `0` = cero reportado explícitamente."""
