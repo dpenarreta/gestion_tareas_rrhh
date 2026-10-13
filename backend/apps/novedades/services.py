@@ -1136,6 +1136,60 @@ class WorkedDayService:
         }
 
     @staticmethod
+    def consolidated_matrix(acc: NovedadesAccess, key: PeriodKey) -> dict:
+        """Vista "Todos los supervisores" (alcance nacional: Asistente y
+        Administrador): une las matrices de cada supervisor AUTORIZADO,
+        reutilizando `matrix` tal cual (mismas reglas de plazo, cierre y
+        edición por equipo). Cada fila lleva su supervisor, si es editable y
+        el estado del período de ese equipo; el cierre sigue siendo por equipo."""
+        if not acc.can(perms.ACCEDER):
+            raise _forbidden()
+        supervisors = list(PeriodService.supervisors())
+        readable = acc.readable_supervisor_ids()
+        if readable is not None:
+            supervisors = [s for s in supervisors if s.pk in readable]
+        parts = [(s, WorkedDayService.matrix(acc, key, s)) for s in supervisors]
+        rows = []
+        for supervisor, part in parts:
+            for row in part["rows"]:
+                rows.append(
+                    {
+                        **row,
+                        "supervisor_id": supervisor.pk,
+                        "supervisor_name": part["supervisor"]["name"],
+                        "editable": part["editable"],
+                        "period_status": part["period"]["status"],
+                    }
+                )
+        statuses = [part["period"]["status"] for _, part in parts]
+        closed = sum(1 for s in statuses if s == SupervisorPeriod.Status.CLOSED)
+        if any(s == SupervisorPeriod.Status.OPEN for s in statuses):
+            overall = SupervisorPeriod.Status.OPEN
+        elif statuses and closed == len(statuses):
+            overall = SupervisorPeriod.Status.CLOSED
+        else:
+            overall = "NOT_STARTED"
+        return {
+            "period": {
+                "code": key.code,
+                "label": key.label,
+                "start_date": key.start_date,
+                "end_date": key.end_date,
+                "status": overall,
+                "closed_at": None,
+                "closed_by": "",
+            },
+            "supervisor": None,
+            "editable": any(part["editable"] for _, part in parts),
+            # Cerrar, importar y exportar siguen siendo por equipo.
+            "closable": False,
+            "columns": parts[0][1]["columns"] if parts else [],
+            "rows": rows,
+            "supervisors_total": len(parts),
+            "supervisors_closed": closed,
+        }
+
+    @staticmethod
     def validate_cell(
         collaborator: Collaborator, day: date, key: PeriodKey, hours
     ) -> Decimal | None:

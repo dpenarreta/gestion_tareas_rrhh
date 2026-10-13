@@ -105,7 +105,8 @@ export default function OvertimeCapture({
   month,
 }: {
   ctx: ModuleContext;
-  supervisorId: number;
+  /** null = "Todos los supervisores": colaboradores de todos los equipos autorizados. */
+  supervisorId: number | null;
   /** Mes calendario elegido, con el estado que calcula Django. */
   month: OvertimeMonth;
 }) {
@@ -114,7 +115,7 @@ export default function OvertimeCapture({
   // Respaldo local de lo que quedó sin confirmar: se recupera AL CREAR el
   // estado (antes de cualquier efecto). Si se leyera en un efecto, el efecto
   // que guarda el respaldo correría antes con la tabla vacía y lo borraría.
-  const storeScope = `horas|${month.code}|${supervisorId}|${ctx.me.user.id}`;
+  const storeScope = `horas|${month.code}|${supervisorId ?? "todos"}|${ctx.me.user.id}`;
   const [restored] = useState<CaptureRow[]>(() => pendingStore<CaptureRow[]>(storeScope).load() ?? []);
   const [rows, setRows] = useState<CaptureRow[]>(restored);
   // Fecha de trabajo por defecto: hoy si cae en el mes elegido; si no, el día 1
@@ -164,7 +165,7 @@ export default function OvertimeCapture({
   // Equipo del supervisor: se carga una vez por equipo.
   useEffect(() => {
     novedadesApi
-      .get<CollaboratorRef[]>("collaborators", { status: "ACTIVE", supervisor: supervisorId })
+      .get<CollaboratorRef[]>("collaborators", { status: "ACTIVE", supervisor: supervisorId ?? undefined })
       .then((r) => r.ok && setTeam(r.data));
   }, [supervisorId]);
 
@@ -216,7 +217,7 @@ export default function OvertimeCapture({
     if (!defaultDate) return;
     const r = await novedadesApi.get<{ records: OvertimeRecord[] }>("overtime", {
       period: month.code,
-      supervisor: supervisorId,
+      supervisor: supervisorId ?? undefined,
       date_from: defaultDate,
       date_to: defaultDate,
       limit: 1000,
@@ -1030,6 +1031,7 @@ function CollaboratorPicker({
                   <input type="checkbox" disabled={isTaken} checked={picked.has(c.id)} onChange={() => toggle(c.id)} />
                   <span className="font-mono text-xs w-24">{c.cedula}</span>
                   <span className="flex-1">{c.fullName}</span>
+                  {c.supervisorName && <span className="text-xs text-secondary">{c.supervisorName}</span>}
                   <span className="text-xs text-secondary">{c.cargo}</span>
                   {isTaken && <span className="text-[10px] text-secondary">ya en la tabla para esta fecha</span>}
                 </label>

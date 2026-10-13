@@ -86,14 +86,18 @@ export default function OvertimeView({ ctx }: { ctx: ModuleContext }) {
         </div>
       )}
       {mode === "CAPTURA" && canCapture ? (
-        ctx.supervisorId !== null ? (
-          month ? (
-            <OvertimeCapture key={`${month.code}-${ctx.supervisorId}`} ctx={ctx} supervisorId={ctx.supervisorId} month={month} />
-          ) : (
-            <p className="text-sm text-secondary py-6">Cargando mes…</p>
-          )
+        // Con "Todos los supervisores" la captura trabaja con los colaboradores
+        // de todos los equipos autorizados; cada fila se guarda en el equipo de
+        // su colaborador (lo resuelve el servidor, no el navegador).
+        month ? (
+          <OvertimeCapture
+            key={`${month.code}-${ctx.supervisorId ?? "todos"}`}
+            ctx={ctx}
+            supervisorId={ctx.supervisorId}
+            month={month}
+          />
         ) : (
-          <p className="text-sm text-secondary py-6">Seleccione un supervisor para capturar horas extras de su equipo.</p>
+          <p className="text-sm text-secondary py-6">Cargando mes…</p>
         )
       ) : (
         <OvertimeConsult ctx={ctx} />

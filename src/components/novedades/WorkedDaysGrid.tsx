@@ -28,7 +28,11 @@ type CellError = { collaboratorId: number; date: string; message: string };
 const cellKey = (collaboratorId: number, date: string) => `${collaboratorId}|${date}`;
 const HOURS_RE = /^\d{0,2}([.,]\d{0,2})?$/;
 
-export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleContext; supervisorId: number }) {
+/** `supervisorId` null = "Todos los supervisores" (Asistente/Administrador):
+ * una sola tabla con todos los equipos autorizados; cada fila se guarda en su
+ * propio equipo y el cierre, la importación y la exportación siguen siendo
+ * por equipo. */
+export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleContext; supervisorId: number | null }) {
   const { showToast } = useToast();
   const [matrix, setMatrix] = useState<WorkedDaysMatrix | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -47,7 +51,7 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
   // respaldo local) hasta que el servidor lo confirma. Una sola petición en
   // vuelo; lo que llegue mientras tanto se envía en la siguiente.
   const store = useMemo(
-    () => pendingStore<Record<string, string>>(`dias|${ctx.period}|${supervisorId}|${ctx.me.user.id}`),
+    () => pendingStore<Record<string, string>>(`dias|${ctx.period}|${supervisorId ?? "todos"}|${ctx.me.user.id}`),
     [ctx.period, supervisorId, ctx.me.user.id],
   );
   const matrixRef = useRef<WorkedDaysMatrix | null>(null);
@@ -68,7 +72,11 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
   const pendingCount = Object.keys(drafts).length;
 
   const fetchMatrix = useCallback(
-    () => novedadesApi.get<WorkedDaysMatrix>("worked-days", { period: ctx.period, supervisor: supervisorId }),
+    () =>
+      novedadesApi.get<WorkedDaysMatrix>("worked-days", {
+        period: ctx.period,
+        supervisor: supervisorId ?? undefined, // sin parámetro = todos los autorizados
+      }),
     [ctx.period, supervisorId],
   );
 
@@ -125,23 +133,34 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
     if (!entries.length) return;
     inFlight.current = true;
     setSync("saving");
-    const cells = entries.map(([key, hours]) => {
+    // Cada celda va al equipo de su fila (en la vista de un solo supervisor,
+    // todas al mismo). Un envío por equipo, uno tras otro.
+    const bySupervisor = new Map<number, { collaboratorId: number; date: string; hours: string | null; version: number | null }[]>();
+    for (const [key, hours] of entries) {
       const [cid, date] = key.split("|");
       const row = current.rows.find((r) => r.collaboratorId === Number(cid));
-      return {
+      const team = row?.supervisorId ?? current.supervisor?.id;
+      if (team === undefined) continue;
+      const list = bySupervisor.get(team) ?? [];
+      list.push({
         collaboratorId: Number(cid),
         date,
         hours: hours.trim() === "" ? null : hours.replace(",", "."),
         // null explícito = la celda estaba vacía al cargar: si otro la llenó
         // entretanto, el servidor responde conflicto en vez de pisarla.
         version: row?.cells[date]?.version ?? null,
-      };
-    });
-    const result = await novedadesApi.post<{ saved: number }>("worked-days/save", {
-      period: current.period.code,
-      supervisorId: current.supervisor.id,
-      cells,
-    });
+      });
+      bySupervisor.set(team, list);
+    }
+    let result: Awaited<ReturnType<typeof novedadesApi.post<{ saved: number }>>> = { ok: true, data: { saved: 0 } };
+    for (const [team, cells] of bySupervisor) {
+      result = await novedadesApi.post<{ saved: number }>("worked-days/save", {
+        period: current.period.code,
+        supervisorId: team,
+        cells,
+      });
+      if (!result.ok) break;
+    }
     inFlight.current = false;
     if (!mounted.current) return;
     if (result.ok) {
@@ -218,7 +237,7 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
     return matrix.rows.filter((r) => r.fullName.toLowerCase().includes(q) || r.cedula.includes(q));
   }, [matrix, search]);
 
-  const canCorrect = ctx.can(PERM.corregir) && ctx.me.nationalWrite && matrix?.period.status === "CLOSED";
+  const canCorrectClosed = ctx.can(PERM.corregir) && ctx.me.nationalWrite;
   const canManageCollaborators = ctx.can(PERM.colaboradores) && !ctx.me.isAssistant;
   const isOpen = matrix?.period.status === "OPEN";
 
@@ -301,9 +320,14 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
     <div className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2 text-sm">
-          <span className="font-semibold text-title">{matrix.supervisor.name}</span>
+          <span className="font-semibold text-title">{matrix.supervisor?.name ?? "Todos los supervisores"}</span>
           <span className="text-secondary">· {matrix.period.label}</span>
-          {matrix.period.status === "CLOSED" ? (
+          {!matrix.supervisor && matrix.supervisorsTotal !== undefined && (
+            <span className="text-secondary">
+              · {matrix.supervisorsClosed}/{matrix.supervisorsTotal} supervisores cerraron
+            </span>
+          )}
+          {!matrix.supervisor ? null : matrix.period.status === "CLOSED" ? (
             <Badge variant="neutral">
               <Lock className="w-3 h-3" /> Cerrado {formatDateTime(matrix.period.closedAt)} por {matrix.period.closedBy}
             </Badge>
@@ -320,14 +344,17 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <SearchInput value={search} onChange={setSearch} placeholder="Buscar cédula o nombre…" className="w-56" />
-          {ctx.can(PERM.exportar) && (
+          {!matrix.supervisor && (
+            <span className="text-xs text-secondary">Elija un supervisor para importar, exportar o cerrar su período.</span>
+          )}
+          {matrix.supervisor && ctx.can(PERM.exportar) && (
             <Button
               variant="secondary"
               size="sm"
               onClick={async () => {
                 const err = await novedadesApi.download(
                   "worked-days/export",
-                  { period: matrix.period.code, supervisor: matrix.supervisor.id },
+                  { period: matrix.period.code, supervisor: matrix.supervisor?.id },
                   `dias-laborados-${matrix.period.code}.xlsx`,
                 );
                 if (err) showToast(err, "error");
@@ -336,12 +363,12 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
               <Download className="w-4 h-4" /> Exportar
             </Button>
           )}
-          {matrix.editable && ctx.can(PERM.importar) && (
+          {matrix.supervisor && matrix.editable && ctx.can(PERM.importar) && (
             <Button variant="secondary" size="sm" onClick={() => setImportOpen(true)}>
               <Upload className="w-4 h-4" /> Importar
             </Button>
           )}
-          {(matrix.closable ?? (matrix.editable && ctx.can(PERM.cerrar))) && (
+          {matrix.supervisor && (matrix.closable ?? (matrix.editable && ctx.can(PERM.cerrar))) && (
             <Button variant="secondary" size="sm" onClick={() => setCloseOpen(true)} disabled={pendingCount > 0}>
               <Lock className="w-4 h-4" /> Cerrar período
             </Button>
@@ -385,7 +412,9 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
 
       {matrix.rows.length === 0 ? (
         <p className="text-sm text-secondary py-10 text-center">
-          No hay colaboradores en la base de este supervisor. Regístrelos en “Base de colaboradores”.
+          {matrix.supervisor
+            ? "No hay colaboradores en la base de este supervisor. Regístrelos en “Base de colaboradores”."
+            : "No hay colaboradores en las bases de los supervisores autorizados para este período."}
         </p>
       ) : (
         <div ref={tableRef} className="overflow-auto max-h-[65vh] border border-border rounded-xl bg-surface">
@@ -422,10 +451,13 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
             </thead>
             <tbody>
               {rows.map((row, r) => {
-                const rowEditable = matrix.editable;
+                const rowEditable = row.editable ?? matrix.editable;
+                const canCorrect = canCorrectClosed && (row.periodStatus ?? matrix.period.status) === "CLOSED";
                 return (
                   <tr key={row.collaboratorId} className="group">
-                    <td className="border-b border-r border-border px-2 py-1 whitespace-nowrap text-secondary">{matrix.supervisor.name}</td>
+                    <td className="border-b border-r border-border px-2 py-1 whitespace-nowrap text-secondary">
+                      {row.supervisorName ?? matrix.supervisor?.name}
+                    </td>
                     <td className="border-b border-r border-border px-2 py-1 whitespace-nowrap">{row.cargo}</td>
                     <td className="sticky left-0 z-10 bg-surface border-b border-r border-border px-2 py-1 font-mono w-[96px] min-w-[96px]">{row.cedula}</td>
                     <td className="sticky left-[96px] z-10 bg-surface border-b border-r border-border px-2 py-1 min-w-[240px]">
@@ -534,7 +566,7 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
           }}
         />
       )}
-      {closeOpen && (
+      {closeOpen && matrix.supervisor && (
         <ClosePeriodDialog
           period={matrix.period.code}
           supervisorId={matrix.supervisor.id}
@@ -546,7 +578,7 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
           }}
         />
       )}
-      {importOpen && (
+      {importOpen && matrix.supervisor && (
         <ImportDialog
           kind="WORKED_DAYS"
           period={matrix.period.code}
@@ -566,7 +598,7 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
           currentValue={correction.row.cells[correction.date]?.hours ?? ""}
           payload={{
             collaboratorId: correction.row.collaboratorId,
-            supervisorId: matrix.supervisor.id,
+            supervisorId: correction.row.supervisorId ?? matrix.supervisor?.id ?? 0,
             date: correction.date,
           }}
           onClose={() => setCorrection(null)}

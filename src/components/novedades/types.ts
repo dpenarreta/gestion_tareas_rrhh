@@ -93,6 +93,12 @@ export type MatrixRow = {
   isCurrentMember: boolean;
   cells: Record<string, MatrixCell>;
   totalHours: string;
+  /** Solo en la vista "Todos los supervisores": equipo de la fila, si se
+   * puede editar y el estado del período de ese equipo. */
+  supervisorId?: number;
+  supervisorName?: string;
+  editable?: boolean;
+  periodStatus?: "OPEN" | "CLOSED" | "NOT_STARTED";
 };
 
 export type WorkedDaysMatrix = {
@@ -105,8 +111,11 @@ export type WorkedDaysMatrix = {
     closedAt: string | null;
     closedBy: string;
   };
-  supervisor: { id: number; name: string };
+  /** null = vista "Todos los supervisores" (alcance nacional). */
+  supervisor: { id: number; name: string } | null;
   editable: boolean;
+  supervisorsTotal?: number;
+  supervisorsClosed?: number;
   /** Se puede cerrar (permiso de cierre + equipo propio + período abierto), aun sin permiso de registro. */
   closable?: boolean;
   columns: MatrixColumn[];

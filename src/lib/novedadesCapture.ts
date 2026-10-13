@@ -52,6 +52,8 @@ export type CollaboratorRef = {
   regional: string;
   area: string;
   cargo: string;
+  /** Equipo del colaborador (se muestra en la vista "Todos los supervisores"). */
+  supervisorName?: string;
 };
 
 // Orden EXACTO de las 13 columnas visibles; `null` = solo lectura (identidad

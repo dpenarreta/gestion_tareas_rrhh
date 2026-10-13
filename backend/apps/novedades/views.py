@@ -266,6 +266,10 @@ class CollaboratorHistoryView(NovedadesView):
 
 class WorkedDayMatrixView(NovedadesView):
     def get(self, request):
+        # Sin `supervisor` y con alcance nacional = "Todos los supervisores"
+        # (no se simula con un id ficticio). El Supervisor siempre ve su equipo.
+        if not request.query_params.get("supervisor") and self.access.national_read:
+            return Response(WorkedDayService.consolidated_matrix(self.access, self.period_param()))
         return Response(
             WorkedDayService.matrix(self.access, self.period_param(), self.supervisor_param())
         )

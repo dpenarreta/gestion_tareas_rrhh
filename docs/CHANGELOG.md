@@ -23,6 +23,46 @@
 
 ---
 
+## v1.174.1 — 2026-10-13
+
+**Tipo:** UX
+**Módulo:** Control Operativo de Novedades — vista inicial "Todos los
+supervisores" para el alcance nacional (Asistente de Operaciones y
+Administrador).
+
+- **Días laborados sin elegir supervisor:** sin el parámetro `supervisor`, un
+  usuario con alcance nacional recibe una sola matriz con los equipos de los
+  supervisores AUTORIZADOS (`WorkedDayService.consolidated_matrix`, que reutiliza
+  la matriz de cada equipo tal cual). Cada fila trae su supervisor, si es
+  editable y el estado del período de su equipo; el encabezado muestra
+  "x/y supervisores cerraron". "Todos" se representa sin parámetro (nunca con
+  un id ficticio). El Supervisor sigue viendo solo su equipo.
+- **Guardado en la vista consolidada:** cada celda se guarda en el equipo de su
+  fila (un envío por equipo); cerrar, importar y exportar siguen siendo por
+  equipo (se elige el supervisor para eso).
+- **Horas extras:** la captura masiva ya no pide "Seleccione un supervisor":
+  con "Todos" trabaja con los colaboradores de todos los equipos autorizados
+  (el selector muestra el equipo de cada persona) y cada fila se guarda en el
+  equipo de su colaborador (lo resuelve el servidor). Los contadores de cierre
+  del mes ya se calculaban sobre los supervisores autorizados.
+- El selector "Todos los supervisores" aparece también en Días laborados para
+  el alcance nacional y es la opción inicial del Asistente. Sin cambios en
+  permisos, plazos, fechas futuras, cierres, correcciones ni auditoría.
+
+- **Archivos:** `backend/apps/novedades/{services,views}.py`,
+  `src/components/novedades/{WorkedDaysGrid,OvertimeView,OvertimeCapture,NovedadesModule}.tsx`,
+  `src/components/novedades/types.ts`, `src/lib/novedadesCapture.ts`.
+
+**Verificación:** 4 tests en `backend/apps/novedades/tests/test_consolidated_view.py`
+(todos los equipos sin duplicados, filtro por supervisor, contadores con
+cierres individuales, guardado en el equipo de cada fila, Supervisor sin
+cambios y alcance intacto, estado vacío sin errores) y 3 en
+`src/__tests__/components/NovedadesConsolidated.test.tsx`.
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
 ## v1.174.0 — 2026-10-13
 
 **Tipo:** FEATURE / SECURITY / UX / BREAKING CHANGE (reglas de registro)

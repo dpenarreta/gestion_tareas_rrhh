@@ -127,7 +127,10 @@ export default function NovedadesModule({ me }: { me: NovedadesMe }) {
   };
 
   const showSupervisorPicker = !me.isSupervisor || me.nationalWrite;
-  const needsSupervisor = tab === "DIAS" && supervisorId === null;
+  // Con alcance nacional (Asistente/Administrador) "Todos los supervisores"
+  // es una vista válida también en Días laborados; el Supervisor siempre
+  // trabaja con su propio equipo.
+  const needsSupervisor = tab === "DIAS" && supervisorId === null && !me.nationalRead;
   const selectedPeriod = periods.find((p) => p.code === period);
   const selectedMonth = overtimeMonths.find((m) => m.code === overtimeMonth);
 
@@ -151,7 +154,7 @@ export default function NovedadesModule({ me }: { me: NovedadesMe }) {
                   guard(() => setSupervisorId(value));
                 }}
               >
-                {tab !== "DIAS" && <option value="">Todos los supervisores</option>}
+                {me.nationalRead && <option value="">Todos los supervisores</option>}
                 {supervisors.map((s) => (
                   <option key={s.id} value={s.id}>
                     {s.name}
@@ -239,7 +242,9 @@ export default function NovedadesModule({ me }: { me: NovedadesMe }) {
         />
       ) : (
         <>
-          {tab === "DIAS" && supervisorId !== null && <WorkedDaysGrid ctx={ctx} supervisorId={supervisorId} />}
+          {tab === "DIAS" && (supervisorId !== null || me.nationalRead) && (
+            <WorkedDaysGrid key={supervisorId ?? "todos"} ctx={ctx} supervisorId={supervisorId} />
+          )}
           {tab === "HORAS" && <OvertimeView ctx={ctx} />}
           {tab === "BASE" && <CollaboratorsView ctx={ctx} />}
           {tab === "HISTORIAL" && <HistoryView ctx={ctx} />}
