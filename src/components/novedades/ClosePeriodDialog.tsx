@@ -76,13 +76,10 @@ export default function ClosePeriodDialog({ period, supervisorId, onClose, onClo
               </dd>
               <dt className="text-secondary">Horas laboradas</dt>
               <dd className="text-right font-semibold">{summary.workedHours}</dd>
-              <dt className="text-secondary">Registros de horas extras</dt>
-              <dd className="text-right font-semibold">{summary.overtimeRecords}</dd>
-              <dt className="text-secondary">Horas extras / sábado</dt>
-              <dd className="text-right font-semibold">
-                {summary.overtimeHours} / {summary.saturdayHours}
-              </dd>
             </dl>
+            <p className="text-xs text-secondary">
+              Horas extras va por mes calendario y se cierra aparte («Cerrar mes» en la pestaña Horas extras).
+            </p>
             {summary.pendingCells > 0 && (
               <p className="text-xs text-warning">
                 Hay celdas vacías en días hábiles. Vacío significa “no reportado”, distinto de 0.

@@ -55,6 +55,7 @@ from .services import (
     PeriodService,
     PermissionAdminService,
     WorkedDayService,
+    _parse_id_param,
     today,
     user_display,
 )
@@ -193,7 +194,9 @@ class CollaboratorListView(NovedadesView):
         if params.get("status"):
             qs = qs.filter(status=params["status"])
         if params.get("supervisor"):
-            qs = qs.filter(current_supervisor_id=params["supervisor"])
+            qs = qs.filter(
+                current_supervisor_id=_parse_id_param(params["supervisor"], "supervisor")
+            )
         if params.get("q"):
             q = params["q"].strip()
             qs = qs.filter(Q(full_name__icontains=q) | Q(cedula__icontains=q))
@@ -347,6 +350,10 @@ class OvertimeDetailView(NovedadesView):
         data = self.validated(OvertimeWriteSerializer)
         data.pop("collaborator_id", None)
         data.pop("date", None)
+        # Solo lo que realmente se envió: el serializer completa SABADO/
+        # DOMINGO/FERIADO con None y eso devolvía a "automático" una marca
+        # manual aunque la edición no la tocara.
+        data = {k: v for k, v in data.items() if k in request.data}
         record = OvertimeService.update(self.access, pk, data, context=self.context)
         return Response(OvertimeRecordSerializer(record).data)
 
@@ -387,6 +394,17 @@ class OvertimeMonthListView(NovedadesView):
         if request.query_params.get("supervisor") or self.access.is_supervisor:
             supervisor = self.supervisor_param()
         return Response(OvertimeMonthService.months(self.access, supervisor))
+
+
+class OvertimeMonthCheckView(NovedadesView):
+    """Revisión previa al cierre del mes (solo informa, no bloquea)."""
+
+    def get(self, request):
+        return Response(
+            OvertimeMonthService.pre_close_check(
+                self.access, self.month_param(), self.supervisor_param()
+            )
+        )
 
 
 class OvertimeMonthCloseView(NovedadesView):

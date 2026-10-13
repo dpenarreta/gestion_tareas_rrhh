@@ -35,6 +35,7 @@ from .models import (
     Collaborator,
     CollaboratorAssignment,
     CollaboratorStatusChange,
+    ImportBatch,
     NovedadEvent,
     OperationalPeriod,
     OvertimeMonthClose,
@@ -89,6 +90,28 @@ def user_display(user) -> str:
 
 def today() -> date:
     return business_calendar_day(timezone.now())
+
+
+def _parse_date_param(value, name: str) -> date:
+    """Fecha de un parámetro de consulta (AAAA-MM-DD) o error 400 claro."""
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value).strip())
+    except ValueError as exc:
+        raise NovedadesError(
+            f"Fecha inválida en «{name}»: use el formato AAAA-MM-DD.", details={name: ["Inválida."]}
+        ) from exc
+
+
+def _parse_id_param(value, name: str) -> int:
+    """Identificador numérico de un parámetro de consulta o error 400 claro."""
+    try:
+        return int(str(value).strip())
+    except ValueError as exc:
+        raise NovedadesError(
+            f"Valor inválido en «{name}».", details={name: ["Debe ser numérico."]}
+        ) from exc
 
 
 def business_range(first: date, last: date) -> tuple[datetime, datetime]:
@@ -267,12 +290,16 @@ class NotificationService:
         una operación fallida o revertida nunca genera alerta."""
 
         def _send():
-            recipients = list(NotificationService.admin_recipients())
-            if exclude_user is not None:
-                recipients = [u for u in recipients if u.pk != exclude_user.pk]
-            if not recipients:
-                return
+            # Corre DESPUÉS de confirmar la operación: cualquier fallo aquí
+            # (destinatarios, envío o el respaldo pendiente) se registra y se
+            # absorbe; nunca convierte en error una operación ya guardada.
+            recipients = []
             try:
+                recipients = list(NotificationService.admin_recipients())
+                if exclude_user is not None:
+                    recipients = [u for u in recipients if u.pk != exclude_user.pk]
+                if not recipients:
+                    return
                 notify_many(
                     users=recipients, message=message, category=category, dedup_key=dedup_key
                 )
@@ -280,14 +307,17 @@ class NotificationService:
                 logger.exception(
                     "No se pudo notificar al Administrador; queda pendiente de reintento"
                 )
-                PendingNotification.objects.create(
-                    message=message,
-                    category=category,
-                    dedup_key=dedup_key or "",
-                    recipient_ids=[u.pk for u in recipients],
-                    attempts=1,
-                    last_error=str(exc)[:500],
-                )
+                try:
+                    PendingNotification.objects.create(
+                        message=message,
+                        category=category,
+                        dedup_key=dedup_key or "",
+                        recipient_ids=[u.pk for u in recipients],
+                        attempts=1,
+                        last_error=str(exc)[:500],
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.exception("Tampoco se pudo guardar la notificación pendiente")
 
         transaction.on_commit(_send)
 
@@ -416,15 +446,22 @@ class PeriodService:
         active_ids = set(
             collaborators.filter(status=Collaborator.Status.ACTIVE).values_list("pk", flat=True)
         )
+        # Pendientes: solo miembros ACTUALES del equipo y días hábiles sin
+        # ninguna celda (un día cargado por el equipo anterior no está pendiente).
+        member_ids = set(
+            collaborators.filter(
+                status=Collaborator.Status.ACTIVE, current_supervisor=supervisor
+            ).values_list("pk", flat=True)
+        )
         workdays = [d for d in key.dates() if not is_weekend(d)]
         days = WorkedDay.objects.filter(period=period, supervisor=supervisor)
         filled = days.filter(hours__isnull=False)
-        filled_keys = set(filled.values_list("collaborator_id", "date"))
-        pending = sum(1 for cid in active_ids for d in workdays if (cid, d) not in filled_keys)
-        overtime = OvertimeRecord.objects.filter(
-            period=period, supervisor=supervisor, deleted_at__isnull=True
+        any_filled = set(
+            WorkedDay.objects.filter(
+                period=period, collaborator_id__in=member_ids, hours__isnull=False
+            ).values_list("collaborator_id", "date")
         )
-        totals = overtime.aggregate(extra=Sum("overtime_hours"), saturday=Sum("saturday_hours"))
+        pending = sum(1 for cid in member_ids for d in workdays if (cid, d) not in any_filled)
         return {
             "period": key.code,
             "period_label": key.label,
@@ -436,9 +473,6 @@ class PeriodService:
             "zero_cells": filled.filter(hours=0).count(),
             "pending_cells": pending,
             "worked_hours": _fmt(filled.aggregate(total=Sum("hours"))["total"] or Decimal("0")),
-            "overtime_records": overtime.count(),
-            "overtime_hours": _fmt(totals["extra"] or Decimal("0")),
-            "saturday_hours": _fmt(totals["saturday"] or Decimal("0")),
         }
 
     @staticmethod
@@ -466,11 +500,13 @@ class PeriodService:
                 code="wrong_period",
                 status=409,
             )
-        summary = PeriodService.close_summary(acc, key, supervisor)
         with transaction.atomic():
             sp = SupervisorPeriod.objects.select_for_update().get(pk=sp.pk)
             if sp.status == SupervisorPeriod.Status.CLOSED:
                 return {"already_closed": True, "period": key.code, "summary": sp.summary}
+            # Con el período bloqueado: ningún guardado concurrente puede
+            # colarse entre el resumen y el cierre (ver `save_cells`).
+            summary = PeriodService.close_summary(acc, key, supervisor)
             sp.status = SupervisorPeriod.Status.CLOSED
             sp.closed_at = timezone.now()
             sp.closed_by = acc.user
@@ -492,7 +528,6 @@ class PeriodService:
             NotificationService.notify_admins(
                 f"Cierre de período: {user_display(supervisor)} cerró {key.label} "
                 f"({summary['active_collaborators']} colaboradores activos, "
-                f"{summary['overtime_records']} registros de horas extras, "
                 f"{summary['pending_cells']} celdas pendientes en Días laborados). "
                 f"Se habilitó {key.next().label}.",
                 exclude_user=acc.user,
@@ -665,16 +700,25 @@ class CollaboratorService:
                 status=409,
             )
 
+        try:
+            with transaction.atomic():
+                collaborator = Collaborator.objects.create(
+                    cedula=cedula,
+                    full_name=full_name,
+                    regional=data.regional.strip(),
+                    area=data.area.strip(),
+                    cargo=data.cargo.strip(),
+                    current_supervisor=supervisor,
+                    created_by=acc.user,
+                )
+        except IntegrityError as exc:
+            # Otra solicitud registró la misma cédula entre la validación y el alta.
+            raise NovedadesError(
+                f"La cédula {cedula} acaba de registrarse en la base; recargue la lista.",
+                code="duplicate",
+                status=409,
+            ) from exc
         with transaction.atomic():
-            collaborator = Collaborator.objects.create(
-                cedula=cedula,
-                full_name=full_name,
-                regional=data.regional.strip(),
-                area=data.area.strip(),
-                cargo=data.cargo.strip(),
-                current_supervisor=supervisor,
-                created_by=acc.user,
-            )
             CollaboratorAssignment.objects.create(
                 collaborator=collaborator,
                 supervisor=supervisor,
@@ -711,6 +755,7 @@ class CollaboratorService:
     ) -> Collaborator:
         collaborator = CollaboratorService._get_for_write(acc, collaborator_id)
         editable = ("full_name", "regional", "area", "cargo")
+        updated_fields: list[str] = []
         with transaction.atomic():
             for field in editable:
                 if field not in changes:
@@ -735,7 +780,12 @@ class CollaboratorService:
                     new_value=new,
                     context=context,
                 )
-            collaborator.save()
+                updated_fields.append(field)
+            if updated_fields:
+                # Solo los campos editados: un `save()` completo reescribiría el
+                # estado o el supervisor con valores viejos y desharía un
+                # cambio de estado o una reasignación concurrentes.
+                collaborator.save(update_fields=[*updated_fields, "updated_at"])
         return collaborator
 
     @staticmethod
@@ -895,6 +945,13 @@ class CollaboratorService:
         }
         label = f"{collaborator.full_name} ({collaborator.cedula})"
         with transaction.atomic():
+            collaborator = Collaborator.objects.select_for_update().get(pk=collaborator.pk)
+            if collaborator.worked_days.exists() or collaborator.overtime_records.exists():
+                raise NovedadesError(
+                    f"{collaborator.full_name} acaba de recibir novedades: no se elimina.",
+                    code="has_history",
+                    status=409,
+                )
             supervisor = collaborator.current_supervisor
             pk = collaborator.pk
             collaborator.assignments.all().delete()
@@ -987,11 +1044,18 @@ class WorkedDayService:
             .order_by("full_name")
         )
         cells = {}
-        for wd in WorkedDay.objects.filter(period=period, collaborator__in=collaborators):
-            cells.setdefault(wd.collaborator_id, {})[wd.date.isoformat()] = {
+        for wd in WorkedDay.objects.filter(
+            period=period, collaborator__in=collaborators
+        ).select_related("supervisor"):
+            cell = {
                 "hours": _fmt(wd.hours) if wd.hours is not None else None,
                 "version": wd.version,
             }
+            if wd.supervisor_id != supervisor.pk:
+                # Celda del equipo anterior (colaborador reasignado): se ve,
+                # pero no se edita desde este equipo ni suma en su total.
+                cell["other_team"] = user_display(wd.supervisor)
+            cells.setdefault(wd.collaborator_id, {})[wd.date.isoformat()] = cell
         holidays = WorkedDayService._holidays(key)
         columns = [
             {
@@ -1007,7 +1071,11 @@ class WorkedDayService:
         for c in collaborators:
             row_cells = cells.get(c.pk, {})
             total = sum(
-                (Decimal(v["hours"]) for v in row_cells.values() if v["hours"] is not None),
+                (
+                    Decimal(v["hours"])
+                    for v in row_cells.values()
+                    if v["hours"] is not None and "other_team" not in v
+                ),
                 Decimal("0"),
             )
             rows.append(
@@ -1036,6 +1104,9 @@ class WorkedDayService:
             },
             "supervisor": {"id": supervisor.pk, "name": user_display(supervisor)},
             "editable": editable,
+            "closable": bool(
+                is_open and acc.can(perms.CERRAR) and acc.can_write_for_supervisor(supervisor.pk)
+            ),
             "columns": columns,
             "rows": rows,
         }
@@ -1097,6 +1168,7 @@ class WorkedDayService:
             for wd in WorkedDay.objects.filter(period=period, collaborator_id__in=ids)
         }
         errors, conflicts, plan = [], [], []
+        seen_cells: set[tuple] = set()
         for cell in cells:
             cid = int(cell["collaborator_id"])
             day = cell["date"]
@@ -1115,6 +1187,29 @@ class WorkedDayService:
                     }
                 )
                 continue
+            if current is not None and current.supervisor_id != supervisor.pk:
+                # Colaborador reasignado: el día lo registró el equipo anterior
+                # (su período puede estar cerrado). Solo se corrige por la vía
+                # autorizada, nunca desde el equipo nuevo.
+                errors.append(
+                    {
+                        "collaborator_id": cid,
+                        "date": day,
+                        "message": f"{collaborator.full_name} {day:%d/%m}: lo registró otro equipo; no se modifica desde aquí.",
+                        "code": "other_team",
+                    }
+                )
+                continue
+            if (cid, day) in seen_cells:
+                errors.append(
+                    {
+                        "collaborator_id": cid,
+                        "date": day,
+                        "message": f"{collaborator.full_name} {day:%d/%m}: la celda viene repetida.",
+                    }
+                )
+                continue
+            seen_cells.add((cid, day))
             try:
                 value = WorkedDayService.validate_cell(collaborator, day, key, cell.get("hours"))
             except NovedadesError as exc:
@@ -1136,10 +1231,10 @@ class WorkedDayService:
                     )
                     continue
             expected_version = cell.get("version")
-            if (
-                current is not None
-                and expected_version is not None
-                and int(expected_version) != current.version
+            stale_empty = "version" in cell and expected_version is None and current is not None
+            if current is not None and (
+                stale_empty
+                or (expected_version is not None and int(expected_version) != current.version)
             ):
                 conflicts.append(
                     {
@@ -1185,16 +1280,31 @@ class WorkedDayService:
 
         changes = []
         with transaction.atomic():
+            locked = SupervisorPeriod.objects.select_for_update().get(pk=sp.pk)
+            if locked.status == SupervisorPeriod.Status.CLOSED:
+                raise NovedadesError(
+                    f"El período {key.label} se cerró mientras guardaba: no admite edición ordinaria.",
+                    code="period_closed",
+                    status=409,
+                )
             for collaborator, day, current, old, value in plan:
                 if current is None:
-                    current = WorkedDay.objects.create(
-                        collaborator=collaborator,
-                        period=period,
-                        supervisor=supervisor,
-                        date=day,
-                        hours=value,
-                        updated_by=acc.user,
-                    )
+                    try:
+                        with transaction.atomic():
+                            current = WorkedDay.objects.create(
+                                collaborator=collaborator,
+                                period=period,
+                                supervisor=supervisor,
+                                date=day,
+                                hours=value,
+                                updated_by=acc.user,
+                            )
+                    except IntegrityError as exc:
+                        raise NovedadesError(
+                            f"Otro usuario registró {collaborator.full_name} {day:%d/%m} mientras guardaba; recargue.",
+                            code="conflict",
+                            status=409,
+                        ) from exc
                 else:
                     updated = WorkedDay.objects.filter(
                         pk=current.pk, version=current.version
@@ -1379,6 +1489,24 @@ class OvertimeMonthService:
         raise NovedadesError("No se pudo calcular el plazo: revise el calendario de feriados.")
 
     @staticmethod
+    def business_seconds_between(start: datetime, end: datetime, holidays) -> int:
+        """Segundos de días hábiles (24 h cada uno, hora de Ecuador) entre dos
+        instantes: la misma unidad con que se mide el plazo."""
+        if end <= start:
+            return 0
+        tz = OvertimeMonthService.BUSINESS_TZ
+        cursor = start.astimezone(tz)
+        end_local = end.astimezone(tz)
+        total = 0
+        while cursor < end_local:
+            next_midnight = datetime.combine(cursor.date() + timedelta(days=1), time.min, tzinfo=tz)
+            chunk_end = min(next_midnight, end_local)
+            if is_working_day(cursor.date(), holidays):
+                total += int((chunk_end - cursor).total_seconds())
+            cursor = chunk_end
+        return total
+
+    @staticmethod
     def deadline_label(deadline: datetime) -> str:
         """Último instante incluido, en hora de Ecuador: un plazo que termina a
         las 00:00 se muestra como las 23:59 del día anterior."""
@@ -1397,6 +1525,23 @@ class OvertimeMonthService:
     @staticmethod
     def closed_supervisor_ids(month: MonthKey, supervisor_ids) -> set[int]:
         return set(OvertimeMonthService.closes_for(month, supervisor_ids))
+
+    @staticmethod
+    def lock_and_check(supervisor_id, month: MonthKey) -> None:
+        """Dentro de una transacción: bloquea la fila del supervisor (mismo
+        candado que toma `close`) y revalida que el mes siga abierto. Así un
+        guardado y un cierre del mismo equipo no se cruzan: o el registro
+        entra antes del cierre (y cuenta en su resumen) o se rechaza."""
+        list(User.objects.select_for_update().filter(pk=supervisor_id).values_list("pk"))
+        if OvertimeMonthClose.objects.filter(
+            supervisor_id=supervisor_id, year=month.year, month=month.month
+        ).exists():
+            raise NovedadesError(
+                f"{month.label} de Horas extras se cerró mientras guardaba: "
+                "los cambios requieren una corrección autorizada.",
+                code="period_closed",
+                status=409,
+            )
 
     @staticmethod
     def assert_writable(supervisor, day: date) -> MonthKey:
@@ -1437,6 +1582,17 @@ class OvertimeMonthService:
         else:
             state = OvertimeMonthService.OVERDUE
         remaining = max(int((deadline - now).total_seconds()), 0)
+        business_remaining = OvertimeMonthService.business_seconds_between(
+            now, deadline, holidays if holidays is not None else get_holiday_set()
+        )
+        if state == OvertimeMonthService.OPEN:
+            refresh_in = max(
+                int((OvertimeMonthService.window_start(month) - now).total_seconds()), 0
+            )
+        elif state == OvertimeMonthService.GRACE:
+            refresh_in = remaining
+        else:
+            refresh_in = 0
         return {
             "code": month.code,
             "label": month.label,
@@ -1447,8 +1603,11 @@ class OvertimeMonthService:
             "deadline": deadline,
             "deadline_label": OvertimeMonthService.deadline_label(deadline),
             "remaining_seconds": remaining if state in ("OPEN", "GRACE") else 0,
-            # Aviso de "próximo a cerrarse": últimas 24 horas del plazo.
-            "closing_soon": state == "GRACE" and remaining <= 24 * 3600,
+            # Aviso de "próximo a cerrarse": últimas 24 horas LABORABLES del plazo.
+            "closing_soon": state == "GRACE" and business_remaining <= 24 * 3600,
+            # Segundos hasta el próximo cambio de estado (fin de mes o fin de
+            # plazo): la pantalla vuelve a pedir el estado en ese momento.
+            "refresh_in_seconds": refresh_in,
             "closed_at": close.closed_at if close else None,
             "closed_by": user_display(close.closed_by) if close else "",
         }
@@ -1479,12 +1638,18 @@ class OvertimeMonthService:
         keys |= {MonthKey(y, m) for y, m in closes.values_list("year", "month")}
         keys = sorted((k for k in keys if not current < k), reverse=True)[:24]
         holidays = get_holiday_set()
-        total = PeriodService.supervisors().count() if supervisor is None else 1
+        if supervisor is None:
+            active = list(PeriodService.supervisors())
+            readable = acc.readable_supervisor_ids()
+            if readable is not None:
+                active = [s for s in active if s.pk in readable]
+            scope_ids = [s.pk for s in active]
+        else:
+            active, scope_ids = [supervisor], [supervisor.pk]
+        total = len(scope_ids)
         result = []
         for key in keys:
-            month_closes = OvertimeMonthService.closes_for(
-                key, [supervisor.pk] if supervisor is not None else acc.readable_supervisor_ids()
-            )
+            month_closes = OvertimeMonthService.closes_for(key, scope_ids)
             if supervisor is not None:
                 item = OvertimeMonthService.status(
                     key, month_closes.get(supervisor.pk), holidays=holidays
@@ -1496,9 +1661,112 @@ class OvertimeMonthService:
                 if total and len(month_closes) >= total:
                     item["status"] = OvertimeMonthService.CLOSED
             result.append(item)
-            if item["status"] == OvertimeMonthService.OVERDUE and supervisor is not None:
-                OvertimeMonthService._warn_overdue(key, supervisor, item)
+            if item["status"] == OvertimeMonthService.OVERDUE:
+                for team in active:
+                    if team.pk not in month_closes:
+                        OvertimeMonthService._warn_overdue(key, team, item)
         return result
+
+    @staticmethod
+    def pre_close_check(acc: NovedadesAccess, month: MonthKey, supervisor) -> dict:
+        """Revisión previa al cierre del mes de un equipo. Solo informa: no
+        bloquea, no corrige ni elimina nada. Reutiliza la misma validación
+        con que se guarda cada fila (`OvertimeService.row_values`), así que no
+        introduce reglas nuevas (no hay límites legales ni recargos)."""
+        if not acc.can(perms.ACCEDER) or not acc.can_read_supervisor(supervisor.pk):
+            raise _forbidden()
+        records = list(
+            OvertimeRecord.objects.filter(
+                supervisor=supervisor,
+                date__gte=month.start_date,
+                date__lte=month.end_date,
+                deleted_at__isnull=True,
+            ).select_related("collaborator")
+        )
+        holidays = get_holiday_set()
+        issues: list[dict] = []
+        seen: dict[tuple, int] = {}
+        for r in records:
+            label = f"{r.collaborator.full_name} ({r.collaborator.cedula}) {r.date:%d/%m/%Y}"
+            data = {f: getattr(r, f) for f in OVERTIME_FIELDS}
+            _, errors = OvertimeService.row_values(data, r.date, is_holiday_day=r.date in holidays)
+            for field, message in errors.items():
+                issues.append(
+                    {
+                        "severity": "error",
+                        "record_id": r.pk,
+                        "label": label,
+                        "message": f"{field}: {message}",
+                        "fix": "Corríjalo en la captura antes de cerrar.",
+                    }
+                )
+            if not month.contains(r.date):
+                issues.append(
+                    {
+                        "severity": "error",
+                        "record_id": r.pk,
+                        "label": label,
+                        "message": f"La fecha no pertenece a {month.label}.",
+                        "fix": "Revise la fecha del registro.",
+                    }
+                )
+            key = (r.collaborator_id, r.date)
+            if key in seen:
+                issues.append(
+                    {
+                        "severity": "error",
+                        "record_id": r.pk,
+                        "label": label,
+                        "message": "Hay dos registros de la misma persona en la misma fecha.",
+                        "fix": "Elimine el duplicado.",
+                    }
+                )
+            seen[key] = r.pk
+            if r.collaborator.current_supervisor_id != supervisor.pk:
+                issues.append(
+                    {
+                        "severity": "warning",
+                        "record_id": r.pk,
+                        "label": label,
+                        "message": "El colaborador ya pertenece a otro equipo (reasignado).",
+                        "fix": "Es informativo: el registro se conserva con este equipo.",
+                    }
+                )
+        pending_imports = [
+            {
+                "id": b.pk,
+                "file_name": b.file_name,
+                "uploaded_by": user_display(b.uploaded_by),
+                "created_at": b.created_at,
+                "invalid_rows": (b.summary or {}).get("invalid_rows", 0),
+            }
+            for b in ImportBatch.objects.filter(
+                kind=ImportBatch.Kind.OVERTIME,
+                status=ImportBatch.Status.PREVIEW,
+                period__year=month.year,
+                period__month=month.month,
+            ).select_related("uploaded_by")
+            if any(row.get("supervisor_id") == supervisor.pk for row in (b.rows or []))
+        ]
+        for b in pending_imports:
+            issues.append(
+                {
+                    "severity": "warning",
+                    "record_id": None,
+                    "label": f"Importación «{b['file_name']}» de {b['uploaded_by']}",
+                    "message": "Quedó en vista previa sin confirmar: sus filas NO están guardadas.",
+                    "fix": "Confírmela o cancélela antes de cerrar.",
+                }
+            )
+        return {
+            "period": month.code,
+            "supervisor_id": supervisor.pk,
+            "records": len(records),
+            "errors": sum(1 for i in issues if i["severity"] == "error"),
+            "warnings": sum(1 for i in issues if i["severity"] == "warning"),
+            "issues": issues[:200],
+            "pending_imports": pending_imports,
+        }
 
     @staticmethod
     def _warn_overdue(month: MonthKey, supervisor, item: dict) -> None:
@@ -1528,6 +1796,19 @@ class OvertimeMonthService:
             supervisor=supervisor, year=month.year, month=month.month
         ).first()
         if existing is not None:  # idempotente: repetir el cierre no crea nada
+            return {"already_closed": True, **OvertimeMonthService.status(month, existing)}
+        with transaction.atomic():
+            # Mismo candado que `lock_and_check`: los guardados en curso del
+            # equipo terminan antes de calcular el resumen y cerrar.
+            list(User.objects.select_for_update().filter(pk=supervisor.pk).values_list("pk"))
+            return OvertimeMonthService._close_locked(acc, month, supervisor, context=context)
+
+    @staticmethod
+    def _close_locked(acc: NovedadesAccess, month: MonthKey, supervisor, *, context=None) -> dict:
+        existing = OvertimeMonthClose.objects.filter(
+            supervisor=supervisor, year=month.year, month=month.month
+        ).first()
+        if existing is not None:
             return {"already_closed": True, **OvertimeMonthService.status(month, existing)}
         records = OvertimeRecord.objects.filter(
             supervisor=supervisor,
@@ -1613,12 +1894,13 @@ class OvertimeService:
             # 23 → 22: así un registro del 25/09 se consulta en septiembre.
             key = params["period"]
             qs = qs.filter(date__gte=key.start_date, date__lte=key.end_date)
+        # Parámetros mal formados -> 400 con mensaje, no un error 500.
         if params.get("date"):
-            qs = qs.filter(date=params["date"])
+            qs = qs.filter(date=_parse_date_param(params["date"], "date"))
         if params.get("date_from"):
-            qs = qs.filter(date__gte=params["date_from"])
+            qs = qs.filter(date__gte=_parse_date_param(params["date_from"], "date_from"))
         if params.get("date_to"):
-            qs = qs.filter(date__lte=params["date_to"])
+            qs = qs.filter(date__lte=_parse_date_param(params["date_to"], "date_to"))
         if params.get("cedula"):
             qs = qs.filter(collaborator__cedula__icontains=normalize_cedula(params["cedula"]))
         if params.get("name"):
@@ -1627,7 +1909,7 @@ class OvertimeService:
             if params.get(field):
                 qs = qs.filter(**{f"collaborator__{field}__icontains": params[field].strip()})
         if params.get("supervisor"):
-            qs = qs.filter(supervisor_id=params["supervisor"])
+            qs = qs.filter(supervisor_id=_parse_id_param(params["supervisor"], "supervisor"))
         jornada = {"sabado": "is_saturday", "domingo": "is_sunday", "feriado": "is_holiday"}.get(
             params.get("jornada") or ""
         )
@@ -1744,6 +2026,7 @@ class OvertimeService:
                 details={"record_id": duplicate.pk},
             )
         with transaction.atomic():
+            OvertimeMonthService.lock_and_check(supervisor.pk, month)
             record = OvertimeRecord.objects.create(
                 collaborator=collaborator,
                 period=legacy_period,
@@ -1807,6 +2090,7 @@ class OvertimeService:
         if not changed:
             return record
         with transaction.atomic():
+            OvertimeMonthService.lock_and_check(record.supervisor_id, month_for_date(record.date))
             updated = OvertimeRecord.objects.filter(pk=record.pk, version=record.version).update(
                 **values, version=record.version + 1, updated_by=acc.user, updated_at=timezone.now()
             )
@@ -1847,6 +2131,7 @@ class OvertimeService:
             f"{record.collaborator.full_name} ({record.collaborator.cedula}) {record.date:%d/%m/%Y}"
         )
         with transaction.atomic():
+            OvertimeMonthService.lock_and_check(record.supervisor_id, month_for_date(record.date))
             # Borrado lógico condicional: si dos solicitudes llegan a la vez
             # (doble clic, reintento), solo una lo marca; la otra recibe 404 y
             # no deja evento ni alerta duplicados.
@@ -2050,6 +2335,24 @@ class OvertimeService:
             seen_keys[dup_key] = client_key
             other = existing_by_key.get(dup_key)
             if record is not None:
+                if (
+                    row.get("version") is not None
+                    and int(row["version"]) != record.version
+                    and record.date == day
+                    and all(getattr(record, f) == v for f, v in values.items())
+                ):
+                    # Reintento de una edición que ya se aplicó (respuesta
+                    # perdida por la red): no es un conflicto.
+                    results.append(
+                        {
+                            "client_key": client_key,
+                            "status": "unchanged",
+                            "errors": {},
+                            "record_id": record.pk,
+                            "version": record.version,
+                        }
+                    )
+                    continue
                 if row.get("version") is not None and int(row["version"]) != record.version:
                     fail(
                         row,
@@ -2109,6 +2412,10 @@ class OvertimeService:
             label = f"{collaborator.full_name} ({collaborator.cedula}) {day:%d/%m/%Y}"
             try:
                 with transaction.atomic():
+                    OvertimeMonthService.lock_and_check(
+                        record.supervisor_id if record else collaborator.current_supervisor_id,
+                        key,
+                    )
                     if record is None:
                         new = OvertimeRecord.objects.create(
                             collaborator=collaborator,
@@ -2196,7 +2503,7 @@ class OvertimeService:
             except NovedadesError as exc:
                 results[index] = {
                     "client_key": row.get("client_key"),
-                    "status": "conflict",
+                    "status": "locked" if exc.code == "period_closed" else "conflict",
                     "errors": {"row": exc.message},
                 }
             except IntegrityError:
@@ -2372,8 +2679,17 @@ class CorrectionService:
             )
         # El registro de corrección guarda el mes afectado (mismo año/mes).
         affected_period = PeriodService.get_period(PeriodKey(month.year, month.month))
-        original = {f: _fmt(getattr(record, f)) for f in OVERTIME_FIELDS}
         with transaction.atomic():
+            # Bloqueado y releído: dos correcciones simultáneas no se pisan.
+            record = (
+                OvertimeRecord.objects.select_for_update()
+                .select_related("collaborator", "supervisor", "period")
+                .filter(pk=record.pk, deleted_at__isnull=True)
+                .first()
+            )
+            if record is None:
+                raise _not_found("El registro ya fue eliminado.")
+            original = {f: _fmt(getattr(record, f)) for f in OVERTIME_FIELDS}
             if delete:
                 record.deleted_at = timezone.now()
                 record.deleted_by = acc.user
@@ -2465,15 +2781,21 @@ class HistoryService:
                 | Q(period__isnull=True, created_at__gte=start, created_at__lt=end)
             )
         if params.get("supervisor"):
-            qs = qs.filter(supervisor_id=params["supervisor"])
+            qs = qs.filter(supervisor_id=_parse_id_param(params["supervisor"], "supervisor"))
         if params.get("action"):
             qs = qs.filter(action__startswith=params["action"])
         if params.get("q"):
             qs = qs.filter(target_label__icontains=params["q"].strip())
+        # Desde/Hasta son días de Ecuador (UTC-5), no días UTC: un evento de
+        # las 20:00 pertenece a su día local.
         if params.get("date_from"):
-            qs = qs.filter(created_at__date__gte=params["date_from"])
+            first = _parse_date_param(params["date_from"], "date_from")
+            start, _ = business_range(first, first)
+            qs = qs.filter(created_at__gte=start)
         if params.get("date_to"):
-            qs = qs.filter(created_at__date__lte=params["date_to"])
+            last = _parse_date_param(params["date_to"], "date_to")
+            _, end = business_range(last, last)
+            qs = qs.filter(created_at__lt=end)
         return qs
 
     @staticmethod

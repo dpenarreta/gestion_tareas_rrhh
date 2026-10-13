@@ -15,6 +15,56 @@
 
 ---
 
+## 2026-10-13 — Auditoría integral de Control Operativo de Novedades
+
+**Cómo apareció:** pedido explícito de una auditoría funcional, técnica y de
+seguridad del módulo, con línea base de pruebas, corrección de defectos
+comprobados y sin nuevas funcionalidades por iniciativa propia.
+
+**Línea base (antes de cambiar nada, 13/10/2026 08:22 Ecuador):** backend
+2156 aprobados / 2 fallidos (tests propios dependientes del reloj real),
+frontend 1290 aprobados, `tsc` y `next build` correctos, migraciones al día.
+Preexistentes fuera del módulo y sin cambios: `npm run lint` (4 errores en
+tareas/proyectos/KPIs), `ruff` (2 B904 en `apps/tasks`) y `black --check`
+(archivos de `apps/analytics` y otros sin formatear). Tres tests de KPIs y
+Dashboard fallaban solo de 19:00 a 24:00 de Ecuador: reproducido con reloj
+fijo a las 00:34 UTC sobre el código sin cambios.
+
+**Hallazgos y decisiones con análisis:**
+
+- *Celdas de un colaborador reasignado (H-02).* Alternativas: (a) permitir al
+  equipo nuevo editarlas si el período del anterior está abierto; (b)
+  bloquearlas siempre desde el equipo nuevo. Se eligió (b): la regla vigente es
+  que cada novedad guarda el supervisor responsable al registrarla y la
+  historia no se reconstruye desde la asignación actual; corregir lo del equipo
+  anterior va por la corrección autorizada.
+- *Resumen del cierre 23 → 22 (H-06).* Alternativas: recalcular las horas
+  extras por mes calendario dentro del cierre de Días laborados, o quitarlas.
+  Se quitaron: son dos cierres independientes desde v1.172.0 y mezclar un
+  corte con el otro confunde. Los resúmenes ya guardados no se alteran.
+- *Concurrencia cierre/escritura (H-03).* Días laborados reutiliza el candado
+  existente del período (`select_for_update` de `SupervisorPeriod`); Horas
+  extras no tiene fila de período abierta que bloquear, así que se bloquea la
+  fila del supervisor en el cierre y en cada escritura (mismo candado en ambos
+  lados). No se agregaron tablas ni restricciones nuevas.
+- *Confirmación única de importaciones (H-12).* La confirmación procesa filas
+  en transacciones propias, así que no cabe un único `select_for_update`
+  largo. Se marca el lote "en confirmación" con la fila bloqueada (marca de 10
+  minutos, que se libera al terminar o al fallar), sin cambiar el esquema.
+- *Revisión previa al cierre de Horas extras.* No existía. Se agregó solo
+  lectura y sin reglas nuevas: reutiliza la validación del guardado. No se
+  incorporaron límites legales de horas ni recargos porque no están
+  documentados en el código ni en el negocio.
+
+**No se cambió (requiere decisión del negocio):** el plazo de 48–72 horas
+laborables sigue contándose como 24 horas por día hábil (decisión explícita
+del 2026-10-12, "2 días hábiles"); el motivo de eliminación de horas extras
+sigue siendo opcional; las marcas SABADO/DOMINGO/FERIADO vacías en la
+importación siguen significando "NO" (el formulario individual también parte
+de "NO"); no hay feriados cargados ni alcance local de feriados.
+
+---
+
 ## 2026-10-12 — Horas extras por mes calendario, con plazo de 48–72 horas laborables y sin cierre automático
 
 **Cómo apareció:** pedido explícito de un ciclo mensual propio para Horas

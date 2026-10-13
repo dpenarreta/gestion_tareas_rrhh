@@ -40,6 +40,8 @@ export type OvertimeMonth = {
   /** Último minuto incluido, ya en hora de Ecuador (p. ej. "martes 03/11/2026 23:59"). */
   deadlineLabel: string;
   remainingSeconds: number;
+  /** Segundos hasta el próximo cambio de estado (fin de mes o fin de plazo). */
+  refreshInSeconds?: number;
   closingSoon: boolean;
   closedAt: string | null;
   closedBy: string;
@@ -61,7 +63,9 @@ export type CollaboratorStatus = "ACTIVE" | "INACTIVE" | "SUSPENDED";
 
 export type MatrixColumn = { date: string; day: number; weekday: string; isWeekend: boolean; holiday: string };
 
-export type MatrixCell = { hours: string | null; version: number };
+/** `otherTeam`: la celda la registró el equipo anterior (colaborador reasignado):
+ * se muestra pero no se edita desde este equipo ni suma en su total. */
+export type MatrixCell = { hours: string | null; version: number; otherTeam?: string };
 
 export type MatrixRow = {
   collaboratorId: number;
@@ -88,6 +92,8 @@ export type WorkedDaysMatrix = {
   };
   supervisor: { id: number; name: string };
   editable: boolean;
+  /** Se puede cerrar (permiso de cierre + equipo propio + período abierto), aun sin permiso de registro. */
+  closable?: boolean;
   columns: MatrixColumn[];
   rows: MatrixRow[];
 };
@@ -151,9 +157,10 @@ export type CloseSummary = {
   zeroCells: number;
   pendingCells: number;
   workedHours: string;
-  overtimeRecords: number;
-  overtimeHours: string;
-  saturdayHours: string;
+  /** Solo en cierres anteriores a v1.173.0 (contaban horas extras del corte 23 → 22). */
+  overtimeRecords?: number;
+  overtimeHours?: string;
+  saturdayHours?: string;
 };
 
 export type SupervisorStatus = {

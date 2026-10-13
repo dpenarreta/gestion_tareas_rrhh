@@ -2,7 +2,8 @@
 período, marca roja y alerta) y cierre/apertura de períodos sin duplicar
 novedades, personas, asignaciones ni eventos de estado."""
 
-from datetime import date
+from datetime import date, datetime
+from datetime import timezone as dt_timezone
 
 import pytest
 
@@ -65,8 +66,13 @@ def _status_alerts(user):
     "new_status,label", [("INACTIVE", "Inactivo"), ("SUSPENDED", "Suspendido")]
 )
 def test_status_change_creates_complete_event_in_current_period_history(
-    admin, supervisor, new_status, label
+    admin, supervisor, new_status, label, monkeypatch
 ):
+    # Reloj fijo: el texto de la alerta lleva la fecha y hora del cambio
+    # (antes dependía del reloj real y fallaba cualquier día distinto al 12/10).
+    monkeypatch.setattr(
+        "django.utils.timezone.now", lambda: datetime(2026, 10, 12, 15, tzinfo=dt_timezone.utc)
+    )
     c = _collab(supervisor)
     CollaboratorService.change_status(access(supervisor), c.pk, new_status, "Fin de contrato")
 

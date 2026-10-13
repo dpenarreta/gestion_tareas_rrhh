@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { djangoApiFetch } from "@/lib/djangoSession";
+import { DjangoUnavailableError, djangoApiFetch } from "@/lib/djangoSession";
 import {
   mapDjangoNovedadesError,
   mapDjangoNovedadesPayloadToNexoShape,
@@ -51,9 +51,22 @@ async function forward(request: NextRequest, ctx: Ctx, method: string) {
   let response: Response | null;
   try {
     response = await djangoApiFetch(djangoPath, init, slow ? SLOW_TIMEOUT_MS : DEFAULT_TIMEOUT_MS);
-  } catch {
+  } catch (err) {
+    if (err instanceof DjangoUnavailableError) {
+      // Django no respondió a nivel de red: el detalle ya quedó en el log
+      // del servidor (djangoApiFetch); aquí, un mensaje claro y sin trazas.
+      return NextResponse.json(
+        { error: "El servicio de NEXO no está disponible temporalmente. Intente de nuevo en unos segundos." },
+        { status: 503 },
+      );
+    }
     return NextResponse.json(
-      { error: "El servidor tardó demasiado en responder. Intente nuevamente." },
+      {
+        error:
+          method === "GET"
+            ? "El servidor tardó demasiado en responder. Intente nuevamente."
+            : "El servidor tardó demasiado en responder. Verifique si el cambio se guardó antes de repetirlo.",
+      },
       { status: 504 },
     );
   }

@@ -62,9 +62,14 @@ export default function NotificationBell({ currentUserId }: Props) {
     // Late sola cada 30s: se marca como de fondo para que no cuente como
     // actividad y no mantenga viva una sesión que nadie está usando (ver
     // `SESSION_IDLE_TIMEOUT_HOURS` en el backend).
-    const res = await fetch("/api/notifications", {
-      headers: { "X-Nexo-Background": "1" },
-    });
+    let res: Response;
+    try {
+      res = await fetch("/api/notifications", {
+        headers: { "X-Nexo-Background": "1" },
+      });
+    } catch {
+      return; // sin red: se reintenta en el próximo ciclo, sin error sin manejar
+    }
     if (res.ok) {
       const data = await res.json();
       setUnread(data.unreadCount);

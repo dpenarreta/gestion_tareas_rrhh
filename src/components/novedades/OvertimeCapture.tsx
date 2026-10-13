@@ -107,7 +107,10 @@ export default function OvertimeCapture({
   // Fecha de trabajo por defecto: hoy si cae en el mes elegido; si no, el día 1
   // (la captura se monta de nuevo al cambiar de mes: ver `key` en OvertimeView).
   const [defaultDate, setDefaultDate] = useState(() => {
-    const today = new Date().toISOString().slice(0, 10);
+    const now = new Date();
+    // Día LOCAL del navegador: `toISOString()` es UTC y desde las 19:00 de
+    // Ecuador ya devuelve el día siguiente.
+    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
     return today >= month.startDate && today <= month.endDate ? today : month.startDate;
   });
   const [selected, setSelected] = useState<Set<string>>(new Set());

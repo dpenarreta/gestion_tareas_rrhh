@@ -12,11 +12,12 @@ registros porque cada fila se identifica por (colaborador, fecha).
 import hashlib
 import io
 import unicodedata
-from datetime import date
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 import openpyxl
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
@@ -365,6 +366,26 @@ class ImportService:
             parsed, errors, warnings = ImportService._parse_worked_days(acc, key, rows)
         elif kind == ImportBatch.Kind.OVERTIME:
             parsed, errors = ImportService._parse_overtime(acc, key, rows)
+            if OvertimeMonthService.current_month() < key:
+                warnings.append(
+                    {
+                        "row": 1,
+                        "column": "FECHA",
+                        "message": f"{key.label} todavía no empieza: la confirmación será rechazada.",
+                    }
+                )
+            closed = OvertimeMonthService.closed_supervisor_ids(
+                key, {p["supervisor_id"] for p in parsed}
+            )
+            if closed:
+                warnings.append(
+                    {
+                        "row": 1,
+                        "column": "FECHA",
+                        "message": f"{key.label} de Horas extras está cerrado para "
+                        f"{len(closed)} equipo(s) del archivo: la confirmación será rechazada.",
+                    }
+                )
         else:
             raise NovedadesError("Tipo de importación inválido.")
         already = ImportBatch.objects.filter(
@@ -468,7 +489,7 @@ class ImportService:
             )
 
         cedulas = {
-            normalize_cedula(r[cedula_idx])
+            normalize_import_cedula(r[cedula_idx])
             for r in rows[1:]
             if len(r) > cedula_idx and r[cedula_idx] not in (None, "")
         }
@@ -483,7 +504,7 @@ class ImportService:
         for offset, row in enumerate(rows[1:], start=2):
             if all(v in (None, "") for v in row):
                 continue
-            cedula = normalize_cedula(row[cedula_idx] if len(row) > cedula_idx else "")
+            cedula = normalize_import_cedula(row[cedula_idx] if len(row) > cedula_idx else "")
             if not cedula:
                 errors.append({"row": offset, "column": "Cédula", "message": "Cédula vacía."})
                 continue
@@ -591,7 +612,7 @@ class ImportService:
             )
         errors, parsed = [], []
         cedulas = {
-            normalize_cedula(r[1]) for r in rows[1:] if len(r) > 1 and r[1] not in (None, "")
+            normalize_import_cedula(r[1]) for r in rows[1:] if len(r) > 1 and r[1] not in (None, "")
         }
         by_cedula = {c.cedula: c for c in Collaborator.objects.filter(cedula__in=cedulas)}
         existing = {
@@ -621,7 +642,7 @@ class ImportService:
                     }
                 )
                 continue
-            cedula = normalize_cedula(row[1])
+            cedula = normalize_import_cedula(row[1])
             if not cedula:
                 errors.append({"row": offset, "column": "CEDULA", "message": "Cédula vacía."})
                 continue
@@ -713,6 +734,53 @@ class ImportService:
             raise NovedadesError(
                 "Estrategia inválida: use 'skip' (omitir existentes) o 'update' (actualizar)."
             )
+        if not ImportService._claim(batch.pk):
+            confirmed = ImportBatch.objects.get(pk=batch.pk)
+            if confirmed.status == ImportBatch.Status.CONFIRMED:
+                return confirmed  # otra solicitud terminó de confirmarlo
+            raise NovedadesError(
+                "Esta importación ya se está confirmando; espere el resultado.",
+                code="import_in_progress",
+                status=409,
+            )
+        try:
+            return ImportService._confirm_claimed(acc, batch, strategy, context=context)
+        finally:
+            ImportService._release(batch.pk)
+
+    CLAIM_MINUTES = 10
+
+    @staticmethod
+    def _claim(batch_id) -> bool:
+        """Marca el lote "en confirmación" con la fila bloqueada. Devuelve False
+        si ya está confirmado o si otra solicitud lo está confirmando. Una
+        marca de más de 10 minutos se considera abandonada (proceso caído)."""
+        with transaction.atomic():
+            locked = ImportBatch.objects.select_for_update().get(pk=batch_id)
+            if locked.status != ImportBatch.Status.PREVIEW:
+                return False
+            since = (locked.summary or {}).get("confirming_since")
+            now = timezone.now()
+            if since:
+                try:
+                    started = datetime.fromisoformat(since)
+                except ValueError:
+                    started = None
+                if started and now - started < timedelta(minutes=ImportService.CLAIM_MINUTES):
+                    return False
+            locked.summary = {**(locked.summary or {}), "confirming_since": now.isoformat()}
+            locked.save(update_fields=["summary"])
+        return True
+
+    @staticmethod
+    def _release(batch_id) -> None:
+        batch = ImportBatch.objects.filter(pk=batch_id).first()
+        if batch and "confirming_since" in (batch.summary or {}):
+            batch.summary = {k: v for k, v in batch.summary.items() if k != "confirming_since"}
+            batch.save(update_fields=["summary"])
+
+    @staticmethod
+    def _confirm_claimed(acc: NovedadesAccess, batch, strategy: str, *, context=None):
         if batch.kind == ImportBatch.Kind.COLLABORATORS:
             # La base de colaboradores CREA personas: no pasa por la exigencia
             # de existencia previa de las importaciones de novedades.
@@ -779,6 +847,11 @@ class ImportService:
                 rows = []
                 for item in items:
                     existing = current.get((item["collaborator_id"], day_of[item["row"]]))
+                    if existing is not None and strategy == "skip":
+                        # Se registró después de la vista previa: "omitir
+                        # existentes" no lo sobrescribe.
+                        skipped += 1
+                        continue
                     rows.append(
                         {
                             "client_key": str(item["row"]),

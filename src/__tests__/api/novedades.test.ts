@@ -8,8 +8,10 @@ import type { SessionPayload } from "@/lib/session";
 vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
 
 const djangoApiFetch = vi.fn();
+class DjangoUnavailableError extends Error {}
 vi.mock("@/lib/djangoSession", () => ({
   djangoApiFetch: (...args: unknown[]) => djangoApiFetch(...args),
+  DjangoUnavailableError,
 }));
 
 const { getSession } = await import("@/lib/session");
@@ -64,6 +66,22 @@ describe("/api/novedades/[...path]", () => {
     const res = await GET(request("http://localhost/api/novedades/me"), ctx("me"));
     expect(res.status).toBe(401);
     expect(djangoApiFetch).not.toHaveBeenCalled();
+  });
+
+  it("503 claro si Django no responde (sin traza ni mensaje de timeout engañoso)", async () => {
+    mockSession({});
+    djangoApiFetch.mockRejectedValue(new DjangoUnavailableError("down"));
+    const res = await GET(request("http://localhost/api/novedades/me"), ctx("me"));
+    expect(res.status).toBe(503);
+    expect((await res.json()).error).toMatch(/no está disponible temporalmente/);
+  });
+
+  it("en un POST que excede el tiempo, avisa verificar antes de repetir", async () => {
+    mockSession({});
+    djangoApiFetch.mockRejectedValue(new DOMException("timeout", "TimeoutError"));
+    const res = await POST(request("http://localhost/api/novedades/me", {}), ctx("me"));
+    expect(res.status).toBe(504);
+    expect((await res.json()).error).toMatch(/Verifique si el cambio se guardó/);
   });
 
   it("rechaza segmentos de ruta no válidos", async () => {

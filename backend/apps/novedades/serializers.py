@@ -187,14 +187,14 @@ class CloseSerializer(serializers.Serializer):
     supervisor_id = serializers.IntegerField(required=False, allow_null=True)
     confirm = serializers.BooleanField()
 
-
-class OvertimeSettingsSerializer(serializers.Serializer):
-    grace_hours = serializers.IntegerField()
-
     def validate_confirm(self, value):
         if not value:
             raise serializers.ValidationError("Debe confirmar explícitamente el cierre.")
         return value
+
+
+class OvertimeSettingsSerializer(serializers.Serializer):
+    grace_hours = serializers.IntegerField()
 
 
 class ImportPreviewSerializer(serializers.Serializer):

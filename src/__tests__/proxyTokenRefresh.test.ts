@@ -152,6 +152,21 @@ describe("middleware — refresco de los tokens de Django", () => {
     expect(res.status).toBe(200);
   });
 
+  it("no cierra la sesión si Django responde con un error 5xx al refrescar", async () => {
+    // Un 502/503 del backend (o del servidor delante) es una caída, no una
+    // sesión vencida: expulsar a todos por eso sería peor que esperar.
+    fetchMock.mockResolvedValue({ ok: false, status: 503, json: async () => ({}) } as Response);
+
+    const res = await pedir("/dashboard", {
+      "nexo-session": await sesionValida(),
+      "nexo-django-refresh": "refresh-viejo",
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("location")).toBeNull();
+    expect(res.cookies.get("nexo-session")?.value).not.toBe("");
+  });
+
   it("sin sesión de Next.js no intenta refrescar: redirige al login", async () => {
     const res = await pedir("/dashboard", { "nexo-django-refresh": "refresh-viejo" });
 

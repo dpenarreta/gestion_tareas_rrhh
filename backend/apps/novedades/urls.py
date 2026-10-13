@@ -50,6 +50,11 @@ urlpatterns = [
         "overtime/months/", views.OvertimeMonthListView.as_view(), name="novedades-overtime-months"
     ),
     path(
+        "overtime/months/check/",
+        views.OvertimeMonthCheckView.as_view(),
+        name="novedades-overtime-month-check",
+    ),
+    path(
         "overtime/months/close/",
         views.OvertimeMonthCloseView.as_view(),
         name="novedades-overtime-month-close",

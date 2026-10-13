@@ -8,6 +8,7 @@ from django.utils import timezone
 from rest_framework.test import APIClient
 
 from apps.configuration.models import LeaveRecord
+from apps.tasks.business_time import business_calendar_day
 from apps.users.models import User
 
 pytestmark = pytest.mark.django_db
@@ -78,7 +79,9 @@ def test_kpi_user_200_for_visible_subordinate(coordinador_nacional, analista):
 
 
 def test_kpi_user_redacts_sensitive_detail_for_hierarchical_superior(coordinador_nacional, analista, admin):
-    today = timezone.now().date()
+    # Día del negocio (UTC-5), el mismo que usa `compute_carga` — con la fecha
+    # UTC el test fallaba entre las 19:00 y las 24:00 de Ecuador.
+    today = business_calendar_day(timezone.now())
     LeaveRecord.objects.create(user=analista, type=LeaveRecord.Type.MEDICO, date=today, is_full_day=True, created_by=admin)
 
     superior_response = _client_for(coordinador_nacional).get(f"/api/v1/kpis/{analista.id}/")
@@ -88,7 +91,9 @@ def test_kpi_user_redacts_sensitive_detail_for_hierarchical_superior(coordinador
 
 
 def test_kpi_user_no_redaction_for_administrator(analista, admin):
-    today = timezone.now().date()
+    # Día del negocio (UTC-5), el mismo que usa `compute_carga` — con la fecha
+    # UTC el test fallaba entre las 19:00 y las 24:00 de Ecuador.
+    today = business_calendar_day(timezone.now())
     LeaveRecord.objects.create(user=analista, type=LeaveRecord.Type.MEDICO, date=today, is_full_day=True, created_by=admin)
 
     admin_response = _client_for(admin).get(f"/api/v1/kpis/{analista.id}/")
@@ -98,7 +103,9 @@ def test_kpi_user_no_redaction_for_administrator(analista, admin):
 
 
 def test_kpi_user_no_redaction_for_self(analista, admin):
-    today = timezone.now().date()
+    # Día del negocio (UTC-5), el mismo que usa `compute_carga` — con la fecha
+    # UTC el test fallaba entre las 19:00 y las 24:00 de Ecuador.
+    today = business_calendar_day(timezone.now())
     LeaveRecord.objects.create(user=analista, type=LeaveRecord.Type.MEDICO, date=today, is_full_day=True, created_by=admin)
 
     self_response = _client_for(analista).get(f"/api/v1/kpis/{analista.id}/")

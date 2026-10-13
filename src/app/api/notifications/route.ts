@@ -1,6 +1,19 @@
 import { NextResponse } from "next/server";
 import { getSession } from "@/lib/session";
-import { djangoApiFetch } from "@/lib/djangoSession";
+import { DjangoUnavailableError, djangoApiFetch } from "@/lib/djangoSession";
+
+const UNAVAILABLE_MESSAGE = "El servicio de NEXO no está disponible temporalmente.";
+
+/** La campana consulta cada 30 s: si Django no responde, un 503 con JSON
+ * (no una excepción sin manejar). Otros errores siguen su curso normal. */
+async function fetchOrUnavailable(path: string, init?: RequestInit) {
+  try {
+    return await (init ? djangoApiFetch(path, init) : djangoApiFetch(path));
+  } catch (err) {
+    if (err instanceof DjangoUnavailableError) return "unavailable" as const;
+    throw err;
+  }
+}
 
 const DJANGO_SESSION_REQUIRED_MESSAGE =
   "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
@@ -46,9 +59,16 @@ export async function GET() {
     return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   }
 
-  const response = await djangoApiFetch("/notifications/");
-  if (!response || !response.ok) {
+  const response = await fetchOrUnavailable("/notifications/");
+  if (response === "unavailable") {
+    return NextResponse.json({ error: UNAVAILABLE_MESSAGE }, { status: 503 });
+  }
+  if (!response || response.status === 401) {
     return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (!response.ok) {
+    // Un error de Django no es "sesión vencida": se informa con su código.
+    return NextResponse.json({ error: "No se pudieron cargar las notificaciones." }, { status: response.status });
   }
 
   const data: { notifications: DjangoNotification[]; unread_count: number } = await response.json();
@@ -64,9 +84,15 @@ export async function PATCH() {
     return NextResponse.json({ error: "No autenticado" }, { status: 401 });
   }
 
-  const response = await djangoApiFetch("/notifications/", { method: "PATCH" });
-  if (!response || !response.ok) {
+  const response = await fetchOrUnavailable("/notifications/", { method: "PATCH" });
+  if (response === "unavailable") {
+    return NextResponse.json({ error: UNAVAILABLE_MESSAGE }, { status: 503 });
+  }
+  if (!response || response.status === 401) {
     return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });
+  }
+  if (!response.ok) {
+    return NextResponse.json({ error: "No se pudieron actualizar las notificaciones." }, { status: response.status });
   }
 
   return NextResponse.json(await response.json());

@@ -92,8 +92,10 @@ export default function RepositoryView({ ctx }: { ctx: ModuleContext }) {
                   )}
                   {s.summary?.activeCollaborators !== undefined && (
                     <div className="text-xs text-secondary">
-                      {s.summary.activeCollaborators} colaboradores · {s.summary.workedHours} h laboradas ·{" "}
-                      {s.summary.overtimeRecords} registros de horas extras ({s.summary.overtimeHours} h)
+                      {s.summary.activeCollaborators} colaboradores · {s.summary.workedHours} h laboradas
+                      {/* Solo cierres anteriores a v1.173.0 guardaban horas extras del corte 23 → 22. */}
+                      {s.summary.overtimeRecords !== undefined &&
+                        ` · ${s.summary.overtimeRecords} registros de horas extras (${s.summary.overtimeHours} h)`}
                     </div>
                   )}
                 </div>

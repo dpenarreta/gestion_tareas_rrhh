@@ -216,7 +216,7 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
               <Upload className="w-4 h-4" /> Importar
             </Button>
           )}
-          {matrix.editable && ctx.can(PERM.cerrar) && (
+          {(matrix.closable ?? (matrix.editable && ctx.can(PERM.cerrar))) && (
             <Button variant="secondary" size="sm" onClick={() => setCloseOpen(true)} disabled={dirtyCount > 0}>
               <Lock className="w-4 h-4" /> Cerrar período
             </Button>
@@ -326,7 +326,9 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
                       const dirty = key in drafts;
                       const error = cellErrors[key];
                       const hasValue = (row.cells[c.date]?.hours ?? null) !== null;
-                      const blocked = c.isWeekend || !rowEditable || (row.status !== "ACTIVE" && !hasValue);
+                      const otherTeam = row.cells[c.date]?.otherTeam;
+                      const blocked =
+                        c.isWeekend || !rowEditable || Boolean(otherTeam) || (row.status !== "ACTIVE" && !hasValue);
                       if (canCorrect && !c.isWeekend) {
                         return (
                           <td key={c.date} className="border-b border-r border-border p-0 text-center">
@@ -346,7 +348,14 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
                           className={`border-b border-r border-border p-0 ${c.isWeekend ? "bg-yellow-200" : ""} ${
                             error ? "bg-danger/[.15]" : dirty ? "bg-warning/[.18]" : ""
                           }`}
-                          title={error ?? (c.isWeekend ? "Sábado/domingo: no admite registros" : undefined)}
+                          title={
+                            error ??
+                            (c.isWeekend
+                              ? "Sábado/domingo: no admite registros"
+                              : otherTeam
+                                ? `Registrado por el equipo de ${otherTeam} (colaborador reasignado): no se modifica desde aquí`
+                                : undefined)
+                          }
                         >
                           <input
                             data-r={r}

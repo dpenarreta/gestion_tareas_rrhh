@@ -188,6 +188,12 @@ async function withRefreshedDjangoTokens(request: NextRequest): Promise<NextResp
       body: JSON.stringify({ refresh: refreshToken }),
       signal: AbortSignal.timeout(REFRESH_TIMEOUT_MS),
     });
+    if (djangoResponse.status >= 500) {
+      // Django (o el servidor delante) falló: no es una sesión vencida.
+      // Mismo criterio que el `catch` de abajo: se sigue sin tokens nuevos
+      // en vez de cerrar la sesión de todos por una caída pasajera.
+      return response;
+    }
     if (!djangoResponse.ok) {
       // El refresh ya no sirve (expiró, o la sesión fue revocada). Seguir
       // adelante dejaba al layout sin poder leer nada de Django y, como no

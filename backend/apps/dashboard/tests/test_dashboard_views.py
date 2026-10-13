@@ -4,7 +4,8 @@
 explícitamente fuera de alcance de esta fase (Nova/Gemini, LLM-RAG nunca
 portado)."""
 
-from datetime import timedelta
+from datetime import datetime, time, timedelta
+from datetime import timezone as dt_timezone
 
 import pytest
 from django.contrib.auth.models import Group
@@ -18,6 +19,7 @@ from apps.configuration.services import (
     set_config_value,
 )
 from apps.meetings.models import Meeting, MeetingInvitee
+from apps.tasks.business_time import business_calendar_day
 from apps.tasks.models import Task, TaskActivity
 from apps.users.models import User
 
@@ -76,9 +78,13 @@ def test_returns_expected_top_level_shape(analista):
 
 def test_priority_tasks_rank_overdue_above_due_this_week(analista):
     now = timezone.now()
-    overdue_task = _create_task(assigned_to=analista, created_by=analista, title="Vencida", end_date=now - timedelta(days=1))
+    # "Ayer" del negocio (UTC-5) a medianoche UTC, como las fechas fin reales
+    # (solo fecha): con `now - 1 día` el test fallaba entre las 19:00 y las
+    # 24:00 de Ecuador, cuando ese instante todavía es "hoy" para el negocio.
+    yesterday = datetime.combine(business_calendar_day(now) - timedelta(days=1), time.min, tzinfo=dt_timezone.utc)
+    overdue_task = _create_task(assigned_to=analista, created_by=analista, title="Vencida", end_date=yesterday)
     _create_task(assigned_to=analista, created_by=analista, title="Esta semana", end_date=now + timedelta(days=2))
-    _create_task(assigned_to=analista, created_by=analista, title="Completada", status=Task.Status.COMPLETADA, end_date=now - timedelta(days=1))
+    _create_task(assigned_to=analista, created_by=analista, title="Completada", status=Task.Status.COMPLETADA, end_date=yesterday)
 
     response = _client_for(analista).get("/api/v1/dashboard/")
     titles = [t["title"] for t in response.data["priorityTasks"]]

@@ -23,6 +23,100 @@
 
 ---
 
+## v1.173.0 — 2026-10-13
+
+**Tipo:** FIX / SECURITY / PERFORMANCE (concurrencia)
+**Módulo:** Control Operativo de Novedades — auditoría integral y
+estabilización (ver `docs/AUDIT_LOG.md` § 2026-10-13).
+
+Correcciones de defectos comprobados (cada una con su test de regresión en
+`backend/apps/novedades/tests/test_audit_fixes.py` salvo donde se indica):
+
+- **H-01 (regresión de v1.172.0):** `Cerrar período` y `Cerrar mes` aceptaban
+  `confirm=false`: la validación había quedado colgada de otro serializer.
+- **H-02:** tras reasignar a un colaborador, el equipo nuevo podía sobrescribir
+  las celdas de Días laborados del equipo anterior, incluso con su período
+  cerrado y sin corrección auditada. Ahora se rechazan y la matriz las muestra
+  como "registrado por el equipo de …", en solo lectura y fuera del total.
+- **H-03:** cierre y guardado concurrentes. Días laborados revalida el período
+  con candado dentro de la transacción y el resumen del cierre se calcula ya
+  bloqueado. Horas extras bloquea por supervisor en el cierre del mes y en cada
+  escritura (formulario, edición, eliminación, captura masiva e importación):
+  ningún registro entra a un mes recién cerrado.
+- **H-04:** una celda vacía al cargar y llenada por otro usuario entretanto se
+  sobrescribía en silencio; ahora es un conflicto (409).
+- **H-05:** choques de unicidad (alta simultánea de la misma cédula, celda
+  repetida en el envío, eliminación de colaborador con novedades recién
+  creadas) daban error 500; ahora son 409/400 con mensaje claro.
+- **H-06:** el resumen y el aviso del cierre de Días laborados (23 → 22)
+  seguían contando horas extras con ese corte, aunque Horas extras va por mes
+  calendario y se cierra aparte. Se quitaron (los cierres anteriores conservan
+  su resumen tal cual).
+- **H-07:** editar los datos de un colaborador podía deshacer un cambio de
+  estado o una reasignación concurrentes (guardado completo); ahora solo
+  guarda los campos editados.
+- **H-08:** las celdas pendientes del cierre contaban a colaboradores ya
+  reasignados y días cargados por otro equipo.
+- **H-09:** un fallo al notificar (destinatarios o respaldo pendiente) podía
+  devolver error 500 en una operación ya guardada; ahora se registra y se
+  absorbe.
+- **H-10:** el aviso de plazo vencido de Horas extras solo se emitía al abrir
+  ese equipo; ahora también desde la vista nacional. Los totales nacionales
+  cuentan solo supervisores activos.
+- **H-11:** "plazo próximo a vencer" se medía en horas de reloj; ahora en horas
+  laborables (la misma unidad del plazo). La pantalla se actualiza sola al
+  terminar el mes y al vencer el plazo.
+- **H-12:** importación: confirmación única por lote (doble clic o dos
+  pestañas), "omitir existentes" respetado contra la base actual, misma regla de
+  cédula (9 dígitos → 10) en todas las importaciones, y aviso en la vista previa
+  si el mes de Horas extras está cerrado o no empezó.
+- **H-13:** reintentar una edición ya aplicada (respuesta perdida) daba
+  "conflicto"; ahora "sin cambios".
+- **H-14:** editar un registro de horas extras devolvía a "automático" las
+  marcas manuales de sábado, domingo o feriado que la edición no tocaba.
+- **H-15:** filtros "Desde/Hasta" del historial en hora de Ecuador (antes UTC).
+- **H-16:** parámetros mal formados (`supervisor=abc`, fechas inválidas) daban
+  500; ahora 400 con mensaje.
+- **H-17:** la corrección autorizada bloquea el registro (dos correcciones
+  simultáneas no se pisan).
+- **H-18:** el botón "Cerrar período" de Días laborados exigía también permiso
+  de registro; ahora depende del permiso de cierre (lo informa el servidor).
+- **H-19 (conectividad):** un 5xx de Django al renovar el token cerraba la
+  sesión de todos; ahora se trata como caída. `/api/novedades/*` y la campana
+  responden 503 claro si Django no responde; un POST que excede el tiempo
+  avisa verificar antes de repetir; la campana no deja errores sin manejar.
+  Tests en `src/__tests__/proxyTokenRefresh.test.ts`,
+  `src/__tests__/api/{novedades,notifications}.test.ts`.
+- **H-20 (tests dependientes de la hora):** tres tests de KPIs y Dashboard
+  construían "hoy"/"ayer" con la fecha UTC mientras el código usa el día de
+  Ecuador: fallaban de 19:00 a 24:00. Se corrigieron los datos de prueba
+  (las aserciones no cambian). Dos tests propios de v1.170.0 dependían del
+  reloj real; ahora lo fijan.
+- **Captura de Horas extras:** la fecha por defecto usa el día local (antes UTC:
+  desde las 19:00 proponía el día siguiente).
+
+Nuevo (acotado, dentro de lo existente):
+
+- **Revisión previa al cierre del mes de Horas extras**
+  (`GET overtime/months/check/`, se muestra en el diálogo "Cerrar mes"): revisa
+  los registros del equipo con la misma validación del guardado, fechas fuera
+  del mes, duplicados, colaboradores reasignados e importaciones en vista
+  previa sin confirmar. Solo informa (no bloquea, no corrige ni elimina) y no
+  usa límites legales ni recargos: no hay reglas documentadas para eso.
+
+- **Archivos:** `backend/apps/novedades/{services,excel,views,serializers,urls}.py`,
+  `backend/apps/novedades/tests/{test_audit_fixes,test_status_history_periods}.py`,
+  `backend/apps/analytics/tests/test_kpi_views.py`,
+  `backend/apps/dashboard/tests/test_dashboard_views.py`,
+  `src/components/novedades/{WorkedDaysGrid,ClosePeriodDialog,RepositoryView,OvertimeMonthBanner,OvertimeCapture}.tsx`,
+  `src/components/novedades/types.ts`, `src/components/NotificationBell.tsx`,
+  `src/app/api/notifications/route.ts`, `src/app/api/novedades/[...path]/route.ts`,
+  `src/proxy.ts` y sus tests.
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
 ## v1.172.0 — 2026-10-12
 
 **Tipo:** FEATURE / BREAKING CHANGE (regla de negocio de Horas extras)

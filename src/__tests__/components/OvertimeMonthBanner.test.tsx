@@ -77,16 +77,29 @@ describe("OvertimeMonthBanner", () => {
 
   it("cierra el mes con una sola solicitud aunque se haga doble clic", async () => {
     let resolve!: (r: Response) => void;
-    const fetchMock = vi.fn(() => new Promise<Response>((r) => (resolve = r)));
+    const closeCalls: [string, RequestInit][] = [];
+    const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+      if (url.startsWith("/api/novedades/overtime/months/check")) {
+        // Revisión previa al cierre (solo lectura).
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ records: 2, errors: 0, warnings: 0, issues: [] }),
+        } as Response);
+      }
+      closeCalls.push([url, init ?? {}]);
+      return new Promise<Response>((r) => (resolve = r));
+    });
     vi.stubGlobal("fetch", fetchMock);
     const refresh = vi.fn();
     renderBanner(BASE, ctx(["novedades.cerrar_periodo"], refresh));
     fireEvent.click(screen.getByRole("button", { name: /Cerrar mes/ }));
     const confirm = screen.getAllByRole("button", { name: "Cerrar mes" }).at(-1)!;
+    expect(await screen.findByText(/2 registro\(s\) revisados: sin problemas/)).toBeInTheDocument();
     fireEvent.click(confirm);
     fireEvent.click(confirm);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(closeCalls).toHaveLength(1);
+    const [url, init] = closeCalls[0];
     expect(url).toBe("/api/novedades/overtime/months/close");
     expect(JSON.parse(String(init.body))).toEqual({ period: "2026-10", supervisorId: 6, confirm: true });
     resolve({ ok: true, status: 200, json: async () => ({ alreadyClosed: false }) } as Response);
@@ -97,5 +110,33 @@ describe("OvertimeMonthBanner", () => {
     expect(formatRemaining(26 * 3600 + 120)).toBe("1 d 2 h");
     expect(formatRemaining(3 * 3600 + 20 * 60)).toBe("3 h 20 min");
     expect(formatRemaining(59)).toBe("0 min");
+  });
+});
+
+describe("OvertimeMonthBanner — revisión previa al cierre", () => {
+  it("muestra los problemas encontrados sin impedir el cierre", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          records: 3,
+          errors: 1,
+          warnings: 1,
+          issues: [
+            { severity: "error", recordId: 9, label: "Ana Pérez (0102030405) 05/10/2026", message: "overtime_hours: Registre al menos una hora", fix: "Corríjalo en la captura antes de cerrar." },
+            { severity: "warning", recordId: null, label: "Importación «horas.xlsx» de Sup1", message: "Quedó en vista previa sin confirmar", fix: "Confírmela o cancélela antes de cerrar." },
+          ],
+        }),
+      })),
+    );
+    renderBanner(BASE);
+    fireEvent.click(screen.getByRole("button", { name: /Cerrar mes/ }));
+    expect(await screen.findByText(/1 con error/)).toBeInTheDocument();
+    expect(screen.getByText(/Ana Pérez \(0102030405\) 05\/10\/2026/)).toBeInTheDocument();
+    expect(screen.getByText(/Quedó en vista previa sin confirmar/)).toBeInTheDocument();
+    // Solo informa: el botón de cierre sigue disponible.
+    expect(screen.getAllByRole("button", { name: "Cerrar mes" }).at(-1)).toBeEnabled();
   });
 });

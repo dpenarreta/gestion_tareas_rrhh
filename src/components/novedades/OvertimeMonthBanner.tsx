@@ -10,6 +10,13 @@ import { ErrorBox } from "./fields";
 import { OVERTIME_STATUS_LABEL, PERM, type OvertimeMonth } from "./types";
 import type { ModuleContext } from "./NovedadesModule";
 
+type PreCloseCheck = {
+  records: number;
+  errors: number;
+  warnings: number;
+  issues: { severity: "error" | "warning"; recordId: number | null; label: string; message: string; fix: string }[];
+};
+
 /** "1 d 4 h", "3 h 20 min" o "12 min": el tiempo que queda del plazo. */
 export function formatRemaining(seconds: number): string {
   const minutes = Math.max(Math.floor(seconds / 60), 0);
@@ -52,18 +59,21 @@ export default function OvertimeMonthBanner({
   const [confirming, setConfirming] = useState(false);
   const { refreshOvertimeMonths } = ctx;
   const remaining = month.remainingSeconds - Math.floor((now - started) / 1000);
+  // Próximo cambio de estado según el servidor: fin del mes (OPEN → plazo) o
+  // fin del plazo (plazo → vencido). Ahí se vuelve a pedir el estado.
+  const refreshIn = month.refreshInSeconds ?? month.remainingSeconds;
   useEffect(() => {
     if (month.status !== "GRACE" && month.status !== "OPEN") return;
     const timer = setInterval(() => {
       const current = Date.now();
       setNow(current);
-      if (month.remainingSeconds - Math.floor((current - started) / 1000) <= 0) {
+      if (refreshIn - Math.floor((current - started) / 1000) <= 0) {
         clearInterval(timer);
         refreshOvertimeMonths();
       }
     }, 30_000);
     return () => clearInterval(timer);
-  }, [month.remainingSeconds, month.status, refreshOvertimeMonths, started]);
+  }, [refreshIn, month.status, refreshOvertimeMonths, started]);
 
   const canClose =
     ctx.can(PERM.cerrar) &&
@@ -141,7 +151,15 @@ function CloseMonthDialog({
   const { showToast } = useToast();
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [check, setCheck] = useState<PreCloseCheck | null>(null);
   const inFlight = useRef(false);
+
+  // Revisión previa: solo informa (no bloquea ni corrige nada).
+  useEffect(() => {
+    novedadesApi
+      .get<PreCloseCheck>("overtime/months/check", { period: month.code, supervisor: supervisorId })
+      .then((r) => r.ok && setCheck(r.data));
+  }, [month.code, supervisorId]);
 
   async function confirm() {
     if (inFlight.current) return;
@@ -171,6 +189,33 @@ function CloseMonthDialog({
           eliminar ni importar registros de {month.label}. Después, solo el Administrador puede corregir con motivo.
         </p>
         <p className="text-secondary">Días laborados (corte 23 → 22) se cierra aparte y no se ve afectado.</p>
+        <div className="border border-border rounded-lg p-3 space-y-1.5" aria-live="polite">
+          <p className="font-semibold text-title">Revisión previa al cierre</p>
+          {check === null ? (
+            <p className="text-xs text-secondary">Revisando registros…</p>
+          ) : check.issues.length === 0 ? (
+            <p className="text-xs text-success">
+              {check.records} registro(s) revisados: sin problemas detectados.
+            </p>
+          ) : (
+            <>
+              <p className="text-xs">
+                {check.records} registro(s) revisados ·{" "}
+                <span className={check.errors ? "text-danger font-semibold" : ""}>{check.errors} con error</span> ·{" "}
+                <span className={check.warnings ? "text-warning font-semibold" : ""}>{check.warnings} aviso(s)</span>.
+                Revíselos antes de cerrar: después solo el Administrador puede corregir.
+              </p>
+              <ul className="max-h-40 overflow-y-auto text-xs space-y-1">
+                {check.issues.map((i, idx) => (
+                  <li key={idx} className={i.severity === "error" ? "text-danger" : "text-warning"}>
+                    <strong>{i.severity === "error" ? "Error" : "Aviso"}:</strong> {i.label} — {i.message}{" "}
+                    <span className="text-secondary">{i.fix}</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
         <ErrorBox message={error} />
         <div className="flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose} disabled={saving}>

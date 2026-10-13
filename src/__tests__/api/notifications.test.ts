@@ -9,8 +9,10 @@ import type { SessionPayload } from "@/lib/session";
 vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
 
 const djangoApiFetch = vi.fn();
+class DjangoUnavailableError extends Error {}
 vi.mock("@/lib/djangoSession", () => ({
   djangoApiFetch: (...args: unknown[]) => djangoApiFetch(...args),
+  DjangoUnavailableError,
 }));
 
 const { getSession } = await import("@/lib/session");
@@ -52,6 +54,20 @@ function djangoResponse(ok: boolean, data: unknown, status = ok ? 200 : 400) {
 
 describe("GET /api/notifications", () => {
   beforeEach(resetAll);
+
+  it("503 con JSON si Django no responde (la campana no rompe)", async () => {
+    mockSession({});
+    djangoApiFetch.mockRejectedValue(new DjangoUnavailableError("down"));
+    const res = await notificationsGET();
+    expect(res.status).toBe(503);
+  });
+
+  it("un error 5xx de Django no se presenta como sesión vencida", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, {}, 500));
+    const res = await notificationsGET();
+    expect(res.status).toBe(500);
+  });
 
   it("responde 401 si no hay sesión", async () => {
     mockSession(null);
