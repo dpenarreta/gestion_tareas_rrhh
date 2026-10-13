@@ -14,7 +14,7 @@ import {
 
 const secret = new TextEncoder().encode(SESSION_SECRET);
 
-const DJANGO_API_URL = process.env.DJANGO_API_URL || "http://localhost:8000/api/v1";
+const DJANGO_API_URL = process.env.DJANGO_API_URL || "http://127.0.0.1:8000/api/v1";
 
 // Más corto que el timeout general de la aplicación: esto corre en el camino
 // de CADA navegación, así que un Django lento no puede quedarse con la

@@ -18,7 +18,9 @@ import {
  * login real, es la única fuente de verdad para validar credenciales.
  */
 
-const DJANGO_API_URL = process.env.DJANGO_API_URL || "http://localhost:8000/api/v1";
+// 127.0.0.1 y no "localhost": `manage.py runserver` escucha solo en IPv4, y
+// con "localhost" Node prueba primero ::1 (IPv6), que siempre rechaza.
+const DJANGO_API_URL = process.env.DJANGO_API_URL || "http://127.0.0.1:8000/api/v1";
 const ACCESS_COOKIE = DJANGO_ACCESS_COOKIE;
 const REFRESH_COOKIE = DJANGO_REFRESH_COOKIE;
 const REQUEST_TIMEOUT_MS = 3000;
@@ -312,6 +314,26 @@ async function esPeticionDeFondo(): Promise<boolean> {
   }
 }
 
+/**
+ * Django no respondió a nivel de red (servicio detenido, reiniciándose o en
+ * otra dirección): no es un error de negocio ni de sesión. Se lanza en vez
+ * de devolver `null` porque `null` significa "sin sesión Django" y llevaría
+ * a pedir un nuevo login. Las pantallas lo reciben en su `error.tsx`.
+ */
+export class DjangoUnavailableError extends Error {
+  constructor(path: string) {
+    super(`El servicio de NEXO no está disponible temporalmente (${path}).`);
+    this.name = "DjangoUnavailableError";
+  }
+}
+
+/** Código de red de un `fetch failed` de Node (ECONNREFUSED, ENOTFOUND…), o null si no es un fallo de red. */
+function networkErrorCode(err: unknown): string | null {
+  if (!(err instanceof TypeError)) return null;
+  const cause = (err as TypeError & { cause?: { code?: string; errors?: { code?: string }[] } }).cause;
+  return cause?.code ?? cause?.errors?.[0]?.code ?? (err.message === "fetch failed" ? "FETCH_FAILED" : null);
+}
+
 async function callDjango(path: string, init: RequestInit, accessToken: string, timeoutMs: number): Promise<Response> {
   const headers: Record<string, string> = { ...(init.headers as Record<string, string> | undefined) };
   headers.Authorization = `Bearer ${accessToken}`;
@@ -321,11 +343,26 @@ async function callDjango(path: string, init: RequestInit, accessToken: string, 
   if (!(init.body instanceof FormData)) {
     headers["Content-Type"] = "application/json";
   }
-  return fetch(`${DJANGO_API_URL}${path}`, {
-    ...init,
-    headers,
-    signal: AbortSignal.timeout(timeoutMs),
-  });
+  try {
+    return await fetch(`${DJANGO_API_URL}${path}`, {
+      ...init,
+      headers,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (err) {
+    const code = networkErrorCode(err);
+    // Un timeout (AbortError) se sigue propagando igual que antes: sus
+    // llamadores ya lo manejan.
+    if (code === null) throw err;
+    // Detalle técnico solo en el log del servidor; nunca el token.
+    safeLog("error", "[djangoApiFetch] Django no responde", {
+      path,
+      method: init.method ?? "GET",
+      baseUrl: DJANGO_API_URL,
+      code,
+    });
+    throw new DjangoUnavailableError(path);
+  }
 }
 
 /**

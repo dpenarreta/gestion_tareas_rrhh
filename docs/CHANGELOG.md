@@ -23,6 +23,53 @@
 
 ---
 
+## v1.171.2 — 2026-10-12
+
+**Tipo:** FIX
+**Módulo:** Conexión Next.js ↔ Django (`djangoApiFetch`) y manejo de errores de
+renderizado.
+
+- **Síntoma:** `Runtime TypeError: fetch failed` / `AggregateError` con
+  `connect ECONNREFUSED ::1:8000` y `127.0.0.1:8000` al renderizar Server
+  Components.
+- **Causa:** Django (`manage.py runserver`, que escucha solo en
+  `127.0.0.1:8000`) se estaba reiniciando: su autorecarga lo reinicia en cada
+  cambio de un `.py` (en el log: 19:35:03 y 19:35:10 del 12/10/2026, por
+  cambios en `apps/novedades/serializers.py`) y durante ~1–2 s el puerto queda
+  cerrado. Con `DJANGO_API_URL=http://localhost:8000`, Node intenta primero
+  `::1` (IPv6), donde Django nunca escucha, y luego `127.0.0.1`; por eso el
+  error muestra las dos direcciones. Además, `djangoApiFetch` no capturaba el
+  fallo de red, así que la traza completa llegaba a la pantalla.
+- **Corrección:**
+  - `DJANGO_API_URL` apunta a `http://127.0.0.1:8000/api/v1` (`.env.example`
+    y los valores por defecto de `djangoSession.ts` y `proxy.ts`), la dirección
+    real de `runserver`. No se cambió el puerto.
+  - `djangoApiFetch` convierte un fallo de red en `DjangoUnavailableError` y
+    registra en el log del servidor la ruta, el método, la URL base y el código
+    (`ECONNREFUSED`…), nunca el token. Sin reintentos. Un timeout se sigue
+    propagando como antes, y `null` sigue significando solo "sin sesión
+    Django".
+  - Nuevos error boundaries `src/app/(protected)/error.tsx` (conserva la
+    navegación) y `src/app/error.tsx` (fallos del layout), con un mensaje
+    controlado ("No se pudo cargar esta sección… no está disponible
+    temporalmente"), la referencia del error y "Reintentar". Sin datos
+    simulados; permisos, autenticación y reglas de negocio sin cambios.
+
+- **Archivos:** `src/lib/djangoSession.ts`, `src/proxy.ts`, `.env.example`,
+  `src/components/ui/ServiceErrorFallback.tsx`, `src/app/error.tsx`,
+  `src/app/(protected)/error.tsx`.
+
+**Verificación:** 3 tests nuevos en `src/__tests__/djangoSession.test.ts`
+(ECONNREFUSED → `DjangoUnavailableError` registrado sin token y sin
+reintentos; timeout sin cambios; URL por defecto 127.0.0.1) y 1 en
+`src/__tests__/components/ServiceErrorFallback.test.tsx`. En localhost:
+Django escuchando en 127.0.0.1:8000, Next.js recargó `.env` y Control
+Operativo carga con respuestas 200.
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
 ## v1.171.1 — 2026-10-12
 
 **Tipo:** UX
