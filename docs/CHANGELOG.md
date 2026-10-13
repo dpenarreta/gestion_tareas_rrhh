@@ -23,6 +23,40 @@
 
 ---
 
+## v1.171.1 — 2026-10-12
+
+**Tipo:** UX
+**Módulo:** Control Operativo de Novedades — Historial de registros: colores por
+transición de estado.
+
+- Cada evento de cambio de estado se colorea según **su propia transición**
+  (estado anterior → nuevo guardados en el evento), nunca según el estado
+  actual del colaborador:
+  - **Rojo:** Activo → Inactivo, Activo → Suspendido (sin cambios).
+  - **Azul (nuevo):** Inactivo → Activo y Suspendido → Activo, con la etiqueta
+    de texto "Activo · reactivado".
+  - Otras transiciones (p. ej. Inactivo ↔ Suspendido) conservan el diseño
+    actual.
+- La regla vive en Django (`EventSerializer.get_highlight`); la pantalla solo
+  pinta. No se tocaron modelos, eventos guardados, permisos, notificaciones ni
+  el cierre de períodos: la reactivación sigue sin generar alerta.
+- En la base local, el evento 912 del caso ACOSTA ACOSTA MARCELO FERNANDO
+  (Inactivo → Activo) pasa a verse en azul; 911 y 913 siguen en rojo.
+
+- **Archivos:** `backend/apps/novedades/serializers.py`,
+  `src/components/novedades/HistoryView.tsx`.
+
+**Verificación:** test reescrito en
+`backend/apps/novedades/tests/test_status_history_periods.py` (secuencia
+Inactivo → Activo → Suspendido → Activo → Inactivo: cada evento conserva su
+color, sin duplicados, estado real intacto, 3 alertas y ninguna por
+reactivar) y `src/__tests__/components/NovedadesHistoryHighlight.test.tsx`
+(dos filas rojas y dos azules con su etiqueta).
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
 ## v1.171.0 — 2026-10-12
 
 **Tipo:** UX / SECURITY

@@ -33,8 +33,9 @@ const ACTION_LABEL: Record<string, string> = {
 
 const PAGE = 100;
 
-// Marca del EVENTO (la decide Django en `highlight`): rojo = pasó a Inactivo o
-// Suspendido; azul = nuevo ingreso a la base. Siempre con etiqueta de texto.
+// Marca del EVENTO según su transición (la decide Django en `highlight`): rojo =
+// pasó a Inactivo o Suspendido; azul = reactivación a Activo o nuevo ingreso a
+// la base. Siempre con etiqueta de texto, no solo color.
 const HIGHLIGHT_ROW: Record<string, string> = {
   danger: "bg-danger/[.06] shadow-[inset_3px_0_0_var(--danger)]",
   info: "bg-blue-500/[.07] shadow-[inset_3px_0_0_var(--color-blue-600)]",
@@ -152,7 +153,7 @@ export default function HistoryView({ ctx, kind }: { ctx: ModuleContext; kind?: 
                       <Badge variant="danger">{e.newValue}</Badge>
                     ) : e.highlight === "info" ? (
                       <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold bg-blue-600/[.12] text-blue-700 dark:text-blue-300">
-                        Nuevo ingreso
+                        {e.action === "collaborator.created" ? "Nuevo ingreso" : `${e.newValue} · reactivado`}
                       </span>
                     ) : (
                       e.newValue

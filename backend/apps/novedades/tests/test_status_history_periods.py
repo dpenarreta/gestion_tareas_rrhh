@@ -88,17 +88,35 @@ def test_status_change_creates_complete_event_in_current_period_history(
         assert fragment in alerts[0]
 
 
-def test_reactivation_is_logged_but_not_red_and_sends_no_alert(admin, supervisor):
+def test_each_event_is_colored_by_its_own_transition(client_for, admin, supervisor):
+    """Rojo al pasar a Inactivo/Suspendido, azul al reactivar a Activo. Cada
+    evento conserva su color aunque el colaborador vuelva a cambiar."""
     c = _collab(supervisor)
-    CollaboratorService.change_status(access(supervisor), c.pk, "INACTIVE", "Sale")
-    CollaboratorService.change_status(access(supervisor), c.pk, "ACTIVE", "")
+    for status, reason in (
+        ("INACTIVE", "Sale"),
+        ("ACTIVE", ""),
+        ("SUSPENDED", "Sanción"),
+        ("ACTIVE", ""),
+        ("INACTIVE", "Renuncia"),
+    ):
+        CollaboratorService.change_status(access(supervisor), c.pk, status, reason)
+
     events = list(_status_events(c).order_by("created_at", "id"))
-    assert [(e.old_value, e.new_value) for e in events] == [
-        ("Activo", "Inactivo"),
-        ("Inactivo", "Activo"),
-    ]  # se conservan ambos, no se sobrescribe
-    assert [EventSerializer(e).data["highlight"] for e in events] == ["danger", ""]
-    assert len(_status_alerts(admin)) == 1
+    assert [(e.old_value, e.new_value, EventSerializer(e).data["highlight"]) for e in events] == [
+        ("Activo", "Inactivo", "danger"),
+        ("Inactivo", "Activo", "info"),
+        ("Activo", "Suspendido", "danger"),
+        ("Suspendido", "Activo", "info"),
+        ("Activo", "Inactivo", "danger"),
+    ]  # se conservan todos, sin duplicados ni reescrituras
+    c.refresh_from_db()
+    assert c.status == "INACTIVE"  # el color no toca el estado real
+    # Lo mismo por la API del historial (lo que ve la pantalla).
+    rows = client_for(admin).get(f"{BASE}/history/", {"action": "collaborator.status_changed"})
+    colors = [r["highlight"] for r in sorted(rows.json()["results"], key=lambda r: r["id"])]
+    assert colors == ["danger", "info", "danger", "info", "danger"]
+    # Alertas solo de Inactivo/Suspendido (3), ninguna por reactivar.
+    assert len(_status_alerts(admin)) == 3
 
 
 def test_legacy_status_events_without_period_still_show_in_their_period(admin, supervisor):

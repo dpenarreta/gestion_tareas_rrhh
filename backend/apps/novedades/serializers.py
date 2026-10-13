@@ -285,11 +285,19 @@ class EventSerializer(serializers.ModelSerializer):
     )
 
     def get_highlight(self, obj) -> str:
-        """ "danger" cuando el evento deja al colaborador Inactivo o
-        Suspendido (rojo); "info" cuando es un ingreso a la base (azul). Lo decide el backend, no
-        la pantalla, y describe al EVENTO (no al estado actual)."""
-        if obj.action == "collaborator.status_changed" and obj.new_value in self.DANGER_STATUSES:
-            return "danger"
+        """Color del EVENTO según su transición (nunca según el estado
+        actual del colaborador), decidido aquí y no en la pantalla:
+        "danger" (rojo) = pasó a Inactivo o Suspendido; "info" (azul) =
+        reactivación (de Inactivo o Suspendido a Activo) o ingreso a la base."""
+        if obj.action == "collaborator.status_changed":
+            if obj.new_value in self.DANGER_STATUSES:
+                return "danger"
+            if (
+                obj.old_value in self.DANGER_STATUSES
+                and obj.new_value == Collaborator.Status.ACTIVE.label
+            ):
+                return "info"
+            return ""
         if obj.action == "collaborator.created":
             return "info"  # azul: nuevo ingreso a la base (formulario o importación)
         return ""

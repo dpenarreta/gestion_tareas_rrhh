@@ -34,34 +34,39 @@ function event(id: number, oldValue: string, newValue: string, highlight: string
 afterEach(() => vi.unstubAllGlobals());
 
 describe("HistoryView — cambios de estado", () => {
-  it("marca en rojo y con etiqueta los eventos a Inactivo y Suspendido, no la reactivación", async () => {
+  it("rojo para Inactivo/Suspendido y azul para la reactivación, siempre con etiqueta", async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,
       status: 200,
       json: async () => ({
-        count: 3,
+        count: 4,
         results: [
           event(913, "Activo", "Inactivo", "danger"),
-          event(912, "Inactivo", "Activo", ""),
+          event(912, "Inactivo", "Activo", "info"),
           event(911, "Activo", "Suspendido", "danger"),
+          event(910, "Suspendido", "Activo", "info"),
         ],
       }),
     }));
     vi.stubGlobal("fetch", fetchMock);
     const { container } = render(<HistoryView ctx={ctx} />);
 
-    await waitFor(() => expect(container.querySelectorAll("tbody tr")).toHaveLength(3));
+    await waitFor(() => expect(container.querySelectorAll("tbody tr")).toHaveLength(4));
     const red = container.querySelectorAll('tr[data-highlight="danger"]');
     expect(red).toHaveLength(2);
     red.forEach((row) => expect(row).toHaveClass("bg-danger/[.06]"));
     // Etiqueta de texto (no solo color) con el estado nuevo del evento.
     expect(within(red[0] as HTMLElement).getByText("Inactivo")).toHaveClass("text-danger");
     expect(within(red[1] as HTMLElement).getByText("Suspendido")).toHaveClass("text-danger");
-    const normal = container.querySelector("tbody tr:not([data-highlight])") as HTMLElement;
-    expect(within(normal).getByText("Activo")).not.toHaveClass("text-danger");
+    const blue = container.querySelectorAll('tr[data-highlight="info"]');
+    expect(blue).toHaveLength(2);
+    blue.forEach((row) => {
+      expect(row).toHaveClass("bg-blue-500/[.07]");
+      expect(within(row as HTMLElement).getByText("Activo · reactivado")).toHaveClass("text-blue-700");
+    });
     // Se ven nombre, anterior, nuevo, responsable y motivo.
-    expect(screen.getAllByText("ACOSTA ACOSTA MARCELO FERNANDO (2100031935)")).toHaveLength(3);
-    expect(screen.getAllByText("SALE")).toHaveLength(3);
+    expect(screen.getAllByText("ACOSTA ACOSTA MARCELO FERNANDO (2100031935)")).toHaveLength(4);
+    expect(screen.getAllByText("SALE")).toHaveLength(4);
     // Evento antiguo sin período: se muestra con guion, no vacío.
     expect(screen.getByText("—")).toBeInTheDocument();
     // Pide el historial del período elegido (el backend incluye los eventos sin período de esas fechas).
