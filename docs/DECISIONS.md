@@ -8,6 +8,8 @@
 
 | Decisión | Motivo técnico | Detalle completo |
 |---|---|---|
+| Ingresos y Salidas: página propia de solo lectura sobre los registros existentes (altas, reingresos y cambios a Inactivo), con fechas rotuladas como de registro en NEXO (2026-10-14) | NEXO no guarda fechas formales de ingreso o salida laboral; no se duplica la información ni se da acceso al resto del módulo | [AUDIT_LOG § 2026-10-14](AUDIT_LOG.md) |
+| Permisos `novedades.ingresos_ver` / `novedades.salidas_ver` por usuario con `user.user_permissions`, independientes y sin cambiar el rol; solo el Administrador los gestiona (2026-10-14) | Se usa el mecanismo granular que NEXO ya tenía en vez de uno paralelo | [AUDIT_LOG § 2026-10-14](AUDIT_LOG.md) |
 | Correo de salida (Activo → Inactivo) por el SMTP existente, en segundo plano y con un evento por transición (2026-10-13) | El supervisor no espera al servidor de correo; la relación 1 a 1 con el cambio de estado y el reclamo condicional impiden duplicados; una falla del correo nunca revierte el cambio | [AUDIT_LOG § 2026-10-13](AUDIT_LOG.md) |
 | Destinatarios del correo de salida: lista de correos con área opcional, administrada solo por el Administrador en Ajustes (2026-10-13) | Pedido del usuario; no hace falta una estructura organizacional nueva. Se desactivan, nunca se borran | [AUDIT_LOG § 2026-10-13](AUDIT_LOG.md) |
 | Horas depuradas es una copia independiente por mes; la depuración nunca escribe en `OvertimeRecord` (2026-10-13) | La base de los supervisores y el consolidado del Asistente son los mismos registros: se protegen ambos no tocándolos. Una sola copia por mes, garantizada por restricción única | [AUDIT_LOG § 2026-10-13](AUDIT_LOG.md) |

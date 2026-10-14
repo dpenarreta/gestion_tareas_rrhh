@@ -16,7 +16,8 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.core.mail import EmailMultiAlternatives
 from django.db import IntegrityError, close_old_connections, transaction
-from django.db.models import Count, F, Q, Sum
+from django.db.models import BigIntegerField, Count, F, OuterRef, Q, Subquery, Sum
+from django.db.models.functions import Coalesce
 from django.template.loader import render_to_string
 from django.utils import timezone
 
@@ -30,6 +31,7 @@ from apps.configuration.services import (
 from apps.core.audit import record_audit_event
 from apps.core.models import AuditLog
 from apps.notifications.services import notify_many
+from apps.permissions.authorization import user_has_permission
 from apps.tasks.business_time import BUSINESS_TZ_OFFSET_HOURS, business_calendar_day
 
 from . import access as perms
@@ -4403,3 +4405,513 @@ class ExitNotificationService:
             else:
                 failed += 1
         return {"sent": sent, "failed": failed}
+
+
+# ── Ingresos y Salidas: consulta consolidada con permisos por usuario ─────────
+#
+# Pedido del 2026-10-14. Solo lectura sobre los registros que ya existen —no
+# hay una segunda fuente de movimientos—:
+#   - Ingresos = altas en la base (`Collaborator`: fecha y usuario del alta) y
+#     reingresos (`CollaboratorStatusChange` Inactivo → Activo).
+#   - Salidas = cambios a Inactivo (`CollaboratorStatusChange`).
+# NEXO no guarda una fecha formal de ingreso ni de salida laboral: se muestran
+# las fechas de REGISTRO en el sistema, con esa etiqueta.
+#
+# Permisos: `novedades.ingresos_ver` y `novedades.salidas_ver`, del catálogo
+# existente, asignados por usuario (`user.user_permissions`, el mecanismo
+# granular de Django que ya usa NEXO) sin tocar el rol. El Administrador
+# (`is_superuser`) los tiene siempre. Independientes del acceso al módulo.
+
+MOVEMENT_ENTRIES = "entries"
+MOVEMENT_EXITS = "exits"
+MOVEMENT_CODENAMES = {
+    MOVEMENT_ENTRIES: "novedades.ingresos_ver",
+    MOVEMENT_EXITS: "novedades.salidas_ver",
+}
+MOVEMENT_LABELS = {MOVEMENT_ENTRIES: "Ingresos", MOVEMENT_EXITS: "Salidas"}
+MOVEMENT_PAGE_SIZES = (25, 50, 100)
+MOVEMENT_EXPORT_LIMIT = 10000
+
+
+def _supervisor_at_event(collaborator_ref: str, moment_ref: str):
+    """Supervisor responsable en el momento del movimiento: la asignación
+    vigente a esa fecha (historial `CollaboratorAssignment`)."""
+    return Subquery(
+        CollaboratorAssignment.objects.filter(
+            collaborator=OuterRef(collaborator_ref), started_at__lte=OuterRef(moment_ref)
+        )
+        .order_by("-started_at")
+        .values("supervisor")[:1]
+    )
+
+
+class MovementService:
+    @staticmethod
+    def can_view(user, kind: str) -> bool:
+        return user_has_permission(user, MOVEMENT_CODENAMES[kind])
+
+    @staticmethod
+    def access(user) -> dict:
+        return {
+            "entries": MovementService.can_view(user, MOVEMENT_ENTRIES),
+            "exits": MovementService.can_view(user, MOVEMENT_EXITS),
+            "can_manage": bool(user.is_superuser),
+        }
+
+    @staticmethod
+    def _check(user, kind: str):
+        if not MovementService.can_view(user, kind):
+            raise _forbidden(f"No tiene acceso a la consulta de {MOVEMENT_LABELS[kind]}.")
+
+    @staticmethod
+    def _check_any(user):
+        if not (
+            MovementService.can_view(user, MOVEMENT_ENTRIES)
+            or MovementService.can_view(user, MOVEMENT_EXITS)
+        ):
+            raise _forbidden("No tiene acceso a Ingresos ni a Salidas.")
+
+    @staticmethod
+    def options(user) -> dict:
+        """Valores de los filtros (supervisores y cargos existentes)."""
+        MovementService._check_any(user)
+        supervisor_ids = set(
+            CollaboratorAssignment.objects.values_list("supervisor", flat=True).distinct()
+        )
+        supervisors = sorted(
+            (
+                {"id": u.pk, "name": user_display(u)}
+                for u in User.objects.filter(pk__in=supervisor_ids)
+            ),
+            key=lambda x: x["name"].lower(),
+        )
+        # El mismo cargo aparece escrito de varias formas ("COURIER", "Courier"):
+        # una sola opción por cargo sin distinguir mayúsculas (el filtro también
+        # las ignora).
+        cargos: dict[str, str] = {}
+        for cargo in Collaborator.objects.values_list("cargo", flat=True).distinct():
+            cargo = " ".join((cargo or "").split())
+            if cargo:
+                cargos.setdefault(cargo.casefold(), cargo)
+        cargos = sorted(cargos.values(), key=str.casefold)
+        statuses = [{"value": v, "label": l_} for v, l_ in Collaborator.Status.choices]
+        return {"supervisors": supervisors, "cargos": cargos, "statuses": statuses}
+
+    @staticmethod
+    def _filters(params) -> dict:
+        get = params.get
+        f = {
+            "q": " ".join(str(get("q") or "").split()),
+            "date_from": (
+                _parse_date_param(get("date_from"), "date_from") if get("date_from") else None
+            ),
+            "date_to": _parse_date_param(get("date_to"), "date_to") if get("date_to") else None,
+            "cargo": str(get("cargo") or "").strip(),
+            "supervisor": (
+                _parse_id_param(get("supervisor"), "supervisor") if get("supervisor") else None
+            ),
+            "status": str(get("status") or "").strip(),
+            "order": "asc" if get("order") == "asc" else "desc",
+        }
+        if f["status"] and f["status"] not in Collaborator.Status.values:
+            raise NovedadesError("Estado inválido.", details={"status": ["Valor inválido."]})
+        if f["date_from"] and f["date_to"] and f["date_from"] > f["date_to"]:
+            raise NovedadesError("La fecha inicial es posterior a la final.")
+        return f
+
+    @staticmethod
+    def _apply(qs, f: dict, *, prefix: str, date_field: str):
+        """Mismos filtros para altas (prefix="") y cambios de estado
+        (prefix="collaborator__"). El supervisor filtra por el responsable EN
+        EL MOMENTO del movimiento (anotación `event_supervisor`)."""
+        if f["q"]:
+            qs = qs.filter(
+                Q(**{f"{prefix}cedula__icontains": f["q"]})
+                | Q(**{f"{prefix}full_name__icontains": f["q"]})
+            )
+        if f["date_from"] or f["date_to"]:
+            start, end = business_range(
+                f["date_from"] or date(2000, 1, 1), f["date_to"] or date(2100, 1, 1)
+            )
+            qs = qs.filter(**{f"{date_field}__gte": start, f"{date_field}__lt": end})
+        if f["cargo"]:
+            qs = qs.filter(**{f"{prefix}cargo__iexact": f["cargo"]})
+        if f["status"]:
+            qs = qs.filter(**{f"{prefix}status": f["status"]})
+        if f["supervisor"]:
+            qs = qs.filter(event_supervisor=f["supervisor"])
+        return qs
+
+    @staticmethod
+    def _entry_querysets(f: dict):
+        first_assignment = Subquery(
+            CollaboratorAssignment.objects.filter(collaborator=OuterRef("pk"))
+            .order_by("started_at")
+            .values("supervisor")[:1]
+        )
+        altas = Collaborator.objects.annotate(
+            event_supervisor=Coalesce(
+                first_assignment, F("current_supervisor"), output_field=BigIntegerField()
+            )
+        )
+        returns = CollaboratorStatusChange.objects.filter(
+            previous_status=Collaborator.Status.INACTIVE, new_status=Collaborator.Status.ACTIVE
+        ).annotate(
+            event_supervisor=Coalesce(
+                _supervisor_at_event("collaborator", "created_at"),
+                F("collaborator__current_supervisor"),
+                output_field=BigIntegerField(),
+            )
+        )
+        return (
+            MovementService._apply(altas, f, prefix="", date_field="created_at"),
+            MovementService._apply(returns, f, prefix="collaborator__", date_field="created_at"),
+        )
+
+    @staticmethod
+    def _exit_queryset(f: dict):
+        qs = CollaboratorStatusChange.objects.filter(
+            new_status=Collaborator.Status.INACTIVE
+        ).annotate(
+            event_supervisor=Coalesce(
+                _supervisor_at_event("collaborator", "created_at"),
+                F("collaborator__current_supervisor"),
+                output_field=BigIntegerField(),
+            )
+        )
+        return MovementService._apply(qs, f, prefix="collaborator__", date_field="created_at")
+
+    @staticmethod
+    def _page_params(params) -> tuple[int, int]:
+        try:
+            page = max(1, int(params.get("page") or 1))
+        except ValueError:
+            page = 1
+        try:
+            size = int(params.get("page_size") or 25)
+        except ValueError:
+            size = 25
+        return page, size if size in MOVEMENT_PAGE_SIZES else 25
+
+    @staticmethod
+    def _names(user_ids) -> dict[int, str]:
+        return {u.pk: user_display(u) for u in User.objects.filter(pk__in=set(user_ids) - {None})}
+
+    # ── Ingresos ──────────────────────────────────────────────────────────
+    @staticmethod
+    def _entry_keys(f: dict) -> list[tuple]:
+        """Claves (fecha, tipo, id, colaborador) ordenadas de forma estable:
+        altas y reingresos son dos tablas, se combinan solo sus claves y el
+        detalle se lee únicamente para la página pedida."""
+        altas, returns = MovementService._entry_querysets(f)
+        keys = [(d, "ALTA", pk, pk) for pk, d in altas.values_list("pk", "created_at")]
+        keys += [
+            (d, "REINGRESO", pk, cid)
+            for pk, d, cid in returns.values_list("pk", "created_at", "collaborator_id")
+        ]
+        keys.sort(key=lambda k: (k[0], k[1], k[2]), reverse=f["order"] == "desc")
+        return keys
+
+    @staticmethod
+    def _entry_rows(keys: list[tuple]) -> list[dict]:
+        alta_ids = [k[2] for k in keys if k[1] == "ALTA"]
+        return_ids = [k[2] for k in keys if k[1] == "REINGRESO"]
+        first_assignment = Subquery(
+            CollaboratorAssignment.objects.filter(collaborator=OuterRef("pk"))
+            .order_by("started_at")
+            .values("supervisor")[:1]
+        )
+        altas = {
+            c.pk: c
+            for c in Collaborator.objects.filter(pk__in=alta_ids).annotate(
+                event_supervisor=Coalesce(
+                    first_assignment, F("current_supervisor"), output_field=BigIntegerField()
+                )
+            )
+        }
+        returns = {
+            sc.pk: sc
+            for sc in CollaboratorStatusChange.objects.filter(pk__in=return_ids)
+            .select_related("collaborator")
+            .annotate(
+                event_supervisor=Coalesce(
+                    _supervisor_at_event("collaborator", "created_at"),
+                    F("collaborator__current_supervisor"),
+                    output_field=BigIntegerField(),
+                )
+            )
+        }
+        # Origen del alta (formulario o archivo importado), del evento ya registrado.
+        origins = dict(
+            NovedadEvent.objects.filter(
+                action="collaborator.created", target_id__in=[str(i) for i in alta_ids]
+            ).values_list("target_id", "source_file")
+        )
+        names = MovementService._names(
+            [c.event_supervisor for c in altas.values()]
+            + [c.created_by_id for c in altas.values()]
+            + [sc.event_supervisor for sc in returns.values()]
+            + [sc.changed_by_id for sc in returns.values()]
+        )
+        statuses = dict(Collaborator.Status.choices)
+        rows = []
+        for _, kind, pk, _cid in keys:
+            if kind == "ALTA":
+                c = altas[pk]
+                source = origins.get(str(pk))
+                rows.append(
+                    {
+                        "id": f"A{pk}",
+                        "kind": kind,
+                        "kind_label": "Alta en NEXO",
+                        "registered_at": c.created_at,
+                        "collaborator_id": c.pk,
+                        "cedula": c.cedula,
+                        "full_name": c.full_name,
+                        "cargo": c.cargo,
+                        "area": c.area,
+                        "regional": c.regional,
+                        "supervisor": names.get(c.event_supervisor, ""),
+                        "status": c.status,
+                        "status_label": statuses[c.status],
+                        "registered_by": names.get(c.created_by_id, ""),
+                        "origin": f"Importación ({source})" if source else "Formulario",
+                    }
+                )
+            else:
+                sc = returns[pk]
+                c = sc.collaborator
+                rows.append(
+                    {
+                        "id": f"R{pk}",
+                        "kind": kind,
+                        "kind_label": "Reingreso (Inactivo → Activo)",
+                        "registered_at": sc.created_at,
+                        "collaborator_id": c.pk,
+                        "cedula": c.cedula,
+                        "full_name": c.full_name,
+                        "cargo": c.cargo,
+                        "area": c.area,
+                        "regional": c.regional,
+                        "supervisor": names.get(sc.event_supervisor, ""),
+                        "status": c.status,
+                        "status_label": statuses[c.status],
+                        "registered_by": names.get(sc.changed_by_id, ""),
+                        "origin": "Cambio de estado",
+                    }
+                )
+        return rows
+
+    @staticmethod
+    def entries(user, params) -> dict:
+        MovementService._check(user, MOVEMENT_ENTRIES)
+        f = MovementService._filters(params)
+        page, size = MovementService._page_params(params)
+        keys = MovementService._entry_keys(f)
+        chunk = keys[(page - 1) * size : page * size]
+        return {
+            "results": MovementService._entry_rows(chunk),
+            "count": len(keys),
+            "page": page,
+            "page_size": size,
+            "counters": {
+                "movements": len(keys),
+                "people": len({k[3] for k in keys}),
+                "altas": sum(1 for k in keys if k[1] == "ALTA"),
+                "reingresos": sum(1 for k in keys if k[1] == "REINGRESO"),
+            },
+        }
+
+    # ── Salidas ───────────────────────────────────────────────────────────
+    @staticmethod
+    def _exit_rows(changes) -> list[dict]:
+        changes = list(changes)
+        names = MovementService._names(
+            [sc.event_supervisor for sc in changes] + [sc.changed_by_id for sc in changes]
+        )
+        statuses = dict(Collaborator.Status.choices)
+        return [
+            {
+                "id": sc.pk,
+                "changed_at": sc.created_at,
+                "previous_status": sc.previous_status,
+                "previous_status_label": statuses[sc.previous_status],
+                "collaborator_id": sc.collaborator_id,
+                "cedula": sc.collaborator.cedula,
+                "full_name": sc.collaborator.full_name,
+                "cargo": sc.collaborator.cargo,
+                "area": sc.collaborator.area,
+                "regional": sc.collaborator.regional,
+                "supervisor": names.get(sc.event_supervisor, ""),
+                "status": sc.collaborator.status,
+                "status_label": statuses[sc.collaborator.status],
+                "changed_by": names.get(sc.changed_by_id, ""),
+            }
+            for sc in changes
+        ]
+
+    @staticmethod
+    def _ordered_exits(f: dict):
+        order = ("created_at", "pk") if f["order"] == "asc" else ("-created_at", "-pk")
+        return MovementService._exit_queryset(f).select_related("collaborator").order_by(*order)
+
+    @staticmethod
+    def exits(user, params) -> dict:
+        MovementService._check(user, MOVEMENT_EXITS)
+        f = MovementService._filters(params)
+        page, size = MovementService._page_params(params)
+        qs = MovementService._ordered_exits(f)
+        total = qs.count()
+        return {
+            "results": MovementService._exit_rows(qs[(page - 1) * size : page * size]),
+            "count": total,
+            "page": page,
+            "page_size": size,
+            "counters": {
+                "movements": total,
+                "people": qs.order_by().values("collaborator").distinct().count(),
+            },
+        }
+
+    # ── Exportación (mismos filtros y permisos) ───────────────────────────
+    @staticmethod
+    def export_rows(user, kind: str, params, *, context=None) -> tuple[list[dict], dict]:
+        MovementService._check(user, kind)
+        f = MovementService._filters(params)
+        if kind == MOVEMENT_ENTRIES:
+            keys = MovementService._entry_keys(f)
+            if len(keys) > MOVEMENT_EXPORT_LIMIT:
+                raise NovedadesError(
+                    f"La consulta tiene {len(keys)} registros: acote los filtros (máximo "
+                    f"{MOVEMENT_EXPORT_LIMIT} por archivo)."
+                )
+            rows = MovementService._entry_rows(keys)
+        else:
+            qs = MovementService._ordered_exits(f)
+            total = qs.count()
+            if total > MOVEMENT_EXPORT_LIMIT:
+                raise NovedadesError(
+                    f"La consulta tiene {total} registros: acote los filtros (máximo "
+                    f"{MOVEMENT_EXPORT_LIMIT} por archivo)."
+                )
+            rows = MovementService._exit_rows(qs)
+        record_audit_event(
+            actor=user,
+            action=f"novedades.movements.export_{kind}",
+            module=MODULE,
+            target_type="movements",
+            new_values={
+                "rows": len(rows),
+                "filters": {k: str(v) for k, v in f.items() if v},
+            },
+            context=context,
+        )
+        return rows, f
+
+
+class MovementPermissionService:
+    """Ajustes → Permisos de visibilidad — Ingresos y Salidas. Solo el
+    Administrador; cada pestaña es un permiso individual e independiente."""
+
+    @staticmethod
+    def _check(actor):
+        if not actor.is_superuser:
+            raise _forbidden("Solo el Administrador puede gestionar estos permisos.")
+
+    @staticmethod
+    def _permissions():
+        from django.contrib.auth.models import Permission
+
+        perms = {
+            p.codename: p
+            for p in Permission.objects.filter(codename__in=MOVEMENT_CODENAMES.values())
+        }
+        missing = set(MOVEMENT_CODENAMES.values()) - set(perms)
+        if missing:  # migraciones sin aplicar
+            raise NovedadesError("Permisos de Ingresos/Salidas no instalados.", status=500)
+        return perms
+
+    @staticmethod
+    def _serialize(u, perms) -> dict:
+        from django.contrib.auth.models import Permission
+
+        direct = set(
+            u.user_permissions.filter(pk__in=[p.pk for p in perms.values()]).values_list(
+                "codename", flat=True
+            )
+        )
+        # Concedidos por el ROL (grupo): se muestran aparte; esta pantalla solo
+        # gestiona los individuales.
+        by_role = set(
+            Permission.objects.filter(
+                pk__in=[p.pk for p in perms.values()], group__user=u
+            ).values_list("codename", flat=True)
+        )
+        groups = list(u.groups.values_list("name", flat=True))
+        result = {
+            "id": u.pk,
+            "name": user_display(u),
+            "username": u.username,
+            "email": u.email,
+            "role": groups[0] if groups else "",
+            "is_active": u.is_active,
+        }
+        for kind, codename in MOVEMENT_CODENAMES.items():
+            result[kind] = {"direct": codename in direct, "by_role": codename in by_role}
+        return result
+
+    @staticmethod
+    def users(actor, q: str = "") -> list[dict]:
+        MovementPermissionService._check(actor)
+        perms = MovementPermissionService._permissions()
+        users = User.objects.filter(is_superuser=False).order_by(
+            "first_name", "last_name", "username"
+        )
+        q = " ".join(str(q or "").split())
+        if q:
+            users = users.filter(
+                Q(first_name__icontains=q)
+                | Q(last_name__icontains=q)
+                | Q(username__icontains=q)
+                | Q(email__icontains=q)
+            )
+        return [MovementPermissionService._serialize(u, perms) for u in users]
+
+    @staticmethod
+    def update(actor, user_id, data: dict, *, context=None) -> dict:
+        MovementPermissionService._check(actor)
+        perms = MovementPermissionService._permissions()
+        target = User.objects.filter(pk=user_id).first()
+        if target is None:
+            raise _not_found("Usuario no encontrado.")
+        if target.pk == actor.pk:
+            raise _forbidden("No puede modificar sus propios permisos.")
+        if target.is_superuser:
+            raise NovedadesError(
+                "El Administrador ya tiene acceso a ambas pestañas por su rol.", code="admin"
+            )
+        changes = {k: data[k] for k in MOVEMENT_CODENAMES if k in data}
+        if not changes:
+            raise NovedadesError("Indique al menos una pestaña.")
+        if any(not isinstance(v, bool) for v in changes.values()):
+            raise NovedadesError("Valor inválido: use verdadero o falso.")
+        with transaction.atomic():
+            for kind, enabled in changes.items():
+                perm = perms[MOVEMENT_CODENAMES[kind]]
+                before = target.user_permissions.filter(pk=perm.pk).exists()
+                if before == enabled:
+                    continue
+                if enabled:
+                    target.user_permissions.add(perm)
+                else:
+                    target.user_permissions.remove(perm)
+                record_audit_event(
+                    actor=actor,
+                    action="novedades.movements.permission_changed",
+                    target=target,
+                    module=MODULE,
+                    previous_values={"tab": MOVEMENT_LABELS[kind], "enabled": before},
+                    new_values={"tab": MOVEMENT_LABELS[kind], "enabled": enabled},
+                    context=context,
+                )
+        return MovementPermissionService._serialize(User.objects.get(pk=target.pk), perms)

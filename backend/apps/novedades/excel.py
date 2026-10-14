@@ -377,6 +377,81 @@ class ExportService:
         return _sheet_bytes(wb)
 
 
+MOVEMENT_EXPORT_HEADERS = {
+    "entries": [
+        "Fecha de registro en NEXO",
+        "Tipo de ingreso",
+        "Cédula",
+        "Empleado",
+        "Cargo",
+        "Área",
+        "Regional",
+        "Supervisor responsable",
+        "Estado actual",
+        "Registrado por",
+        "Origen",
+    ],
+    "exits": [
+        "Fecha y hora del cambio a Inactivo",
+        "Estado anterior",
+        "Cédula",
+        "Empleado",
+        "Cargo",
+        "Área",
+        "Regional",
+        "Supervisor responsable",
+        "Estado actual",
+        "Cambiado por",
+    ],
+}
+
+
+def movements_workbook(kind: str, rows: list[dict]) -> bytes:
+    """Ingresos o Salidas filtrados (ver `MovementService.export_rows`): solo
+    las columnas de la pestaña autorizada, fechas en hora del negocio."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Ingresos" if kind == "entries" else "Salidas"
+    headers = MOVEMENT_EXPORT_HEADERS[kind]
+    ws.append(headers)
+    for r in rows:
+        if kind == "entries":
+            values = [
+                business_stamp(r["registered_at"]),
+                r["kind_label"],
+                str(r["cedula"]),
+                _safe_text(r["full_name"]),
+                _safe_text(r["cargo"]),
+                _safe_text(r["area"]),
+                _safe_text(r["regional"]),
+                _safe_text(r["supervisor"]),
+                r["status_label"],
+                _safe_text(r["registered_by"]),
+                _safe_text(r["origin"]),
+            ]
+        else:
+            values = [
+                business_stamp(r["changed_at"]),
+                r["previous_status_label"],
+                str(r["cedula"]),
+                _safe_text(r["full_name"]),
+                _safe_text(r["cargo"]),
+                _safe_text(r["area"]),
+                _safe_text(r["regional"]),
+                _safe_text(r["supervisor"]),
+                r["status_label"],
+                _safe_text(r["changed_by"]),
+            ]
+        ws.append(values)
+        _text_cell(ws, ws.max_row, 3)
+    _style_header(ws, len(headers))
+    for idx, width in enumerate(
+        [20, 26, 14, 34, 22, 18, 16, 26, 14, 26, 30][: len(headers)], start=1
+    ):
+        ws.column_dimensions[get_column_letter(idx)].width = width
+    return _sheet_bytes(wb)
+
+
 class ImportService:
     @staticmethod
     def _check(acc: NovedadesAccess):

@@ -17,7 +17,7 @@ from apps.core.request_meta import get_request_context
 from apps.core.responses import error_response
 
 from .access import NovedadesAccess
-from .excel import CollaboratorImportService, ExportService, ImportService
+from .excel import CollaboratorImportService, ExportService, ImportService, movements_workbook
 from .models import ImportBatch
 from .periods import month_for_date, parse_month_code, parse_period_code, period_for_date
 from .permissions import CanAccessNovedades
@@ -53,6 +53,8 @@ from .services import (
     ExitNotificationService,
     ExitRecipientService,
     HistoryService,
+    MovementPermissionService,
+    MovementService,
     NovedadesError,
     OvertimeMonthService,
     OvertimeService,
@@ -718,3 +720,72 @@ class ExitNotificationListView(NovedadesView):
 class ExitNotificationRetryView(NovedadesView):
     def post(self, request, pk):
         return Response(ExitNotificationService.retry(self.access, pk, context=self.context))
+
+
+# ── Ingresos y Salidas (consulta consolidada) ─────────────────────────────────
+
+
+class MovementView(APIView):
+    """Sin `CanAccessNovedades` a propósito: estas pestañas se autorizan con sus
+    propios permisos (`novedades.ingresos_ver` / `novedades.salidas_ver`), que
+    no dan acceso al resto del módulo. Cada servicio los revalida."""
+
+    permission_classes = [IsAuthenticated]
+
+    @property
+    def context(self) -> dict:
+        return get_request_context(self.request)
+
+    def handle_exception(self, exc):
+        if isinstance(exc, NovedadesError):
+            return error_response(exc.code, exc.message, exc.status, exc.details)
+        return super().handle_exception(exc)
+
+
+class MovementAccessView(MovementView):
+    def get(self, request):
+        return Response(MovementService.access(request.user))
+
+
+class MovementOptionsView(MovementView):
+    def get(self, request):
+        return Response(MovementService.options(request.user))
+
+
+class MovementEntriesView(MovementView):
+    def get(self, request):
+        return Response(MovementService.entries(request.user, request.query_params))
+
+
+class MovementExitsView(MovementView):
+    def get(self, request):
+        return Response(MovementService.exits(request.user, request.query_params))
+
+
+class MovementExportView(MovementView):
+    kind = ""
+
+    def get(self, request):
+        rows, _ = MovementService.export_rows(
+            request.user, self.kind, request.query_params, context=self.context
+        )
+        name = "ingresos" if self.kind == "entries" else "salidas"
+        response = HttpResponse(movements_workbook(self.kind, rows), content_type=XLSX)
+        response["Content-Disposition"] = f'attachment; filename="{name}-{today():%Y-%m-%d}.xlsx"'
+        return response
+
+
+class MovementPermissionListView(MovementView):
+    def get(self, request):
+        return Response(
+            MovementPermissionService.users(request.user, request.query_params.get("q", ""))
+        )
+
+
+class MovementPermissionDetailView(MovementView):
+    def post(self, request, user_id):
+        return Response(
+            MovementPermissionService.update(
+                request.user, user_id, request.data, context=self.context
+            )
+        )

@@ -11,6 +11,7 @@ const DESK_UNREAD_POLL_MS = 30000;
 
 type Props = {
   role: Role;
+  permissions?: string[];
   collapsed: boolean;
   onToggleCollapsed: () => void;
   mobileOpen: boolean;
@@ -18,10 +19,11 @@ type Props = {
 };
 
 const SECTIONS: NavSection[] = ["general", "gestion", "inteligencia"];
+const NO_PERMISSIONS: string[] = [];
 
-export default function Sidebar({ role, collapsed, onToggleCollapsed, mobileOpen, onCloseMobile }: Props) {
+export default function Sidebar({ role, permissions = NO_PERMISSIONS, collapsed, onToggleCollapsed, mobileOpen, onCloseMobile }: Props) {
   const pathname = usePathname();
-  const links = getNavLinks(role);
+  const links = getNavLinks(role, permissions);
   const hasDeskLink = links.some((l) => l.href === "/desk");
   const [deskUnread, setDeskUnread] = useState(0);
 

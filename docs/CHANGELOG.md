@@ -23,6 +23,65 @@
 
 ---
 
+## v1.177.0 — 2026-10-14
+
+**Tipo:** FEATURE / SECURITY
+**Módulo:** Control Operativo de Novedades — Ingresos y Salidas · Ajustes ·
+navegación.
+
+- **Página «Ingresos y Salidas»** (`/control-operativo/ingresos-salidas`,
+  enlace en el menú) con dos pestañas de consulta consolidada, de solo lectura:
+  - **Ingresos** = altas de colaboradores en la base (`Collaborator`: fecha y
+    usuario del alta, origen formulario o importación) y **reingresos**
+    (`CollaboratorStatusChange` Inactivo → Activo).
+  - **Salidas** = cambios de estado a Inactivo (`CollaboratorStatusChange`),
+    con estado anterior, quién lo cambió y la fecha y hora del cambio.
+  No hay una segunda fuente de movimientos: todo sale de los registros que ya
+  existían. Las fechas se rotulan como lo que son —«Fecha de registro en
+  NEXO», «Fecha de cambio a Inactivo»— porque NEXO no guarda una fecha formal
+  de ingreso ni de salida laboral.
+- **Supervisor responsable en la fecha del movimiento**, leído del historial de
+  asignaciones (`CollaboratorAssignment`), no el supervisor actual.
+- **Filtros en el servidor:** búsqueda por cédula o nombre, rango de fechas
+  (calendario del negocio), cargo (sin distinguir mayúsculas, con una opción
+  por cargo aunque esté escrito de varias formas), supervisor, estado actual y
+  orden por fecha; paginación de 25/50/100 con orden estable. **Contadores**
+  de movimientos y de personas distintas (una persona con varias salidas
+  cuenta una vez en «Personas distintas»); en Ingresos, además, altas y
+  reingresos.
+- **Exportación a Excel** de lo filtrado, solo con las columnas de la pestaña
+  autorizada (hasta 10.000 filas por archivo), auditada.
+- **Permisos independientes por usuario:** `novedades.ingresos_ver` y
+  `novedades.salidas_ver`, agregados al catálogo existente y asignados con
+  los permisos individuales de Django (`user.user_permissions`), sin cambiar
+  el rol ni dar acceso al resto del módulo. El Administrador los tiene por su
+  rol. Cada endpoint los revalida en Django; la página consulta el acceso en
+  cada carga, así que un permiso retirado corta el acceso de inmediato.
+- **Ajustes → Seguridad → «Permisos de visibilidad — Ingresos y Salidas»**
+  (solo Administrador): buscar usuarios, habilitar o retirar cada pestaña por
+  separado y ver los permisos vigentes, incluidos los que alguien tenga por su
+  rol. Nadie puede modificar sus propios permisos. Cada cambio queda en la
+  auditoría (quién, a quién, pestaña, antes, después y cuándo).
+- **Convive con el correo de salida:** consultar o exportar no crea eventos ni
+  envía notificaciones.
+
+- **Archivos:** `backend/apps/novedades/{services,excel,views,urls}.py`,
+  `backend/apps/permissions/catalog.py`, migración
+  `permissions/0009_movement_visibility_permissions`,
+  `src/app/(protected)/control-operativo/ingresos-salidas/page.tsx`,
+  `src/components/novedades/MovementsView.tsx`,
+  `src/components/settings/{MovementPermissionsSection,ConfigCenter}.tsx`,
+  `src/components/settings/registry.ts`, `src/lib/navLinks.ts`,
+  `src/components/shell/{AppShell,Sidebar,CommandPalette}.tsx`,
+  `src/app/(protected)/layout.tsx`.
+
+**Verificación:** `backend/apps/novedades/tests/test_movements.py` (20 tests)
+y `src/__tests__/components/MovementsView.test.tsx` (7 tests).
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
 ## v1.176.0 — 2026-10-13
 
 **Tipo:** FEATURE / SECURITY / DATABASE

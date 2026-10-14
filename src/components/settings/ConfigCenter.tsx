@@ -37,6 +37,7 @@ import DataRequestsSection from "@/components/settings/DataRequestsSection";
 import RetentionPolicySection from "@/components/settings/RetentionPolicySection";
 import NovedadesPermissionsSection from "@/components/settings/NovedadesPermissionsSection";
 import ExitNotificationsSection from "@/components/settings/ExitNotificationsSection";
+import MovementPermissionsSection from "@/components/settings/MovementPermissionsSection";
 import NotificationRulesSection from "@/components/settings/NotificationRulesSection";
 import WelcomeMessageSection from "@/components/settings/WelcomeMessageSection";
 import SystemInfoSection from "@/components/settings/SystemInfoSection";
@@ -264,6 +265,9 @@ function ConfigCenterInner({ currentUserRole }: { currentUserRole: Role }) {
                   </ConfigSectionCard>
                   <ConfigSectionCard descriptor={d("novedades-permissions")!}>
                     <NovedadesPermissionsSection />
+                  </ConfigSectionCard>
+                  <ConfigSectionCard descriptor={d("movement-visibility")!}>
+                    <MovementPermissionsSection />
                   </ConfigSectionCard>
                   <ProximamenteCard
                     title="Permisos especiales por usuario"

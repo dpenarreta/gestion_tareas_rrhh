@@ -173,4 +173,38 @@ urlpatterns = [
         views.ExitNotificationRetryView.as_view(),
         name="novedades-exit-notification-retry",
     ),
+    path(
+        "movements/access/", views.MovementAccessView.as_view(), name="novedades-movements-access"
+    ),
+    path(
+        "movements/options/",
+        views.MovementOptionsView.as_view(),
+        name="novedades-movements-options",
+    ),
+    path(
+        "movements/entries/",
+        views.MovementEntriesView.as_view(),
+        name="novedades-movements-entries",
+    ),
+    path("movements/exits/", views.MovementExitsView.as_view(), name="novedades-movements-exits"),
+    path(
+        "movements/entries/export/",
+        views.MovementExportView.as_view(kind="entries"),
+        name="novedades-movements-entries-export",
+    ),
+    path(
+        "movements/exits/export/",
+        views.MovementExportView.as_view(kind="exits"),
+        name="novedades-movements-exits-export",
+    ),
+    path(
+        "movements/permissions/",
+        views.MovementPermissionListView.as_view(),
+        name="novedades-movements-permissions",
+    ),
+    path(
+        "movements/permissions/<int:user_id>/",
+        views.MovementPermissionDetailView.as_view(),
+        name="novedades-movements-permission",
+    ),
 ]

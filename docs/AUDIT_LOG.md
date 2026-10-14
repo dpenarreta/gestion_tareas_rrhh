@@ -15,6 +15,61 @@
 
 ---
 
+## 2026-10-14 — Ingresos y Salidas: consulta consolidada con permisos por usuario
+
+**Cómo apareció:** pedido explícito de dos pestañas de consulta (Ingresos y
+Salidas) que el Administrador pueda habilitar a personas concretas, por
+separado, sin cambiar su rol.
+
+**Lo que había (verificado en el código y en la base de desarrollo):**
+- No existe una fecha formal de ingreso ni de salida laboral. Lo registrado es
+  el alta en la base (`Collaborator.created_at`/`created_by`, con el archivo
+  de origen en `NovedadEvent` si vino de una importación) y el historial de
+  estados (`CollaboratorStatusChange`).
+- En la base de desarrollo, las 121 altas son la carga inicial del 12 y 13 de
+  octubre de 2026: aparecen como «ingresos» de esos días aunque las personas
+  trabajen hace tiempo.
+- NEXO ya tiene permisos individuales por usuario: el catálogo
+  (`apps/permissions/catalog.py`) vive como `auth.Permission` y Django los
+  asigna por grupo o por usuario (`user.user_permissions`); el backend tenía
+  el endpoint pero ninguna pantalla lo usaba. Las excepciones del módulo
+  (`PermissionOverride`) solo aplican a los roles operativos.
+
+**Alternativas consideradas:**
+
+- *Pestañas dentro del módulo Control Operativo.* Descartado: exigiría dar
+  `novedades.acceder`, que abre Días laborados y Horas extras — ampliaría
+  permisos. Se hizo una página propia que no requiere acceso al módulo.
+- *Reutilizar `PermissionOverride`.* Descartado: está atado a la matriz de
+  roles operativos; el pedido es para cualquier usuario.
+- *Una tabla de movimientos nueva.* Descartado: duplicaría la información; se
+  consulta lo que ya existe.
+- *Considerar «Suspendido → Activo» como ingreso.* Descartado: es el regreso
+  de una suspensión, no un ingreso. Sí se cuentan los reingresos
+  (Inactivo → Activo).
+
+**Decisión técnica:** dos permisos del catálogo (`novedades.ingresos_ver`,
+`novedades.salidas_ver`) asignados por usuario con el mecanismo nativo de
+Django; `MovementService` (consulta, filtros, contadores, exportación) y
+`MovementPermissionService` (Ajustes, solo `is_superuser`, nunca sobre uno
+mismo, auditado). El supervisor de cada movimiento es el de la asignación
+vigente en esa fecha. Los permisos de la sesión (JWT) solo deciden si se ve
+el enlace; la página y cada endpoint revalidan en Django en cada solicitud.
+
+**Limitaciones de los datos históricos:**
+- La fecha de Ingresos es la del registro en NEXO, no la de ingreso laboral
+  (la carga inicial aparece como un pico de ingresos).
+- El cargo, el área y la regional son los ACTUALES del colaborador: NEXO no
+  guarda su historia.
+- Un colaborador eliminado de la base (solo posible si no tenía novedades)
+  desaparece de Ingresos; queda en el Historial de registros.
+
+**Impacto:** sin cambios en los flujos de alta, cambio de estado, Días
+laborados ni en el correo de salida. Migración: solo agrega dos permisos al
+catálogo.
+
+---
+
 ## 2026-10-13 — Correo de salida de colaboradores con el detalle de Días laborados
 
 **Cómo apareció:** pedido explícito: avisar por correo a Operaciones, Jefatura

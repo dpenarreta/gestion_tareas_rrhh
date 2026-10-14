@@ -250,6 +250,15 @@ export const SETTINGS_REGISTRY: SettingDescriptor[] = [
     configKeys: [],
   },
   {
+    id: "movement-visibility",
+    label: "Permisos de visibilidad — Ingresos y Salidas",
+    description:
+      "Concede o retira, por persona y por separado, la consulta de las pestañas Ingresos y Salidas sin cambiar su rol.",
+    keywords: ["ingresos", "salidas", "visibilidad", "permisos", "colaboradores", "altas", "inactivos", "reingresos", "usuarios"],
+    category: "seguridad",
+    configKeys: [],
+  },
+  {
     id: "seguridad-config",
     label: "Política de contraseña y sesión",
     description: "Longitud mínima de contraseña, duración de sesión, cierre por inactividad y retención de intentos de login.",
