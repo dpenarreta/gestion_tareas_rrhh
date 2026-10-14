@@ -15,6 +15,60 @@
 
 ---
 
+## 2026-10-13 — Correo de salida de colaboradores con el detalle de Días laborados
+
+**Cómo apareció:** pedido explícito: avisar por correo a Operaciones, Jefatura
+de Operaciones y Talento Humano cuando un supervisor pasa a un colaborador de
+Activo a Inactivo, con su detalle de asistencia del período, reutilizando el
+SMTP de NEXO.
+
+**Lo que había (verificado en el código):** un solo punto de cambio de estado
+(`CollaboratorService.change_status`, con actualización condicional e
+historial `CollaboratorStatusChange`); envío de correo de Django configurado
+para la recuperación de contraseña (`apps/authentication/emails.py`,
+`CertifiSMTPEmailBackend`), con fallas silenciosas a propósito; una cola de
+reintentos para alertas internas (`PendingNotification` +
+`novedades_retry_notifications`); y la matriz de Días laborados, que calcula
+celdas y total dentro de `WorkedDayService.matrix`.
+
+**Alternativas consideradas:**
+
+- *Reutilizar `_send_transactional_email` de autenticación.* Descartado como
+  función: envía a una sola dirección y se traga los errores (correcto para la
+  recuperación de contraseña, que debe responder igual exista o no la cuenta).
+  Aquí hace falta saber si el servidor aceptó el mensaje. Se reutiliza la
+  misma infraestructura (backend, credenciales, remitente) sin tocar esa
+  función.
+- *Enviar dentro de la solicitud del supervisor.* Descartado: con
+  `EMAIL_TIMEOUT` de 10 s, un SMTP lento lo haría esperar. Se envía en segundo
+  plano después de confirmar la transacción; en producción el backend es un
+  servicio persistente (waitress) y lo que no alcance a salir lo retoma el
+  reintento.
+- *Reutilizar `PendingNotification`.* Descartado: modela alertas de la
+  campana (mensaje + usuarios), no un correo con destinatarios externos,
+  intentos y fotografía del contenido.
+- *Recalcular el total para el correo.* Descartado: se extrajeron
+  `WorkedDayService.cells` y `row_total` de la matriz para que pantalla y
+  correo usen literalmente la misma regla.
+
+**Decisión técnica:** `ExitNotificationRecipient` (lista de correos con área
+opcional, se desactivan en vez de borrarse) y `CollaboratorExitNotification`
+(1 a 1 con el cambio de estado → idempotencia en la base; reclamo condicional
+del envío → sin envíos dobles; fotografía del detalle). Solo Activo →
+Inactivo genera el correo. El período es el que el módulo ya asocia al evento
+de cambio de estado. Configuración restringida al Administrador
+(`is_superuser`, mismo criterio que `IsAdministrador`).
+
+**Riesgo aceptado:** si el proceso muere justo después de que el servidor
+aceptó el mensaje y antes de registrarlo, el reintento puede enviarlo otra vez
+(el evento queda «Enviando» y a los 15 min se considera interrumpido). No hay
+forma de saberlo sin un acuse del servidor.
+
+**Datos personales:** el correo lleva cédula y asistencia por el SMTP externo
+(Alphaside). Actualizados `RAT.md` § 6 y `PENDIENTES_LEGALES.md` § 2.
+
+---
+
 ## 2026-10-13 — Horas depuradas: copia independiente y rol Jefe de Operaciones
 
 **Cómo apareció:** pedido explícito de un flujo de depuración de horas extras

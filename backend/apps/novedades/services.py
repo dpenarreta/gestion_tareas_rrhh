@@ -6,14 +6,18 @@ ocultar un botón en el frontend nunca es la barrera de seguridad.
 """
 
 import logging
+import threading
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta
 from datetime import timezone as dt_timezone
 from decimal import Decimal, InvalidOperation
 
+from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.db import IntegrityError, transaction
-from django.db.models import Count, Q, Sum
+from django.core.mail import EmailMultiAlternatives
+from django.db import IntegrityError, close_old_connections, transaction
+from django.db.models import Count, F, Q, Sum
+from django.template.loader import render_to_string
 from django.utils import timezone
 
 from apps.configuration.models import Holiday, SystemConfigHistory
@@ -34,9 +38,11 @@ from .models import (
     ClosedPeriodCorrection,
     Collaborator,
     CollaboratorAssignment,
+    CollaboratorExitNotification,
     CollaboratorStatusChange,
     DepuratedOvertime,
     DepurationChange,
+    ExitNotificationRecipient,
     ImportBatch,
     NovedadEvent,
     OperationalPeriod,
@@ -126,9 +132,10 @@ def business_range(first: date, last: date) -> tuple[datetime, datetime]:
     return start, end
 
 
-def business_stamp() -> str:
+def business_stamp(moment: datetime | None = None) -> str:
     """Fecha y hora en la zona del negocio (UTC-5, ver `apps.tasks.business_time`)."""
-    return (timezone.now() - timedelta(hours=BUSINESS_TZ_OFFSET_HOURS)).strftime("%d/%m/%Y %H:%M")
+    moment = moment or timezone.now()
+    return (moment - timedelta(hours=BUSINESS_TZ_OFFSET_HOURS)).strftime("%d/%m/%Y %H:%M")
 
 
 # Categorías de alerta (la campana las pinta con color + icono + texto).
@@ -818,6 +825,7 @@ class CollaboratorService:
         if previous == new_status:
             return collaborator  # mismo estado: no hay cambio ni evento
         labels = dict(Collaborator.Status.choices)
+        collaborator.exit_notification_event = None
         with transaction.atomic():
             # Actualización condicional: si dos envíos llegan a la vez (doble
             # clic, reintento), solo el primero cambia el estado; el segundo
@@ -859,6 +867,16 @@ class CollaboratorService:
                     exclude_user=acc.user,
                     category=ALERT_STATUS_CHANGE,
                     dedup_key=f"novedades:status-change:{status_change.pk}",
+                )
+            if (
+                previous == Collaborator.Status.ACTIVE
+                and new_status == Collaborator.Status.INACTIVE
+            ):
+                # Correo de salida: el evento se registra en la MISMA
+                # transacción que el cambio (si el cambio falla, no hay
+                # evento) y el envío corre después de confirmarla.
+                collaborator.exit_notification_event = ExitNotificationService.register(
+                    status_change
                 )
         return collaborator
 
@@ -1023,6 +1041,40 @@ class WorkedDayService:
         )
 
     @staticmethod
+    def cells(period, collaborators, supervisor) -> dict[int, dict[str, dict]]:
+        """Celdas persistidas por colaborador y fecha ISO. `hours=None` es una
+        celda vacía (no reportada) y `"0"` un cero reportado: se conservan
+        distintos. La usan la matriz y el correo de salida, para que ambos
+        muestren exactamente lo mismo."""
+        cells: dict[int, dict[str, dict]] = {}
+        for wd in WorkedDay.objects.filter(
+            period=period, collaborator__in=collaborators
+        ).select_related("supervisor"):
+            cell = {
+                "hours": _fmt(wd.hours) if wd.hours is not None else None,
+                "version": wd.version,
+            }
+            if wd.supervisor_id != supervisor.pk:
+                # Celda del equipo anterior (colaborador reasignado): se ve,
+                # pero no se edita desde este equipo ni suma en su total.
+                cell["other_team"] = user_display(wd.supervisor)
+            cells.setdefault(wd.collaborator_id, {})[wd.date.isoformat()] = cell
+        return cells
+
+    @staticmethod
+    def row_total(row_cells: dict[str, dict]) -> Decimal:
+        """Total de una fila: suma las horas reportadas por el equipo actual
+        (las celdas vacías no cuentan y las del equipo anterior tampoco)."""
+        return sum(
+            (
+                Decimal(v["hours"])
+                for v in row_cells.values()
+                if v["hours"] is not None and "other_team" not in v
+            ),
+            Decimal("0"),
+        )
+
+    @staticmethod
     def matrix(acc: NovedadesAccess, key: PeriodKey, supervisor) -> dict:
         if not acc.can(perms.ACCEDER):
             raise _forbidden()
@@ -1047,19 +1099,7 @@ class WorkedDayService:
             .distinct()
             .order_by("full_name")
         )
-        cells = {}
-        for wd in WorkedDay.objects.filter(
-            period=period, collaborator__in=collaborators
-        ).select_related("supervisor"):
-            cell = {
-                "hours": _fmt(wd.hours) if wd.hours is not None else None,
-                "version": wd.version,
-            }
-            if wd.supervisor_id != supervisor.pk:
-                # Celda del equipo anterior (colaborador reasignado): se ve,
-                # pero no se edita desde este equipo ni suma en su total.
-                cell["other_team"] = user_display(wd.supervisor)
-            cells.setdefault(wd.collaborator_id, {})[wd.date.isoformat()] = cell
+        cells = WorkedDayService.cells(period, collaborators, supervisor)
         holidays = WorkedDayService._holidays(key)
         # Plazo por fecha de trabajo, ya resuelto para este usuario: la
         # pantalla bloquea la columna con el mismo criterio que el servidor.
@@ -1097,14 +1137,7 @@ class WorkedDayService:
         rows = []
         for c in collaborators:
             row_cells = cells.get(c.pk, {})
-            total = sum(
-                (
-                    Decimal(v["hours"])
-                    for v in row_cells.values()
-                    if v["hours"] is not None and "other_team" not in v
-                ),
-                Decimal("0"),
-            )
+            total = WorkedDayService.row_total(row_cells)
             rows.append(
                 {
                     "collaborator_id": c.pk,
@@ -3844,3 +3877,529 @@ class DepurationService:
         return depuration, depuration.rows.filter(excluded=False).order_by(
             "date", "full_name", "pk"
         )
+
+
+# ── Notificaciones de salida de colaboradores ─────────────────────────────────
+
+
+def _admin_only(acc: NovedadesAccess):
+    """Ajustes de NEXO: solo el rol Administrador (`is_superuser`, el mismo
+    criterio que `apps.core.permissions.IsAdministrador`)."""
+    if not acc.user.is_superuser:
+        raise _forbidden("Solo el Administrador puede gestionar las notificaciones de salida.")
+
+
+def _normalize_email(value) -> str:
+    return "".join(str(value or "").split()).lower()
+
+
+class ExitRecipientService:
+    """Destinatarios del correo de salida (Ajustes → Notificaciones de salida
+    de colaboradores). Persisten en la base; nunca se borran, se desactivan."""
+
+    @staticmethod
+    def _validate_email(email: str, *, exclude_pk=None) -> str:
+        from django.core.exceptions import ValidationError
+        from django.core.validators import validate_email
+
+        email = _normalize_email(email)
+        if not email:
+            raise NovedadesError(
+                "Indique la dirección de correo.", details={"email": "Obligatorio."}
+            )
+        try:
+            validate_email(email)
+        except ValidationError as exc:
+            raise NovedadesError(
+                "La dirección de correo no es válida.", details={"email": "Formato inválido."}
+            ) from exc
+        duplicate = ExitNotificationRecipient.objects.filter(email=email)
+        if exclude_pk is not None:
+            duplicate = duplicate.exclude(pk=exclude_pk)
+        if duplicate.exists():
+            raise NovedadesError(
+                f"{email} ya está registrado como destinatario.",
+                code="duplicate",
+                status=409,
+                details={"email": "Duplicado."},
+            )
+        return email
+
+    @staticmethod
+    def _area(value) -> str:
+        area = str(value or "").strip()
+        if area and area not in ExitNotificationRecipient.Area.values:
+            raise NovedadesError("Área inválida.", details={"area": "Valor inválido."})
+        return area
+
+    @staticmethod
+    def serialize(r: ExitNotificationRecipient) -> dict:
+        return {
+            "id": r.pk,
+            "email": r.email,
+            "area": r.area,
+            "area_label": r.get_area_display() if r.area else "",
+            "is_active": r.is_active,
+            "updated_at": r.updated_at,
+            "updated_by": user_display(r.updated_by),
+        }
+
+    @staticmethod
+    def active_emails() -> list[str]:
+        return list(
+            ExitNotificationRecipient.objects.filter(is_active=True)
+            .order_by("email")
+            .values_list("email", flat=True)
+        )
+
+    @staticmethod
+    def config(acc: NovedadesAccess) -> dict:
+        _admin_only(acc)
+        recipients = list(ExitNotificationRecipient.objects.select_related("updated_by"))
+        # Solo el TIPO de envío (SMTP real o consola de desarrollo): nunca el
+        # servidor, el usuario ni la contraseña.
+        backend = settings.EMAIL_BACKEND.lower()
+        delivery = "smtp" if "smtp" in backend else "console" if "console" in backend else "other"
+        return {
+            "recipients": [ExitRecipientService.serialize(r) for r in recipients],
+            "active_count": sum(1 for r in recipients if r.is_active),
+            "delivery": delivery,
+            "areas": [
+                {"value": value, "label": label}
+                for value, label in ExitNotificationRecipient.Area.choices
+            ],
+        }
+
+    @staticmethod
+    def create(acc: NovedadesAccess, data: dict, *, context=None) -> dict:
+        _admin_only(acc)
+        email = ExitRecipientService._validate_email(data.get("email"))
+        area = ExitRecipientService._area(data.get("area"))
+        try:
+            with transaction.atomic():
+                r = ExitNotificationRecipient.objects.create(
+                    email=email, area=area, created_by=acc.user, updated_by=acc.user
+                )
+        except IntegrityError as exc:  # dos altas simultáneas de la misma dirección
+            raise NovedadesError(
+                f"{email} ya está registrado como destinatario.", code="duplicate", status=409
+            ) from exc
+        record_audit_event(
+            actor=acc.user,
+            action="novedades.exit_recipient.created",
+            module=MODULE,
+            target_type="exit_notification_recipient",
+            target_id=r.pk,
+            new_values={"email": email, "area": area, "is_active": True},
+            context=context,
+        )
+        return ExitRecipientService.serialize(r)
+
+    @staticmethod
+    def update(acc: NovedadesAccess, pk, data: dict, *, context=None) -> dict:
+        _admin_only(acc)
+        r = ExitNotificationRecipient.objects.filter(pk=pk).first()
+        if r is None:
+            raise _not_found("Destinatario no encontrado.")
+        old = {"email": r.email, "area": r.area, "is_active": r.is_active}
+        if "email" in data:
+            r.email = ExitRecipientService._validate_email(data["email"], exclude_pk=r.pk)
+        if "area" in data:
+            r.area = ExitRecipientService._area(data["area"])
+        if "is_active" in data:
+            if not isinstance(data["is_active"], bool):
+                raise NovedadesError("Valor inválido.", details={"is_active": "Use Sí o No."})
+            r.is_active = data["is_active"]
+        new = {"email": r.email, "area": r.area, "is_active": r.is_active}
+        if new == old:
+            return ExitRecipientService.serialize(r)
+        r.updated_by = acc.user
+        try:
+            with transaction.atomic():
+                r.save()
+        except IntegrityError as exc:
+            raise NovedadesError(
+                f"{r.email} ya está registrado como destinatario.", code="duplicate", status=409
+            ) from exc
+        record_audit_event(
+            actor=acc.user,
+            action="novedades.exit_recipient.updated",
+            module=MODULE,
+            target_type="exit_notification_recipient",
+            target_id=r.pk,
+            previous_values=old,
+            new_values=new,
+            context=context,
+        )
+        return ExitRecipientService.serialize(r)
+
+
+class ExitNotificationService:
+    """Correo de salida de un colaborador (Activo → Inactivo).
+
+    - Reutiliza el envío de correo de NEXO: `EMAIL_BACKEND` y credenciales de
+      `backend/.env`, remitente `DEFAULT_FROM_EMAIL` (los mismos del correo de
+      recuperación de contraseña). No hay un cliente SMTP propio.
+    - Un evento por transición (1 a 1 con `CollaboratorStatusChange`). El envío
+      se "reclama" con una actualización condicional: dos procesos nunca
+      envían el mismo evento a la vez, y uno ya ENVIADO no se vuelve a enviar.
+    - "Enviado" significa que el servidor SMTP ACEPTÓ el mensaje; no garantiza
+      que llegó a la bandeja ni que alguien lo leyó.
+    - Una falla del correo nunca revierte el cambio de estado: el evento queda
+      Fallido/Pendiente y se reintenta (`novedades_retry_notifications` o el
+      botón Reintentar de Ajustes)."""
+
+    # En tests se pone en False (conftest): el envío corre en el mismo hilo.
+    run_async = True
+    MAX_AUTO_ATTEMPTS = 5
+    STALE_SENDING = timedelta(minutes=15)
+    STALE_PENDING = timedelta(minutes=2)
+    NO_RECIPIENTS = "No hay destinatarios activos configurados en Ajustes."
+
+    # ── Construcción del detalle ──────────────────────────────────────────
+    @staticmethod
+    def build_snapshot(
+        collaborator, supervisor, period, *, changed_by, changed_at, previous, new
+    ) -> dict:
+        """Detalle de asistencia del colaborador en el período, leído de la
+        base persistida con la MISMA lógica de la matriz de Días laborados
+        (columnas, celdas y total). Solo lee: no modifica ningún registro."""
+        key = period.key
+        holidays = WorkedDayService._holidays(key)
+        row_cells = (
+            WorkedDayService.cells(period, [collaborator], supervisor).get(collaborator.pk, {})
+            if supervisor is not None
+            else {}
+        )
+        columns, values = [], []
+        for d in key.dates():
+            iso = d.isoformat()
+            cell = row_cells.get(iso)
+            columns.append(
+                {
+                    "date": iso,
+                    "day": d.day,
+                    "weekday": WEEKDAY_NAMES_ES[d.weekday()],
+                    "is_weekend": is_weekend(d),
+                    "holiday": holidays.get(d, ""),
+                }
+            )
+            values.append(
+                {
+                    "hours": cell["hours"] if cell else None,
+                    "other_team": cell.get("other_team", "") if cell else "",
+                }
+            )
+        labels = dict(Collaborator.Status.choices)
+        return {
+            "collaborator": {
+                "id": collaborator.pk,
+                "cedula": collaborator.cedula,
+                "full_name": collaborator.full_name,
+                "cargo": collaborator.cargo,
+            },
+            "supervisor": user_display(supervisor),
+            "changed_by": user_display(changed_by),
+            "changed_at": changed_at.isoformat(),
+            "changed_at_label": business_stamp(changed_at),
+            "previous_status": labels[previous],
+            "new_status": labels[new],
+            "period": {
+                "code": key.code,
+                "label": key.label,
+                "start_date": key.start_date.isoformat(),
+                "end_date": key.end_date.isoformat(),
+            },
+            "columns": columns,
+            "values": values,
+            "total": _fmt(WorkedDayService.row_total(row_cells)),
+        }
+
+    @staticmethod
+    def register(status_change: CollaboratorStatusChange) -> CollaboratorExitNotification:
+        collaborator = status_change.collaborator
+        supervisor = collaborator.current_supervisor
+        period = (
+            CollaboratorService._event_period(supervisor)
+            if supervisor is not None
+            else PeriodService.get_period(period_for_date(today()))
+        )
+        event = CollaboratorExitNotification(
+            status_change=status_change,
+            collaborator=collaborator,
+            supervisor=supervisor,
+            changed_by=status_change.changed_by,
+            changed_at=status_change.created_at,
+            previous_status=status_change.previous_status,
+            new_status=status_change.new_status,
+            period=period,
+        )
+        try:
+            with transaction.atomic():  # punto de guardado: un error aquí no
+                # deshace el cambio de estado
+                event.snapshot = ExitNotificationService.build_snapshot(
+                    collaborator,
+                    supervisor,
+                    period,
+                    changed_by=status_change.changed_by,
+                    changed_at=status_change.created_at,
+                    previous=status_change.previous_status,
+                    new=status_change.new_status,
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("No se pudo leer el detalle de asistencia del evento de salida")
+            event.status = CollaboratorExitNotification.Status.FAILED
+            event.last_error = (
+                f"No se pudo recuperar el detalle de asistencia ({type(exc).__name__})."
+            )
+        event.save()
+        transaction.on_commit(lambda: ExitNotificationService.schedule(event.pk))
+        return event
+
+    @staticmethod
+    def schedule(event_id: int) -> None:
+        """Envía sin hacer esperar al supervisor: el cambio ya está guardado y
+        el correo corre en segundo plano. Si el proceso se reinicia antes de
+        enviar, el evento queda Pendiente y lo retoma el reintento programado."""
+        if not ExitNotificationService.run_async:
+            ExitNotificationService.deliver(event_id)
+            return
+
+        def _run():
+            try:
+                ExitNotificationService.deliver(event_id)
+            except Exception:  # noqa: BLE001
+                logger.exception("Falla inesperada al enviar el correo de salida %s", event_id)
+            finally:
+                close_old_connections()
+
+        threading.Thread(target=_run, name=f"exit-mail-{event_id}", daemon=True).start()
+
+    # ── Correo ─────────────────────────────────────────────────────────────
+    @staticmethod
+    def subject(snapshot: dict) -> str:
+        name = " ".join(str(snapshot["collaborator"]["full_name"]).split())  # sin saltos de línea
+        return f"{settings.SYSTEM_NAME.upper()} | Notificación de salida de colaborador — {name}"
+
+    @staticmethod
+    def render(snapshot: dict) -> tuple[str, str]:
+        """(texto plano, HTML). La plantilla escapa todo valor dinámico."""
+        columns = [
+            {**c, "weekday_short": c["weekday"][:3], "value": v}
+            for c, v in zip(snapshot["columns"], snapshot["values"], strict=True)
+        ]
+        context = {
+            "system_name": settings.SYSTEM_NAME.upper(),
+            "s": snapshot,
+            "columns": columns,
+            "has_other_team": any(v["other_team"] for v in snapshot["values"]),
+        }
+        html = render_to_string("emails/collaborator_exit.html", context)
+        c = snapshot["collaborator"]
+        days = "\n".join(
+            f"  {col['day']:02d} {col['weekday'][:3]}: "
+            f"{col['value']['hours'] if col['value']['hours'] is not None else '—'}"
+            for col in columns
+        )
+        text = (
+            f"{settings.SYSTEM_NAME.upper()} — Notificación de salida de colaborador\n\n"
+            "Se informa que el colaborador indicado a continuación ha sido cambiado al estado "
+            f"{snapshot['new_status']} en {settings.SYSTEM_NAME.upper()} por el supervisor responsable. "
+            "Para fines de seguimiento y trazabilidad operativa, se incluye el detalle de días "
+            "laborados registrado en el período correspondiente.\n\n"
+            f"Supervisor responsable: {snapshot['supervisor']}\n"
+            f"Cargo: {c['cargo']}\nCédula: {c['cedula']}\nEmpleado: {c['full_name']}\n"
+            f"Estado anterior: {snapshot['previous_status']}\nNuevo estado: {snapshot['new_status']}\n"
+            f"Fecha y hora del cambio: {snapshot['changed_at_label']}\n"
+            f"Período operativo: {snapshot['period']['label']}\n\n"
+            f"Días laborados (— = sin registro):\n{days}\nTotal: {snapshot['total']}\n"
+        )
+        return text, html
+
+    @staticmethod
+    def _safe_error(exc: Exception) -> str:
+        """Mensaje técnico sin secretos: nunca la contraseña ni el usuario SMTP."""
+        message = f"{type(exc).__name__}: {exc}"
+        for secret in (settings.EMAIL_HOST_PASSWORD, settings.EMAIL_HOST_USER):
+            if secret:
+                message = message.replace(secret, "***")
+        return message[:480]
+
+    @staticmethod
+    def deliver(event_id: int) -> CollaboratorExitNotification | None:
+        S = CollaboratorExitNotification.Status
+        now = timezone.now()
+        # Reclamo atómico: solo un proceso pasa de Pendiente/Fallido a Enviando.
+        claimed = CollaboratorExitNotification.objects.filter(
+            pk=event_id, status__in=[S.PENDING, S.FAILED]
+        ).update(status=S.SENDING, attempts=F("attempts") + 1, last_attempt_at=now)
+        event = (
+            CollaboratorExitNotification.objects.select_related(
+                "collaborator", "supervisor", "changed_by", "period"
+            )
+            .filter(pk=event_id)
+            .first()
+        )
+        if not claimed or event is None:
+            return event  # ya enviado o en curso: nunca un segundo envío
+
+        def finish(status, *, error="", recipients=None, sent=False):
+            event.status = status
+            event.last_error = error
+            if recipients is not None:
+                event.recipients = recipients
+            if sent:
+                event.sent_at = timezone.now()
+            event.save(update_fields=["status", "last_error", "recipients", "sent_at", "snapshot"])
+            ExitNotificationService._log(event)
+            return event
+
+        recipients = ExitRecipientService.active_emails()
+        if not recipients:
+            return finish(S.FAILED, error=ExitNotificationService.NO_RECIPIENTS, recipients=[])
+        if event.snapshot is None:
+            try:
+                event.snapshot = ExitNotificationService.build_snapshot(
+                    event.collaborator,
+                    event.supervisor,
+                    event.period,
+                    changed_by=event.changed_by,
+                    changed_at=event.changed_at,
+                    previous=event.previous_status,
+                    new=event.new_status,
+                )
+            except Exception as exc:  # noqa: BLE001
+                return finish(
+                    S.FAILED,
+                    error=f"No se pudo recuperar el detalle de asistencia ({type(exc).__name__}).",
+                    recipients=recipients,
+                )
+        try:
+            text, html = ExitNotificationService.render(event.snapshot)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("No se pudo construir el correo de salida %s", event_id)
+            return finish(
+                S.FAILED,
+                error=f"No se pudo construir el correo ({type(exc).__name__}).",
+                recipients=recipients,
+            )
+        message = EmailMultiAlternatives(
+            subject=ExitNotificationService.subject(event.snapshot),
+            body=text,
+            from_email=settings.DEFAULT_FROM_EMAIL,
+            to=recipients,
+        )
+        message.attach_alternative(html, "text/html")
+        try:
+            accepted = message.send(fail_silently=False)
+        except Exception as exc:  # noqa: BLE001  (SMTP caído, credenciales, tiempo agotado…)
+            error = ExitNotificationService._safe_error(exc)
+            logger.warning("Correo de salida %s no enviado: %s", event_id, error)
+            return finish(S.FAILED, error=error, recipients=recipients)
+        if not accepted:
+            return finish(
+                S.FAILED, error="El servidor de correo no aceptó el mensaje.", recipients=recipients
+            )
+        return finish(S.SENT, recipients=recipients, sent=True)
+
+    @staticmethod
+    def _log(event: CollaboratorExitNotification) -> None:
+        c = event.collaborator
+        sent = event.status == CollaboratorExitNotification.Status.SENT
+        EventService.log(
+            actor=event.changed_by,
+            action="exit_notification.sent" if sent else "exit_notification.failed",
+            supervisor=event.supervisor,
+            period=event.period,
+            target_type="collaborator",
+            target_id=c.pk,
+            target_label=f"{c.full_name} ({c.cedula})",
+            field="exit_notification",
+            new_value=(
+                f"Correo de salida enviado a {len(event.recipients)} destinatario(s)"
+                if sent
+                else f"Correo de salida no enviado (intento {event.attempts}): {event.last_error}"
+            ),
+        )
+
+    # ── Consulta y reintentos ──────────────────────────────────────────────
+    @staticmethod
+    def serialize(event: CollaboratorExitNotification) -> dict:
+        c = event.collaborator
+        return {
+            "id": event.pk,
+            "collaborator": {"id": c.pk, "cedula": c.cedula, "full_name": c.full_name},
+            "supervisor": user_display(event.supervisor),
+            "changed_by": user_display(event.changed_by),
+            "changed_at": event.changed_at,
+            "previous_status": event.previous_status,
+            "new_status": event.new_status,
+            "period": event.period.key.label,
+            "status": event.status,
+            "status_label": event.get_status_display(),
+            "recipients": event.recipients,
+            "attempts": event.attempts,
+            "last_attempt_at": event.last_attempt_at,
+            "last_error": event.last_error,
+            "sent_at": event.sent_at,
+        }
+
+    @staticmethod
+    def events(acc: NovedadesAccess, limit: int = 50) -> list[dict]:
+        _admin_only(acc)
+        qs = CollaboratorExitNotification.objects.select_related(
+            "collaborator", "supervisor", "changed_by", "period"
+        )[:limit]
+        return [ExitNotificationService.serialize(e) for e in qs]
+
+    @staticmethod
+    def retry(acc: NovedadesAccess, event_id, *, context=None) -> dict:
+        """Reintento manual del Administrador sobre el MISMO evento."""
+        _admin_only(acc)
+        event = CollaboratorExitNotification.objects.filter(pk=event_id).first()
+        if event is None:
+            raise _not_found("Evento de salida no encontrado.")
+        if event.status == CollaboratorExitNotification.Status.SENT:
+            raise NovedadesError(
+                "Este correo ya fue enviado: no se reenvía.", code="already_sent", status=409
+            )
+        if event.status == CollaboratorExitNotification.Status.SENDING:
+            raise NovedadesError("El envío está en curso.", code="in_progress", status=409)
+        record_audit_event(
+            actor=acc.user,
+            action="novedades.exit_notification.retry",
+            module=MODULE,
+            target_type="exit_notification",
+            target_id=event.pk,
+            context=context,
+        )
+        ExitNotificationService.deliver(event.pk)
+        event.refresh_from_db()
+        return ExitNotificationService.serialize(event)
+
+    @staticmethod
+    def retry_pending() -> dict:
+        """Reintento programado: Pendientes que no salieron (reinicio del
+        proceso), Fallidos con intentos disponibles y Enviando atascados."""
+        S = CollaboratorExitNotification.Status
+        now = timezone.now()
+        # Un "Enviando" de hace más de 15 min es un proceso que murió a mitad
+        # del envío. Se reintenta: si el servidor alcanzó a aceptar el mensaje
+        # antes de la caída, puede llegar dos veces (riesgo documentado).
+        CollaboratorExitNotification.objects.filter(
+            status=S.SENDING, last_attempt_at__lt=now - ExitNotificationService.STALE_SENDING
+        ).update(status=S.FAILED, last_error="El envío anterior no terminó (proceso interrumpido).")
+        ids = list(
+            CollaboratorExitNotification.objects.filter(
+                Q(status=S.PENDING, created_at__lt=now - ExitNotificationService.STALE_PENDING)
+                | Q(status=S.FAILED, attempts__lt=ExitNotificationService.MAX_AUTO_ATTEMPTS)
+            ).values_list("pk", flat=True)
+        )
+        sent = failed = 0
+        for pk in ids:
+            event = ExitNotificationService.deliver(pk)
+            if event is not None and event.status == S.SENT:
+                sent += 1
+            else:
+                failed += 1
+        return {"sent": sent, "failed": failed}

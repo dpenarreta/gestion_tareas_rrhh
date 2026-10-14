@@ -153,4 +153,24 @@ urlpatterns = [
         views.OverrideRevokeView.as_view(),
         name="novedades-override-revoke",
     ),
+    path(
+        "exit-notifications/recipients/",
+        views.ExitRecipientListView.as_view(),
+        name="novedades-exit-recipients",
+    ),
+    path(
+        "exit-notifications/recipients/<int:pk>/",
+        views.ExitRecipientDetailView.as_view(),
+        name="novedades-exit-recipient",
+    ),
+    path(
+        "exit-notifications/",
+        views.ExitNotificationListView.as_view(),
+        name="novedades-exit-notifications",
+    ),
+    path(
+        "exit-notifications/<int:pk>/retry/",
+        views.ExitNotificationRetryView.as_view(),
+        name="novedades-exit-notification-retry",
+    ),
 ]

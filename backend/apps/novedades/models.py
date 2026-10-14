@@ -568,3 +568,84 @@ class DepurationChange(models.Model):
 
     class Meta:
         ordering = ["-created_at", "-id"]
+
+
+# ── Notificaciones de salida de colaboradores (correo) ────────────────────────
+#
+# Pedido del 2026-10-13: cuando un colaborador pasa de Activo a Inactivo se
+# avisa por correo (SMTP existente de NEXO) a las personas designadas de
+# Operaciones, Jefatura de Operaciones y Talento Humano, con su detalle de
+# Días laborados del período. Los destinatarios los administra solo el
+# Administrador desde Ajustes.
+
+
+class ExitNotificationRecipient(models.Model):
+    """Destinatario del correo de salida. Nunca se borra: se desactiva, para
+    que el historial de envíos siga apuntando a una dirección conocida."""
+
+    class Area(models.TextChoices):
+        OPERACIONES = "OPERACIONES", "Operaciones"
+        JEFATURA = "JEFATURA_OPERACIONES", "Jefatura de Operaciones"
+        TALENTO_HUMANO = "TALENTO_HUMANO", "Talento Humano"
+
+    # Guardado en minúsculas y sin espacios: la restricción única impide
+    # duplicados que solo difieren en mayúsculas.
+    email = models.EmailField(max_length=254, unique=True)
+    area = models.CharField(max_length=30, choices=Area.choices, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+
+    class Meta:
+        ordering = ["email"]
+
+
+class CollaboratorExitNotification(models.Model):
+    """Evento de salida (Activo → Inactivo) y estado de su correo.
+
+    Uno por transición: la relación 1 a 1 con el historial de estados es la
+    garantía de idempotencia en la base (repetir la solicitud, recargar o
+    reintentar nunca crea un segundo evento). `snapshot` guarda el detalle
+    de asistencia tal como se notificó, aunque luego cambien los registros."""
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Pendiente"
+        SENDING = "SENDING", "Enviando"
+        SENT = "SENT", "Enviado"
+        FAILED = "FAILED", "Fallido"
+
+    status_change = models.OneToOneField(
+        CollaboratorStatusChange, on_delete=models.PROTECT, related_name="exit_notification"
+    )
+    collaborator = models.ForeignKey(
+        Collaborator, on_delete=models.PROTECT, related_name="exit_notifications"
+    )
+    supervisor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, related_name="+"
+    )
+    changed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    changed_at = models.DateTimeField()
+    previous_status = models.CharField(max_length=10, choices=Collaborator.Status.choices)
+    new_status = models.CharField(max_length=10, choices=Collaborator.Status.choices)
+    period = models.ForeignKey(OperationalPeriod, on_delete=models.PROTECT, related_name="+")
+    snapshot = models.JSONField(null=True, blank=True)
+    status = models.CharField(
+        max_length=10, choices=Status.choices, default=Status.PENDING, db_index=True
+    )
+    recipients = models.JSONField(default=list)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.CharField(max_length=500, blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]

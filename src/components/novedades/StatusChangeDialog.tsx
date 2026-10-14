@@ -8,6 +8,15 @@ import { novedadesApi } from "./api";
 import { ErrorBox, Label, SelectInput, TextArea } from "./fields";
 import { STATUS_LABEL, type CollaboratorStatus } from "./types";
 
+type ExitMailStatus = "PENDING" | "SENDING" | "SENT" | "FAILED";
+
+const EXIT_MAIL_LABEL: Record<ExitMailStatus, string> = {
+  PENDING: "Notificación pendiente de envío.",
+  SENDING: "Notificación pendiente de envío.",
+  SENT: "Notificación enviada.",
+  FAILED: "Error en la notificación: el Administrador puede reintentarla desde Ajustes.",
+};
+
 type Props = {
   collaborator: { id: number; fullName: string; status: CollaboratorStatus };
   onClose: () => void;
@@ -21,17 +30,27 @@ export default function StatusChangeDialog({ collaborator, onClose, onDone }: Pr
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const needsReason = status !== "ACTIVE";
+  const isExit = collaborator.status === "ACTIVE" && status === "INACTIVE";
 
   async function submit() {
     setSaving(true);
     setError(null);
-    const result = await novedadesApi.post(`collaborators/${collaborator.id}/status`, { status, reason });
+    const result = await novedadesApi.post<{ exitNotification?: { status: ExitMailStatus } }>(
+      `collaborators/${collaborator.id}/status`,
+      { status, reason },
+    );
     setSaving(false);
     if (!result.ok) {
       setError(result.error);
       return;
     }
-    showToast(`${collaborator.fullName}: ${STATUS_LABEL[status]}.`, "success");
+    // El cambio de estado ya está confirmado; el correo de salida tiene su
+    // propio estado y una falla del correo no se presenta como falla del cambio.
+    const mail = result.data?.exitNotification;
+    showToast(
+      `Cambio de estado confirmado: ${collaborator.fullName} — ${STATUS_LABEL[status]}.${mail ? ` ${EXIT_MAIL_LABEL[mail.status]}` : ""}`,
+      mail?.status === "FAILED" ? "warning" : "success",
+    );
     onDone();
   }
 
@@ -61,6 +80,7 @@ export default function StatusChangeDialog({ collaborator, onClose, onDone }: Pr
         {needsReason && (
           <p className="text-xs text-secondary">
             El historial y las horas ya registradas se conservan. Se notificará al Administrador de inmediato.
+            {isExit && " Además se enviará por correo la notificación de salida con el detalle de Días laborados del período."}
           </p>
         )}
         <ErrorBox message={error} />

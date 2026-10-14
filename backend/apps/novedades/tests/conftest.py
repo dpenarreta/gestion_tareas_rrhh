@@ -30,6 +30,9 @@ def immediate_on_commit(monkeypatch):
     """Las notificaciones se envían en `transaction.on_commit`; dentro del
     test (una transacción que nunca se confirma) se ejecutan al instante."""
     monkeypatch.setattr("apps.novedades.services.transaction.on_commit", lambda fn, *a, **k: fn())
+    # El correo de salida corre en un hilo aparte en producción; en tests, en
+    # el mismo hilo (otro hilo no ve la transacción del test).
+    monkeypatch.setattr("apps.novedades.services.ExitNotificationService.run_async", False)
 
 
 def _user(username, role, *, superuser=False):

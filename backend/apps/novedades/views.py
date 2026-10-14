@@ -50,6 +50,8 @@ from .services import (
     CollaboratorService,
     CorrectionService,
     DepurationService,
+    ExitNotificationService,
+    ExitRecipientService,
     HistoryService,
     NovedadesError,
     OvertimeMonthService,
@@ -248,7 +250,14 @@ class CollaboratorStatusView(NovedadesView):
         collaborator = CollaboratorService.change_status(
             self.access, pk, data["status"], data["reason"], context=self.context
         )
-        return Response(CollaboratorSerializer(collaborator).data)
+        body = dict(CollaboratorSerializer(collaborator).data)
+        event = getattr(collaborator, "exit_notification_event", None)
+        if event is not None:
+            # Estado del correo, separado del cambio de estado (ya confirmado):
+            # una falla del correo no es una falla del cambio.
+            event.refresh_from_db(fields=["status"])
+            body["exit_notification"] = {"id": event.pk, "status": event.status}
+        return Response(body)
 
 
 class CollaboratorReassignView(NovedadesView):
@@ -678,3 +687,34 @@ class OverrideRevokeView(NovedadesView):
             self.access, pk, data["reason"], context=self.context
         )
         return Response(PermissionAdminService.serialize_override(override))
+
+
+# ── Notificaciones de salida de colaboradores (solo Administrador) ────────────
+
+
+class ExitRecipientListView(NovedadesView):
+    def get(self, request):
+        return Response(ExitRecipientService.config(self.access))
+
+    def post(self, request):
+        return Response(
+            ExitRecipientService.create(self.access, request.data, context=self.context),
+            status=201,
+        )
+
+
+class ExitRecipientDetailView(NovedadesView):
+    def patch(self, request, pk):
+        return Response(
+            ExitRecipientService.update(self.access, pk, request.data, context=self.context)
+        )
+
+
+class ExitNotificationListView(NovedadesView):
+    def get(self, request):
+        return Response(ExitNotificationService.events(self.access))
+
+
+class ExitNotificationRetryView(NovedadesView):
+    def post(self, request, pk):
+        return Response(ExitNotificationService.retry(self.access, pk, context=self.context))

@@ -84,7 +84,7 @@ Los tres tipos de dato que introduce el módulo de ausencias/estado especial (`L
 | Google (API de Gemini) | Procesamiento de lenguaje natural en 4 puntos del sistema — ver desglose completo debajo de esta tabla | Ver desglose |
 | GitHub | Almacenamiento del repositorio privado de documentos de la base de conocimiento de RRHH | Documentos cargados a la base de conocimiento (pueden contener datos de personal) |
 | Zoom | Coordinación de reuniones (API Server-to-Server OAuth) | Título, fecha/hora y lista de invitados (nombre/correo) de las reuniones creadas |
-| Alphaside (hosting del dominio `laarcourierdocs.com`) | Envío del correo transaccional de autenticación — servidor SMTP `inboundlaarcouriernew.alphaside.com` | Nombre y dirección de correo del titular, y el enlace de recuperación de contraseña, en cada correo de restablecimiento o aviso de cambio de contraseña |
+| Alphaside (hosting del dominio `laarcourierdocs.com`) | Envío del correo transaccional — servidor SMTP `inboundlaarcouriernew.alphaside.com` | (1) Autenticación: nombre y dirección de correo del titular, y el enlace de recuperación de contraseña, en cada correo de restablecimiento o aviso de cambio de contraseña. (2) Desde el 2026-10-13, **notificación de salida de colaboradores** (Control Operativo de Novedades): nombre, cédula y cargo del colaborador que pasa a Inactivo, su supervisor, la fecha del cambio y su detalle de Días laborados del período; se envía a las direcciones internas que el Administrador configura en Ajustes. No incluye el motivo del cambio ni datos de salud |
 
 > **Corrección del 2026-09-11 — el correo transaccional SÍ pasa por un
 > encargado externo.** Esta sección afirmaba lo contrario desde el

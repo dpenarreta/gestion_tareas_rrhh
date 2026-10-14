@@ -23,6 +23,79 @@
 
 ---
 
+## v1.176.0 — 2026-10-13
+
+**Tipo:** FEATURE / SECURITY / DATABASE
+**Módulo:** Control Operativo de Novedades — Notificaciones de salida de
+colaboradores · Ajustes.
+
+- **Correo de salida.** Cuando un colaborador pasa de **Activo a Inactivo**
+  (`CollaboratorService.change_status`, el único punto de cambio de estado)
+  se envía un correo a los destinatarios activos con: supervisor responsable,
+  cargo, cédula, empleado, estado anterior y nuevo, fecha y hora del cambio,
+  período operativo y la **tabla completa de Días laborados** del período
+  (encabezado Supervisor · Cargo · Cédula · Empleado · día/día de la semana ·
+  Total). Las celdas y el total salen de los mismos helpers que la matriz de
+  la pantalla (`WorkedDayService.cells` / `row_total`, extraídos de
+  `matrix`): vacío y 0 se distinguen y el total aplica la misma regla. El
+  período es el que el módulo ya asocia al evento de cambio de estado (el
+  abierto vigente del supervisor, corte 23 → 22). Otras transiciones
+  (Suspendido, reactivación) y la edición de otros campos no notifican.
+- **SMTP existente, sin infraestructura paralela.** Usa el envío de correo de
+  Django ya configurado en NEXO (`EMAIL_BACKEND` —
+  `CertifiSMTPEmailBackend` en producción—, credenciales de `backend/.env`,
+  remitente `DEFAULT_FROM_EMAIL`), igual que el correo de recuperación de
+  contraseña, que no se modificó. Plantilla HTML con tablas y estilos en línea
+  (`backend/templates/emails/collaborator_exit.html`), versión en texto
+  plano, todo valor escapado y asunto sin saltos de línea.
+- **Un evento por transición** (`CollaboratorExitNotification`, relación 1 a
+  1 con el historial de estados): repetir la solicitud, recargar o reintentar
+  nunca crea otro. El envío se reclama con una actualización condicional
+  (Pendiente/Fallido → Enviando), así que dos procesos no envían el mismo
+  evento y uno **Enviado** no se reenvía. Guarda destinatarios usados,
+  intentos, último intento, error técnico sin credenciales, fecha de envío y
+  una **fotografía** del detalle notificado.
+- **No bloquea al supervisor:** el evento se registra en la misma transacción
+  que el cambio de estado y el correo sale en segundo plano después de
+  confirmarla. Una falla del correo (SMTP caído, credenciales, tiempo agotado,
+  sin destinatarios) deja el evento **Fallido** y nunca revierte el cambio.
+  Reintentos: botón «Reintentar» en Ajustes (solo Administrador) y el comando
+  existente `novedades_retry_notifications`, que ahora también reintenta
+  estos correos (Pendientes que no salieron, Fallidos hasta 5 intentos y
+  Enviando atascados).
+- **Ajustes → Notificaciones → «Notificaciones de salida de colaboradores»**
+  (solo Administrador, validado en Django con `is_superuser`): alta, edición,
+  activar/desactivar (nunca se borran), área opcional (Operaciones, Jefatura de
+  Operaciones, Talento Humano), validación de formato y de duplicados sin
+  importar mayúsculas ni espacios, aviso si no hay destinatarios activos o si
+  el correo está en modo consola, y lista de los últimos envíos con su estado.
+- **Cambio de estado en la pantalla:** el aviso distingue «Cambio de estado
+  confirmado» del estado del correo («Notificación pendiente de envío»,
+  «Notificación enviada», «Error en la notificación»).
+- **«Enviado»** significa que el servidor SMTP aceptó el mensaje; no garantiza
+  que llegó a la bandeja de entrada ni que alguien lo leyó.
+
+- **Archivos:** `backend/apps/novedades/{models,services,views,urls}.py`,
+  migración `novedades/0010_exit_notifications`,
+  `backend/apps/novedades/management/commands/novedades_retry_notifications.py`,
+  `backend/templates/emails/collaborator_exit.html`,
+  `src/components/settings/{ExitNotificationsSection,ConfigCenter}.tsx`,
+  `src/components/settings/registry.ts`,
+  `src/components/novedades/StatusChangeDialog.tsx`, `docs/RAT.md`,
+  `docs/PENDIENTES_LEGALES.md`.
+
+**Verificación:** `backend/apps/novedades/tests/test_exit_notifications.py`
+(23 tests: evento, SMTP existente, destinatarios activos/inactivos, permisos
+por API, encabezado y días de la semana, total, vacíos y ceros, colaborador
+correcto, sin duplicados, fallas y reintentos, credenciales nunca expuestas,
+asistencia intacta, período cerrado, escape de HTML y el correo de
+recuperación de contraseña sigue funcionando) y
+`src/__tests__/components/settings/ExitNotificationsSection.test.tsx` (5).
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
 ## v1.175.0 — 2026-10-13
 
 **Tipo:** FEATURE / SECURITY / DATABASE

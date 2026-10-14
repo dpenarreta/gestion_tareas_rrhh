@@ -8,6 +8,8 @@
 
 | Decisión | Motivo técnico | Detalle completo |
 |---|---|---|
+| Correo de salida (Activo → Inactivo) por el SMTP existente, en segundo plano y con un evento por transición (2026-10-13) | El supervisor no espera al servidor de correo; la relación 1 a 1 con el cambio de estado y el reclamo condicional impiden duplicados; una falla del correo nunca revierte el cambio | [AUDIT_LOG § 2026-10-13](AUDIT_LOG.md) |
+| Destinatarios del correo de salida: lista de correos con área opcional, administrada solo por el Administrador en Ajustes (2026-10-13) | Pedido del usuario; no hace falta una estructura organizacional nueva. Se desactivan, nunca se borran | [AUDIT_LOG § 2026-10-13](AUDIT_LOG.md) |
 | Horas depuradas es una copia independiente por mes; la depuración nunca escribe en `OvertimeRecord` (2026-10-13) | La base de los supervisores y el consolidado del Asistente son los mismos registros: se protegen ambos no tocándolos. Una sola copia por mes, garantizada por restricción única | [AUDIT_LOG § 2026-10-13](AUDIT_LOG.md) |
 | Rol Jefe de Operaciones: consulta la operación y edita solo Horas depuradas; el Administrador consulta y exporta (2026-10-13) | Decisión del usuario. Se usa el mismo mecanismo de roles (grupo + matriz de `access.py` + permiso `novedades.depurar`) | [AUDIT_LOG § 2026-10-13](AUDIT_LOG.md) |
 | Plazo de registro por fecha de trabajo: 48 h laborables (24 h por día hábil) desde el fin del día, configurable por separado para Días laborados y Horas extras (2026-10-13) | Decisión del usuario; misma regla que el plazo de cierre mensual, con una sola implementación (`business_deadline`). Valor vigente al empezar cada plazo: no retroactivo | [AUDIT_LOG § 2026-10-13](AUDIT_LOG.md) |

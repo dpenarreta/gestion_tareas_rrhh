@@ -36,6 +36,7 @@ import DataConsentSection from "@/components/settings/DataConsentSection";
 import DataRequestsSection from "@/components/settings/DataRequestsSection";
 import RetentionPolicySection from "@/components/settings/RetentionPolicySection";
 import NovedadesPermissionsSection from "@/components/settings/NovedadesPermissionsSection";
+import ExitNotificationsSection from "@/components/settings/ExitNotificationsSection";
 import NotificationRulesSection from "@/components/settings/NotificationRulesSection";
 import WelcomeMessageSection from "@/components/settings/WelcomeMessageSection";
 import SystemInfoSection from "@/components/settings/SystemInfoSection";
@@ -272,9 +273,14 @@ function ConfigCenterInner({ currentUserRole }: { currentUserRole: Role }) {
               )}
 
               {category === "notificaciones" && (
-                <ConfigSectionCard descriptor={d("notification-rules")!}>
-                  <NotificationRulesSection />
-                </ConfigSectionCard>
+                <>
+                  <ConfigSectionCard descriptor={d("notification-rules")!}>
+                    <NotificationRulesSection />
+                  </ConfigSectionCard>
+                  <ConfigSectionCard descriptor={d("exit-notifications")!}>
+                    <ExitNotificationsSection />
+                  </ConfigSectionCard>
+                </>
               )}
 
               {category === "parametros_globales" && <GlobalParamsSection />}
