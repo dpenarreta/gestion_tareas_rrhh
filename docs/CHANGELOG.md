@@ -23,6 +23,66 @@
 
 ---
 
+## v1.175.0 — 2026-10-13
+
+**Tipo:** FEATURE / SECURITY / DATABASE
+**Módulo:** Control Operativo de Novedades — Horas depuradas y rol Jefe de
+Operaciones.
+
+- **Tres bases de Horas extras.** (1) Lo reportado por los supervisores y (2)
+  el consolidado del Asistente de Operaciones viven en `OvertimeRecord` (el
+  consolidado es la vista nacional de esos mismos registros, no una tabla
+  aparte): son el respaldo. (3) **Horas depuradas** es una copia nueva e
+  independiente por mes calendario (`OvertimeDepuration`, `DepuratedOvertime`,
+  `DepurationChange`): ninguna operación de depuración escribe en
+  `OvertimeRecord`.
+- **Una sola copia por mes:** restricción única `(year, month)` en la base;
+  crear de nuevo, recargar, otra sesión o dos solicitudes simultáneas devuelven
+  la misma base con sus ajustes. Solo para meses terminados; si faltan cierres
+  de supervisores se advierte antes de crear.
+- **Fotografía al crear:** fecha y hora, usuario, registros copiados, horas
+  originales y cierres de supervisores en ese momento; cada fila conserva su
+  valor original (`orig_*`, inmutable) y una referencia al registro de origen.
+- **Cambios posteriores en el origen** no se aplican solos: se señalan por fila
+  ("Cambió después de copiar" / "Eliminado en el origen").
+- **Rol Jefe de Operaciones** (`JEFE_OPERACIONES`, migración
+  `novedades/0009`): consulta Días laborados y Horas extras (todos los
+  supervisores, solo lectura) y edita SOLO Horas depuradas: horas extra, horas
+  sábado, sábado/domingo/feriado, trabajo realizado, observaciones y
+  "Excluir" (no borra el origen). Sin acceso a administración, plazos,
+  cierres, historial general, base de colaboradores ni importación. Nuevo
+  permiso `novedades.depurar` (migración `permissions/0008`).
+- **Guardado automático** con los mismos mecanismos de Días laborados/Horas
+  extras (respaldo local de lo pendiente, reintentos con tope, control de
+  versión para que una respuesta atrasada no pise una edición nueva).
+- **Historial propio** (solo lectura): campo, valor original de la fotografía,
+  valor depurado anterior y nuevo, responsable, fecha y motivo; además, cada
+  cambio queda en la auditoría general.
+- **Pestaña «Horas Depuradas»** para el Administrador (consulta y exporta, no
+  edita) y para el Jefe (su pestaña inicial): estado de la base, horas
+  originales vs. depuradas, registros ajustados/excluidos, último cambio,
+  diferencias por fila e historial.
+- **Exportación** solo de la base depurada (valores guardados en el servidor,
+  sin filas excluidas), con el mismo formato del reporte de Horas extras
+  (14 columnas, SABADO/DOMINGO/FERIADO con X o vacío). El generador de la hoja
+  se comparte con el reporte original (`_overtime_sheet`), sin duplicarlo.
+
+- **Archivos:** `backend/apps/novedades/{access,models,services,excel,views,urls}.py`,
+  `backend/apps/permissions/catalog.py`, migraciones `novedades/0008`, `0009` y
+  `permissions/0008`, `src/lib/roles.ts`,
+  `src/components/novedades/{DepurationView,NovedadesModule}.tsx`,
+  `src/components/novedades/types.ts`.
+
+**Verificación:** `backend/apps/novedades/tests/test_depuration.py` (9 tests,
+incluidas las dos pruebas críticas: independencia real de las tres bases
+verificada contra la base de datos, y una sola copia por mes con reapertura,
+creación concurrente y restricción única) y
+`src/__tests__/components/DepurationView.test.tsx` (4 tests).
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
 ## v1.174.2 — 2026-10-13
 
 **Tipo:** UX

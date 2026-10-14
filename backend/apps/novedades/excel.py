@@ -87,6 +87,56 @@ def _norm(text) -> str:
     return " ".join(value.upper().split())
 
 
+def _overtime_sheet(title: str, rows) -> bytes:
+    """Hoja con el formato del reporte de Horas extras (14 columnas, SUPERVISOR
+    séptima, fecha dd/mm/aaaa, cédula como texto, X o vacío en SABADO/DOMINGO/
+    FERIADO). La usan el reporte original y el de Horas depuradas."""
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = title
+    ws.append(OVERTIME_EXPORT_HEADERS)
+    for (
+        day,
+        cedula,
+        name,
+        regional,
+        area,
+        cargo,
+        supervisor,
+        extra,
+        saturday,
+        sat,
+        sun,
+        hol,
+        work,
+        obs,
+    ) in rows:
+        ws.append(
+            [
+                day,
+                str(cedula),
+                _safe_text(name),
+                _safe_text(regional),
+                _safe_text(area),
+                _safe_text(cargo),
+                _safe_text(supervisor),
+                float(extra),
+                float(saturday),
+                _mark(sat),
+                _mark(sun),
+                _mark(hol),
+                _safe_text(work),
+                _safe_text(obs),
+            ]
+        )
+        ws.cell(row=ws.max_row, column=1).number_format = "DD/MM/YYYY"
+        _text_cell(ws, ws.max_row, 2)
+    _style_header(ws, len(OVERTIME_EXPORT_HEADERS))
+    for idx, width in enumerate([12, 14, 32, 16, 18, 20, 26, 10, 10, 8, 8, 8, 36, 36], start=1):
+        ws.column_dimensions[get_column_letter(idx)].width = width
+    return _sheet_bytes(wb)
+
+
 def _mark(value: bool | None) -> str | None:
     """SABADO/DOMINGO/FERIADO en el REPORTE exportado: "X" si es verdadero y
     celda vacía si es falso o no hay dato (formato pedido, 2026-10-13). Solo
@@ -164,35 +214,65 @@ class ExportService:
             reason=", ".join(f"{k}={v}" for k, v in (filters or {}).items() if v)[:500],
             context=context,
         )
-        wb = openpyxl.Workbook()
-        ws = wb.active
-        ws.title = "Horas extras"
-        ws.append(OVERTIME_EXPORT_HEADERS)
-        for r in qs.iterator(chunk_size=1000):
-            ws.append(
-                [
+        return _overtime_sheet(
+            "Horas extras",
+            (
+                (
                     r.date,
-                    str(r.collaborator.cedula),
-                    _safe_text(r.collaborator.full_name),
-                    _safe_text(r.collaborator.regional),
-                    _safe_text(r.collaborator.area),
-                    _safe_text(r.collaborator.cargo),
-                    _safe_text(user_display(r.supervisor)),
-                    float(r.overtime_hours),
-                    float(r.saturday_hours),
-                    _mark(r.is_saturday),
-                    _mark(r.is_sunday),
-                    _mark(r.is_holiday),
-                    _safe_text(r.work_done),
-                    _safe_text(r.observations),
-                ]
-            )
-            ws.cell(row=ws.max_row, column=1).number_format = "DD/MM/YYYY"
-            _text_cell(ws, ws.max_row, 2)
-        _style_header(ws, len(OVERTIME_EXPORT_HEADERS))
-        for idx, width in enumerate([12, 14, 32, 16, 18, 20, 26, 10, 10, 8, 8, 8, 36, 36], start=1):
-            ws.column_dimensions[get_column_letter(idx)].width = width
-        return _sheet_bytes(wb)
+                    r.collaborator.cedula,
+                    r.collaborator.full_name,
+                    r.collaborator.regional,
+                    r.collaborator.area,
+                    r.collaborator.cargo,
+                    user_display(r.supervisor),
+                    r.overtime_hours,
+                    r.saturday_hours,
+                    r.is_saturday,
+                    r.is_sunday,
+                    r.is_holiday,
+                    r.work_done,
+                    r.observations,
+                )
+                for r in qs.iterator(chunk_size=1000)
+            ),
+        )
+
+    @staticmethod
+    def depurated(acc: NovedadesAccess, depuration, qs, *, context=None) -> bytes:
+        """Exporta SOLO la base de Horas depuradas (valores depurados ya
+        guardados en el servidor; sin filas excluidas), con el mismo formato
+        que el reporte de Horas extras. No escribe en ninguna base."""
+        EventService.log(
+            actor=acc.user,
+            action="export.depuration",
+            target_type="overtime_depuration",
+            target_id=depuration.pk,
+            target_label=f"Horas depuradas {depuration.month:02d}/{depuration.year}",
+            new_value=f"{qs.count()} registros",
+            context=context,
+        )
+        return _overtime_sheet(
+            "Horas depuradas",
+            (
+                (
+                    r.date,
+                    r.cedula,
+                    r.full_name,
+                    r.regional,
+                    r.area,
+                    r.cargo,
+                    r.supervisor_name,
+                    r.overtime_hours,
+                    r.saturday_hours,
+                    r.is_saturday,
+                    r.is_sunday,
+                    r.is_holiday,
+                    r.work_done,
+                    r.observations,
+                )
+                for r in qs.iterator(chunk_size=1000)
+            ),
+        )
 
     @staticmethod
     def overtime_template() -> bytes:

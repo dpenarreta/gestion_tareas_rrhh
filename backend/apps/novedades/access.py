@@ -30,7 +30,11 @@ from apps.permissions.authorization import get_user_permission_codenames
 
 SUPERVISOR_ROLE = "SUPERVISOR_OPERACIONES"
 ASSISTANT_ROLE = "ASISTENTE_OPERACIONES"
-OPERATIONAL_ROLES = (SUPERVISOR_ROLE, ASSISTANT_ROLE)
+# Jefe de Operaciones (2026-10-13): consulta la operación y trabaja SOLO sobre
+# su copia independiente de Horas extras ("Horas depuradas"); nunca escribe
+# en la base de los supervisores ni en el consolidado del Asistente.
+JEFE_ROLE = "JEFE_OPERACIONES"
+OPERATIONAL_ROLES = (SUPERVISOR_ROLE, ASSISTANT_ROLE, JEFE_ROLE)
 
 ACCEDER = "novedades.acceder"
 COLABORADORES = "novedades.colaboradores_gestionar"
@@ -43,6 +47,7 @@ CERRAR = "novedades.cerrar_periodo"
 CORREGIR = "novedades.corregir_cerrado"
 ADMINISTRAR = "novedades.administrar"
 PERMISOS = "novedades.permisos_gestionar"
+DEPURAR = "novedades.depurar"
 
 ALL_CODENAMES = (
     ACCEDER,
@@ -56,6 +61,7 @@ ALL_CODENAMES = (
     CORREGIR,
     ADMINISTRAR,
     PERMISOS,
+    DEPURAR,
 )
 
 # Solo para usuarios fuera de los roles operativos (p. ej. ADMINISTRADOR).
@@ -77,6 +83,7 @@ ROLE_MATRIX = {
         CORREGIR: "unavailable",
         ADMINISTRAR: "unavailable",
         PERMISOS: "unavailable",
+        DEPURAR: "unavailable",
     },
     ASSISTANT_ROLE: {
         ACCEDER: "configurable",
@@ -92,6 +99,23 @@ ROLE_MATRIX = {
         CORREGIR: "unavailable",
         ADMINISTRAR: "unavailable",
         PERMISOS: "unavailable",
+        DEPURAR: "unavailable",
+    },
+    # Consulta (Días laborados y Horas extras originales) y depuración.
+    # Nada que escriba en las bases originales está disponible.
+    JEFE_ROLE: {
+        ACCEDER: "configurable",
+        COLABORADORES: "unavailable",
+        REGISTRAR: "unavailable",
+        CONSOLIDADO: "mandatory",
+        HISTORIAL: "unavailable",
+        IMPORTAR: "unavailable",
+        EXPORTAR: "configurable",
+        CERRAR: "unavailable",
+        CORREGIR: "unavailable",
+        ADMINISTRAR: "unavailable",
+        PERMISOS: "unavailable",
+        DEPURAR: "mandatory",
     },
 }
 
@@ -178,8 +202,22 @@ class NovedadesAccess:
         return self.can(ADMINISTRAR)
 
     @property
+    def is_jefe(self) -> bool:
+        return self.role == JEFE_ROLE
+
+    @property
     def national_read(self) -> bool:
-        return self.national_write or self.is_assistant
+        return self.national_write or self.is_assistant or self.is_jefe
+
+    @property
+    def can_depurate(self) -> bool:
+        """Edita la base de Horas depuradas: solo el Jefe de Operaciones (el
+        Administrador la consulta y exporta, decisión del 2026-10-13)."""
+        return self.is_jefe and self.can(DEPURAR)
+
+    @property
+    def can_view_depuration(self) -> bool:
+        return self.can_depurate or self.national_write
 
     @property
     def can_view_event_history(self) -> bool:
@@ -227,4 +265,7 @@ class NovedadesAccess:
             "national_write": self.national_write,
             "can_view_history": self.can_view_event_history,
             "can_bypass_deadline": self.can_bypass_deadline,
+            "is_jefe": self.is_jefe,
+            "can_depurate": self.can_depurate,
+            "can_view_depuration": self.can_view_depuration,
         }

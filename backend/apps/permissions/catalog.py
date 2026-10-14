@@ -179,6 +179,7 @@ PERMISSION_CATALOG = {
             "novedades.corregir_cerrado": "Corregir registros de un período cerrado (procedimiento auditado)",
             "novedades.administrar": "Administrar el módulo con alcance nacional (todos los supervisores)",
             "novedades.permisos_gestionar": "Administrar los permisos y excepciones del módulo",
+            "novedades.depurar": "Depurar horas extras en la base independiente de Horas depuradas",
         },
     },
 }

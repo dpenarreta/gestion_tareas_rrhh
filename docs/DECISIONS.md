@@ -8,6 +8,8 @@
 
 | Decisión | Motivo técnico | Detalle completo |
 |---|---|---|
+| Horas depuradas es una copia independiente por mes; la depuración nunca escribe en `OvertimeRecord` (2026-10-13) | La base de los supervisores y el consolidado del Asistente son los mismos registros: se protegen ambos no tocándolos. Una sola copia por mes, garantizada por restricción única | [AUDIT_LOG § 2026-10-13](AUDIT_LOG.md) |
+| Rol Jefe de Operaciones: consulta la operación y edita solo Horas depuradas; el Administrador consulta y exporta (2026-10-13) | Decisión del usuario. Se usa el mismo mecanismo de roles (grupo + matriz de `access.py` + permiso `novedades.depurar`) | [AUDIT_LOG § 2026-10-13](AUDIT_LOG.md) |
 | Plazo de registro por fecha de trabajo: 48 h laborables (24 h por día hábil) desde el fin del día, configurable por separado para Días laborados y Horas extras (2026-10-13) | Decisión del usuario; misma regla que el plazo de cierre mensual, con una sola implementación (`business_deadline`). Valor vigente al empezar cada plazo: no retroactivo | [AUDIT_LOG § 2026-10-13](AUDIT_LOG.md) |
 | Nadie registra fechas futuras, ni el Administrador (2026-10-13) | Pedido explícito; no existía una política aprobada que habilitara registros anticipados | [AUDIT_LOG § 2026-10-13](AUDIT_LOG.md) |
 | El Asistente de Operaciones registra y corrige fechas pasadas de cualquier equipo, también fuera de plazo (2026-10-13) | Decisión del usuario. Reemplaza la restricción "el Asistente nunca escribe"; sigue sin importar, cerrar, gestionar colaboradores, corregir meses cerrados ni cambiar Ajustes | [AUDIT_LOG § 2026-10-13](AUDIT_LOG.md) |

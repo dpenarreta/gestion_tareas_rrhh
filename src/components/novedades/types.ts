@@ -8,6 +8,12 @@ export type NovedadesMe = {
   permissions: string[];
   isSupervisor: boolean;
   isAssistant: boolean;
+  /** Jefe de Operaciones: consulta y depura (Horas depuradas). */
+  isJefe?: boolean;
+  /** Edita la base de Horas depuradas (solo el Jefe). */
+  canDepurate?: boolean;
+  /** Ve la pestaña Horas Depuradas (Jefe y Administrador). */
+  canViewDepuration?: boolean;
   nationalRead: boolean;
   nationalWrite: boolean;
   /** Historial de registros: Administrador y Asistente; nunca el Supervisor (lo decide Django). */

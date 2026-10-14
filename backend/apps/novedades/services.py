@@ -35,9 +35,12 @@ from .models import (
     Collaborator,
     CollaboratorAssignment,
     CollaboratorStatusChange,
+    DepuratedOvertime,
+    DepurationChange,
     ImportBatch,
     NovedadEvent,
     OperationalPeriod,
+    OvertimeDepuration,
     OvertimeMonthClose,
     OvertimeRecord,
     PendingNotification,
@@ -3435,3 +3438,409 @@ class PermissionAdminService:
             context=context,
         )
         return override
+
+
+# ── Horas depuradas (copia independiente del consolidado) ─────────────────────
+
+
+DEPURABLE_FIELDS = (
+    "overtime_hours",
+    "saturday_hours",
+    "is_saturday",
+    "is_sunday",
+    "is_holiday",
+    "work_done",
+    "observations",
+)
+
+
+def _raw(value):
+    return value if isinstance(value, bool) else _fmt(value)
+
+
+class DepurationService:
+    """Base de Horas depuradas del Jefe de Operaciones (pedido del 2026-10-13).
+
+    - Se crea a partir del consolidado de Horas extras (los `OvertimeRecord`
+      vigentes del mes calendario, todos los equipos) en una acción explícita
+      y solo para meses terminados. Una sola por mes: la restricción única de
+      la base lo garantiza aunque lleguen dos solicitudes simultáneas, y crearla
+      de nuevo devuelve la existente sin tocar sus ajustes.
+    - Es una COPIA: ninguna operación de este servicio escribe en
+      `OvertimeRecord`. Cambios posteriores en el origen no la sobrescriben; se
+      señalan como diferencias.
+    - Edita solo el Jefe de Operaciones; el Administrador consulta y exporta.
+    - Cada cambio queda en `DepurationChange` (original, anterior, nuevo,
+      responsable, fecha y motivo) y en la auditoría general."""
+
+    @staticmethod
+    def _check_view(acc: NovedadesAccess) -> None:
+        if not acc.can_view_depuration:
+            raise _forbidden("No tiene acceso a Horas depuradas.")
+
+    @staticmethod
+    def _check_edit(acc: NovedadesAccess) -> None:
+        if not acc.can_depurate:
+            raise _forbidden("Solo el Jefe de Operaciones modifica la base de Horas depuradas.")
+
+    @staticmethod
+    def get(month: MonthKey):
+        return OvertimeDepuration.objects.filter(year=month.year, month=month.month).first()
+
+    @staticmethod
+    def _source(month: MonthKey):
+        return OvertimeRecord.objects.filter(
+            date__gte=month.start_date, date__lte=month.end_date, deleted_at__isnull=True
+        ).select_related("collaborator", "supervisor")
+
+    @staticmethod
+    def _source_summary(month: MonthKey) -> dict:
+        totals = DepurationService._source(month).aggregate(
+            records=Count("pk"), extra=Sum("overtime_hours"), saturday=Sum("saturday_hours")
+        )
+        supervisors = list(PeriodService.supervisors())
+        closes = OvertimeMonthService.closes_for(month, [s.pk for s in supervisors])
+        return {
+            "records": totals["records"] or 0,
+            "overtime_hours": totals["extra"] or Decimal("0"),
+            "saturday_hours": totals["saturday"] or Decimal("0"),
+            "supervisors_total": len(supervisors),
+            "supervisors_closed": len(closes),
+        }
+
+    @staticmethod
+    def status(acc: NovedadesAccess, month: MonthKey) -> dict:
+        DepurationService._check_view(acc)
+        source = DepurationService._source_summary(month)
+        depuration = DepurationService.get(month)
+        ended = month < OvertimeMonthService.current_month()
+        data = {
+            "period": month.code,
+            "label": month.label,
+            "exists": depuration is not None,
+            "can_create": acc.can_depurate and depuration is None and ended,
+            "can_edit": acc.can_depurate,
+            "month_ended": ended,
+            "source": {
+                "records": source["records"],
+                "overtime_hours": _fmt(source["overtime_hours"]),
+                "saturday_hours": _fmt(source["saturday_hours"]),
+                "supervisors_total": source["supervisors_total"],
+                "supervisors_closed": source["supervisors_closed"],
+            },
+        }
+        if depuration is not None:
+            rows = depuration.rows.all()
+            active = rows.filter(excluded=False)
+            totals = active.aggregate(extra=Sum("overtime_hours"), saturday=Sum("saturday_hours"))
+            last = depuration.changes.select_related("actor").first()
+            data["depuration"] = {
+                "id": depuration.pk,
+                "created_at": depuration.created_at,
+                "created_by": user_display(depuration.created_by),
+                "source_count": depuration.source_count,
+                "source_overtime_hours": _fmt(depuration.source_overtime_hours),
+                "source_saturday_hours": _fmt(depuration.source_saturday_hours),
+                "supervisors_total": depuration.supervisors_total,
+                "supervisors_closed": depuration.supervisors_closed,
+                "rows": rows.count(),
+                "excluded": rows.filter(excluded=True).count(),
+                "modified": sum(1 for r in rows if DepurationService._is_modified(r)),
+                "overtime_hours": _fmt(totals["extra"] or Decimal("0")),
+                "saturday_hours": _fmt(totals["saturday"] or Decimal("0")),
+                "last_change_at": last.created_at if last else None,
+                "last_change_by": user_display(last.actor) if last else "",
+            }
+        return data
+
+    @staticmethod
+    def create(acc: NovedadesAccess, month: MonthKey, *, context=None) -> dict:
+        DepurationService._check_edit(acc)
+        existing = DepurationService.get(month)
+        if existing is not None:
+            # Idempotente: abrir de nuevo devuelve la MISMA base, con sus ajustes.
+            return {"created": False, **DepurationService.status(acc, month)}
+        if not month < OvertimeMonthService.current_month():
+            raise NovedadesError(
+                f"{month.label} todavía está en curso: la base depurable se crea con el mes terminado.",
+                code="month_in_progress",
+                status=409,
+            )
+        source = DepurationService._source_summary(month)
+        try:
+            with transaction.atomic():
+                depuration = OvertimeDepuration.objects.create(
+                    year=month.year,
+                    month=month.month,
+                    created_by=acc.user,
+                    source_count=source["records"],
+                    source_overtime_hours=source["overtime_hours"],
+                    source_saturday_hours=source["saturday_hours"],
+                    supervisors_total=source["supervisors_total"],
+                    supervisors_closed=source["supervisors_closed"],
+                )
+                copies = []
+                for r in DepurationService._source(month):
+                    values = {f: getattr(r, f) for f in DEPURABLE_FIELDS}
+                    copies.append(
+                        DepuratedOvertime(
+                            depuration=depuration,
+                            source_record=r,
+                            source_id=r.pk,
+                            collaborator=r.collaborator,
+                            supervisor=r.supervisor,
+                            date=r.date,
+                            cedula=r.collaborator.cedula,
+                            full_name=r.collaborator.full_name,
+                            regional=r.collaborator.regional,
+                            area=r.collaborator.area,
+                            cargo=r.collaborator.cargo,
+                            supervisor_name=user_display(r.supervisor),
+                            **{f"orig_{f}": v for f, v in values.items()},
+                            **values,
+                        )
+                    )
+                DepuratedOvertime.objects.bulk_create(copies, batch_size=500)
+                # La fotografía debe coincidir con lo copiado.
+                if len(copies) != source["records"]:
+                    depuration.source_count = len(copies)
+                    depuration.save(update_fields=["source_count"])
+                EventService.log(
+                    actor=acc.user,
+                    action="depuration.created",
+                    target_type="overtime_depuration",
+                    target_id=depuration.pk,
+                    target_label=f"Horas depuradas {month.label}",
+                    new_value=f"{len(copies)} registros copiados del consolidado",
+                    context=context,
+                )
+        except IntegrityError:
+            # Otra solicitud la creó entre la verificación y la escritura.
+            return {"created": False, **DepurationService.status(acc, month)}
+        return {"created": True, **DepurationService.status(acc, month)}
+
+    @staticmethod
+    def _is_modified(row: DepuratedOvertime) -> bool:
+        return row.excluded or any(
+            getattr(row, f) != getattr(row, f"orig_{f}") for f in DEPURABLE_FIELDS
+        )
+
+    @staticmethod
+    def rows(acc: NovedadesAccess, month: MonthKey, params: dict | None = None) -> list[dict]:
+        DepurationService._check_view(acc)
+        depuration = DepurationService.get(month)
+        if depuration is None:
+            return []
+        params = params or {}
+        qs = depuration.rows.select_related("source_record")
+        if params.get("supervisor"):
+            qs = qs.filter(supervisor_id=_parse_id_param(params["supervisor"], "supervisor"))
+        if params.get("q"):
+            needle = str(params["q"]).strip()
+            qs = qs.filter(Q(full_name__icontains=needle) | Q(cedula__icontains=needle))
+        result = []
+        for r in qs:
+            src = r.source_record
+            # Diferencias del ORIGEN actual frente a la fotografía (no se
+            # aplican solas: solo se señalan).
+            if src is None or src.deleted_at is not None:
+                source_state = "deleted"
+            elif any(getattr(src, f) != getattr(r, f"orig_{f}") for f in DEPURABLE_FIELDS):
+                source_state = "changed"
+            else:
+                source_state = ""
+            result.append(
+                {
+                    "id": r.pk,
+                    "source_id": r.source_id,
+                    "version": r.version,
+                    "date": r.date,
+                    "cedula": r.cedula,
+                    "full_name": r.full_name,
+                    "regional": r.regional,
+                    "area": r.area,
+                    "cargo": r.cargo,
+                    "supervisor_id": r.supervisor_id,
+                    "supervisor_name": r.supervisor_name,
+                    "excluded": r.excluded,
+                    "modified": DepurationService._is_modified(r),
+                    "source_state": source_state,
+                    # Marcas como booleanos (la pantalla las edita); el resto como texto.
+                    "original": {f: _raw(getattr(r, f"orig_{f}")) for f in DEPURABLE_FIELDS},
+                    "current": {f: _raw(getattr(r, f)) for f in DEPURABLE_FIELDS},
+                    "difference_hours": _fmt(
+                        (r.overtime_hours + r.saturday_hours)
+                        - (r.orig_overtime_hours + r.orig_saturday_hours)
+                    ),
+                }
+            )
+        return result
+
+    @staticmethod
+    def save_rows(acc: NovedadesAccess, month: MonthKey, rows: list[dict], *, context=None) -> dict:
+        """Guardado (automático) de filas depuradas. Resultado por fila; una
+        fila inválida no impide guardar las demás. Control de versión: una
+        respuesta atrasada nunca pisa una edición más reciente."""
+        DepurationService._check_edit(acc)
+        depuration = DepurationService.get(month)
+        if depuration is None:
+            raise _not_found("Todavía no existe la base depurable de este mes.")
+        if len(rows) > OvertimeService.BULK_LIMIT:
+            raise NovedadesError("Demasiadas filas en un solo envío.", code="batch_too_large")
+        by_id = {
+            r.pk: r
+            for r in depuration.rows.filter(pk__in=[row.get("id") for row in rows if row.get("id")])
+        }
+        results = []
+        for row in rows:
+            key = row.get("client_key") or str(row.get("id"))
+            record = by_id.get(row.get("id"))
+            if record is None:
+                results.append(
+                    {
+                        "client_key": key,
+                        "status": "error",
+                        "errors": {"row": "La fila no existe en esta base."},
+                    }
+                )
+                continue
+            changes: dict[str, object] = {}
+            errors: dict[str, str] = {}
+            merged = {f: getattr(record, f) for f in DEPURABLE_FIELDS}
+            merged.update({f: row[f] for f in DEPURABLE_FIELDS if f in row})
+            values, field_errors = OvertimeService.row_values(merged, record.date)
+            if field_errors:
+                errors.update(field_errors)
+            else:
+                for f, v in values.items():
+                    if getattr(record, f) != v:
+                        changes[f] = v
+            if "excluded" in row:
+                if not isinstance(row["excluded"], bool):
+                    errors["excluded"] = "Valor inválido."
+                elif row["excluded"] != record.excluded:
+                    changes["excluded"] = row["excluded"]
+            if errors:
+                results.append({"client_key": key, "status": "error", "errors": errors})
+                continue
+            if row.get("version") is not None and int(row["version"]) != record.version:
+                same = all(getattr(record, f) == v for f, v in changes.items()) or not changes
+                status = "unchanged" if same else "conflict"
+                results.append(
+                    {
+                        "client_key": key,
+                        "status": status,
+                        "errors": (
+                            {} if same else {"row": "Otro usuario modificó esta fila; recargue."}
+                        ),
+                        "id": record.pk,
+                        "version": record.version,
+                    }
+                )
+                continue
+            if not changes:
+                results.append(
+                    {
+                        "client_key": key,
+                        "status": "unchanged",
+                        "errors": {},
+                        "id": record.pk,
+                        "version": record.version,
+                    }
+                )
+                continue
+            reason = str(row.get("reason") or "").strip()[:500]
+            with transaction.atomic():
+                updated = DepuratedOvertime.objects.filter(
+                    pk=record.pk, version=record.version
+                ).update(
+                    **changes,
+                    version=record.version + 1,
+                    updated_by=acc.user,
+                    updated_at=timezone.now(),
+                )
+                if not updated:
+                    results.append(
+                        {
+                            "client_key": key,
+                            "status": "conflict",
+                            "errors": {"row": "Otro usuario modificó esta fila; recargue."},
+                        }
+                    )
+                    continue
+                DepurationChange.objects.bulk_create(
+                    [
+                        DepurationChange(
+                            depuration=depuration,
+                            row=record,
+                            field=f,
+                            original_value=(
+                                _fmt(getattr(record, f"orig_{f}"))
+                                if f != "excluded"
+                                else _fmt(False)
+                            ),
+                            old_value=_fmt(getattr(record, f)),
+                            new_value=_fmt(v),
+                            reason=reason,
+                            actor=acc.user,
+                        )
+                        for f, v in changes.items()
+                    ]
+                )
+                record_audit_event(
+                    actor=acc.user,
+                    action="novedades.depuration.row_updated",
+                    target_type="depurated_overtime",
+                    target_id=record.pk,
+                    module=MODULE,
+                    previous_values={f: _fmt(getattr(record, f)) for f in changes},
+                    new_values={f: _fmt(v) for f, v in changes.items()},
+                    context=context,
+                )
+            results.append(
+                {
+                    "client_key": key,
+                    "status": "updated",
+                    "errors": {},
+                    "id": record.pk,
+                    "version": record.version + 1,
+                }
+            )
+        return {"rows": results}
+
+    @staticmethod
+    def history(acc: NovedadesAccess, month: MonthKey, row_id=None) -> list[dict]:
+        DepurationService._check_view(acc)
+        depuration = DepurationService.get(month)
+        if depuration is None:
+            return []
+        qs = depuration.changes.select_related("actor", "row")
+        if row_id:
+            qs = qs.filter(row_id=_parse_id_param(row_id, "row"))
+        return [
+            {
+                "id": c.pk,
+                "row_id": c.row_id,
+                "label": f"{c.row.full_name} ({c.row.cedula}) {c.row.date:%d/%m/%Y}",
+                "field": c.field,
+                "original_value": c.original_value,
+                "old_value": c.old_value,
+                "new_value": c.new_value,
+                "reason": c.reason,
+                "actor": user_display(c.actor),
+                "created_at": c.created_at,
+            }
+            for c in qs[:500]
+        ]
+
+    @staticmethod
+    def export_rows(acc: NovedadesAccess, month: MonthKey):
+        DepurationService._check_view(acc)
+        if not (acc.can_depurate or acc.can(perms.EXPORTAR)):
+            raise _forbidden("No tiene habilitada la exportación.")
+        depuration = DepurationService.get(month)
+        if depuration is None:
+            raise _not_found("Todavía no existe la base depurable de este mes.")
+        return depuration, depuration.rows.filter(excluded=False).order_by(
+            "date", "full_name", "pk"
+        )

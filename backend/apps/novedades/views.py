@@ -49,6 +49,7 @@ from .services import (
     CollaboratorInput,
     CollaboratorService,
     CorrectionService,
+    DepurationService,
     HistoryService,
     NovedadesError,
     OvertimeMonthService,
@@ -403,6 +404,69 @@ class OvertimeMonthListView(NovedadesView):
         if request.query_params.get("supervisor") or self.access.is_supervisor:
             supervisor = self.supervisor_param()
         return Response(OvertimeMonthService.months(self.access, supervisor))
+
+
+class DepurationView(NovedadesView):
+    """Estado de la base de Horas depuradas del mes (o su ausencia)."""
+
+    def get(self, request):
+        return Response(DepurationService.status(self.access, self.month_param()))
+
+
+class DepurationCreateView(NovedadesView):
+    """Crea (o abre, si ya existe) la base depurable del mes. Idempotente."""
+
+    def post(self, request):
+        data = self.validated(CloseSerializer)
+        return Response(
+            DepurationService.create(
+                self.access, self.month_param(data["period"]), context=self.context
+            )
+        )
+
+
+class DepurationRowsView(NovedadesView):
+    def get(self, request):
+        return Response(
+            DepurationService.rows(
+                self.access, self.month_param(), dict(request.query_params.items())
+            )
+        )
+
+
+class DepurationSaveView(NovedadesView):
+    """Guardado automático de filas depuradas (resultado por fila)."""
+
+    def post(self, request):
+        data = request.data if isinstance(request.data, dict) else {}
+        rows = data.get("rows")
+        if not isinstance(rows, list) or not rows:
+            raise NovedadesError("No hay filas para guardar.")
+        return Response(
+            DepurationService.save_rows(
+                self.access,
+                self.month_param(str(data.get("period") or "")),
+                rows,
+                context=self.context,
+            )
+        )
+
+
+class DepurationHistoryView(NovedadesView):
+    def get(self, request):
+        return Response(
+            DepurationService.history(
+                self.access, self.month_param(), request.query_params.get("row")
+            )
+        )
+
+
+class DepurationExportView(NovedadesView):
+    def get(self, request):
+        month = self.month_param()
+        depuration, qs = DepurationService.export_rows(self.access, month)
+        content = ExportService.depurated(self.access, depuration, qs, context=self.context)
+        return self.xlsx(content, f"horas-depuradas-{month.code}.xlsx")
 
 
 class DeadlineSettingsView(NovedadesView):

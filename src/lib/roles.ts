@@ -19,7 +19,10 @@ export type Role =
   // módulo (ver isOperationalRole / getNavLinks / src/proxy.ts) y su
   // autorización real la resuelve Django (apps/novedades/access.py).
   | "SUPERVISOR_OPERACIONES"
-  | "ASISTENTE_OPERACIONES";
+  | "ASISTENTE_OPERACIONES"
+  // Jefe de Operaciones: consulta la operación y depura Horas extras en su
+  // copia independiente (Horas depuradas); nunca edita las bases originales.
+  | "JEFE_OPERACIONES";
 
 export const ROLE_LEVEL: Record<Role, number> = {
   ADMINISTRADOR: 5,
@@ -35,6 +38,7 @@ export const ROLE_LEVEL: Record<Role, number> = {
   ASISTENTE_NOMINA: 1,
   SUPERVISOR_OPERACIONES: 1,
   ASISTENTE_OPERACIONES: 1,
+  JEFE_OPERACIONES: 1,
 };
 
 export const ROLE_LABEL: Record<Role, string> = {
@@ -51,6 +55,7 @@ export const ROLE_LABEL: Record<Role, string> = {
   ASISTENTE_NOMINA: "Asistente de Nómina",
   SUPERVISOR_OPERACIONES: "Supervisor de Operaciones",
   ASISTENTE_OPERACIONES: "Asistente de Operaciones",
+  JEFE_OPERACIONES: "Jefe de Operaciones",
 };
 
 // Roles whose tasks each role can see
@@ -69,6 +74,7 @@ export const VISIBLE_ROLES: Record<Role, Role[]> = {
     "ASISTENTE_NOMINA",
     "SUPERVISOR_OPERACIONES",
     "ASISTENTE_OPERACIONES",
+    "JEFE_OPERACIONES",
   ],
   JEFE_NACIONAL: [
     "JEFE_NACIONAL",
@@ -108,6 +114,7 @@ export const VISIBLE_ROLES: Record<Role, Role[]> = {
   ASISTENTE_NOMINA: ["ASISTENTE_NOMINA"],
   SUPERVISOR_OPERACIONES: ["SUPERVISOR_OPERACIONES"],
   ASISTENTE_OPERACIONES: ["ASISTENTE_OPERACIONES"],
+  JEFE_OPERACIONES: ["JEFE_OPERACIONES"],
 };
 
 // Who gets notified (upward) when a task comment is made
@@ -125,6 +132,7 @@ export const NOTIFICATION_TARGETS: Record<Role, Role[]> = {
   ASISTENTE_NOMINA: ["COORDINADOR_NACIONAL", "JEFE_NACIONAL"],
   SUPERVISOR_OPERACIONES: [],
   ASISTENTE_OPERACIONES: [],
+  JEFE_OPERACIONES: [],
 };
 
 export const CAN_CREATE_MEETINGS: Role[] = [
@@ -214,7 +222,7 @@ export function canViewOperationalRisk(role: Role): boolean {
 
 export const ALL_ROLES = Object.keys(ROLE_LABEL) as Role[];
 
-export const OPERATIONAL_ROLES: Role[] = ["SUPERVISOR_OPERACIONES", "ASISTENTE_OPERACIONES"];
+export const OPERATIONAL_ROLES: Role[] = ["SUPERVISOR_OPERACIONES", "ASISTENTE_OPERACIONES", "JEFE_OPERACIONES"];
 
 // Los roles operativos trabajan SOLO en Control Operativo de Novedades: no
 // participan de Tareas, Equipo, KPIs ni del resto de NEXO (pedido explícito).

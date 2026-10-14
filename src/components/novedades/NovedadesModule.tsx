@@ -18,8 +18,9 @@ import OvertimeView from "./OvertimeView";
 import CollaboratorsView from "./CollaboratorsView";
 import HistoryView from "./HistoryView";
 import RepositoryView from "./RepositoryView";
+import DepurationView from "./DepurationView";
 
-type Tab = "DIAS" | "HORAS" | "BASE" | "HISTORIAL" | "REPOSITORIO";
+type Tab = "DIAS" | "HORAS" | "BASE" | "HISTORIAL" | "REPOSITORIO" | "DEPURADAS";
 
 const TAB_LABEL: Record<Tab, string> = {
   DIAS: "Días laborados",
@@ -27,6 +28,7 @@ const TAB_LABEL: Record<Tab, string> = {
   BASE: "Base de colaboradores",
   HISTORIAL: "Historial de registros",
   REPOSITORIO: "Repositorio mensual",
+  DEPURADAS: "Horas Depuradas",
 };
 
 export type ModuleContext = {
@@ -48,11 +50,15 @@ export type ModuleContext = {
 export default function NovedadesModule({ me }: { me: NovedadesMe }) {
   const can = useCallback((codename: string) => me.permissions.includes(codename), [me.permissions]);
   const tabs = useMemo(() => {
+    // Jefe de Operaciones: consulta de Días laborados y Horas extras, y su
+    // base de trabajo (Horas Depuradas) como pestaña inicial.
+    if (me.isJefe) return (me.canViewDepuration ? ["DEPURADAS", "DIAS", "HORAS"] : ["DIAS", "HORAS"]) as Tab[];
     const list: Tab[] = ["DIAS", "HORAS", "BASE"];
     if (me.canViewHistory) list.push("HISTORIAL");
     if (can(PERM.historial)) list.push("REPOSITORIO");
+    if (me.canViewDepuration) list.push("DEPURADAS");
     return me.isAssistant ? (["HORAS", ...list.filter((t) => t !== "HORAS")] as Tab[]) : list;
-  }, [can, me.isAssistant, me.canViewHistory]);
+  }, [can, me.isAssistant, me.isJefe, me.canViewHistory, me.canViewDepuration]);
 
   const [tab, setTab] = useState<Tab>(tabs[0]);
   const [supervisors, setSupervisors] = useState<SupervisorOption[]>([]);
@@ -91,9 +97,9 @@ export default function NovedadesModule({ me }: { me: NovedadesMe }) {
       setSupervisors(r.data);
       // El Asistente arranca en el consolidado nacional (todos); quien entra
       // a Días laborados necesita un equipo concreto.
-      setSupervisorId((current) => current ?? (me.isAssistant ? null : r.data[0]?.id ?? null));
+      setSupervisorId((current) => current ?? (me.isAssistant || me.isJefe ? null : r.data[0]?.id ?? null));
     });
-  }, [me.isSupervisor, me.nationalWrite, me.isAssistant]);
+  }, [me.isSupervisor, me.nationalWrite, me.isAssistant, me.isJefe]);
 
   useEffect(() => {
     novedadesApi.get<PeriodOption[]>("periods", { supervisor: supervisorId ?? undefined }).then((r) => {
@@ -163,7 +169,7 @@ export default function NovedadesModule({ me }: { me: NovedadesMe }) {
               </SelectInput>
             </label>
           )}
-          {tab === "HORAS" ? (
+          {tab === "HORAS" || tab === "DEPURADAS" ? (
             <label className="min-w-[230px]">
               <span className="block text-xs font-semibold text-secondary mb-1">Mes (horas extras)</span>
               <SelectInput value={overtimeMonth} onChange={(e) => {
@@ -200,7 +206,7 @@ export default function NovedadesModule({ me }: { me: NovedadesMe }) {
           )}
         </div>
       </div>
-      {tab === "HORAS" ? (
+      {tab === "HORAS" || tab === "DEPURADAS" ? (
         selectedMonth && (
           <p className="text-xs text-secondary -mt-2">
             Mes calendario: {selectedMonth.startDate.split("-").reverse().join("/")} al{" "}
@@ -249,6 +255,7 @@ export default function NovedadesModule({ me }: { me: NovedadesMe }) {
           {tab === "BASE" && <CollaboratorsView ctx={ctx} />}
           {tab === "HISTORIAL" && <HistoryView ctx={ctx} />}
           {tab === "REPOSITORIO" && <RepositoryView ctx={ctx} />}
+          {tab === "DEPURADAS" && <DepurationView key={overtimeMonth} ctx={ctx} />}
         </>
       )}
     </div>

@@ -15,6 +15,45 @@
 
 ---
 
+## 2026-10-13 — Horas depuradas: copia independiente y rol Jefe de Operaciones
+
+**Cómo apareció:** pedido explícito de un flujo de depuración de horas extras
+con tres bases: lo reportado por los supervisores, el consolidado del
+Asistente de Operaciones y una base editable por un nuevo rol, Jefe de
+Operaciones, sin alterar las dos primeras.
+
+**Lo que había (verificado en el código):** las bases 1 y 2 no son tablas
+distintas: el consolidado del Asistente es la consulta nacional de los mismos
+`OvertimeRecord` (y desde v1.174.0 el Asistente también los corrige). Por eso
+el respaldo se protege no escribiendo nunca en `OvertimeRecord` desde la
+depuración, y la base 3 es una tabla nueva.
+
+**Decisiones del usuario:** la base se crea solo para meses terminados
+(avisando si faltan cierres); el Administrador consulta y exporta, no edita.
+
+**Alternativas consideradas:**
+
+- *Reutilizar `SupervisorPeriod.summary` o el repositorio mensual como
+  fotografía.* Descartado: guardan totales, no filas editables con historia.
+- *Agregar columnas "depuradas" a `OvertimeRecord`.* Descartado: mezclaría la
+  copia con el respaldo y cualquier escritura del módulo podría alcanzarla.
+- *Sincronizar la copia cuando cambia el origen.* Descartado por el pedido:
+  los cambios posteriores solo se señalan por fila.
+
+**Decisión técnica:** `OvertimeDepuration` (única por año/mes),
+`DepuratedOvertime` (valores `orig_*` inmutables + valores depurados +
+referencia SET_NULL al origen, única por base y registro de origen) y
+`DepurationChange` (historial sin endpoints de escritura). Rol `JEFE_OPERACIONES`
+con la matriz de `access.py` (todo lo que escribe en las bases originales,
+"no disponible") y permiso `novedades.depurar`; editar exige además el rol
+(`can_depurate`), así que el Administrador solo consulta.
+
+**Impacto:** sin cambios en la captura, plazos, cierres ni permisos de
+Supervisor y Asistente. Las migraciones solo agregan tablas, un permiso y un
+grupo.
+
+---
+
 ## 2026-10-13 — Plazos de registro por fecha, Asistente que corrige y guardado automático
 
 **Cómo apareció:** pedido explícito: plazo inicial de 48 horas desde la fecha

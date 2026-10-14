@@ -59,6 +59,28 @@ urlpatterns = [
         views.OvertimeMonthCloseView.as_view(),
         name="novedades-overtime-month-close",
     ),
+    path("depuration/", views.DepurationView.as_view(), name="novedades-depuration"),
+    path(
+        "depuration/create/",
+        views.DepurationCreateView.as_view(),
+        name="novedades-depuration-create",
+    ),
+    path("depuration/rows/", views.DepurationRowsView.as_view(), name="novedades-depuration-rows"),
+    path(
+        "depuration/rows/save/",
+        views.DepurationSaveView.as_view(),
+        name="novedades-depuration-save",
+    ),
+    path(
+        "depuration/history/",
+        views.DepurationHistoryView.as_view(),
+        name="novedades-depuration-history",
+    ),
+    path(
+        "depuration/export/",
+        views.DepurationExportView.as_view(),
+        name="novedades-depuration-export",
+    ),
     path(
         "deadlines/settings/",
         views.DeadlineSettingsView.as_view(),

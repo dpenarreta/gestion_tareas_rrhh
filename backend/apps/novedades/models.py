@@ -442,3 +442,129 @@ class PendingNotification(models.Model):
     last_error = models.CharField(max_length=500, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     delivered_at = models.DateTimeField(null=True, blank=True)
+
+
+# ── Horas depuradas: copia independiente del consolidado de Horas extras ──────
+#
+# Tres bases (pedido del 2026-10-13):
+#   1. Lo reportado por los supervisores y 2. el consolidado del Asistente de
+#      Operaciones viven en `OvertimeRecord` (el consolidado es la vista
+#      nacional de los mismos registros). Son el respaldo.
+#   3. Horas depuradas: copia propia, por MES CALENDARIO, que el Jefe de
+#      Operaciones ajusta. Nada de aquí escribe en `OvertimeRecord`.
+
+
+class OvertimeDepuration(models.Model):
+    """Una base depurable por mes calendario (ámbito nacional). La
+    restricción única impide una segunda copia aunque lleguen dos solicitudes a
+    la vez; abrirla de nuevo devuelve siempre la misma."""
+
+    year = models.PositiveSmallIntegerField()
+    month = models.PositiveSmallIntegerField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="novedades_depurations"
+    )
+    # Fotografía del consolidado usado como punto de partida.
+    source_count = models.PositiveIntegerField(default=0)
+    source_overtime_hours = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    source_saturday_hours = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    supervisors_total = models.PositiveIntegerField(default=0)
+    supervisors_closed = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        ordering = ["-year", "-month"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["year", "month"], name="novedades_depuration_month_uniq"
+            )
+        ]
+
+
+class DepuratedOvertime(models.Model):
+    """Un registro de la copia. `orig_*` es la fotografía al crear la copia y
+    NUNCA cambia; los campos sin prefijo son el valor depurado editable.
+    `source_record` es solo una referencia (SET_NULL): si el origen se borrara,
+    la copia y su historia se conservan."""
+
+    depuration = models.ForeignKey(
+        OvertimeDepuration, on_delete=models.PROTECT, related_name="rows"
+    )
+    source_record = models.ForeignKey(
+        OvertimeRecord,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="depurated_copies",
+    )
+    source_id = models.PositiveIntegerField()
+    collaborator = models.ForeignKey(
+        Collaborator, on_delete=models.PROTECT, related_name="depurated_overtime"
+    )
+    supervisor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    date = models.DateField()
+    # Identidad tal como estaba al copiar (no cambia si luego cambia la base).
+    cedula = models.CharField(max_length=20)
+    full_name = models.CharField(max_length=200)
+    regional = models.CharField(max_length=100, blank=True)
+    area = models.CharField(max_length=100, blank=True)
+    cargo = models.CharField(max_length=100, blank=True)
+    supervisor_name = models.CharField(max_length=200, blank=True)
+    # Fotografía original (inmutable).
+    orig_overtime_hours = models.DecimalField(max_digits=5, decimal_places=2)
+    orig_saturday_hours = models.DecimalField(max_digits=5, decimal_places=2)
+    orig_is_saturday = models.BooleanField()
+    orig_is_sunday = models.BooleanField()
+    orig_is_holiday = models.BooleanField()
+    orig_work_done = models.CharField(max_length=500, blank=True)
+    orig_observations = models.CharField(max_length=1000, blank=True)
+    # Valores depurados (editables por el Jefe de Operaciones).
+    overtime_hours = models.DecimalField(max_digits=5, decimal_places=2)
+    saturday_hours = models.DecimalField(max_digits=5, decimal_places=2)
+    is_saturday = models.BooleanField()
+    is_sunday = models.BooleanField()
+    is_holiday = models.BooleanField()
+    work_done = models.CharField(max_length=500, blank=True)
+    observations = models.CharField(max_length=1000, blank=True)
+    # Excluido de la base depurada (no borra el origen ni la fila).
+    excluded = models.BooleanField(default=False)
+    version = models.PositiveIntegerField(default=1)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+
+    class Meta:
+        ordering = ["date", "full_name", "pk"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["depuration", "source_id"], name="novedades_depurated_source_uniq"
+            )
+        ]
+
+
+class DepurationChange(models.Model):
+    """Historial propio de la depuración (solo lectura desde la API): valor de
+    la fotografía original, valor depurado anterior y nuevo, responsable,
+    fecha y motivo."""
+
+    depuration = models.ForeignKey(
+        OvertimeDepuration, on_delete=models.PROTECT, related_name="changes"
+    )
+    row = models.ForeignKey(DepuratedOvertime, on_delete=models.PROTECT, related_name="changes")
+    field = models.CharField(max_length=40)
+    original_value = models.CharField(max_length=1000, blank=True)
+    old_value = models.CharField(max_length=1000, blank=True)
+    new_value = models.CharField(max_length=1000, blank=True)
+    reason = models.CharField(max_length=500, blank=True)
+    actor = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
