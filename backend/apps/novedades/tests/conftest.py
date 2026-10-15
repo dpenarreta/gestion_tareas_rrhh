@@ -32,7 +32,7 @@ def immediate_on_commit(monkeypatch):
     monkeypatch.setattr("apps.novedades.services.transaction.on_commit", lambda fn, *a, **k: fn())
     # El correo de salida corre en un hilo aparte en producción; en tests, en
     # el mismo hilo (otro hilo no ve la transacción del test).
-    monkeypatch.setattr("apps.novedades.services.ExitNotificationService.run_async", False)
+    monkeypatch.setattr("apps.novedades.services.CollaboratorMailService.run_async", False)
 
 
 def _user(username, role, *, superuser=False):

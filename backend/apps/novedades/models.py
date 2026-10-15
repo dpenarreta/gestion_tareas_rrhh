@@ -570,27 +570,33 @@ class DepurationChange(models.Model):
         ordering = ["-created_at", "-id"]
 
 
-# ── Notificaciones de salida de colaboradores (correo) ────────────────────────
+# ── Notificaciones de colaboradores por correo (ingreso y salida) ────────────
 #
-# Pedido del 2026-10-13: cuando un colaborador pasa de Activo a Inactivo se
-# avisa por correo (SMTP existente de NEXO) a las personas designadas de
-# Operaciones, Jefatura de Operaciones y Talento Humano, con su detalle de
-# Días laborados del período. Los destinatarios los administra solo el
+# Salida (2026-10-13): cuando un colaborador pasa de Activo a Inactivo.
+# Ingreso (2026-10-15): cuando un colaborador registrado como NUEVO INGRESO
+# alcanza su segundo día válido en Días laborados. Ambos usan el SMTP de NEXO
+# y cada tipo tiene su propia lista de destinatarios, que administra solo el
 # Administrador desde Ajustes.
 
 
-class ExitNotificationRecipient(models.Model):
-    """Destinatario del correo de salida. Nunca se borra: se desactiva, para
-    que el historial de envíos siga apuntando a una dirección conocida."""
+class CollaboratorNotificationRecipient(models.Model):
+    """Destinatario de un tipo de correo (ingreso o salida). Nunca se borra: se
+    desactiva, para que el historial de envíos siga apuntando a una dirección
+    conocida. Una misma dirección puede estar en ambas listas."""
+
+    class Kind(models.TextChoices):
+        ENTRY = "ENTRY", "Ingreso"
+        EXIT = "EXIT", "Salida"
 
     class Area(models.TextChoices):
         OPERACIONES = "OPERACIONES", "Operaciones"
         JEFATURA = "JEFATURA_OPERACIONES", "Jefatura de Operaciones"
         TALENTO_HUMANO = "TALENTO_HUMANO", "Talento Humano"
 
-    # Guardado en minúsculas y sin espacios: la restricción única impide
-    # duplicados que solo difieren en mayúsculas.
-    email = models.EmailField(max_length=254, unique=True)
+    kind = models.CharField(max_length=10, choices=Kind.choices, default=Kind.EXIT)
+    # Guardado en minúsculas y sin espacios: la restricción única (por lista)
+    # impide duplicados que solo difieren en mayúsculas.
+    email = models.EmailField(max_length=254)
     area = models.CharField(max_length=30, choices=Area.choices, blank=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -603,7 +609,10 @@ class ExitNotificationRecipient(models.Model):
     )
 
     class Meta:
-        ordering = ["email"]
+        ordering = ["kind", "email"]
+        constraints = [
+            models.UniqueConstraint(fields=["kind", "email"], name="novedades_notif_recipient_uniq")
+        ]
 
 
 class CollaboratorExitNotification(models.Model):
@@ -646,6 +655,53 @@ class CollaboratorExitNotification(models.Model):
     last_error = models.CharField(max_length=500, blank=True)
     sent_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at", "-id"]
+
+
+class CollaboratorEntryNotification(models.Model):
+    """Evento de INGRESO de un colaborador y estado de su correo.
+
+    Se crea solo al dar de alta a alguien marcado como "nuevo ingreso" (nunca
+    para colaboradores existentes ni por importación): esa marca es la que
+    distingue un ingreso real de la carga de un equipo que ya trabajaba. Queda
+    "En espera" hasta el SEGUNDO día válido (horas > 0) en Días laborados.
+    Uno por alta (1 a 1 con el colaborador): repetir guardados o importaciones
+    nunca crea otro."""
+
+    class Status(models.TextChoices):
+        WAITING = "WAITING", "En espera del segundo día"
+        PENDING = "PENDING", "Pendiente"
+        SENDING = "SENDING", "Enviando"
+        SENT = "SENT", "Enviado"
+        FAILED = "FAILED", "Fallido"
+
+    collaborator = models.OneToOneField(
+        Collaborator, on_delete=models.PROTECT, related_name="entry_notification"
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, related_name="+"
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    first_day = models.DateField(null=True, blank=True)
+    second_day = models.DateField(null=True, blank=True)
+    triggered_at = models.DateTimeField(null=True, blank=True)
+    supervisor = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.PROTECT, null=True, related_name="+"
+    )
+    period = models.ForeignKey(
+        OperationalPeriod, on_delete=models.PROTECT, null=True, related_name="+"
+    )
+    snapshot = models.JSONField(null=True, blank=True)
+    status = models.CharField(
+        max_length=10, choices=Status.choices, default=Status.WAITING, db_index=True
+    )
+    recipients = models.JSONField(default=list)
+    attempts = models.PositiveSmallIntegerField(default=0)
+    last_attempt_at = models.DateTimeField(null=True, blank=True)
+    last_error = models.CharField(max_length=500, blank=True)
+    sent_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         ordering = ["-created_at", "-id"]

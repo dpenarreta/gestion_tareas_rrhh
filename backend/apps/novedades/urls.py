@@ -154,24 +154,24 @@ urlpatterns = [
         name="novedades-override-revoke",
     ),
     path(
-        "exit-notifications/recipients/",
-        views.ExitRecipientListView.as_view(),
-        name="novedades-exit-recipients",
+        "collaborator-notifications/recipients/",
+        views.NotificationRecipientListView.as_view(),
+        name="novedades-notification-recipients",
     ),
     path(
-        "exit-notifications/recipients/<int:pk>/",
-        views.ExitRecipientDetailView.as_view(),
-        name="novedades-exit-recipient",
+        "collaborator-notifications/recipients/<int:pk>/",
+        views.NotificationRecipientDetailView.as_view(),
+        name="novedades-notification-recipient",
     ),
     path(
-        "exit-notifications/",
-        views.ExitNotificationListView.as_view(),
-        name="novedades-exit-notifications",
+        "collaborator-notifications/events/",
+        views.NotificationEventListView.as_view(),
+        name="novedades-notification-events",
     ),
     path(
-        "exit-notifications/<int:pk>/retry/",
-        views.ExitNotificationRetryView.as_view(),
-        name="novedades-exit-notification-retry",
+        "collaborator-notifications/events/<str:kind>/<int:pk>/retry/",
+        views.NotificationRetryView.as_view(),
+        name="novedades-notification-retry",
     ),
     path(
         "movements/access/", views.MovementAccessView.as_view(), name="novedades-movements-access"

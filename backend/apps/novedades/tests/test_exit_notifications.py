@@ -20,7 +20,7 @@ from apps.authentication.emails import send_password_reset_email
 from apps.novedades.models import (
     Collaborator,
     CollaboratorExitNotification,
-    ExitNotificationRecipient,
+    CollaboratorNotificationRecipient,
     SupervisorPeriod,
     WorkedDay,
 )
@@ -29,7 +29,7 @@ from apps.novedades.services import (
     CollaboratorInput,
     CollaboratorService,
     ExitNotificationService,
-    ExitRecipientService,
+    NotificationRecipientService,
     NovedadesError,
     PeriodService,
     WorkedDayService,
@@ -63,8 +63,8 @@ def _day(c, sup, d, hours):
 
 
 def _recipient(admin, email, *, area="", active=True):
-    return ExitNotificationRecipient.objects.create(
-        email=email, area=area, is_active=active, created_by=admin, updated_by=admin
+    return CollaboratorNotificationRecipient.objects.create(
+        kind="EXIT", email=email, area=area, is_active=active, created_by=admin, updated_by=admin
     )
 
 
@@ -113,18 +113,25 @@ def test_active_to_inactive_sends_one_mail_with_full_attendance(client_for, supe
     assert event.status == "SENT" and event.attempts == 1 and event.sent_at is not None
 
     # 2. Construido con el envío de correo de Django/NEXO (remitente y backend
-    #    configurados), como HTML con alternativa de texto.
-    assert len(mail.outbox) == 1
+    #    configurados), como HTML con alternativa de texto; UN correo por
+    #    destinatario (decisión del 2026-10-15), con su estado propio.
+    assert len(mail.outbox) == 2
     msg = mail.outbox[0]
     assert isinstance(msg, EmailMultiAlternatives)
     assert msg.from_email == settings.DEFAULT_FROM_EMAIL
     assert msg.subject == "NEXO | Notificación de salida de colaborador — Ana Pérez"
     html = msg.alternatives[0][0]
 
-    # 3–4. Solo los destinatarios ACTIVOS configurados por el Administrador.
-    assert sorted(msg.to) == ["operaciones@example.com", "talento@example.com"]
-    assert "antiguo@example.com" not in msg.to
-    assert sorted(event.recipients) == sorted(msg.to)
+    # 3–4. Solo los destinatarios ACTIVOS de la lista de SALIDAS.
+    assert sorted(m.to[0] for m in mail.outbox) == [
+        "operaciones@example.com",
+        "talento@example.com",
+    ]
+    assert all(len(m.to) == 1 for m in mail.outbox)
+    assert sorted((r["email"], r["status"]) for r in event.recipients) == [
+        ("operaciones@example.com", "SENT"),
+        ("talento@example.com", "SENT"),
+    ]
 
     # 7–8. Encabezado: las 30 fechas del período 23/09 → 22/10, en orden, con
     #      su día de la semana real.
@@ -166,7 +173,7 @@ def test_active_to_inactive_sends_one_mail_with_full_attendance(client_for, supe
 
 def test_snapshot_values_match_persisted_cells_exactly(supervisor, team):
     ana, _ = team
-    snap = ExitNotificationService.build_snapshot(
+    snap = ExitNotificationService.build_snapshot_for(
         ana,
         supervisor,
         PeriodService.get_period(OCT),
@@ -197,7 +204,7 @@ def test_repeating_the_request_does_not_send_twice(client_for, supervisor, team)
     ExitNotificationService.deliver(event.pk)  # reintento de algo ya enviado
     ExitNotificationService.retry_pending()
     assert CollaboratorExitNotification.objects.count() == 1
-    assert len(mail.outbox) == 1
+    assert len(mail.outbox) == 2  # uno por destinatario activo, ninguno repetido
     event.refresh_from_db()
     assert event.attempts == 1
 
@@ -275,21 +282,25 @@ def test_retry_after_failure_sends_once_and_never_resends(
     event = CollaboratorExitNotification.objects.get()
     monkeypatch.setattr(EmailMultiAlternatives, "send", REAL_SEND)  # el servidor vuelve
 
-    result = client_for(admin).post(f"{BASE}/exit-notifications/{event.pk}/retry/")
+    result = client_for(admin).post(
+        f"{BASE}/collaborator-notifications/events/EXIT/{event.pk}/retry/"
+    )
     assert result.status_code == 200 and result.json()["status"] == "SENT"
     assert result.json()["attempts"] == 2
-    assert len(mail.outbox) == 1
+    assert len(mail.outbox) == 2  # uno por destinatario
 
-    again = client_for(admin).post(f"{BASE}/exit-notifications/{event.pk}/retry/")
+    again = client_for(admin).post(
+        f"{BASE}/collaborator-notifications/events/EXIT/{event.pk}/retry/"
+    )
     assert again.status_code == 409
     ExitNotificationService.retry_pending()
-    assert len(mail.outbox) == 1
+    assert len(mail.outbox) == 2  # sin reenvíos
     assert CollaboratorExitNotification.objects.count() == 1
 
 
 def test_scheduled_retry_picks_failed_and_stale_events(supervisor, team, admin, monkeypatch):
     ana, beto = team
-    ExitNotificationRecipient.objects.update(is_active=False)
+    CollaboratorNotificationRecipient.objects.update(is_active=False)
     CollaboratorService.change_status(access(supervisor), ana.pk, "INACTIVE", "Salida")
     event = CollaboratorExitNotification.objects.get()
     assert event.status == "FAILED"
@@ -335,9 +346,11 @@ def test_credentials_never_reach_api_or_logs(
     admin_client = client_for(admin)
     payloads = [
         status_response.content,
-        admin_client.get(f"{BASE}/exit-notifications/").content,
-        admin_client.get(f"{BASE}/exit-notifications/recipients/").content,
-        admin_client.post(f"{BASE}/exit-notifications/{event.pk}/retry/").content,
+        admin_client.get(f"{BASE}/collaborator-notifications/events/").content,
+        admin_client.get(f"{BASE}/collaborator-notifications/recipients/").content,
+        admin_client.post(
+            f"{BASE}/collaborator-notifications/events/EXIT/{event.pk}/retry/"
+        ).content,
     ]
     for payload in payloads:
         assert SECRET.encode() not in payload and SMTP_USER.encode() not in payload
@@ -369,7 +382,7 @@ def test_closed_period_detail_is_read_from_persisted_data(supervisor, team, admi
     SupervisorPeriod.objects.filter(pk=sp.pk).update(
         status=SupervisorPeriod.Status.CLOSED, closed_at=NOW, closed_by=supervisor
     )
-    snap = ExitNotificationService.build_snapshot(
+    snap = ExitNotificationService.build_snapshot_for(
         ana,
         supervisor,
         PeriodService.get_period(OCT),
@@ -408,8 +421,8 @@ def test_dynamic_values_are_escaped_and_subject_has_no_newlines(supervisor, admi
 def test_admin_manages_recipients_with_validation(client_for, admin):
     c = client_for(admin)
     created = c.post(
-        f"{BASE}/exit-notifications/recipients/",
-        {"email": "  Talento.Humano@Example.COM ", "area": "TALENTO_HUMANO"},
+        f"{BASE}/collaborator-notifications/recipients/",
+        {"kind": "EXIT", "email": "  Talento.Humano@Example.COM ", "area": "TALENTO_HUMANO"},
         format="json",
     )
     assert created.status_code == 201
@@ -417,34 +430,38 @@ def test_admin_manages_recipients_with_validation(client_for, admin):
     assert created.json()["email"] == "talento.humano@example.com"
 
     dup = c.post(
-        f"{BASE}/exit-notifications/recipients/",
-        {"email": "TALENTO.HUMANO@example.com"},
+        f"{BASE}/collaborator-notifications/recipients/",
+        {"kind": "EXIT", "email": "TALENTO.HUMANO@example.com"},
         format="json",
     )
     assert dup.status_code == 409
-    bad = c.post(f"{BASE}/exit-notifications/recipients/", {"email": "no-es-correo"}, format="json")
+    bad = c.post(
+        f"{BASE}/collaborator-notifications/recipients/",
+        {"kind": "EXIT", "email": "no-es-correo"},
+        format="json",
+    )
     assert bad.status_code == 400
     bad_area = c.post(
-        f"{BASE}/exit-notifications/recipients/",
-        {"email": "x@example.com", "area": "OTRA"},
+        f"{BASE}/collaborator-notifications/recipients/",
+        {"kind": "EXIT", "email": "x@example.com", "area": "OTRA"},
         format="json",
     )
     assert bad_area.status_code == 400
 
     edited = c.patch(
-        f"{BASE}/exit-notifications/recipients/{rid}/",
+        f"{BASE}/collaborator-notifications/recipients/{rid}/",
         {"email": "th@example.com", "is_active": False},
         format="json",
     )
     assert edited.status_code == 200
     assert (edited.json()["email"], edited.json()["is_active"]) == ("th@example.com", False)
 
-    config = c.get(f"{BASE}/exit-notifications/recipients/").json()
-    assert config["active_count"] == 0  # desactivado, pero sigue registrado
+    config = c.get(f"{BASE}/collaborator-notifications/recipients/").json()
+    assert config["active_count"] == {"ENTRY": 0, "EXIT": 0}  # desactivado, sigue registrado
     assert [r["email"] for r in config["recipients"]] == ["th@example.com"]
     assert config["delivery"] in {"smtp", "console", "other"}
-    assert ExitNotificationRecipient.objects.filter(pk=rid).exists()  # nunca se borra
-    assert ExitRecipientService.active_emails() == []
+    assert CollaboratorNotificationRecipient.objects.filter(pk=rid).exists()  # nunca se borra
+    assert NotificationRecipientService.active_emails("EXIT") == []
 
 
 @pytest.mark.parametrize("who", ["supervisor", "assistant", "other_user", "jefe_nacional"])
@@ -458,22 +475,30 @@ def test_non_admins_cannot_read_or_change_configuration(client_for, request, adm
     r = _recipient(admin, "operaciones@example.com")
     c = client_for(user)
     responses = [
-        c.get(f"{BASE}/exit-notifications/recipients/"),
-        c.post(f"{BASE}/exit-notifications/recipients/", {"email": "y@example.com"}, format="json"),
-        c.patch(
-            f"{BASE}/exit-notifications/recipients/{r.pk}/", {"is_active": False}, format="json"
+        c.get(f"{BASE}/collaborator-notifications/recipients/"),
+        c.post(
+            f"{BASE}/collaborator-notifications/recipients/",
+            {"kind": "EXIT", "email": "y@example.com"},
+            format="json",
         ),
-        c.get(f"{BASE}/exit-notifications/"),
-        c.post(f"{BASE}/exit-notifications/1/retry/"),
+        c.patch(
+            f"{BASE}/collaborator-notifications/recipients/{r.pk}/",
+            {"is_active": False},
+            format="json",
+        ),
+        c.get(f"{BASE}/collaborator-notifications/events/"),
+        c.post(f"{BASE}/collaborator-notifications/events/EXIT/1/retry/"),
     ]
     assert all(resp.status_code == 403 for resp in responses), [x.status_code for x in responses]
     r.refresh_from_db()
-    assert r.is_active and ExitNotificationRecipient.objects.count() == 1
+    assert r.is_active and CollaboratorNotificationRecipient.objects.count() == 1
 
 
 def test_service_rejects_non_admin_even_without_the_view(supervisor):
     with pytest.raises(NovedadesError) as exc:
-        ExitRecipientService.create(access(supervisor), {"email": "z@example.com"})
+        NotificationRecipientService.create(
+            access(supervisor), {"kind": "EXIT", "email": "z@example.com"}
+        )
     assert exc.value.status == 403
 
 

@@ -23,6 +23,72 @@
 
 ---
 
+## v1.178.0 — 2026-10-15
+
+**Tipo:** FEATURE / DATABASE / SECURITY
+**Módulo:** Control Operativo de Novedades — Notificación de ingreso de
+colaboradores · Ajustes.
+
+- **Correo de ingreso.** Al registrarse el **segundo día válido** de un
+  colaborador dado de alta como **nuevo ingreso**, se envía un correo con sus
+  datos (empleado, cédula, cargo, supervisor, primer y segundo día, período,
+  alta en NEXO, fecha de generación) y su **fila completa de Días laborados**
+  del período (mismos encabezados, valores, vacíos/ceros y total que la
+  pantalla y que el correo de salida).
+- **Nuevo ingreso = casilla del alta.** El formulario de alta pregunta «Es un
+  nuevo ingreso» (por defecto NO). Solo esas altas lo generan: importaciones,
+  reactivaciones y colaboradores existentes nunca (sin envíos retroactivos).
+- **Día válido = horas mayores a 0.** El vacío y el 0 no cuentan; cada fecha
+  cuenta una vez aunque se edite. Aplica igual a la edición manual, la
+  importación de Excel (las dos pasan por `WorkedDayService.save_cells`) y la
+  corrección de períodos cerrados. La verificación corre DESPUÉS de confirmar
+  lo guardado. La tabla es la del período (23 → 22) del segundo día.
+- **Un evento por alta** (`CollaboratorEntryNotification`, 1 a 1 con el
+  colaborador): En espera → Pendiente con actualización condicional, así que
+  guardados repetidos, importaciones repetidas o simultáneas nunca envían dos
+  veces. Guarda primer y segundo día, período, supervisor, estado, intentos,
+  último error sanitizado y una copia del detalle notificado.
+- **Un correo por destinatario** (ingreso y salida): cada uno con su estado;
+  un reintento solo envía a quienes no lo recibieron. Antes la salida enviaba
+  un solo correo con todos en «Para».
+- **Ajustes → Notificaciones → «Notificaciones de colaboradores»** (antes
+  «Notificaciones de salida de colaboradores»): dos listas independientes,
+  A. Ingresos y B. Salidas, cada una con alta, edición, activar/desactivar y
+  validación de duplicados dentro de la lista (una dirección puede estar en
+  ambas). Historial de envíos de ambos tipos con estado por destinatario y
+  reintento. Solo Administrador (validado en Django).
+- **Motor común:** `CollaboratorMailService` (envío, reclamo atómico,
+  reintentos, registro) y plantilla común
+  `emails/collaborator_notification.html` (antes `collaborator_exit.html`).
+  La salida conserva su disparador, contenido y permisos.
+
+- **Migración `novedades/0011_entry_notifications`** (no destructiva):
+  renombra la tabla de destinatarios a `CollaboratorNotificationRecipient`
+  con el campo `kind` (los existentes quedan como destinatarios de SALIDA),
+  unicidad por lista, estado por destinatario en los eventos de salida ya
+  registrados y la tabla nueva de eventos de ingreso.
+- **Endpoints** (reemplazan a `exit-notifications/*`, que no llegó a
+  desplegarse): `collaborator-notifications/recipients/`,
+  `collaborator-notifications/recipients/<id>/`,
+  `collaborator-notifications/events/` y
+  `collaborator-notifications/events/<ENTRY|EXIT>/<id>/retry/`.
+- **Archivos:** `backend/apps/novedades/{models,services,views,urls,serializers}.py`,
+  `backend/apps/novedades/management/commands/novedades_retry_notifications.py`,
+  `backend/templates/emails/collaborator_notification.html`,
+  `src/components/settings/CollaboratorNotificationsSection.tsx`,
+  `src/components/settings/{ConfigCenter.tsx,registry.ts}`,
+  `src/components/novedades/CollaboratorsView.tsx`, `docs/RAT.md`,
+  `docs/PENDIENTES_LEGALES.md`.
+
+**Verificación:** `backend/apps/novedades/tests/test_entry_notifications.py`
+(23 tests), `test_exit_notifications.py` actualizado (23),
+`src/__tests__/components/settings/CollaboratorNotificationsSection.test.tsx`
+(5) y `src/__tests__/components/CollaboratorNewHire.test.tsx` (2).
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
 ## v1.177.0 — 2026-10-14
 
 **Tipo:** FEATURE / SECURITY

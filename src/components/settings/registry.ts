@@ -321,11 +321,11 @@ export const SETTINGS_REGISTRY: SettingDescriptor[] = [
     configKeys: [],
   },
   {
-    id: "exit-notifications",
-    label: "Notificaciones de salida de colaboradores",
+    id: "collaborator-notifications",
+    label: "Notificaciones de colaboradores",
     description:
-      "Destinatarios del correo que se envía cuando un colaborador pasa de Activo a Inactivo en Control Operativo de Novedades, con su detalle de Días laborados; estado de los envíos y reintento.",
-    keywords: ["salida", "inactivo", "correo", "email", "smtp", "destinatarios", "talento humano", "operaciones", "jefatura", "días laborados", "novedades"],
+      "Listas independientes de destinatarios para el correo de ingreso (nuevo colaborador al registrar su segundo día laborado) y el de salida (paso de Activo a Inactivo), con su detalle de Días laborados; estado de los envíos y reintento.",
+    keywords: ["ingreso", "nuevo ingreso", "salida", "inactivo", "correo", "email", "smtp", "destinatarios", "talento humano", "operaciones", "jefatura", "días laborados", "novedades"],
     category: "notificaciones",
     configKeys: [],
   },

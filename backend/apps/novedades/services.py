@@ -40,11 +40,12 @@ from .models import (
     ClosedPeriodCorrection,
     Collaborator,
     CollaboratorAssignment,
+    CollaboratorEntryNotification,
     CollaboratorExitNotification,
+    CollaboratorNotificationRecipient,
     CollaboratorStatusChange,
     DepuratedOvertime,
     DepurationChange,
-    ExitNotificationRecipient,
     ImportBatch,
     NovedadEvent,
     OperationalPeriod,
@@ -623,6 +624,9 @@ class CollaboratorInput:
     regional: str = ""
     area: str = ""
     cargo: str = ""
+    # Marca del formulario de alta: dispara el correo de ingreso al segundo
+    # día válido. Las importaciones nunca la ponen (cargan equipos existentes).
+    is_new_hire: bool = False
 
 
 class CollaboratorService:
@@ -760,6 +764,8 @@ class CollaboratorService:
                 category=ALERT_NEW_COLLABORATOR,
                 dedup_key=f"novedades:collaborator-new:{collaborator.pk}",
             )
+            if data.is_new_hire:
+                EntryNotificationService.register(collaborator, acc.user)
         return collaborator
 
     @staticmethod
@@ -1489,6 +1495,11 @@ class WorkedDayService:
                         f"en el equipo de {user_display(supervisor)} — {key.label}.",
                         exclude_user=acc.user,
                     )
+        if changes:
+            # Correo de ingreso: solo DESPUÉS de confirmar lo guardado (también
+            # dentro de una importación, que confirma al final).
+            touched = {collaborator.pk for collaborator, *_ in plan}
+            transaction.on_commit(lambda: EntryNotificationService.check(touched))
         return {"saved": len(changes)}
 
 
@@ -3042,6 +3053,8 @@ class CorrectionService:
                 reason=reason.strip(),
                 context=context,
             )
+            # Misma regla del correo de ingreso que la edición ordinaria.
+            transaction.on_commit(lambda: EntryNotificationService.check({collaborator.pk}))
         return correction
 
     @staticmethod
@@ -3881,26 +3894,44 @@ class DepurationService:
         )
 
 
-# ── Notificaciones de salida de colaboradores ─────────────────────────────────
+# ── Notificaciones de colaboradores por correo (ingreso y salida) ────────────
 
 
 def _admin_only(acc: NovedadesAccess):
     """Ajustes de NEXO: solo el rol Administrador (`is_superuser`, el mismo
     criterio que `apps.core.permissions.IsAdministrador`)."""
     if not acc.user.is_superuser:
-        raise _forbidden("Solo el Administrador puede gestionar las notificaciones de salida.")
+        raise _forbidden(
+            "Solo el Administrador puede gestionar las notificaciones de colaboradores."
+        )
 
 
 def _normalize_email(value) -> str:
     return "".join(str(value or "").split()).lower()
 
 
-class ExitRecipientService:
-    """Destinatarios del correo de salida (Ajustes → Notificaciones de salida
-    de colaboradores). Persisten en la base; nunca se borran, se desactivan."""
+RecipientKind = CollaboratorNotificationRecipient.Kind
+KIND_LABELS = {RecipientKind.ENTRY: "ingreso", RecipientKind.EXIT: "salida"}
+
+
+class NotificationRecipientService:
+    """Destinatarios por tipo de correo (Ajustes → Notificaciones de
+    colaboradores). Cada tipo tiene su propia lista: una dirección de la lista
+    de ingresos no recibe salidas salvo que también esté en esa lista.
+    Persisten en la base; nunca se borran, se desactivan."""
 
     @staticmethod
-    def _validate_email(email: str, *, exclude_pk=None) -> str:
+    def _kind(value) -> str:
+        kind = str(value or "").strip().upper()
+        if kind not in RecipientKind.values:
+            raise NovedadesError(
+                "Indique el tipo de notificación (ingreso o salida).",
+                details={"kind": "Valor inválido."},
+            )
+        return kind
+
+    @staticmethod
+    def _validate_email(kind: str, email: str, *, exclude_pk=None) -> str:
         from django.core.exceptions import ValidationError
         from django.core.validators import validate_email
 
@@ -3915,12 +3946,12 @@ class ExitRecipientService:
             raise NovedadesError(
                 "La dirección de correo no es válida.", details={"email": "Formato inválido."}
             ) from exc
-        duplicate = ExitNotificationRecipient.objects.filter(email=email)
+        duplicate = CollaboratorNotificationRecipient.objects.filter(kind=kind, email=email)
         if exclude_pk is not None:
             duplicate = duplicate.exclude(pk=exclude_pk)
         if duplicate.exists():
             raise NovedadesError(
-                f"{email} ya está registrado como destinatario.",
+                f"{email} ya está en la lista de {KIND_LABELS[kind]}s.",
                 code="duplicate",
                 status=409,
                 details={"email": "Duplicado."},
@@ -3930,14 +3961,15 @@ class ExitRecipientService:
     @staticmethod
     def _area(value) -> str:
         area = str(value or "").strip()
-        if area and area not in ExitNotificationRecipient.Area.values:
+        if area and area not in CollaboratorNotificationRecipient.Area.values:
             raise NovedadesError("Área inválida.", details={"area": "Valor inválido."})
         return area
 
     @staticmethod
-    def serialize(r: ExitNotificationRecipient) -> dict:
+    def serialize(r: CollaboratorNotificationRecipient) -> dict:
         return {
             "id": r.pk,
+            "kind": r.kind,
             "email": r.email,
             "area": r.area,
             "area_label": r.get_area_display() if r.area else "",
@@ -3947,9 +3979,9 @@ class ExitRecipientService:
         }
 
     @staticmethod
-    def active_emails() -> list[str]:
+    def active_emails(kind: str) -> list[str]:
         return list(
-            ExitNotificationRecipient.objects.filter(is_active=True)
+            CollaboratorNotificationRecipient.objects.filter(kind=kind, is_active=True)
             .order_by("email")
             .values_list("email", flat=True)
         )
@@ -3957,99 +3989,111 @@ class ExitRecipientService:
     @staticmethod
     def config(acc: NovedadesAccess) -> dict:
         _admin_only(acc)
-        recipients = list(ExitNotificationRecipient.objects.select_related("updated_by"))
+        recipients = list(CollaboratorNotificationRecipient.objects.select_related("updated_by"))
         # Solo el TIPO de envío (SMTP real o consola de desarrollo): nunca el
         # servidor, el usuario ni la contraseña.
         backend = settings.EMAIL_BACKEND.lower()
         delivery = "smtp" if "smtp" in backend else "console" if "console" in backend else "other"
         return {
-            "recipients": [ExitRecipientService.serialize(r) for r in recipients],
-            "active_count": sum(1 for r in recipients if r.is_active),
+            "recipients": [NotificationRecipientService.serialize(r) for r in recipients],
+            "active_count": {
+                kind: sum(1 for r in recipients if r.kind == kind and r.is_active)
+                for kind in RecipientKind.values
+            },
             "delivery": delivery,
             "areas": [
                 {"value": value, "label": label}
-                for value, label in ExitNotificationRecipient.Area.choices
+                for value, label in CollaboratorNotificationRecipient.Area.choices
             ],
         }
 
     @staticmethod
     def create(acc: NovedadesAccess, data: dict, *, context=None) -> dict:
         _admin_only(acc)
-        email = ExitRecipientService._validate_email(data.get("email"))
-        area = ExitRecipientService._area(data.get("area"))
+        kind = NotificationRecipientService._kind(data.get("kind"))
+        email = NotificationRecipientService._validate_email(kind, data.get("email"))
+        area = NotificationRecipientService._area(data.get("area"))
         try:
             with transaction.atomic():
-                r = ExitNotificationRecipient.objects.create(
-                    email=email, area=area, created_by=acc.user, updated_by=acc.user
+                r = CollaboratorNotificationRecipient.objects.create(
+                    kind=kind, email=email, area=area, created_by=acc.user, updated_by=acc.user
                 )
         except IntegrityError as exc:  # dos altas simultáneas de la misma dirección
             raise NovedadesError(
-                f"{email} ya está registrado como destinatario.", code="duplicate", status=409
+                f"{email} ya está en la lista de {KIND_LABELS[kind]}s.",
+                code="duplicate",
+                status=409,
             ) from exc
         record_audit_event(
             actor=acc.user,
-            action="novedades.exit_recipient.created",
+            action="novedades.notification_recipient.created",
             module=MODULE,
-            target_type="exit_notification_recipient",
+            target_type="notification_recipient",
             target_id=r.pk,
-            new_values={"email": email, "area": area, "is_active": True},
+            new_values={"kind": kind, "email": email, "area": area, "is_active": True},
             context=context,
         )
-        return ExitRecipientService.serialize(r)
+        return NotificationRecipientService.serialize(r)
 
     @staticmethod
     def update(acc: NovedadesAccess, pk, data: dict, *, context=None) -> dict:
         _admin_only(acc)
-        r = ExitNotificationRecipient.objects.filter(pk=pk).first()
+        r = CollaboratorNotificationRecipient.objects.filter(pk=pk).first()
         if r is None:
             raise _not_found("Destinatario no encontrado.")
-        old = {"email": r.email, "area": r.area, "is_active": r.is_active}
+        old = {"kind": r.kind, "email": r.email, "area": r.area, "is_active": r.is_active}
         if "email" in data:
-            r.email = ExitRecipientService._validate_email(data["email"], exclude_pk=r.pk)
+            r.email = NotificationRecipientService._validate_email(
+                r.kind, data["email"], exclude_pk=r.pk
+            )
         if "area" in data:
-            r.area = ExitRecipientService._area(data["area"])
+            r.area = NotificationRecipientService._area(data["area"])
         if "is_active" in data:
             if not isinstance(data["is_active"], bool):
                 raise NovedadesError("Valor inválido.", details={"is_active": "Use Sí o No."})
             r.is_active = data["is_active"]
-        new = {"email": r.email, "area": r.area, "is_active": r.is_active}
+        new = {"kind": r.kind, "email": r.email, "area": r.area, "is_active": r.is_active}
         if new == old:
-            return ExitRecipientService.serialize(r)
+            return NotificationRecipientService.serialize(r)
         r.updated_by = acc.user
         try:
             with transaction.atomic():
                 r.save()
         except IntegrityError as exc:
             raise NovedadesError(
-                f"{r.email} ya está registrado como destinatario.", code="duplicate", status=409
+                f"{r.email} ya está en la lista de {KIND_LABELS[r.kind]}s.",
+                code="duplicate",
+                status=409,
             ) from exc
         record_audit_event(
             actor=acc.user,
-            action="novedades.exit_recipient.updated",
+            action="novedades.notification_recipient.updated",
             module=MODULE,
-            target_type="exit_notification_recipient",
+            target_type="notification_recipient",
             target_id=r.pk,
             previous_values=old,
             new_values=new,
             context=context,
         )
-        return ExitRecipientService.serialize(r)
+        return NotificationRecipientService.serialize(r)
 
 
-class ExitNotificationService:
-    """Correo de salida de un colaborador (Activo → Inactivo).
+class CollaboratorMailService:
+    """Motor común de los correos de ingreso y de salida.
 
     - Reutiliza el envío de correo de NEXO: `EMAIL_BACKEND` y credenciales de
       `backend/.env`, remitente `DEFAULT_FROM_EMAIL` (los mismos del correo de
       recuperación de contraseña). No hay un cliente SMTP propio.
-    - Un evento por transición (1 a 1 con `CollaboratorStatusChange`). El envío
-      se "reclama" con una actualización condicional: dos procesos nunca
-      envían el mismo evento a la vez, y uno ya ENVIADO no se vuelve a enviar.
+    - Un correo INDIVIDUAL por destinatario, con su estado propio en el evento
+      (`recipients`): un reintento solo envía a quienes todavía no lo
+      recibieron, nunca repite a quien ya lo recibió.
+    - El envío se "reclama" con una actualización condicional (Pendiente o
+      Fallido → Enviando): dos procesos nunca envían el mismo evento a la vez.
     - "Enviado" significa que el servidor SMTP ACEPTÓ el mensaje; no garantiza
       que llegó a la bandeja ni que alguien lo leyó.
-    - Una falla del correo nunca revierte el cambio de estado: el evento queda
-      Fallido/Pendiente y se reintenta (`novedades_retry_notifications` o el
-      botón Reintentar de Ajustes)."""
+    - Una falla del correo nunca revierte la operación que lo originó: el
+      evento queda Fallido y se reintenta (`novedades_retry_notifications` o
+      el botón Reintentar de Ajustes)."""
 
     # En tests se pone en False (conftest): el envío corre en el mismo hilo.
     run_async = True
@@ -4058,14 +4102,16 @@ class ExitNotificationService:
     STALE_PENDING = timedelta(minutes=2)
     NO_RECIPIENTS = "No hay destinatarios activos configurados en Ajustes."
 
-    # ── Construcción del detalle ──────────────────────────────────────────
     @staticmethod
-    def build_snapshot(
-        collaborator, supervisor, period, *, changed_by, changed_at, previous, new
-    ) -> dict:
-        """Detalle de asistencia del colaborador en el período, leído de la
-        base persistida con la MISMA lógica de la matriz de Días laborados
-        (columnas, celdas y total). Solo lee: no modifica ningún registro."""
+    def handler(kind: str):
+        return EntryNotificationService if kind == RecipientKind.ENTRY else ExitNotificationService
+
+    # ── Detalle de asistencia (común) ─────────────────────────────────────
+    @staticmethod
+    def attendance(collaborator, supervisor, period) -> dict:
+        """Fila del colaborador en Días laborados para el período, leída de la
+        base persistida con la MISMA lógica de la matriz (columnas, celdas y
+        total). Solo lee: no modifica ningún registro."""
         key = period.key
         holidays = WorkedDayService._holidays(key)
         row_cells = (
@@ -4092,7 +4138,6 @@ class ExitNotificationService:
                     "other_team": cell.get("other_team", "") if cell else "",
                 }
             )
-        labels = dict(Collaborator.Status.choices)
         return {
             "collaborator": {
                 "id": collaborator.pk,
@@ -4101,11 +4146,6 @@ class ExitNotificationService:
                 "cargo": collaborator.cargo,
             },
             "supervisor": user_display(supervisor),
-            "changed_by": user_display(changed_by),
-            "changed_at": changed_at.isoformat(),
-            "changed_at_label": business_stamp(changed_at),
-            "previous_status": labels[previous],
-            "new_status": labels[new],
             "period": {
                 "code": key.code,
                 "label": key.label,
@@ -4115,6 +4155,317 @@ class ExitNotificationService:
             "columns": columns,
             "values": values,
             "total": _fmt(WorkedDayService.row_total(row_cells)),
+        }
+
+    @staticmethod
+    def schedule(kind: str, event_id: int) -> None:
+        """Envía sin hacer esperar a quien guardó: la operación ya está
+        confirmada y el correo corre en segundo plano. Si el proceso se
+        reinicia antes de enviar, el evento queda Pendiente y lo retoma el
+        reintento programado."""
+        if not CollaboratorMailService.run_async:
+            CollaboratorMailService.deliver(kind, event_id)
+            return
+
+        def _run():
+            try:
+                CollaboratorMailService.deliver(kind, event_id)
+            except Exception:  # noqa: BLE001
+                logger.exception("Falla inesperada al enviar el correo %s %s", kind, event_id)
+            finally:
+                close_old_connections()
+
+        threading.Thread(target=_run, name=f"mail-{kind}-{event_id}", daemon=True).start()
+
+    # ── Correo ─────────────────────────────────────────────────────────────
+    @staticmethod
+    def render(kind: str, snapshot: dict) -> tuple[str, str]:
+        """(texto plano, HTML) con la plantilla común. Todo valor dinámico pasa
+        por el autoescape de Django."""
+        content = CollaboratorMailService.handler(kind).content(snapshot)
+        columns = [
+            {**c, "weekday_short": c["weekday"][:3], "value": v}
+            for c, v in zip(snapshot["columns"], snapshot["values"], strict=True)
+        ]
+        system = settings.SYSTEM_NAME.upper()
+        context = {
+            "system_name": system,
+            "s": snapshot,
+            "columns": columns,
+            "has_other_team": any(v["other_team"] for v in snapshot["values"]),
+            **content,
+        }
+        html = render_to_string("emails/collaborator_notification.html", context)
+        days = "\n".join(
+            f"  {col['day']:02d} {col['weekday'][:3]}: "
+            f"{col['value']['hours'] if col['value']['hours'] is not None else '—'}"
+            for col in columns
+        )
+        info = "\n".join(f"{label}: {value}" for label, value in content["info_rows"])
+        text = (
+            f"{system} — {content['title']}\n\n{content['message']}\n\n{info}\n\n"
+            f"Días laborados — {snapshot['period']['label']} (— = sin registro):\n{days}\n"
+            f"Total: {snapshot['total']}\n\n{content['footer']}\n"
+        )
+        return text, html
+
+    @staticmethod
+    def subject(kind: str, snapshot: dict) -> str:
+        name = " ".join(str(snapshot["collaborator"]["full_name"]).split())  # sin saltos de línea
+        title = CollaboratorMailService.handler(kind).SUBJECT
+        return f"{settings.SYSTEM_NAME.upper()} | {title} — {name}"
+
+    @staticmethod
+    def _safe_error(exc: Exception) -> str:
+        """Mensaje técnico sin secretos: nunca la contraseña ni el usuario SMTP."""
+        message = f"{type(exc).__name__}: {exc}"
+        for secret in (settings.EMAIL_HOST_PASSWORD, settings.EMAIL_HOST_USER):
+            if secret:
+                message = message.replace(secret, "***")
+        return message[:480]
+
+    @staticmethod
+    def _state(raw) -> list[dict]:
+        """Estado por destinatario (`[{email, status, sent_at, error}]`)."""
+        return [dict(r) for r in raw or [] if isinstance(r, dict)]
+
+    @staticmethod
+    def deliver(kind: str, event_id: int):
+        handler = CollaboratorMailService.handler(kind)
+        Model = handler.MODEL
+        S = Model.Status
+        now = timezone.now()
+        # Reclamo atómico: solo un proceso pasa de Pendiente/Fallido a Enviando.
+        claimed = Model.objects.filter(pk=event_id, status__in=[S.PENDING, S.FAILED]).update(
+            status=S.SENDING, attempts=F("attempts") + 1, last_attempt_at=now
+        )
+        event = Model.objects.select_related(*handler.RELATED).filter(pk=event_id).first()
+        if not claimed or event is None:
+            return event  # ya enviado, en espera o en curso: nunca un segundo envío
+
+        state = CollaboratorMailService._state(event.recipients)
+
+        def finish(status, error=""):
+            event.status = status
+            event.last_error = error
+            event.recipients = state
+            if status == S.SENT:
+                event.sent_at = timezone.now()
+            event.save(update_fields=["status", "last_error", "recipients", "sent_at", "snapshot"])
+            handler.log(event)
+            return event
+
+        already = {r["email"] for r in state if r["status"] == "SENT"}
+        targets = [e for e in NotificationRecipientService.active_emails(kind) if e not in already]
+        if not targets:
+            if already:
+                return finish(S.SENT)
+            return finish(S.FAILED, CollaboratorMailService.NO_RECIPIENTS)
+        if event.snapshot is None:
+            try:
+                event.snapshot = handler.build_snapshot(event)
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("No se pudo leer el detalle de asistencia (%s %s)", kind, event_id)
+                return finish(
+                    S.FAILED,
+                    f"No se pudo recuperar el detalle de asistencia ({type(exc).__name__}).",
+                )
+        try:
+            text, html = CollaboratorMailService.render(kind, event.snapshot)
+            subject = CollaboratorMailService.subject(kind, event.snapshot)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("No se pudo construir el correo (%s %s)", kind, event_id)
+            return finish(S.FAILED, f"No se pudo construir el correo ({type(exc).__name__}).")
+
+        for email in targets:
+            message = EmailMultiAlternatives(
+                subject=subject, body=text, from_email=settings.DEFAULT_FROM_EMAIL, to=[email]
+            )
+            message.attach_alternative(html, "text/html")
+            try:
+                accepted = message.send(fail_silently=False)
+                error = "" if accepted else "El servidor de correo no aceptó el mensaje."
+            except Exception as exc:  # noqa: BLE001  (SMTP caído, credenciales, tiempo agotado…)
+                accepted, error = False, CollaboratorMailService._safe_error(exc)
+                logger.warning(
+                    "Correo %s %s a un destinatario no enviado: %s", kind, event_id, error
+                )
+            entry = {
+                "email": email,
+                "status": "SENT" if accepted else "FAILED",
+                "sent_at": timezone.now().isoformat() if accepted else None,
+                "error": error[:200],
+            }
+            state = [r for r in state if r["email"] != email] + [entry]
+            # Se guarda tras CADA destinatario: si el proceso se cae a mitad,
+            # el reintento no repite a quienes ya lo recibieron.
+            Model.objects.filter(pk=event.pk).update(recipients=state)
+
+        failed = [r for r in state if r["email"] in targets and r["status"] != "SENT"]
+        if not failed:
+            return finish(S.SENT)
+        sent = sum(1 for r in state if r["status"] == "SENT")
+        return finish(
+            S.FAILED,
+            f"{len(failed)} de {len(failed) + sent} destinatario(s) sin enviar. "
+            f"{failed[0]['email']}: {failed[0]['error']}"[:480],
+        )
+
+    # ── Consulta y reintentos ──────────────────────────────────────────────
+    @staticmethod
+    def events(acc: NovedadesAccess, limit: int = 50) -> list[dict]:
+        _admin_only(acc)
+        rows = []
+        for kind in RecipientKind.values:
+            handler = CollaboratorMailService.handler(kind)
+            qs = handler.MODEL.objects.select_related(*handler.RELATED)[:limit]
+            rows += [handler.serialize(e) for e in qs]
+        rows.sort(key=lambda r: r["created_at"], reverse=True)
+        return rows[:limit]
+
+    @staticmethod
+    def retry(acc: NovedadesAccess, kind: str, event_id, *, context=None) -> dict:
+        """Reintento manual del Administrador sobre el MISMO evento."""
+        _admin_only(acc)
+        kind = NotificationRecipientService._kind(kind)
+        handler = CollaboratorMailService.handler(kind)
+        S = handler.MODEL.Status
+        event = handler.MODEL.objects.filter(pk=event_id).first()
+        if event is None:
+            raise _not_found(f"Evento de {KIND_LABELS[kind]} no encontrado.")
+        if event.status == S.SENT:
+            raise NovedadesError(
+                "Este correo ya fue enviado: no se reenvía.", code="already_sent", status=409
+            )
+        if event.status == S.SENDING:
+            raise NovedadesError("El envío está en curso.", code="in_progress", status=409)
+        if event.status not in (S.PENDING, S.FAILED):
+            raise NovedadesError(
+                "El colaborador todavía no alcanza su segundo día válido.", code="waiting"
+            )
+        record_audit_event(
+            actor=acc.user,
+            action=f"novedades.{KIND_LABELS[kind]}_notification.retry",
+            module=MODULE,
+            target_type=f"{KIND_LABELS[kind]}_notification",
+            target_id=event.pk,
+            context=context,
+        )
+        CollaboratorMailService.deliver(kind, event.pk)
+        event = handler.MODEL.objects.select_related(*handler.RELATED).get(pk=event.pk)
+        return handler.serialize(event)
+
+    @staticmethod
+    def retry_pending() -> dict:
+        """Reintento programado de ambos tipos: Pendientes que no salieron
+        (reinicio del proceso), Fallidos con intentos disponibles y Enviando
+        atascados."""
+        now = timezone.now()
+        sent = failed = 0
+        for kind in RecipientKind.values:
+            Model = CollaboratorMailService.handler(kind).MODEL
+            S = Model.Status
+            # Un "Enviando" de hace más de 15 min es un proceso que murió a
+            # mitad del envío. Lo ya entregado quedó registrado por
+            # destinatario; solo se repite a quien quedó en curso en ese
+            # instante (riesgo documentado).
+            Model.objects.filter(
+                status=S.SENDING, last_attempt_at__lt=now - CollaboratorMailService.STALE_SENDING
+            ).update(
+                status=S.FAILED, last_error="El envío anterior no terminó (proceso interrumpido)."
+            )
+            stale = now - CollaboratorMailService.STALE_PENDING
+            pending = Q(status=S.PENDING) & (
+                Q(triggered_at__lt=stale)
+                if kind == RecipientKind.ENTRY
+                else Q(created_at__lt=stale)
+            )
+            ids = list(
+                Model.objects.filter(
+                    pending
+                    | Q(status=S.FAILED, attempts__lt=CollaboratorMailService.MAX_AUTO_ATTEMPTS)
+                ).values_list("pk", flat=True)
+            )
+            for pk in ids:
+                event = CollaboratorMailService.deliver(kind, pk)
+                if event is not None and event.status == S.SENT:
+                    sent += 1
+                else:
+                    failed += 1
+        return {"sent": sent, "failed": failed}
+
+
+def _recipient_summary(event) -> list[dict]:
+    return CollaboratorMailService._state(event.recipients)
+
+
+class ExitNotificationService:
+    """Correo de salida (Activo → Inactivo). Un evento por transición (1 a 1
+    con `CollaboratorStatusChange`); el envío lo hace `CollaboratorMailService`."""
+
+    MODEL = CollaboratorExitNotification
+    RELATED = ("collaborator", "supervisor", "changed_by", "period")
+    SUBJECT = "Notificación de salida de colaborador"
+    NO_RECIPIENTS = CollaboratorMailService.NO_RECIPIENTS
+
+    @staticmethod
+    def build_snapshot_for(
+        collaborator, supervisor, period, *, changed_by, changed_at, previous, new
+    ) -> dict:
+        labels = dict(Collaborator.Status.choices)
+        return {
+            **CollaboratorMailService.attendance(collaborator, supervisor, period),
+            "changed_by": user_display(changed_by),
+            "changed_at": changed_at.isoformat(),
+            "changed_at_label": business_stamp(changed_at),
+            "previous_status": labels[previous],
+            "new_status": labels[new],
+        }
+
+    @staticmethod
+    def build_snapshot(event) -> dict:
+        return ExitNotificationService.build_snapshot_for(
+            event.collaborator,
+            event.supervisor,
+            event.period,
+            changed_by=event.changed_by,
+            changed_at=event.changed_at,
+            previous=event.previous_status,
+            new=event.new_status,
+        )
+
+    @staticmethod
+    def content(s: dict) -> dict:
+        system = settings.SYSTEM_NAME.upper()
+        c = s["collaborator"]
+        return {
+            "title": "Notificación de salida de colaborador",
+            "header_line": (
+                f"Cambio registrado el {s['changed_at_label']} · Período operativo "
+                f"{s['period']['label']} ({s['period']['start_date']} al {s['period']['end_date']})"
+            ),
+            "message": (
+                "Se informa que el colaborador indicado a continuación ha sido cambiado al estado "
+                f"{s['new_status']} en {system} por el supervisor responsable. Para fines de "
+                "seguimiento y trazabilidad operativa, se incluye el detalle de días laborados "
+                "registrado en el período correspondiente."
+            ),
+            "info_rows": [
+                ("Supervisor responsable", s["supervisor"]),
+                ("Cargo", c["cargo"] or "—"),
+                ("Cédula", c["cedula"]),
+                ("Empleado", c["full_name"]),
+                ("Estado anterior", s["previous_status"]),
+                ("Nuevo estado", s["new_status"]),
+                ("Fecha y hora del cambio", s["changed_at_label"]),
+                ("Registrado por", s["changed_by"]),
+                ("Período operativo", s["period"]["label"]),
+            ],
+            "footer": (
+                f"Mensaje automático de {system}. Describe el cambio de estado registrado en el "
+                "sistema; no constituye por sí mismo constancia de una terminación laboral ni de "
+                "trámites asociados."
+            ),
         }
 
     @staticmethod
@@ -4139,15 +4490,7 @@ class ExitNotificationService:
         try:
             with transaction.atomic():  # punto de guardado: un error aquí no
                 # deshace el cambio de estado
-                event.snapshot = ExitNotificationService.build_snapshot(
-                    collaborator,
-                    supervisor,
-                    period,
-                    changed_by=status_change.changed_by,
-                    changed_at=status_change.created_at,
-                    previous=status_change.previous_status,
-                    new=status_change.new_status,
-                )
+                event.snapshot = ExitNotificationService.build_snapshot(event)
         except Exception as exc:  # noqa: BLE001
             logger.exception("No se pudo leer el detalle de asistencia del evento de salida")
             event.status = CollaboratorExitNotification.Status.FAILED
@@ -4160,154 +4503,21 @@ class ExitNotificationService:
 
     @staticmethod
     def schedule(event_id: int) -> None:
-        """Envía sin hacer esperar al supervisor: el cambio ya está guardado y
-        el correo corre en segundo plano. Si el proceso se reinicia antes de
-        enviar, el evento queda Pendiente y lo retoma el reintento programado."""
-        if not ExitNotificationService.run_async:
-            ExitNotificationService.deliver(event_id)
-            return
+        CollaboratorMailService.schedule(RecipientKind.EXIT, event_id)
 
-        def _run():
-            try:
-                ExitNotificationService.deliver(event_id)
-            except Exception:  # noqa: BLE001
-                logger.exception("Falla inesperada al enviar el correo de salida %s", event_id)
-            finally:
-                close_old_connections()
-
-        threading.Thread(target=_run, name=f"exit-mail-{event_id}", daemon=True).start()
-
-    # ── Correo ─────────────────────────────────────────────────────────────
     @staticmethod
-    def subject(snapshot: dict) -> str:
-        name = " ".join(str(snapshot["collaborator"]["full_name"]).split())  # sin saltos de línea
-        return f"{settings.SYSTEM_NAME.upper()} | Notificación de salida de colaborador — {name}"
+    def deliver(event_id: int):
+        return CollaboratorMailService.deliver(RecipientKind.EXIT, event_id)
 
     @staticmethod
     def render(snapshot: dict) -> tuple[str, str]:
-        """(texto plano, HTML). La plantilla escapa todo valor dinámico."""
-        columns = [
-            {**c, "weekday_short": c["weekday"][:3], "value": v}
-            for c, v in zip(snapshot["columns"], snapshot["values"], strict=True)
-        ]
-        context = {
-            "system_name": settings.SYSTEM_NAME.upper(),
-            "s": snapshot,
-            "columns": columns,
-            "has_other_team": any(v["other_team"] for v in snapshot["values"]),
-        }
-        html = render_to_string("emails/collaborator_exit.html", context)
-        c = snapshot["collaborator"]
-        days = "\n".join(
-            f"  {col['day']:02d} {col['weekday'][:3]}: "
-            f"{col['value']['hours'] if col['value']['hours'] is not None else '—'}"
-            for col in columns
-        )
-        text = (
-            f"{settings.SYSTEM_NAME.upper()} — Notificación de salida de colaborador\n\n"
-            "Se informa que el colaborador indicado a continuación ha sido cambiado al estado "
-            f"{snapshot['new_status']} en {settings.SYSTEM_NAME.upper()} por el supervisor responsable. "
-            "Para fines de seguimiento y trazabilidad operativa, se incluye el detalle de días "
-            "laborados registrado en el período correspondiente.\n\n"
-            f"Supervisor responsable: {snapshot['supervisor']}\n"
-            f"Cargo: {c['cargo']}\nCédula: {c['cedula']}\nEmpleado: {c['full_name']}\n"
-            f"Estado anterior: {snapshot['previous_status']}\nNuevo estado: {snapshot['new_status']}\n"
-            f"Fecha y hora del cambio: {snapshot['changed_at_label']}\n"
-            f"Período operativo: {snapshot['period']['label']}\n\n"
-            f"Días laborados (— = sin registro):\n{days}\nTotal: {snapshot['total']}\n"
-        )
-        return text, html
+        return CollaboratorMailService.render(RecipientKind.EXIT, snapshot)
 
     @staticmethod
-    def _safe_error(exc: Exception) -> str:
-        """Mensaje técnico sin secretos: nunca la contraseña ni el usuario SMTP."""
-        message = f"{type(exc).__name__}: {exc}"
-        for secret in (settings.EMAIL_HOST_PASSWORD, settings.EMAIL_HOST_USER):
-            if secret:
-                message = message.replace(secret, "***")
-        return message[:480]
-
-    @staticmethod
-    def deliver(event_id: int) -> CollaboratorExitNotification | None:
-        S = CollaboratorExitNotification.Status
-        now = timezone.now()
-        # Reclamo atómico: solo un proceso pasa de Pendiente/Fallido a Enviando.
-        claimed = CollaboratorExitNotification.objects.filter(
-            pk=event_id, status__in=[S.PENDING, S.FAILED]
-        ).update(status=S.SENDING, attempts=F("attempts") + 1, last_attempt_at=now)
-        event = (
-            CollaboratorExitNotification.objects.select_related(
-                "collaborator", "supervisor", "changed_by", "period"
-            )
-            .filter(pk=event_id)
-            .first()
-        )
-        if not claimed or event is None:
-            return event  # ya enviado o en curso: nunca un segundo envío
-
-        def finish(status, *, error="", recipients=None, sent=False):
-            event.status = status
-            event.last_error = error
-            if recipients is not None:
-                event.recipients = recipients
-            if sent:
-                event.sent_at = timezone.now()
-            event.save(update_fields=["status", "last_error", "recipients", "sent_at", "snapshot"])
-            ExitNotificationService._log(event)
-            return event
-
-        recipients = ExitRecipientService.active_emails()
-        if not recipients:
-            return finish(S.FAILED, error=ExitNotificationService.NO_RECIPIENTS, recipients=[])
-        if event.snapshot is None:
-            try:
-                event.snapshot = ExitNotificationService.build_snapshot(
-                    event.collaborator,
-                    event.supervisor,
-                    event.period,
-                    changed_by=event.changed_by,
-                    changed_at=event.changed_at,
-                    previous=event.previous_status,
-                    new=event.new_status,
-                )
-            except Exception as exc:  # noqa: BLE001
-                return finish(
-                    S.FAILED,
-                    error=f"No se pudo recuperar el detalle de asistencia ({type(exc).__name__}).",
-                    recipients=recipients,
-                )
-        try:
-            text, html = ExitNotificationService.render(event.snapshot)
-        except Exception as exc:  # noqa: BLE001
-            logger.exception("No se pudo construir el correo de salida %s", event_id)
-            return finish(
-                S.FAILED,
-                error=f"No se pudo construir el correo ({type(exc).__name__}).",
-                recipients=recipients,
-            )
-        message = EmailMultiAlternatives(
-            subject=ExitNotificationService.subject(event.snapshot),
-            body=text,
-            from_email=settings.DEFAULT_FROM_EMAIL,
-            to=recipients,
-        )
-        message.attach_alternative(html, "text/html")
-        try:
-            accepted = message.send(fail_silently=False)
-        except Exception as exc:  # noqa: BLE001  (SMTP caído, credenciales, tiempo agotado…)
-            error = ExitNotificationService._safe_error(exc)
-            logger.warning("Correo de salida %s no enviado: %s", event_id, error)
-            return finish(S.FAILED, error=error, recipients=recipients)
-        if not accepted:
-            return finish(
-                S.FAILED, error="El servidor de correo no aceptó el mensaje.", recipients=recipients
-            )
-        return finish(S.SENT, recipients=recipients, sent=True)
-
-    @staticmethod
-    def _log(event: CollaboratorExitNotification) -> None:
+    def log(event: CollaboratorExitNotification) -> None:
         c = event.collaborator
         sent = event.status == CollaboratorExitNotification.Status.SENT
+        delivered = sum(1 for r in _recipient_summary(event) if r["status"] == "SENT")
         EventService.log(
             actor=event.changed_by,
             action="exit_notification.sent" if sent else "exit_notification.failed",
@@ -4318,28 +4528,31 @@ class ExitNotificationService:
             target_label=f"{c.full_name} ({c.cedula})",
             field="exit_notification",
             new_value=(
-                f"Correo de salida enviado a {len(event.recipients)} destinatario(s)"
+                f"Correo de salida enviado a {delivered} destinatario(s)"
                 if sent
                 else f"Correo de salida no enviado (intento {event.attempts}): {event.last_error}"
             ),
         )
 
-    # ── Consulta y reintentos ──────────────────────────────────────────────
     @staticmethod
     def serialize(event: CollaboratorExitNotification) -> dict:
         c = event.collaborator
         return {
             "id": event.pk,
+            "kind": RecipientKind.EXIT,
             "collaborator": {"id": c.pk, "cedula": c.cedula, "full_name": c.full_name},
             "supervisor": user_display(event.supervisor),
             "changed_by": user_display(event.changed_by),
             "changed_at": event.changed_at,
+            "created_at": event.created_at,
             "previous_status": event.previous_status,
             "new_status": event.new_status,
+            "first_day": None,
+            "second_day": None,
             "period": event.period.key.label,
             "status": event.status,
             "status_label": event.get_status_display(),
-            "recipients": event.recipients,
+            "recipients": _recipient_summary(event),
             "attempts": event.attempts,
             "last_attempt_at": event.last_attempt_at,
             "last_error": event.last_error,
@@ -4347,64 +4560,209 @@ class ExitNotificationService:
         }
 
     @staticmethod
-    def events(acc: NovedadesAccess, limit: int = 50) -> list[dict]:
-        _admin_only(acc)
-        qs = CollaboratorExitNotification.objects.select_related(
-            "collaborator", "supervisor", "changed_by", "period"
-        )[:limit]
-        return [ExitNotificationService.serialize(e) for e in qs]
-
-    @staticmethod
-    def retry(acc: NovedadesAccess, event_id, *, context=None) -> dict:
-        """Reintento manual del Administrador sobre el MISMO evento."""
-        _admin_only(acc)
-        event = CollaboratorExitNotification.objects.filter(pk=event_id).first()
-        if event is None:
-            raise _not_found("Evento de salida no encontrado.")
-        if event.status == CollaboratorExitNotification.Status.SENT:
-            raise NovedadesError(
-                "Este correo ya fue enviado: no se reenvía.", code="already_sent", status=409
-            )
-        if event.status == CollaboratorExitNotification.Status.SENDING:
-            raise NovedadesError("El envío está en curso.", code="in_progress", status=409)
-        record_audit_event(
-            actor=acc.user,
-            action="novedades.exit_notification.retry",
-            module=MODULE,
-            target_type="exit_notification",
-            target_id=event.pk,
-            context=context,
-        )
-        ExitNotificationService.deliver(event.pk)
-        event.refresh_from_db()
-        return ExitNotificationService.serialize(event)
-
-    @staticmethod
     def retry_pending() -> dict:
-        """Reintento programado: Pendientes que no salieron (reinicio del
-        proceso), Fallidos con intentos disponibles y Enviando atascados."""
-        S = CollaboratorExitNotification.Status
-        now = timezone.now()
-        # Un "Enviando" de hace más de 15 min es un proceso que murió a mitad
-        # del envío. Se reintenta: si el servidor alcanzó a aceptar el mensaje
-        # antes de la caída, puede llegar dos veces (riesgo documentado).
-        CollaboratorExitNotification.objects.filter(
-            status=S.SENDING, last_attempt_at__lt=now - ExitNotificationService.STALE_SENDING
-        ).update(status=S.FAILED, last_error="El envío anterior no terminó (proceso interrumpido).")
-        ids = list(
-            CollaboratorExitNotification.objects.filter(
-                Q(status=S.PENDING, created_at__lt=now - ExitNotificationService.STALE_PENDING)
-                | Q(status=S.FAILED, attempts__lt=ExitNotificationService.MAX_AUTO_ATTEMPTS)
-            ).values_list("pk", flat=True)
+        return CollaboratorMailService.retry_pending()
+
+
+class EntryNotificationService:
+    """Correo de INGRESO de un colaborador nuevo (pedido del 2026-10-15).
+
+    Reglas (decisiones del usuario):
+    - Solo para altas por formulario marcadas como "nuevo ingreso": esa marca
+      es lo único que distingue un ingreso real de la carga de un equipo que
+      ya trabajaba. Importaciones, reactivaciones y colaboradores existentes
+      nunca generan este correo (no hay envíos retroactivos).
+    - Día válido = fecha con horas > 0 en Días laborados (vacío y 0 no
+      cuentan). Cada fecha cuenta una vez: editarla no suma días.
+    - Se dispara al guardarse (ya confirmado en la base) el SEGUNDO día válido,
+      por edición manual, importación o corrección; la tabla es la fila del
+      período (23 → 22) de ese segundo día.
+    - Un evento por alta (1 a 1 con el colaborador) y paso En espera →
+      Pendiente con actualización condicional: nunca dos correos."""
+
+    MODEL = CollaboratorEntryNotification
+    RELATED = ("collaborator", "supervisor", "created_by", "period")
+    SUBJECT = "Notificación de ingreso de nuevo colaborador"
+
+    @staticmethod
+    def register(collaborator, actor) -> CollaboratorEntryNotification:
+        """Al dar de alta a alguien marcado como nuevo ingreso (misma
+        transacción que el alta)."""
+        event = CollaboratorEntryNotification.objects.create(
+            collaborator=collaborator, created_by=actor
         )
-        sent = failed = 0
-        for pk in ids:
-            event = ExitNotificationService.deliver(pk)
-            if event is not None and event.status == S.SENT:
-                sent += 1
-            else:
-                failed += 1
-        return {"sent": sent, "failed": failed}
+        EventService.log(
+            actor=actor,
+            action="entry_notification.registered",
+            supervisor=collaborator.current_supervisor,
+            period=CollaboratorService._event_period(collaborator.current_supervisor),
+            target_type="collaborator",
+            target_id=collaborator.pk,
+            target_label=f"{collaborator.full_name} ({collaborator.cedula})",
+            field="entry_notification",
+            new_value="Nuevo ingreso: correo al registrar su segundo día válido en Días laborados",
+        )
+        return event
+
+    @staticmethod
+    def valid_days(collaborator_id) -> list[WorkedDay]:
+        return list(
+            WorkedDay.objects.filter(collaborator_id=collaborator_id, hours__gt=0)
+            .select_related("period", "supervisor")
+            .order_by("date")[:2]
+        )
+
+    @staticmethod
+    def check(collaborator_ids) -> list[int]:
+        """Después de guardar Días laborados (ya confirmado): dispara el correo
+        de quienes, siendo nuevo ingreso, alcanzaron su segundo día válido."""
+        S = CollaboratorEntryNotification.Status
+        triggered = []
+        waiting = CollaboratorEntryNotification.objects.filter(
+            collaborator_id__in=set(collaborator_ids), status=S.WAITING
+        ).values_list("pk", "collaborator_id")
+        for event_id, collaborator_id in waiting:
+            days = EntryNotificationService.valid_days(collaborator_id)
+            if len(days) < 2:
+                continue
+            first, second = days
+            claimed = CollaboratorEntryNotification.objects.filter(
+                pk=event_id, status=S.WAITING
+            ).update(
+                status=S.PENDING,
+                first_day=first.date,
+                second_day=second.date,
+                triggered_at=timezone.now(),
+                supervisor=second.supervisor,
+                period=second.period,
+            )
+            if not claimed:  # otro guardado simultáneo ya lo disparó
+                continue
+            event = CollaboratorEntryNotification.objects.select_related(
+                *EntryNotificationService.RELATED
+            ).get(pk=event_id)
+            try:
+                event.snapshot = EntryNotificationService.build_snapshot(event)
+                event.save(update_fields=["snapshot"])
+            except Exception:  # noqa: BLE001  (se reintenta al enviar)
+                logger.exception("No se pudo leer el detalle del ingreso %s", event_id)
+            c = event.collaborator
+            EventService.log(
+                actor=event.created_by,
+                action="entry_notification.triggered",
+                supervisor=event.supervisor,
+                period=event.period,
+                target_type="collaborator",
+                target_id=c.pk,
+                target_label=f"{c.full_name} ({c.cedula})",
+                field="entry_notification",
+                new_value=(
+                    f"Segundo día válido registrado: {first.date:%d/%m/%Y} y "
+                    f"{second.date:%d/%m/%Y} — período {event.period.key.label}"
+                ),
+            )
+            triggered.append(event_id)
+            EntryNotificationService.schedule(event_id)
+        return triggered
+
+    @staticmethod
+    def build_snapshot(event) -> dict:
+        c = event.collaborator
+        return {
+            **CollaboratorMailService.attendance(c, event.supervisor, event.period),
+            "first_day": event.first_day.isoformat(),
+            "second_day": event.second_day.isoformat(),
+            "first_day_label": f"{event.first_day:%d/%m/%Y}",
+            "second_day_label": f"{event.second_day:%d/%m/%Y}",
+            "registered_by": user_display(event.created_by),
+            "registered_at_label": business_stamp(c.created_at),
+            "generated_at": (event.triggered_at or timezone.now()).isoformat(),
+            "generated_at_label": business_stamp(event.triggered_at or timezone.now()),
+        }
+
+    @staticmethod
+    def content(s: dict) -> dict:
+        system = settings.SYSTEM_NAME.upper()
+        c = s["collaborator"]
+        return {
+            "title": "Notificación de ingreso de nuevo colaborador",
+            "header_line": (
+                f"Generada el {s['generated_at_label']} · Período operativo "
+                f"{s['period']['label']} ({s['period']['start_date']} al {s['period']['end_date']})"
+            ),
+            "message": (
+                "Se notifica el ingreso operativo del colaborador indicado a continuación, "
+                f"registrado en {system} como nuevo ingreso. La notificación se genera al "
+                "registrarse su segundo día laborado en Días laborados; para fines de "
+                "seguimiento se incluye el detalle del período correspondiente."
+            ),
+            "info_rows": [
+                ("Empleado", c["full_name"]),
+                ("Cédula", c["cedula"]),
+                ("Cargo", c["cargo"] or "—"),
+                ("Supervisor responsable", s["supervisor"]),
+                ("Primer día laborado registrado", s["first_day_label"]),
+                ("Segundo día laborado registrado", s["second_day_label"]),
+                ("Período operativo", s["period"]["label"]),
+                ("Alta en NEXO", f"{s['registered_at_label']} por {s['registered_by']}"),
+                ("Notificación generada", s["generated_at_label"]),
+            ],
+            "footer": (
+                f"Mensaje automático de {system}. Informa un ingreso operativo registrado en el "
+                "sistema; no acredita la contratación, la afiliación al IESS ni otros procesos "
+                "formales de Gestión Humana, que siguen su propio procedimiento."
+            ),
+        }
+
+    @staticmethod
+    def schedule(event_id: int) -> None:
+        CollaboratorMailService.schedule(RecipientKind.ENTRY, event_id)
+
+    @staticmethod
+    def log(event: CollaboratorEntryNotification) -> None:
+        c = event.collaborator
+        sent = event.status == CollaboratorEntryNotification.Status.SENT
+        delivered = sum(1 for r in _recipient_summary(event) if r["status"] == "SENT")
+        EventService.log(
+            actor=event.created_by,
+            action="entry_notification.sent" if sent else "entry_notification.failed",
+            supervisor=event.supervisor,
+            period=event.period,
+            target_type="collaborator",
+            target_id=c.pk,
+            target_label=f"{c.full_name} ({c.cedula})",
+            field="entry_notification",
+            new_value=(
+                f"Correo de ingreso enviado a {delivered} destinatario(s)"
+                if sent
+                else f"Correo de ingreso no enviado (intento {event.attempts}): {event.last_error}"
+            ),
+        )
+
+    @staticmethod
+    def serialize(event: CollaboratorEntryNotification) -> dict:
+        c = event.collaborator
+        return {
+            "id": event.pk,
+            "kind": RecipientKind.ENTRY,
+            "collaborator": {"id": c.pk, "cedula": c.cedula, "full_name": c.full_name},
+            "supervisor": user_display(event.supervisor),
+            "changed_by": user_display(event.created_by),
+            "changed_at": event.triggered_at or event.created_at,
+            "created_at": event.created_at,
+            "previous_status": "",
+            "new_status": "",
+            "first_day": event.first_day,
+            "second_day": event.second_day,
+            "period": event.period.key.label if event.period else "",
+            "status": event.status,
+            "status_label": event.get_status_display(),
+            "recipients": _recipient_summary(event),
+            "attempts": event.attempts,
+            "last_attempt_at": event.last_attempt_at,
+            "last_error": event.last_error,
+            "sent_at": event.sent_at,
+        }
 
 
 # ── Ingresos y Salidas: consulta consolidada con permisos por usuario ─────────

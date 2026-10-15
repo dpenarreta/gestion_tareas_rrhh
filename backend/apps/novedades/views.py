@@ -47,14 +47,14 @@ from .serializers import (
 )
 from .services import (
     CollaboratorInput,
+    CollaboratorMailService,
     CollaboratorService,
     CorrectionService,
     DepurationService,
-    ExitNotificationService,
-    ExitRecipientService,
     HistoryService,
     MovementPermissionService,
     MovementService,
+    NotificationRecipientService,
     NovedadesError,
     OvertimeMonthService,
     OvertimeService,
@@ -222,6 +222,7 @@ class CollaboratorListView(NovedadesView):
                 regional=data["regional"],
                 area=data["area"],
                 cargo=data["cargo"],
+                is_new_hire=data["is_new_hire"],
             ),
             supervisor_id=data.get("supervisor_id"),
             context=self.context,
@@ -691,35 +692,35 @@ class OverrideRevokeView(NovedadesView):
         return Response(PermissionAdminService.serialize_override(override))
 
 
-# ── Notificaciones de salida de colaboradores (solo Administrador) ────────────
+# ── Notificaciones de colaboradores: ingreso y salida (solo Administrador) ────
 
 
-class ExitRecipientListView(NovedadesView):
+class NotificationRecipientListView(NovedadesView):
     def get(self, request):
-        return Response(ExitRecipientService.config(self.access))
+        return Response(NotificationRecipientService.config(self.access))
 
     def post(self, request):
         return Response(
-            ExitRecipientService.create(self.access, request.data, context=self.context),
+            NotificationRecipientService.create(self.access, request.data, context=self.context),
             status=201,
         )
 
 
-class ExitRecipientDetailView(NovedadesView):
+class NotificationRecipientDetailView(NovedadesView):
     def patch(self, request, pk):
         return Response(
-            ExitRecipientService.update(self.access, pk, request.data, context=self.context)
+            NotificationRecipientService.update(self.access, pk, request.data, context=self.context)
         )
 
 
-class ExitNotificationListView(NovedadesView):
+class NotificationEventListView(NovedadesView):
     def get(self, request):
-        return Response(ExitNotificationService.events(self.access))
+        return Response(CollaboratorMailService.events(self.access))
 
 
-class ExitNotificationRetryView(NovedadesView):
-    def post(self, request, pk):
-        return Response(ExitNotificationService.retry(self.access, pk, context=self.context))
+class NotificationRetryView(NovedadesView):
+    def post(self, request, kind, pk):
+        return Response(CollaboratorMailService.retry(self.access, kind, pk, context=self.context))
 
 
 # ── Ingresos y Salidas (consulta consolidada) ─────────────────────────────────

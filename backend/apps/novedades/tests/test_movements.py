@@ -22,8 +22,8 @@ from apps.novedades.models import (
     Collaborator,
     CollaboratorAssignment,
     CollaboratorExitNotification,
+    CollaboratorNotificationRecipient,
     CollaboratorStatusChange,
-    ExitNotificationRecipient,
     NovedadEvent,
 )
 from apps.novedades.services import (
@@ -336,8 +336,8 @@ def _state():
 
 
 def test_reading_and_exporting_never_notify_nor_modify(client_for, admin, history):
-    ExitNotificationRecipient.objects.create(
-        email="th@example.com", created_by=admin, updated_by=admin
+    CollaboratorNotificationRecipient.objects.create(
+        kind="EXIT", email="th@example.com", created_by=admin, updated_by=admin
     )
     events, outbox, before = (
         CollaboratorExitNotification.objects.count(),

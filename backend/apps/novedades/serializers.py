@@ -40,6 +40,8 @@ class CollaboratorCreateSerializer(serializers.Serializer):
     area = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
     cargo = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
     supervisor_id = serializers.IntegerField(required=False, allow_null=True)
+    # "Nuevo ingreso": activa el correo de ingreso al segundo día válido.
+    is_new_hire = serializers.BooleanField(required=False, default=False)
 
 
 class CollaboratorUpdateSerializer(serializers.Serializer):

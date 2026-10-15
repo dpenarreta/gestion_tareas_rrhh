@@ -15,6 +15,47 @@
 
 ---
 
+## 2026-10-15 — Correo de ingreso al segundo día válido y listas separadas
+
+**Cómo apareció:** pedido explícito de notificar por correo el ingreso de
+nuevos colaboradores al registrarse su segundo día válido en Días laborados,
+con listas de destinatarios independientes para ingreso y salida.
+
+**Lo que había (verificado):** NEXO no guarda una fecha formal de ingreso:
+solo el alta del colaborador. El módulo todavía no está en producción, así que
+al desplegarlo los supervisores cargarán a sus equipos actuales (formulario o
+Excel) y CADA alta parecería un ingreso nuevo. La celda de Días laborados
+guarda horas (vacío = sin registro, 0 = cero reportado); el «Total» es la suma
+de horas. Edición manual e importación pasan por `save_cells`. La lista de
+destinatarios de salida era única por correo y aún no estaba desplegada.
+
+**Decisiones del usuario:** nuevo ingreso = casilla explícita en el alta (por
+defecto no; importaciones nunca); día válido = horas > 0; un correo por
+destinatario en ingreso y salida; la tabla muestra el período del segundo día.
+
+**Alternativas consideradas:**
+- *Considerar nuevo todo colaborador con dos días.* Descartado: notificaría a
+  todo el personal existente.
+- *Fecha de activación en Ajustes.* Descartado por el usuario: después de esa
+  fecha, cargar a alguien antiguo que faltaba dispararía un correo erróneo.
+- *Una sola lista con una marca por tipo en cada dirección.* Descartado: el
+  pedido exige listas independientes administradas por separado.
+- *Un correo compartido.* Descartado: sin estado por destinatario, un
+  reintento repetiría a quienes ya lo recibieron.
+
+**Decisión técnica:** el evento de ingreso se crea en el alta marcada (en
+espera) y es el marcador persistente de "nuevo ingreso"; después de cada
+guardado confirmado se cuentan las fechas con horas > 0 y, al llegar a dos, se
+pasa a Pendiente con una actualización condicional. El envío reutiliza el
+motor de la salida, generalizado (`CollaboratorMailService`), con estado por
+destinatario guardado tras cada envío.
+
+**Limitaciones:** la marca solo se pone en el alta (no se puede agregar
+después); un alta importada nunca genera el correo; si se borran horas tras el
+envío, el correo ya enviado no se corrige.
+
+---
+
 ## 2026-10-14 — Ingresos y Salidas: consulta consolidada con permisos por usuario
 
 **Cómo apareció:** pedido explícito de dos pestañas de consulta (Ingresos y

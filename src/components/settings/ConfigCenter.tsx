@@ -36,7 +36,7 @@ import DataConsentSection from "@/components/settings/DataConsentSection";
 import DataRequestsSection from "@/components/settings/DataRequestsSection";
 import RetentionPolicySection from "@/components/settings/RetentionPolicySection";
 import NovedadesPermissionsSection from "@/components/settings/NovedadesPermissionsSection";
-import ExitNotificationsSection from "@/components/settings/ExitNotificationsSection";
+import CollaboratorNotificationsSection from "@/components/settings/CollaboratorNotificationsSection";
 import MovementPermissionsSection from "@/components/settings/MovementPermissionsSection";
 import NotificationRulesSection from "@/components/settings/NotificationRulesSection";
 import WelcomeMessageSection from "@/components/settings/WelcomeMessageSection";
@@ -281,8 +281,8 @@ function ConfigCenterInner({ currentUserRole }: { currentUserRole: Role }) {
                   <ConfigSectionCard descriptor={d("notification-rules")!}>
                     <NotificationRulesSection />
                   </ConfigSectionCard>
-                  <ConfigSectionCard descriptor={d("exit-notifications")!}>
-                    <ExitNotificationsSection />
+                  <ConfigSectionCard descriptor={d("collaborator-notifications")!}>
+                    <CollaboratorNotificationsSection />
                   </ConfigSectionCard>
                 </>
               )}

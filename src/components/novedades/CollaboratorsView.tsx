@@ -290,6 +290,9 @@ function CollaboratorForm({
     cargo: collaborator?.cargo ?? "",
   });
   const [supervisorId, setSupervisorId] = useState<number | "">(ctx.supervisorId ?? ctx.supervisors[0]?.id ?? "");
+  // Solo en el alta: marca un ingreso REAL (no la carga de alguien que ya
+  // trabajaba). Dispara el correo de ingreso al registrar su segundo día.
+  const [isNewHire, setIsNewHire] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const pickSupervisor = !collaborator && ctx.me.nationalWrite;
@@ -307,6 +310,7 @@ function CollaboratorForm({
       : await novedadesApi.post("collaborators", {
           ...values,
           supervisorId: pickSupervisor ? supervisorId || null : null,
+          isNewHire,
         });
     setSaving(false);
     if (!result.ok) {
@@ -351,6 +355,18 @@ function CollaboratorForm({
             </label>
           )}
         </div>
+        {!collaborator && (
+          <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
+            <input type="checkbox" className="mt-0.5" checked={isNewHire} onChange={(e) => setIsNewHire(e.target.checked)} />
+            <span>
+              <span className="font-medium text-title">Es un nuevo ingreso</span>
+              <span className="block text-xs text-secondary">
+                Márquelo solo si la persona recién ingresa a la operación (no al registrar a alguien que ya trabajaba).
+                Se enviará la notificación de ingreso cuando tenga su segundo día laborado registrado.
+              </span>
+            </span>
+          </label>
+        )}
         {!collaborator && (
           <p className="text-xs text-secondary">
             El registro es inmediato (no requiere aprobación) y queda disponible en Días laborados y Horas extras. No

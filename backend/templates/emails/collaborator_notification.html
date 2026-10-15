@@ -2,12 +2,14 @@
 <html lang="es">
   <head>
     <meta charset="utf-8" />
-    <title>Notificación de salida de colaborador</title>
+    <title>{{ title }}</title>
   </head>
   {% comment %}
-    Correo de salida (ver ExitNotificationService). Solo estilos en línea y
-    tablas: los clientes de correo ignoran CSS externo y JavaScript. Todo
-    valor dinámico pasa por el autoescape de Django.
+    Correo de ingreso y de salida de colaboradores (ver
+    CollaboratorMailService): el título, el mensaje, los datos y el pie cambian
+    según el tipo; la tabla de Días laborados es la misma. Solo estilos en
+    línea y tablas: los clientes de correo ignoran CSS externo y JavaScript.
+    Todo valor dinámico pasa por el autoescape de Django.
   {% endcomment %}
   <body style="margin:0;padding:0;background:#f4f5f7;font-family:Arial,Helvetica,sans-serif;color:#1f2937;">
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f4f5f7;">
@@ -17,34 +19,22 @@
             <tr>
               <td style="padding:16px 20px;background:#1e3a5f;color:#ffffff;border-radius:6px 6px 0 0;">
                 <div style="font-size:12px;letter-spacing:1px;font-weight:bold;">{{ system_name }}</div>
-                <div style="font-size:18px;font-weight:bold;margin-top:4px;">Notificación de salida de colaborador</div>
+                <div style="font-size:18px;font-weight:bold;margin-top:4px;">{{ title }}</div>
                 <div style="font-size:12px;margin-top:6px;">
-                  Cambio registrado el {{ s.changed_at_label }} · Período operativo {{ s.period.label }}
-                  ({{ s.period.start_date }} al {{ s.period.end_date }})
+                  {{ header_line }}
                 </div>
               </td>
             </tr>
             <tr>
               <td style="padding:16px 20px;font-size:14px;line-height:1.5;">
-                Se informa que el colaborador indicado a continuación ha sido cambiado al estado
-                <strong>{{ s.new_status }}</strong> en {{ system_name }} por el supervisor responsable. Para fines de
-                seguimiento y trazabilidad operativa, se incluye el detalle de días laborados registrado en el
-                período correspondiente.
+                {{ message }}
               </td>
             </tr>
             <tr>
               <td style="padding:0 20px 16px;">
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;font-size:13px;">
-                  <tr><td style="padding:3px 12px 3px 0;color:#6b7280;">Supervisor responsable</td><td style="padding:3px 0;">{{ s.supervisor }}</td></tr>
-                  <tr><td style="padding:3px 12px 3px 0;color:#6b7280;">Cargo</td><td style="padding:3px 0;">{{ s.collaborator.cargo|default:"—" }}</td></tr>
-                  <tr><td style="padding:3px 12px 3px 0;color:#6b7280;">Cédula</td><td style="padding:3px 0;">{{ s.collaborator.cedula }}</td></tr>
-                  <tr><td style="padding:3px 12px 3px 0;color:#6b7280;">Empleado</td><td style="padding:3px 0;font-weight:bold;">{{ s.collaborator.full_name }}</td></tr>
-                  <tr><td style="padding:3px 12px 3px 0;color:#6b7280;">Estado anterior</td><td style="padding:3px 0;">{{ s.previous_status }}</td></tr>
-                  <tr><td style="padding:3px 12px 3px 0;color:#6b7280;">Nuevo estado</td><td style="padding:3px 0;">{{ s.new_status }}</td></tr>
-                  <tr><td style="padding:3px 12px 3px 0;color:#6b7280;">Fecha y hora del cambio</td><td style="padding:3px 0;">{{ s.changed_at_label }}</td></tr>
-                  <tr><td style="padding:3px 12px 3px 0;color:#6b7280;">Registrado por</td><td style="padding:3px 0;">{{ s.changed_by }}</td></tr>
-                  <tr><td style="padding:3px 12px 3px 0;color:#6b7280;">Período operativo</td><td style="padding:3px 0;">{{ s.period.label }}</td></tr>
-                </table>
+                  {% for label, value in info_rows %}<tr><td style="padding:3px 12px 3px 0;color:#6b7280;">{{ label }}</td><td style="padding:3px 0;{% if label == "Empleado" %}font-weight:bold;{% endif %}">{{ value }}</td></tr>
+                  {% endfor %}                </table>
               </td>
             </tr>
             <tr>
@@ -81,8 +71,7 @@
             </tr>
             <tr>
               <td style="padding:12px 20px;border-top:1px solid #e5e7eb;font-size:11px;color:#6b7280;">
-                Mensaje automático de {{ system_name }}. Describe el cambio de estado registrado en el sistema; no
-                constituye por sí mismo constancia de una terminación laboral ni de trámites asociados.
+                {{ footer }}
               </td>
             </tr>
           </table>
