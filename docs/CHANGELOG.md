@@ -57,9 +57,12 @@ como ejecutores de tareas.
 **Verificación:** 4 tests nuevos en `apps/hierarchy/tests/test_services.py`
 (cada rol operativo no es ejecutor; el ADMINISTRADOR los ve pero no son su
 equipo) y 2 en `src/__tests__/roles.test.ts`. `tsc` sin errores, Vitest
-1334/1334, `ruff`/`isort` y `black` sobre `services.py` sin observaciones. La
-suite de pytest no se corrió en esta sesión: su base de pruebas se crearía en
-el SQL Server de producción — pendiente de correr en un entorno de pruebas.
+1334/1334, `ruff`/`isort` y `black` sobre `services.py` sin observaciones.
+Suite completa de pytest de la rama (`apps/`, base nueva con `--create-db`):
+**2295 passed** el 2026-10-16, contra un SQL Server 2022 desechable en Docker
+(`127.0.0.1:14333`, nunca contra 10.0.2.51) — los 6 avisos son
+`RemovedInDjango60Warning` de DRF, ajenos a este cambio. En una máquina sin
+`ODBC Driver 18` hace falta `DB_DRIVER=ODBC Driver 17 for SQL Server`.
 
 **Autor:** dpenarreta + Claude Code.
 
