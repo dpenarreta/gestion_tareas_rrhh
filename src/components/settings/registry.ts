@@ -241,6 +241,24 @@ export const SETTINGS_REGISTRY: SettingDescriptor[] = [
     configKeys: [],
   },
   {
+    id: "novedades-permissions",
+    label: "Permisos del módulo Control Operativo de Novedades",
+    description:
+      "Facultades configurables por rol (Supervisor y Asistente de Operaciones), excepciones individuales, permisos efectivos, historial de cambios y plazo de cierre de Horas extras (48–72 horas laborables).",
+    keywords: ["novedades", "horas extras", "días laborados", "supervisor", "asistente", "operaciones", "excepciones", "permisos", "plazo", "cierre", "48 horas", "plazos de registro", "fecha futura", "vencido", "editar celdas", "días laborados", "fuera de plazo", "corregir"],
+    category: "seguridad",
+    configKeys: [],
+  },
+  {
+    id: "movement-visibility",
+    label: "Permisos de visibilidad — Ingresos y Salidas",
+    description:
+      "Concede o retira, por persona y por separado, la consulta de las pestañas Ingresos y Salidas sin cambiar su rol.",
+    keywords: ["ingresos", "salidas", "visibilidad", "permisos", "colaboradores", "altas", "inactivos", "reingresos", "usuarios"],
+    category: "seguridad",
+    configKeys: [],
+  },
+  {
     id: "seguridad-config",
     label: "Política de contraseña y sesión",
     description: "Longitud mínima de contraseña, duración de sesión, cierre por inactividad y retención de intentos de login.",
@@ -299,6 +317,15 @@ export const SETTINGS_REGISTRY: SettingDescriptor[] = [
     label: "Reglas de notificación",
     description: "Roles notificados por comentarios de tareas y por registro de horas retroactivo.",
     keywords: ["notificaciones", "comentarios", "retroactivo"],
+    category: "notificaciones",
+    configKeys: [],
+  },
+  {
+    id: "collaborator-notifications",
+    label: "Notificaciones de colaboradores",
+    description:
+      "Listas independientes de destinatarios para el correo de ingreso (nuevo colaborador al registrar su segundo día laborado) y el de cambios de estado (Activo a Inactivo o a Suspendido), con su detalle de Días laborados; estado de los envíos y reintento.",
+    keywords: ["ingreso", "nuevo ingreso", "salida", "inactivo", "suspendido", "suspensión", "cambio de estado", "correo", "email", "smtp", "destinatarios", "talento humano", "operaciones", "jefatura", "días laborados", "novedades"],
     category: "notificaciones",
     configKeys: [],
   },

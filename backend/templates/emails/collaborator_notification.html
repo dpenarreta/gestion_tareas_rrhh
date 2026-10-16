@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <title>{{ title }}</title>
+  </head>
+  {% comment %}
+    Correo de ingreso y de salida de colaboradores (ver
+    CollaboratorMailService): el título, el mensaje, los datos y el pie cambian
+    según el tipo; la tabla de Días laborados es la misma. Solo estilos en
+    línea y tablas: los clientes de correo ignoran CSS externo y JavaScript.
+    Todo valor dinámico pasa por el autoescape de Django.
+  {% endcomment %}
+  <body style="margin:0;padding:0;background:#f4f5f7;font-family:Arial,Helvetica,sans-serif;color:#1f2937;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background:#f4f5f7;">
+      <tr>
+        <td style="padding:20px 12px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="background:#ffffff;border:1px solid #d9dde3;border-radius:6px;">
+            <tr>
+              <td style="padding:16px 20px;background:#1e3a5f;color:#ffffff;border-radius:6px 6px 0 0;">
+                <div style="font-size:12px;letter-spacing:1px;font-weight:bold;">{{ system_name }}</div>
+                <div style="font-size:18px;font-weight:bold;margin-top:4px;">{{ title }}</div>
+                <div style="font-size:12px;margin-top:6px;">
+                  {{ header_line }}
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:16px 20px;font-size:14px;line-height:1.5;">
+                {{ message }}
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 20px 16px;">
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;font-size:13px;">
+                  {% for label, value in info_rows %}<tr><td style="padding:3px 12px 3px 0;color:#6b7280;">{{ label }}</td><td style="padding:3px 0;{% if label == "Empleado" %}font-weight:bold;{% endif %}">{{ value }}</td></tr>
+                  {% endfor %}                </table>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:0 20px 8px;font-size:13px;font-weight:bold;">Días laborados — {{ s.period.label }}</td>
+            </tr>
+            <tr>
+              <td style="padding:0 20px 16px;">
+                <table cellpadding="0" cellspacing="0" border="0" style="border-collapse:collapse;font-size:11px;">
+                  <tr>
+                    <th rowspan="2" style="border:1px solid #c7ccd4;background:#e8ecf2;padding:4px 6px;text-align:left;white-space:nowrap;">Supervisor</th>
+                    <th rowspan="2" style="border:1px solid #c7ccd4;background:#e8ecf2;padding:4px 6px;text-align:left;white-space:nowrap;">Cargo</th>
+                    <th rowspan="2" style="border:1px solid #c7ccd4;background:#e8ecf2;padding:4px 6px;text-align:left;white-space:nowrap;">Cédula</th>
+                    <th rowspan="2" style="border:1px solid #c7ccd4;background:#e8ecf2;padding:4px 6px;text-align:left;white-space:nowrap;">Empleado</th>
+                    {% for c in columns %}<th style="border:1px solid #c7ccd4;background:{% if c.is_weekend %}#fef08a{% elif c.holiday %}#dbeafe{% else %}#e8ecf2{% endif %};padding:3px 2px;text-align:center;min-width:26px;">{{ c.day|stringformat:"02d" }}</th>{% endfor %}
+                    <th rowspan="2" style="border:1px solid #c7ccd4;background:#e8ecf2;padding:4px 6px;text-align:right;">Total</th>
+                  </tr>
+                  <tr>
+                    {% for c in columns %}<th style="border:1px solid #c7ccd4;background:{% if c.is_weekend %}#fef08a{% elif c.holiday %}#dbeafe{% else %}#e8ecf2{% endif %};padding:2px;text-align:center;font-weight:normal;font-size:10px;"{% if c.holiday %} title="Feriado: {{ c.holiday }}"{% endif %}>{{ c.weekday_short }}</th>{% endfor %}
+                  </tr>
+                  <tr>
+                    <td style="border:1px solid #c7ccd4;padding:4px 6px;white-space:nowrap;">{{ s.supervisor }}</td>
+                    <td style="border:1px solid #c7ccd4;padding:4px 6px;white-space:nowrap;">{{ s.collaborator.cargo }}</td>
+                    <td style="border:1px solid #c7ccd4;padding:4px 6px;white-space:nowrap;">{{ s.collaborator.cedula }}</td>
+                    <td style="border:1px solid #c7ccd4;padding:4px 6px;white-space:nowrap;">{{ s.collaborator.full_name }}</td>
+                    {% for c in columns %}<td style="border:1px solid #c7ccd4;padding:3px 2px;text-align:center;{% if c.is_weekend %}background:#fefce8;{% endif %}{% if c.value.other_team %}color:#9ca3af;{% endif %}">{% if c.value.hours is not None %}{{ c.value.hours }}{% if c.value.other_team %}*{% endif %}{% endif %}</td>{% endfor %}
+                    <td style="border:1px solid #c7ccd4;padding:4px 6px;text-align:right;font-weight:bold;">{{ s.total }}</td>
+                  </tr>
+                </table>
+                <div style="font-size:11px;color:#6b7280;margin-top:6px;">
+                  Celda vacía: sin registro en {{ system_name }}. 0: cero reportado.
+                  {% if has_other_team %}* Registrado por el equipo anterior del colaborador; no suma en el total (misma regla del módulo).{% endif %}
+                </div>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding:12px 20px;border-top:1px solid #e5e7eb;font-size:11px;color:#6b7280;">
+                {{ footer }}
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

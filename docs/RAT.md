@@ -36,7 +36,9 @@ El tratamiento se apoya en más de una base de legitimación según el tipo de d
 
 ## 4. Categorías de titulares de los datos
 
-Personas colaboradoras de la organización con cuenta de usuario en Nexo (todos los roles definidos en `src/lib/roles.ts`: Jefe Nacional, Coordinador Nacional, Coordinador ZS, Analista de Clima y Cultura, Analista de Selección, Asistentes de Selección/Gestión Humana/GH ZS, Trabajo Social, Asistente de Nómina, Administrador).
+Personas colaboradoras de la organización con cuenta de usuario en Nexo (todos los roles definidos en `src/lib/roles.ts`: Jefe Nacional, Coordinador Nacional, Coordinador ZS, Analista de Clima y Cultura, Analista de Selección, Asistentes de Selección/Gestión Humana/GH ZS, Trabajo Social, Asistente de Nómina, Administrador), más los roles operativos del módulo Control Operativo de Novedades (Supervisor de Operaciones, Asistente de Operaciones).
+
+**Colaboradores operativos sin cuenta en Nexo** (desde v1.165.0): personas de la operación de LAARCOURIER cuyos días laborados y horas extras registran los Supervisores de Operaciones. No inician sesión; sus datos los carga el supervisor responsable (ver § 5, fila "Novedades operativas").
 
 ## 5. Categorías de datos personales tratados
 
@@ -57,6 +59,7 @@ Personas colaboradoras de la organización con cuenta de usuario en Nexo (todos 
 | Auditoría de depuraciones ejecutadas (qué se eliminó, cuándo y por quién) | Ejecución de la política de retención por el Administrador | `DataPurgeLog` |
 | **Permisos médicos y personales** (tipo, fecha, duración u observación) — **dato de salud cuando el tipo es `MEDICO`** | Registro manual exclusivo del Administrador, no autoservicio del titular | `LeaveRecord` |
 | **Estado especial de maternidad/lactancia** (tipo, fecha de inicio/fin, base y límites de jornada configurados) — **dato de salud/condición personal** | Registro manual exclusivo del Administrador, no autoservicio del titular | `SpecialStatus` |
+| **Novedades operativas** de colaboradores operativos: cédula, nombres, regional, área, cargo, estado operativo (Activo/Inactivo/Suspendido y su motivo), horas diarias laboradas, horas extras/sábado/domingo/feriado, trabajo realizado y observaciones | Registro por el Supervisor de Operaciones responsable (o importación de Excel), sin aprobación previa; el Administrador recibe aviso de cada alta y de cada inactivación/suspensión | `apps.novedades`: `Collaborator`, `CollaboratorStatusChange`, `CollaboratorAssignment`, `WorkedDay`, `OvertimeRecord`, `NovedadEvent` — solo en la base SQL Server; nunca en el repositorio de código. **Plazo de conservación: [Completar: definir con legal]** |
 
 ### 5.1 Categorías especiales de datos (Art. 26 LOPDP)
 
@@ -81,7 +84,7 @@ Los tres tipos de dato que introduce el módulo de ausencias/estado especial (`L
 | Google (API de Gemini) | Procesamiento de lenguaje natural en 4 puntos del sistema — ver desglose completo debajo de esta tabla | Ver desglose |
 | GitHub | Almacenamiento del repositorio privado de documentos de la base de conocimiento de RRHH | Documentos cargados a la base de conocimiento (pueden contener datos de personal) |
 | Zoom | Coordinación de reuniones (API Server-to-Server OAuth) | Título, fecha/hora y lista de invitados (nombre/correo) de las reuniones creadas |
-| Alphaside (hosting del dominio `laarcourierdocs.com`) | Envío del correo transaccional de autenticación — servidor SMTP `inboundlaarcouriernew.alphaside.com` | Nombre y dirección de correo del titular, y el enlace de recuperación de contraseña, en cada correo de restablecimiento o aviso de cambio de contraseña |
+| Alphaside (hosting del dominio `laarcourierdocs.com`) | Envío del correo transaccional — servidor SMTP `inboundlaarcouriernew.alphaside.com` | (1) Autenticación: nombre y dirección de correo del titular, y el enlace de recuperación de contraseña, en cada correo de restablecimiento o aviso de cambio de contraseña. (2) Desde el 2026-10-13, **notificación de salida de colaboradores** (Control Operativo de Novedades) y, desde el 2026-10-16, de **suspensión**: nombre, cédula y cargo del colaborador que pasa a Inactivo o a Suspendido, su supervisor, la fecha del cambio y su detalle de Días laborados del período; se envía a las direcciones internas que el Administrador configura en Ajustes. No incluye el motivo del cambio ni datos de salud. (3) Desde el 2026-10-15, **notificación de ingreso de nuevos colaboradores**: nombre, cédula y cargo del colaborador registrado como nuevo ingreso, su supervisor, sus dos primeros días laborados, la fecha de alta y su detalle de Días laborados del período; a la lista de destinatarios de ingreso configurada en Ajustes |
 
 > **Corrección del 2026-09-11 — el correo transaccional SÍ pasa por un
 > encargado externo.** Esta sección afirmaba lo contrario desde el

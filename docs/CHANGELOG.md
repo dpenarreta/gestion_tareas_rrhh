@@ -23,6 +23,1197 @@
 
 ---
 
+## v1.180.1 — 2026-10-16
+
+**Tipo:** FIX
+**Módulo:** Jerarquía de roles (`apps.hierarchy.services`) — los roles
+operativos de Control Operativo de Novedades dejan de contarse como equipo y
+como ejecutores de tareas.
+
+- **Síntoma (detectado en la revisión del PR #2, antes del merge):** el
+  ADMINISTRADOR habría visto a todo Supervisor, Asistente y Jefe de
+  Operaciones como colaborador sin tareas en Equipo, alertas y subutilización
+  de equipo, KPIs de equipo/capacidad/ejecutivo, Riesgo Operativo, Reportes
+  ejecutivos y el Dashboard — con 140 h esperadas al mes, bajando los
+  promedios del equipo y disparando alertas de subutilización.
+- **Causa:** las migraciones `novedades/0002` y `0009` dan al ADMINISTRADOR
+  visibilidad (`RoleVisibility`) sobre los 3 roles operativos, pero el
+  `ROLE_LEVEL` de Django no los incluye: caían en el nivel 0 por defecto y
+  `is_executor_group` (`< 4`) los trataba como ejecutores.
+- **Corrección:**
+  - `OPERATIONAL_ROLES` / `is_operational_group` en Django, réplica de
+    `OPERATIONAL_ROLES` de `src/lib/roles.ts`.
+  - `get_subordinate_groups` excluye los roles operativos (cubre Equipo,
+    `team-alerts`, `team-subutilization` y los KPIs de equipo) e
+    `is_executor_group` los devuelve como no ejecutores (cubre Dashboard y
+    Reportes).
+  - `get_visible_groups` no cambia: la gestión de usuarios los sigue viendo,
+    así el ADMINISTRADOR administra esas cuentas igual que antes.
+  - `isExecutorRole` (TS) excluye también los roles operativos, por paridad.
+- **Archivos:** `backend/apps/hierarchy/services.py`, `src/lib/roles.ts`,
+  `backend/apps/hierarchy/tests/test_services.py`,
+  `src/__tests__/roles.test.ts`.
+
+**Verificación:** 4 tests nuevos en `apps/hierarchy/tests/test_services.py`
+(cada rol operativo no es ejecutor; el ADMINISTRADOR los ve pero no son su
+equipo) y 2 en `src/__tests__/roles.test.ts`. `tsc` sin errores, Vitest
+1334/1334, `ruff`/`isort` y `black` sobre `services.py` sin observaciones.
+Suite completa de pytest de la rama (`apps/`, base nueva con `--create-db`):
+**2295 passed** el 2026-10-16, contra un SQL Server 2022 desechable en Docker
+(`127.0.0.1:14333`, nunca contra 10.0.2.51) — los 6 avisos son
+`RemovedInDjango60Warning` de DRF, ajenos a este cambio. En una máquina sin
+`ODBC Driver 18` hace falta `DB_DRIVER=ODBC Driver 17 for SQL Server`.
+
+**Autor:** dpenarreta + Claude Code.
+
+---
+
+## v1.180.0 — 2026-10-16
+
+**Tipo:** FEATURE / SECURITY / DATABASE
+**Módulo:** Control Operativo de Novedades — Notificación de suspensión,
+destinatarios de cambios de estado y permiso «Editar celdas de Días laborados».
+
+- **Correo de suspensión.** Activo → Suspendido envía su propio correo
+  («NEXO | Notificación de suspensión de colaborador — …», con mensaje y pie
+  propios: no indica el motivo ni lo presenta como sanción o suspensión formal)
+  a la misma lista que el paso a Inactivo. Mismo evento persistente
+  (`CollaboratorExitNotification`), misma tabla de Días laborados, mismo
+  envío por destinatario, reintentos y control de duplicados. Ninguna otra
+  transición notifica (desde Suspendido o desde Inactivo, no).
+- **Lista B = «cambios de estado».** En Ajustes → Notificaciones de
+  colaboradores, la lista de salidas pasa a llamarse «Destinatarios de cambios
+  de estado (Inactivo y Suspendido)»; conserva sus direcciones. El historial
+  distingue Ingreso, Inactivo y Suspensión. Migración `novedades/0012`
+  (solo la etiqueta del tipo).
+- **Permiso «Editar celdas de Días laborados»** (`novedades.dias_editar`,
+  migración `permissions/0010`). Decisión del usuario: quien lo tiene corrige
+  celdas vacías y con valor de su propio alcance **aunque haya vencido el plazo
+  por fecha** (p. ej. un Supervisor cambia 8 → 7 de la semana pasada). Se
+  administra en Ajustes → Permisos del módulo (por rol o como excepción
+  individual, con motivo, revocación y auditoría). Configurable para Supervisor
+  y Asistente; no disponible para el Jefe de Operaciones. Sigue exigiendo
+  `registrar` y nunca habilita otros equipos, períodos cerrados, fines de
+  semana, fechas futuras ni Horas extras. El Asistente conserva lo que ya tenía
+  por su rol. Cada corrección queda en el historial con valor anterior y nuevo
+  y el motivo «Corrección fuera de plazo (permiso…)»; la pantalla marca la
+  columna como «fuera de plazo» editable.
+- **Rol ADMINISTRADOR:** la migración `permissions/0011` le siembra
+  `novedades.dias_editar` y también `novedades.ingresos_ver` /
+  `novedades.salidas_ver` (v1.177.0), que habían quedado sin sembrar: el rol
+  debe tener todo el catálogo explícito en la base (regla de `0004`). Lo
+  detectó la prueba `test_administrador_receives_every_catalog_codename`.
+- **Ingresos (sin cambios):** se verificó el correo de nuevo ingreso
+  (formulario e importación `NUEVO INGRESO` de v1.179.0, segundo día válido,
+  dos períodos); no se modificó.
+
+- **Archivos:** `backend/apps/novedades/{access,services,models}.py`,
+  `backend/apps/permissions/catalog.py`, migraciones `novedades/0012`,
+  `permissions/0010` y `permissions/0011`, `src/lib/novedadesAutosave.ts`,
+  `src/components/novedades/StatusChangeDialog.tsx`,
+  `src/components/settings/{CollaboratorNotificationsSection.tsx,registry.ts}`,
+  `docs/RAT.md`.
+
+**Verificación:** `test_worked_days_edit_permission.py` (9 tests),
+`test_exit_notifications.py` (+3 de suspensión; la prueba de transiciones
+que no notifican se reescribió porque Activo → Suspendido ahora sí notifica),
+`CollaboratorNotificationsSection.test.tsx` y `NovedadesAutosave.test.tsx`.
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
+## v1.179.0 — 2026-10-16
+
+**Tipo:** FEATURE
+**Módulo:** Control Operativo de Novedades — Importación de la base de
+colaboradores (nuevo ingreso).
+
+- **Columna `NUEVO INGRESO`** en la plantilla descargable y en el importador
+  de la base: `X` (sin distinguir mayúsculas ni espacios al inicio o al
+  final) marca el alta como nuevo ingreso; celda vacía o solo con espacios =
+  no. Cualquier otro valor (`Sí`, `1`, `XX`…) rechaza la fila con un
+  mensaje claro: nunca se interpreta como nuevo ingreso. Sin listas
+  desplegables. Un archivo sin la columna se importa como antes (sin marca).
+- **Solo clasifica altas nuevas.** En un colaborador que ya existe, ni la `X`
+  ni la celda vacía cambian su clasificación; si trae `X`, la vista previa lo
+  avisa. Reimportar o confirmar dos veces no crea otro evento.
+- **El correo no sale al importar:** el alta marcada queda «En espera» y la
+  notificación se envía, como en el formulario, al registrarse su segundo día
+  válido en Días laborados.
+- La vista previa muestra «Nuevos ingresos (X)»; la confirmación lo suma al
+  resumen (`new_hires`). El formulario manual conserva su casilla, por
+  defecto No.
+- Cambia la regla de v1.178.0 («las importaciones nunca generan el correo»),
+  por decisión del usuario.
+
+- **Archivos:** `backend/apps/novedades/excel.py` (`parse_new_hire_mark`,
+  plantilla, vista previa y confirmación), `services.py` y `models.py`
+  (comentarios), `src/components/novedades/{ImportDialog.tsx,types.ts}`.
+
+**Verificación:** `backend/apps/novedades/tests/test_collaborator_import.py`
+(5 tests nuevos: encabezado exacto; X, x, espacios, vacía y valores
+inválidos; reimportación de existentes; archivo sin la columna; correo al
+segundo día de un alta importada) y
+`src/__tests__/components/ImportDialogNewHire.test.tsx`.
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
+## v1.178.0 — 2026-10-15
+
+**Tipo:** FEATURE / DATABASE / SECURITY
+**Módulo:** Control Operativo de Novedades — Notificación de ingreso de
+colaboradores · Ajustes.
+
+- **Correo de ingreso.** Al registrarse el **segundo día válido** de un
+  colaborador dado de alta como **nuevo ingreso**, se envía un correo con sus
+  datos (empleado, cédula, cargo, supervisor, primer y segundo día, período,
+  alta en NEXO, fecha de generación) y su **fila completa de Días laborados**
+  del período (mismos encabezados, valores, vacíos/ceros y total que la
+  pantalla y que el correo de salida).
+- **Nuevo ingreso = casilla del alta.** El formulario de alta pregunta «Es un
+  nuevo ingreso» (por defecto NO). Solo esas altas lo generan: importaciones,
+  reactivaciones y colaboradores existentes nunca (sin envíos retroactivos).
+- **Día válido = horas mayores a 0.** El vacío y el 0 no cuentan; cada fecha
+  cuenta una vez aunque se edite. Aplica igual a la edición manual, la
+  importación de Excel (las dos pasan por `WorkedDayService.save_cells`) y la
+  corrección de períodos cerrados. La verificación corre DESPUÉS de confirmar
+  lo guardado. La tabla es la del período (23 → 22) del segundo día.
+- **Un evento por alta** (`CollaboratorEntryNotification`, 1 a 1 con el
+  colaborador): En espera → Pendiente con actualización condicional, así que
+  guardados repetidos, importaciones repetidas o simultáneas nunca envían dos
+  veces. Guarda primer y segundo día, período, supervisor, estado, intentos,
+  último error sanitizado y una copia del detalle notificado.
+- **Un correo por destinatario** (ingreso y salida): cada uno con su estado;
+  un reintento solo envía a quienes no lo recibieron. Antes la salida enviaba
+  un solo correo con todos en «Para».
+- **Ajustes → Notificaciones → «Notificaciones de colaboradores»** (antes
+  «Notificaciones de salida de colaboradores»): dos listas independientes,
+  A. Ingresos y B. Salidas, cada una con alta, edición, activar/desactivar y
+  validación de duplicados dentro de la lista (una dirección puede estar en
+  ambas). Historial de envíos de ambos tipos con estado por destinatario y
+  reintento. Solo Administrador (validado en Django).
+- **Motor común:** `CollaboratorMailService` (envío, reclamo atómico,
+  reintentos, registro) y plantilla común
+  `emails/collaborator_notification.html` (antes `collaborator_exit.html`).
+  La salida conserva su disparador, contenido y permisos.
+
+- **Migración `novedades/0011_entry_notifications`** (no destructiva):
+  renombra la tabla de destinatarios a `CollaboratorNotificationRecipient`
+  con el campo `kind` (los existentes quedan como destinatarios de SALIDA),
+  unicidad por lista, estado por destinatario en los eventos de salida ya
+  registrados y la tabla nueva de eventos de ingreso.
+- **Endpoints** (reemplazan a `exit-notifications/*`, que no llegó a
+  desplegarse): `collaborator-notifications/recipients/`,
+  `collaborator-notifications/recipients/<id>/`,
+  `collaborator-notifications/events/` y
+  `collaborator-notifications/events/<ENTRY|EXIT>/<id>/retry/`.
+- **Archivos:** `backend/apps/novedades/{models,services,views,urls,serializers}.py`,
+  `backend/apps/novedades/management/commands/novedades_retry_notifications.py`,
+  `backend/templates/emails/collaborator_notification.html`,
+  `src/components/settings/CollaboratorNotificationsSection.tsx`,
+  `src/components/settings/{ConfigCenter.tsx,registry.ts}`,
+  `src/components/novedades/CollaboratorsView.tsx`, `docs/RAT.md`,
+  `docs/PENDIENTES_LEGALES.md`.
+
+**Verificación:** `backend/apps/novedades/tests/test_entry_notifications.py`
+(23 tests), `test_exit_notifications.py` actualizado (23),
+`src/__tests__/components/settings/CollaboratorNotificationsSection.test.tsx`
+(5) y `src/__tests__/components/CollaboratorNewHire.test.tsx` (2).
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
+## v1.177.0 — 2026-10-14
+
+**Tipo:** FEATURE / SECURITY
+**Módulo:** Control Operativo de Novedades — Ingresos y Salidas · Ajustes ·
+navegación.
+
+- **Página «Ingresos y Salidas»** (`/control-operativo/ingresos-salidas`,
+  enlace en el menú) con dos pestañas de consulta consolidada, de solo lectura:
+  - **Ingresos** = altas de colaboradores en la base (`Collaborator`: fecha y
+    usuario del alta, origen formulario o importación) y **reingresos**
+    (`CollaboratorStatusChange` Inactivo → Activo).
+  - **Salidas** = cambios de estado a Inactivo (`CollaboratorStatusChange`),
+    con estado anterior, quién lo cambió y la fecha y hora del cambio.
+  No hay una segunda fuente de movimientos: todo sale de los registros que ya
+  existían. Las fechas se rotulan como lo que son —«Fecha de registro en
+  NEXO», «Fecha de cambio a Inactivo»— porque NEXO no guarda una fecha formal
+  de ingreso ni de salida laboral.
+- **Supervisor responsable en la fecha del movimiento**, leído del historial de
+  asignaciones (`CollaboratorAssignment`), no el supervisor actual.
+- **Filtros en el servidor:** búsqueda por cédula o nombre, rango de fechas
+  (calendario del negocio), cargo (sin distinguir mayúsculas, con una opción
+  por cargo aunque esté escrito de varias formas), supervisor, estado actual y
+  orden por fecha; paginación de 25/50/100 con orden estable. **Contadores**
+  de movimientos y de personas distintas (una persona con varias salidas
+  cuenta una vez en «Personas distintas»); en Ingresos, además, altas y
+  reingresos.
+- **Exportación a Excel** de lo filtrado, solo con las columnas de la pestaña
+  autorizada (hasta 10.000 filas por archivo), auditada.
+- **Permisos independientes por usuario:** `novedades.ingresos_ver` y
+  `novedades.salidas_ver`, agregados al catálogo existente y asignados con
+  los permisos individuales de Django (`user.user_permissions`), sin cambiar
+  el rol ni dar acceso al resto del módulo. El Administrador los tiene por su
+  rol. Cada endpoint los revalida en Django; la página consulta el acceso en
+  cada carga, así que un permiso retirado corta el acceso de inmediato.
+- **Ajustes → Seguridad → «Permisos de visibilidad — Ingresos y Salidas»**
+  (solo Administrador): buscar usuarios, habilitar o retirar cada pestaña por
+  separado y ver los permisos vigentes, incluidos los que alguien tenga por su
+  rol. Nadie puede modificar sus propios permisos. Cada cambio queda en la
+  auditoría (quién, a quién, pestaña, antes, después y cuándo).
+- **Convive con el correo de salida:** consultar o exportar no crea eventos ni
+  envía notificaciones.
+
+- **Archivos:** `backend/apps/novedades/{services,excel,views,urls}.py`,
+  `backend/apps/permissions/catalog.py`, migración
+  `permissions/0009_movement_visibility_permissions`,
+  `src/app/(protected)/control-operativo/ingresos-salidas/page.tsx`,
+  `src/components/novedades/MovementsView.tsx`,
+  `src/components/settings/{MovementPermissionsSection,ConfigCenter}.tsx`,
+  `src/components/settings/registry.ts`, `src/lib/navLinks.ts`,
+  `src/components/shell/{AppShell,Sidebar,CommandPalette}.tsx`,
+  `src/app/(protected)/layout.tsx`.
+
+**Verificación:** `backend/apps/novedades/tests/test_movements.py` (20 tests)
+y `src/__tests__/components/MovementsView.test.tsx` (7 tests).
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
+## v1.176.0 — 2026-10-13
+
+**Tipo:** FEATURE / SECURITY / DATABASE
+**Módulo:** Control Operativo de Novedades — Notificaciones de salida de
+colaboradores · Ajustes.
+
+- **Correo de salida.** Cuando un colaborador pasa de **Activo a Inactivo**
+  (`CollaboratorService.change_status`, el único punto de cambio de estado)
+  se envía un correo a los destinatarios activos con: supervisor responsable,
+  cargo, cédula, empleado, estado anterior y nuevo, fecha y hora del cambio,
+  período operativo y la **tabla completa de Días laborados** del período
+  (encabezado Supervisor · Cargo · Cédula · Empleado · día/día de la semana ·
+  Total). Las celdas y el total salen de los mismos helpers que la matriz de
+  la pantalla (`WorkedDayService.cells` / `row_total`, extraídos de
+  `matrix`): vacío y 0 se distinguen y el total aplica la misma regla. El
+  período es el que el módulo ya asocia al evento de cambio de estado (el
+  abierto vigente del supervisor, corte 23 → 22). Otras transiciones
+  (Suspendido, reactivación) y la edición de otros campos no notifican.
+- **SMTP existente, sin infraestructura paralela.** Usa el envío de correo de
+  Django ya configurado en NEXO (`EMAIL_BACKEND` —
+  `CertifiSMTPEmailBackend` en producción—, credenciales de `backend/.env`,
+  remitente `DEFAULT_FROM_EMAIL`), igual que el correo de recuperación de
+  contraseña, que no se modificó. Plantilla HTML con tablas y estilos en línea
+  (`backend/templates/emails/collaborator_exit.html`), versión en texto
+  plano, todo valor escapado y asunto sin saltos de línea.
+- **Un evento por transición** (`CollaboratorExitNotification`, relación 1 a
+  1 con el historial de estados): repetir la solicitud, recargar o reintentar
+  nunca crea otro. El envío se reclama con una actualización condicional
+  (Pendiente/Fallido → Enviando), así que dos procesos no envían el mismo
+  evento y uno **Enviado** no se reenvía. Guarda destinatarios usados,
+  intentos, último intento, error técnico sin credenciales, fecha de envío y
+  una **fotografía** del detalle notificado.
+- **No bloquea al supervisor:** el evento se registra en la misma transacción
+  que el cambio de estado y el correo sale en segundo plano después de
+  confirmarla. Una falla del correo (SMTP caído, credenciales, tiempo agotado,
+  sin destinatarios) deja el evento **Fallido** y nunca revierte el cambio.
+  Reintentos: botón «Reintentar» en Ajustes (solo Administrador) y el comando
+  existente `novedades_retry_notifications`, que ahora también reintenta
+  estos correos (Pendientes que no salieron, Fallidos hasta 5 intentos y
+  Enviando atascados).
+- **Ajustes → Notificaciones → «Notificaciones de salida de colaboradores»**
+  (solo Administrador, validado en Django con `is_superuser`): alta, edición,
+  activar/desactivar (nunca se borran), área opcional (Operaciones, Jefatura de
+  Operaciones, Talento Humano), validación de formato y de duplicados sin
+  importar mayúsculas ni espacios, aviso si no hay destinatarios activos o si
+  el correo está en modo consola, y lista de los últimos envíos con su estado.
+- **Cambio de estado en la pantalla:** el aviso distingue «Cambio de estado
+  confirmado» del estado del correo («Notificación pendiente de envío»,
+  «Notificación enviada», «Error en la notificación»).
+- **«Enviado»** significa que el servidor SMTP aceptó el mensaje; no garantiza
+  que llegó a la bandeja de entrada ni que alguien lo leyó.
+
+- **Archivos:** `backend/apps/novedades/{models,services,views,urls}.py`,
+  migración `novedades/0010_exit_notifications`,
+  `backend/apps/novedades/management/commands/novedades_retry_notifications.py`,
+  `backend/templates/emails/collaborator_exit.html`,
+  `src/components/settings/{ExitNotificationsSection,ConfigCenter}.tsx`,
+  `src/components/settings/registry.ts`,
+  `src/components/novedades/StatusChangeDialog.tsx`, `docs/RAT.md`,
+  `docs/PENDIENTES_LEGALES.md`.
+
+**Verificación:** `backend/apps/novedades/tests/test_exit_notifications.py`
+(23 tests: evento, SMTP existente, destinatarios activos/inactivos, permisos
+por API, encabezado y días de la semana, total, vacíos y ceros, colaborador
+correcto, sin duplicados, fallas y reintentos, credenciales nunca expuestas,
+asistencia intacta, período cerrado, escape de HTML y el correo de
+recuperación de contraseña sigue funcionando) y
+`src/__tests__/components/settings/ExitNotificationsSection.test.tsx` (5).
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
+## v1.175.0 — 2026-10-13
+
+**Tipo:** FEATURE / SECURITY / DATABASE
+**Módulo:** Control Operativo de Novedades — Horas depuradas y rol Jefe de
+Operaciones.
+
+- **Tres bases de Horas extras.** (1) Lo reportado por los supervisores y (2)
+  el consolidado del Asistente de Operaciones viven en `OvertimeRecord` (el
+  consolidado es la vista nacional de esos mismos registros, no una tabla
+  aparte): son el respaldo. (3) **Horas depuradas** es una copia nueva e
+  independiente por mes calendario (`OvertimeDepuration`, `DepuratedOvertime`,
+  `DepurationChange`): ninguna operación de depuración escribe en
+  `OvertimeRecord`.
+- **Una sola copia por mes:** restricción única `(year, month)` en la base;
+  crear de nuevo, recargar, otra sesión o dos solicitudes simultáneas devuelven
+  la misma base con sus ajustes. Solo para meses terminados; si faltan cierres
+  de supervisores se advierte antes de crear.
+- **Fotografía al crear:** fecha y hora, usuario, registros copiados, horas
+  originales y cierres de supervisores en ese momento; cada fila conserva su
+  valor original (`orig_*`, inmutable) y una referencia al registro de origen.
+- **Cambios posteriores en el origen** no se aplican solos: se señalan por fila
+  ("Cambió después de copiar" / "Eliminado en el origen").
+- **Rol Jefe de Operaciones** (`JEFE_OPERACIONES`, migración
+  `novedades/0009`): consulta Días laborados y Horas extras (todos los
+  supervisores, solo lectura) y edita SOLO Horas depuradas: horas extra, horas
+  sábado, sábado/domingo/feriado, trabajo realizado, observaciones y
+  "Excluir" (no borra el origen). Sin acceso a administración, plazos,
+  cierres, historial general, base de colaboradores ni importación. Nuevo
+  permiso `novedades.depurar` (migración `permissions/0008`).
+- **Guardado automático** con los mismos mecanismos de Días laborados/Horas
+  extras (respaldo local de lo pendiente, reintentos con tope, control de
+  versión para que una respuesta atrasada no pise una edición nueva).
+- **Historial propio** (solo lectura): campo, valor original de la fotografía,
+  valor depurado anterior y nuevo, responsable, fecha y motivo; además, cada
+  cambio queda en la auditoría general.
+- **Pestaña «Horas Depuradas»** para el Administrador (consulta y exporta, no
+  edita) y para el Jefe (su pestaña inicial): estado de la base, horas
+  originales vs. depuradas, registros ajustados/excluidos, último cambio,
+  diferencias por fila e historial.
+- **Exportación** solo de la base depurada (valores guardados en el servidor,
+  sin filas excluidas), con el mismo formato del reporte de Horas extras
+  (14 columnas, SABADO/DOMINGO/FERIADO con X o vacío). El generador de la hoja
+  se comparte con el reporte original (`_overtime_sheet`), sin duplicarlo.
+
+- **Archivos:** `backend/apps/novedades/{access,models,services,excel,views,urls}.py`,
+  `backend/apps/permissions/catalog.py`, migraciones `novedades/0008`, `0009` y
+  `permissions/0008`, `src/lib/roles.ts`,
+  `src/components/novedades/{DepurationView,NovedadesModule}.tsx`,
+  `src/components/novedades/types.ts`.
+
+**Verificación:** `backend/apps/novedades/tests/test_depuration.py` (9 tests,
+incluidas las dos pruebas críticas: independencia real de las tres bases
+verificada contra la base de datos, y una sola copia por mes con reapertura,
+creación concurrente y restricción única) y
+`src/__tests__/components/DepurationView.test.tsx` (4 tests).
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
+## v1.174.2 — 2026-10-13
+
+**Tipo:** UX
+**Módulo:** Control Operativo de Novedades — exportación de Horas extras.
+
+- En el reporte Excel exportado, las columnas **SABADO**, **DOMINGO** y
+  **FERIADO** muestran **X** cuando el valor es Sí y quedan **vacías** cuando es
+  No (antes "SI"/"NO"). Es solo presentación (`_mark` en
+  `ExportService.overtime`): en la base siguen siendo booleanos y solo un valor
+  verdadero produce "X". Encabezados, orden de columnas, filtros y demás datos
+  sin cambios. El archivo se puede volver a importar: la importación ya leía
+  "X" como Sí y la celda vacía como No. La pantalla de consulta y la captura no
+  cambian.
+
+- **Archivos:** `backend/apps/novedades/excel.py`,
+  `backend/apps/novedades/tests/test_api.py`.
+
+**Verificación:** test nuevo
+`test_overtime_export_marks_weekend_and_holiday_flags_with_x` (sábado → X en
+SABADO, domingo y feriado → X en DOMINGO y FERIADO, día hábil → todo vacío,
+encabezados intactos, datos guardados sin cambios).
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
+## v1.174.1 — 2026-10-13
+
+**Tipo:** UX
+**Módulo:** Control Operativo de Novedades — vista inicial "Todos los
+supervisores" para el alcance nacional (Asistente de Operaciones y
+Administrador).
+
+- **Días laborados sin elegir supervisor:** sin el parámetro `supervisor`, un
+  usuario con alcance nacional recibe una sola matriz con los equipos de los
+  supervisores AUTORIZADOS (`WorkedDayService.consolidated_matrix`, que reutiliza
+  la matriz de cada equipo tal cual). Cada fila trae su supervisor, si es
+  editable y el estado del período de su equipo; el encabezado muestra
+  "x/y supervisores cerraron". "Todos" se representa sin parámetro (nunca con
+  un id ficticio). El Supervisor sigue viendo solo su equipo.
+- **Guardado en la vista consolidada:** cada celda se guarda en el equipo de su
+  fila (un envío por equipo); cerrar, importar y exportar siguen siendo por
+  equipo (se elige el supervisor para eso).
+- **Horas extras:** la captura masiva ya no pide "Seleccione un supervisor":
+  con "Todos" trabaja con los colaboradores de todos los equipos autorizados
+  (el selector muestra el equipo de cada persona) y cada fila se guarda en el
+  equipo de su colaborador (lo resuelve el servidor). Los contadores de cierre
+  del mes ya se calculaban sobre los supervisores autorizados.
+- El selector "Todos los supervisores" aparece también en Días laborados para
+  el alcance nacional y es la opción inicial del Asistente. Sin cambios en
+  permisos, plazos, fechas futuras, cierres, correcciones ni auditoría.
+
+- **Archivos:** `backend/apps/novedades/{services,views}.py`,
+  `src/components/novedades/{WorkedDaysGrid,OvertimeView,OvertimeCapture,NovedadesModule}.tsx`,
+  `src/components/novedades/types.ts`, `src/lib/novedadesCapture.ts`.
+
+**Verificación:** 4 tests en `backend/apps/novedades/tests/test_consolidated_view.py`
+(todos los equipos sin duplicados, filtro por supervisor, contadores con
+cierres individuales, guardado en el equipo de cada fila, Supervisor sin
+cambios y alcance intacto, estado vacío sin errores) y 3 en
+`src/__tests__/components/NovedadesConsolidated.test.tsx`.
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
+## v1.174.0 — 2026-10-13
+
+**Tipo:** FEATURE / SECURITY / UX / BREAKING CHANGE (reglas de registro)
+**Módulo:** Control Operativo de Novedades — plazos de registro por fecha,
+guardado automático, permisos del Asistente y limpieza visual.
+
+- **Plazo de registro por fecha de trabajo** (Días laborados y Horas extras,
+  configurables por separado, valor inicial 48 h): se cuenta desde el FIN del
+  día de trabajo en horas laborables (24 h por día hábil, lunes a viernes sin
+  feriados de Ajustes), hora de Ecuador. Martes 13 → hasta jueves 15 23:59;
+  viernes 16 → hasta martes 20 23:59. Vencido, el Supervisor ya no crea, edita
+  ni elimina esa fecha (formulario, captura, guardado masivo, importación,
+  eliminación y API directa → 409 `deadline_passed`). Cada fecha usa el valor
+  vigente al empezar su plazo (no retroactivo). Una sola implementación de la
+  regla (`business_deadline`), compartida con el plazo de cierre mensual.
+- **Sin fechas futuras para nadie** (Supervisor, Asistente ni Administrador):
+  400 `future_date` en todas las vías de escritura.
+- **Asistente de Operaciones:** registra y corrige fechas pasadas de cualquier
+  equipo, también fuera de plazo (decisión del usuario). `novedades.registrar`
+  pasa a configurable para ese rol y se habilita por defecto (migración
+  `0007_assistant_registrar`). Sigue sin gestionar colaboradores, importar,
+  cerrar períodos/meses, corregir meses cerrados ni cambiar Ajustes. La
+  excepción al plazo (Asistente y Administrador) nunca habilita fechas futuras
+  ni períodos/meses cerrados; queda en el historial como "Registro fuera de
+  plazo".
+- **Ajustes → Control de plazos de registro** (sección de Control Operativo de
+  Novedades): plazo de Días laborados y de Horas extras (24–240 h), modalidad,
+  última modificación y responsable. Solo el Administrador modifica (403 para
+  los demás, revalidado en Django); cada cambio queda en el historial y la
+  auditoría con valor anterior y nuevo.
+- **Guardado automático** en Días laborados y en la captura de Horas extras: sin
+  botones de guardar ni confirmaciones. Cada celda o fila válida se envía al
+  confirmarla (salir de la celda, Enter/flechas) o tras una pausa breve; una
+  sola petición en vuelo; lo pendiente se conserva en un respaldo local del
+  equipo y se reenvía solo (reintentos escalonados con tope, al recuperar la
+  conexión o al volver a la pantalla). Los rechazos de reglas (fecha futura,
+  plazo vencido, cierre, permisos, dato inválido, conflicto) no se reintentan:
+  se marcan y se conserva lo escrito. Una respuesta atrasada no pisa una
+  edición más reciente (revisión por fila/celda). Indicadores discretos:
+  "Guardando…", "Guardado", "Pendiente de sincronización", "Error al guardar".
+- **Limpieza visual:** se retiró «Sin cambios pendientes · vacío = no
+  reportado, 0 = cero horas reportadas» (la distinción vacío/0 se mantiene en
+  los datos). Las columnas vencidas o futuras quedan bloqueadas con el motivo.
+- **Cuentas de prueba Carlos Norte y María Sur** (`supervisor.norte@prueba.local`,
+  `supervisor.sur@prueba.local`): no se eliminaron físicamente porque tienen
+  registros operativos protegidos y auditoría que se borraría en cascada; ya
+  estaban deshabilitadas (no autentican) y se verificó que no tienen sesiones
+  abiertas. Ningún dato operativo se modificó.
+
+- **Archivos:** `backend/apps/novedades/{access,services,excel,views,serializers,urls}.py`,
+  migración `0007_assistant_registrar`, tests del módulo,
+  `src/lib/{novedadesAutosave,novedadesCapture}.ts`,
+  `src/components/novedades/{WorkedDaysGrid,OvertimeCapture,OvertimeView,NovedadesModule,types}.tsx|ts`,
+  `src/components/settings/{NovedadesPermissionsSection.tsx,registry.ts}`.
+
+**Verificación:** 14 tests nuevos en
+`backend/apps/novedades/tests/test_record_deadlines.py` (cálculo con fines de
+semana, feriados y cambio de mes; límite exacto; fechas futuras para todos los
+roles; bloqueo del Supervisor en todas las vías y por API; excepción auditada
+del Asistente/Administrador; cierres respetados; Ajustes solo Administrador,
+independientes y no retroactivos; importación; plazo individual independiente
+del cierre mensual). Se actualizaron 23 tests que reflejaban las reglas
+anteriores (el Asistente no escribía; fechas futuras permitidas). El reloj de
+los tests del módulo quedó fijo y coherente con su "hoy". 5 tests en
+`src/__tests__/novedadesAutosave.test.ts` y 6 en
+`src/__tests__/components/NovedadesAutosave.test.tsx` (guardado sin botón,
+bloqueo de fechas, sin conexión y reintento, recuperación tras recargar,
+rechazos sin bucle, filas incompletas o vencidas que no se envían).
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
+## v1.173.0 — 2026-10-13
+
+**Tipo:** FIX / SECURITY / PERFORMANCE (concurrencia)
+**Módulo:** Control Operativo de Novedades — auditoría integral y
+estabilización (ver `docs/AUDIT_LOG.md` § 2026-10-13).
+
+Correcciones de defectos comprobados (cada una con su test de regresión en
+`backend/apps/novedades/tests/test_audit_fixes.py` salvo donde se indica):
+
+- **H-01 (regresión de v1.172.0):** `Cerrar período` y `Cerrar mes` aceptaban
+  `confirm=false`: la validación había quedado colgada de otro serializer.
+- **H-02:** tras reasignar a un colaborador, el equipo nuevo podía sobrescribir
+  las celdas de Días laborados del equipo anterior, incluso con su período
+  cerrado y sin corrección auditada. Ahora se rechazan y la matriz las muestra
+  como "registrado por el equipo de …", en solo lectura y fuera del total.
+- **H-03:** cierre y guardado concurrentes. Días laborados revalida el período
+  con candado dentro de la transacción y el resumen del cierre se calcula ya
+  bloqueado. Horas extras bloquea por supervisor en el cierre del mes y en cada
+  escritura (formulario, edición, eliminación, captura masiva e importación):
+  ningún registro entra a un mes recién cerrado.
+- **H-04:** una celda vacía al cargar y llenada por otro usuario entretanto se
+  sobrescribía en silencio; ahora es un conflicto (409).
+- **H-05:** choques de unicidad (alta simultánea de la misma cédula, celda
+  repetida en el envío, eliminación de colaborador con novedades recién
+  creadas) daban error 500; ahora son 409/400 con mensaje claro.
+- **H-06:** el resumen y el aviso del cierre de Días laborados (23 → 22)
+  seguían contando horas extras con ese corte, aunque Horas extras va por mes
+  calendario y se cierra aparte. Se quitaron (los cierres anteriores conservan
+  su resumen tal cual).
+- **H-07:** editar los datos de un colaborador podía deshacer un cambio de
+  estado o una reasignación concurrentes (guardado completo); ahora solo
+  guarda los campos editados.
+- **H-08:** las celdas pendientes del cierre contaban a colaboradores ya
+  reasignados y días cargados por otro equipo.
+- **H-09:** un fallo al notificar (destinatarios o respaldo pendiente) podía
+  devolver error 500 en una operación ya guardada; ahora se registra y se
+  absorbe.
+- **H-10:** el aviso de plazo vencido de Horas extras solo se emitía al abrir
+  ese equipo; ahora también desde la vista nacional. Los totales nacionales
+  cuentan solo supervisores activos.
+- **H-11:** "plazo próximo a vencer" se medía en horas de reloj; ahora en horas
+  laborables (la misma unidad del plazo). La pantalla se actualiza sola al
+  terminar el mes y al vencer el plazo.
+- **H-12:** importación: confirmación única por lote (doble clic o dos
+  pestañas), "omitir existentes" respetado contra la base actual, misma regla de
+  cédula (9 dígitos → 10) en todas las importaciones, y aviso en la vista previa
+  si el mes de Horas extras está cerrado o no empezó.
+- **H-13:** reintentar una edición ya aplicada (respuesta perdida) daba
+  "conflicto"; ahora "sin cambios".
+- **H-14:** editar un registro de horas extras devolvía a "automático" las
+  marcas manuales de sábado, domingo o feriado que la edición no tocaba.
+- **H-15:** filtros "Desde/Hasta" del historial en hora de Ecuador (antes UTC).
+- **H-16:** parámetros mal formados (`supervisor=abc`, fechas inválidas) daban
+  500; ahora 400 con mensaje.
+- **H-17:** la corrección autorizada bloquea el registro (dos correcciones
+  simultáneas no se pisan).
+- **H-18:** el botón "Cerrar período" de Días laborados exigía también permiso
+  de registro; ahora depende del permiso de cierre (lo informa el servidor).
+- **H-19 (conectividad):** un 5xx de Django al renovar el token cerraba la
+  sesión de todos; ahora se trata como caída. `/api/novedades/*` y la campana
+  responden 503 claro si Django no responde; un POST que excede el tiempo
+  avisa verificar antes de repetir; la campana no deja errores sin manejar.
+  Tests en `src/__tests__/proxyTokenRefresh.test.ts`,
+  `src/__tests__/api/{novedades,notifications}.test.ts`.
+- **H-20 (tests dependientes de la hora):** tres tests de KPIs y Dashboard
+  construían "hoy"/"ayer" con la fecha UTC mientras el código usa el día de
+  Ecuador: fallaban de 19:00 a 24:00. Se corrigieron los datos de prueba
+  (las aserciones no cambian). Dos tests propios de v1.170.0 dependían del
+  reloj real; ahora lo fijan.
+- **Captura de Horas extras:** la fecha por defecto usa el día local (antes UTC:
+  desde las 19:00 proponía el día siguiente).
+
+Nuevo (acotado, dentro de lo existente):
+
+- **Revisión previa al cierre del mes de Horas extras**
+  (`GET overtime/months/check/`, se muestra en el diálogo "Cerrar mes"): revisa
+  los registros del equipo con la misma validación del guardado, fechas fuera
+  del mes, duplicados, colaboradores reasignados e importaciones en vista
+  previa sin confirmar. Solo informa (no bloquea, no corrige ni elimina) y no
+  usa límites legales ni recargos: no hay reglas documentadas para eso.
+
+- **Archivos:** `backend/apps/novedades/{services,excel,views,serializers,urls}.py`,
+  `backend/apps/novedades/tests/{test_audit_fixes,test_status_history_periods}.py`,
+  `backend/apps/analytics/tests/test_kpi_views.py`,
+  `backend/apps/dashboard/tests/test_dashboard_views.py`,
+  `src/components/novedades/{WorkedDaysGrid,ClosePeriodDialog,RepositoryView,OvertimeMonthBanner,OvertimeCapture}.tsx`,
+  `src/components/novedades/types.ts`, `src/components/NotificationBell.tsx`,
+  `src/app/api/notifications/route.ts`, `src/app/api/novedades/[...path]/route.ts`,
+  `src/proxy.ts` y sus tests.
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
+## v1.172.0 — 2026-10-12
+
+**Tipo:** FEATURE / BREAKING CHANGE (regla de negocio de Horas extras)
+**Módulo:** Control Operativo de Novedades — Horas extras: mes calendario,
+plazo de cierre configurable y cierre manual propio.
+
+- **Mes calendario:** Horas extras deja de usar el corte 23 → 22. Cada registro
+  pertenece al mes de su fecha de trabajo (del 1 al último día). Días laborados
+  no cambia. La consulta, la exportación, la captura masiva y la importación
+  usan el mes calendario. Los registros existentes no se modificaron: el mes
+  se deriva de la fecha.
+- **Plazo para el mes anterior:** de 48 a 72 horas laborables, configurable en
+  Ajustes → Permisos del módulo Control Operativo de Novedades → "Plazo de
+  cierre de Horas extras" (por defecto 48). Se cuentan solo los días hábiles
+  (lunes a viernes que no son feriados de Ajustes → Feriados), 24 horas cada
+  uno, desde las 00:00 (hora de Ecuador) del primer día hábil del mes
+  siguiente. Ejemplo: octubre de 2026 → hasta el martes 03/11/2026 23:59 sin
+  feriados cargados.
+- **Dos meses a la vez:** durante el plazo se registra el mes nuevo y se
+  completa o corrige el anterior, cada uno por separado.
+- **Sin cierre automático:** vencido el plazo, el mes sigue editable; la
+  pantalla lo marca "plazo vencido, sin cerrar" y el Administrador recibe un
+  aviso (una sola vez por equipo y mes).
+- **"Cerrar mes":** el Supervisor (su equipo) o el Administrador cierra el mes
+  de Horas extras una vez terminado; es idempotente. Desde ahí se bloquean la
+  creación, la edición, la eliminación, la captura masiva, la importación y las
+  solicitudes directas a la API (409). La consulta y la exportación siguen
+  disponibles. Los cambios posteriores van por la corrección autorizada del
+  Administrador (motivo obligatorio, valores anteriores y nuevos, auditada),
+  que no reabre el mes.
+- **Pantalla:** en la pestaña Horas extras, selector "Mes (horas extras)" y un
+  aviso con el estado del mes, la fecha y hora límite exactas, el tiempo
+  restante, el aviso de "próximo a vencer" (últimas 24 h), el estado de solo
+  lectura y el botón "Cerrar mes".
+- **Base de datos:** nuevo modelo `OvertimeMonthClose` (migración
+  `novedades/0006_overtime_month_close`).
+
+- **Archivos:** `backend/apps/novedades/{periods,models,services,excel,views,serializers,urls}.py`,
+  migración nueva, `src/components/novedades/{NovedadesModule,OvertimeView,OvertimeCapture,OvertimeMonthBanner}.tsx`,
+  `src/components/novedades/types.ts`,
+  `src/components/settings/{NovedadesPermissionsSection.tsx,registry.ts}`.
+
+**Verificación:** 14 tests nuevos en
+`backend/apps/novedades/tests/test_overtime_months.py` (plazo con fines de
+semana, feriados, cambio de año, horas no múltiplo de 24 y feriados de la
+tabla; ajuste 48–72, permisos y no retroactividad; mes calendario; dos meses a
+la vez; mes futuro; plazo, vencido sin bloqueo y aviso único; cierre
+idempotente por equipo; bloqueo de todas las vías de escritura y de la API con
+consulta y exportación disponibles; importación sin duplicados; corrección
+autorizada auditada que no reabre; Días laborados intacto e independiente). Se
+actualizaron 4 tests que cerraban Días laborados esperando que eso bloqueara
+Horas extras (regla anterior). 6 tests en
+`src/__tests__/components/OvertimeMonthBanner.test.tsx`.
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
+## v1.171.2 — 2026-10-12
+
+**Tipo:** FIX
+**Módulo:** Conexión Next.js ↔ Django (`djangoApiFetch`) y manejo de errores de
+renderizado.
+
+- **Síntoma:** `Runtime TypeError: fetch failed` / `AggregateError` con
+  `connect ECONNREFUSED ::1:8000` y `127.0.0.1:8000` al renderizar Server
+  Components.
+- **Causa:** Django (`manage.py runserver`, que escucha solo en
+  `127.0.0.1:8000`) se estaba reiniciando: su autorecarga lo reinicia en cada
+  cambio de un `.py` (en el log: 19:35:03 y 19:35:10 del 12/10/2026, por
+  cambios en `apps/novedades/serializers.py`) y durante ~1–2 s el puerto queda
+  cerrado. Con `DJANGO_API_URL=http://localhost:8000`, Node intenta primero
+  `::1` (IPv6), donde Django nunca escucha, y luego `127.0.0.1`; por eso el
+  error muestra las dos direcciones. Además, `djangoApiFetch` no capturaba el
+  fallo de red, así que la traza completa llegaba a la pantalla.
+- **Corrección:**
+  - `DJANGO_API_URL` apunta a `http://127.0.0.1:8000/api/v1` (`.env.example`
+    y los valores por defecto de `djangoSession.ts` y `proxy.ts`), la dirección
+    real de `runserver`. No se cambió el puerto.
+  - `djangoApiFetch` convierte un fallo de red en `DjangoUnavailableError` y
+    registra en el log del servidor la ruta, el método, la URL base y el código
+    (`ECONNREFUSED`…), nunca el token. Sin reintentos. Un timeout se sigue
+    propagando como antes, y `null` sigue significando solo "sin sesión
+    Django".
+  - Nuevos error boundaries `src/app/(protected)/error.tsx` (conserva la
+    navegación) y `src/app/error.tsx` (fallos del layout), con un mensaje
+    controlado ("No se pudo cargar esta sección… no está disponible
+    temporalmente"), la referencia del error y "Reintentar". Sin datos
+    simulados; permisos, autenticación y reglas de negocio sin cambios.
+
+- **Archivos:** `src/lib/djangoSession.ts`, `src/proxy.ts`, `.env.example`,
+  `src/components/ui/ServiceErrorFallback.tsx`, `src/app/error.tsx`,
+  `src/app/(protected)/error.tsx`.
+
+**Verificación:** 3 tests nuevos en `src/__tests__/djangoSession.test.ts`
+(ECONNREFUSED → `DjangoUnavailableError` registrado sin token y sin
+reintentos; timeout sin cambios; URL por defecto 127.0.0.1) y 1 en
+`src/__tests__/components/ServiceErrorFallback.test.tsx`. En localhost:
+Django escuchando en 127.0.0.1:8000, Next.js recargó `.env` y Control
+Operativo carga con respuestas 200.
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
+## v1.171.1 — 2026-10-12
+
+**Tipo:** UX
+**Módulo:** Control Operativo de Novedades — Historial de registros: colores por
+transición de estado.
+
+- Cada evento de cambio de estado se colorea según **su propia transición**
+  (estado anterior → nuevo guardados en el evento), nunca según el estado
+  actual del colaborador:
+  - **Rojo:** Activo → Inactivo, Activo → Suspendido (sin cambios).
+  - **Azul (nuevo):** Inactivo → Activo y Suspendido → Activo, con la etiqueta
+    de texto "Activo · reactivado".
+  - Otras transiciones (p. ej. Inactivo ↔ Suspendido) conservan el diseño
+    actual.
+- La regla vive en Django (`EventSerializer.get_highlight`); la pantalla solo
+  pinta. No se tocaron modelos, eventos guardados, permisos, notificaciones ni
+  el cierre de períodos: la reactivación sigue sin generar alerta.
+- En la base local, el evento 912 del caso ACOSTA ACOSTA MARCELO FERNANDO
+  (Inactivo → Activo) pasa a verse en azul; 911 y 913 siguen en rojo.
+
+- **Archivos:** `backend/apps/novedades/serializers.py`,
+  `src/components/novedades/HistoryView.tsx`.
+
+**Verificación:** test reescrito en
+`backend/apps/novedades/tests/test_status_history_periods.py` (secuencia
+Inactivo → Activo → Suspendido → Activo → Inactivo: cada evento conserva su
+color, sin duplicados, estado real intacto, 3 alertas y ninguna por
+reactivar) y `src/__tests__/components/NovedadesHistoryHighlight.test.tsx`
+(dos filas rojas y dos azules con su etiqueta).
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
+## v1.171.0 — 2026-10-12
+
+**Tipo:** UX / SECURITY
+**Módulo:** Control Operativo de Novedades — Historial de registros: ingresos
+en azul y visibilidad restringida.
+
+- **Ingresos en azul:** el alta de un colaborador en la base (por formulario o
+  por importación) se marca en el Historial de registros con la fila teñida de
+  azul y la etiqueta de texto **"Nuevo ingreso"**. Django lo indica con
+  `highlight: "info"` (igual que `"danger"` para Inactivo/Suspendido); las
+  modificaciones y demás eventos conservan el diseño normal.
+- **Historial solo para Administrador y Asistente de Operaciones:** el
+  Supervisor de Operaciones ya no ve la pestaña ni puede consultar el endpoint
+  (`/history/` responde 403), aunque tenga `novedades.historial_ver`. Es una
+  restricción obligatoria por código (`NovedadesAccess.can_view_event_history`),
+  no un ajuste configurable. El Supervisor **conserva el Repositorio mensual**,
+  que usa el mismo permiso. `me` expone `can_view_history` para la pantalla.
+
+- **Archivos:** `backend/apps/novedades/{access,services,serializers}.py`,
+  `src/components/novedades/{HistoryView,NovedadesModule}.tsx`,
+  `src/components/novedades/types.ts`.
+
+**Verificación:** 2 tests nuevos en
+`backend/apps/novedades/tests/test_status_history_periods.py` (403 al
+Supervisor con Repositorio disponible; Administrador y Asistente ven el
+historial; alta en azul y modificación sin marca) y 1 en
+`src/__tests__/components/NovedadesHistoryHighlight.test.tsx`. Probado en
+localhost con un Supervisor: sin pestaña Historial, `/history/` 403,
+Repositorio mensual disponible.
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
+## v1.170.0 — 2026-10-12
+
+**Tipo:** FIX / UX
+**Módulo:** Control Operativo de Novedades — cambios de estado en el Historial
+de registros; verificación del cierre de período.
+
+- **Causa raíz (caso ACOSTA ACOSTA MARCELO FERNANDO):** el cambio de estado
+  **sí se guardaba** (`CollaboratorStatusChange` y `NovedadEvent` en la misma
+  transacción), pero el evento se registraba **sin período**. El Historial de
+  registros filtra por defecto por el período elegido, así que esos eventos
+  solo aparecían marcando "Todos los períodos". Evidencia en la base local:
+  eventos 911, 912 y 913 del 12/10/2026 (Activo → Inactivo, Inactivo → Activo,
+  Activo → Inactivo; motivo "SALE"), con `period` vacío. No se inventó ni
+  reescribió ningún evento.
+- **Corrección:** los eventos de la base de colaboradores (cambio de estado,
+  modificación, reasignación, eliminación) se asocian al período abierto
+  vigente del supervisor, igual que el alta. El filtro por período también
+  incluye los eventos antiguos sin período ocurridos dentro de las fechas del
+  corte (23 → 22, hora del negocio UTC-5), así el caso reportado ya se ve en
+  Octubre 2026 sin tocar la base.
+- **Marca roja:** Django devuelve `highlight: "danger"` cuando el EVENTO deja
+  al colaborador Inactivo o Suspendido; la fila se tiñe de rojo y el estado
+  nuevo se muestra como etiqueta de texto. La reactivación conserva el diseño
+  normal. No cambia el estado real del colaborador.
+- **Sin duplicados:** el cambio de estado es condicional en la base (un doble
+  envío concurrente no registra un segundo evento); repetir el mismo estado
+  no registra nada. Si el registro del historial falla, se revierte también el
+  cambio de estado.
+- **Alerta al Administrador:** al pasar a Inactivo o Suspendido, alerta roja
+  "Inactivo / Suspendido" en la campana (categoría `status_change`, con
+  `dedup_key` por cambio), enviada solo tras confirmar la transacción, con
+  colaborador, estado anterior y nuevo, supervisor, responsable, fecha y hora y
+  motivo.
+- **Cierre de período (verificado, sin cambios de lógica):** cerrar marca el
+  período del supervisor como CERRADO (quién y cuándo, resumen) y abre el
+  siguiente (23/10 → 22/11) solo para ese supervisor. No copia novedades
+  diarias, no crea personas ni asignaciones, no toca estados ni genera eventos
+  de estado; es idempotente (`select_for_update` + restricciones únicas por
+  período/supervisor y por colaborador/fecha). La matriz del período nuevo
+  incluye Activos y Suspendidos del supervisor; los Inactivos solo aparecen en
+  los períodos donde tienen registros.
+
+- **Archivos:** `backend/apps/novedades/{services,serializers,excel}.py`,
+  `src/components/novedades/{HistoryView.tsx,types.ts}`,
+  `src/components/NotificationBell.tsx`.
+
+**Verificación:** 12 tests nuevos en
+`backend/apps/novedades/tests/test_status_history_periods.py` (eventos de
+Inactivo y Suspendido con período, responsable, fecha y motivo; marca roja;
+eventos antiguos sin período visibles en su corte; historial de todos los
+períodos; reversión si falla el historial; sin duplicados por reenvío o doble
+envío; permisos; cierre que no copia, no duplica ni reactiva; cierre repetido;
+otros supervisores intactos) y 1 en
+`src/__tests__/components/NovedadesHistoryHighlight.test.tsx`.
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
+## v1.169.0 — 2026-10-12
+
+**Tipo:** FEATURE / SECURITY / DATABASE
+**Módulo:** Control Operativo de Novedades — eliminación en Horas extras y en la
+base de colaboradores; alertas administrativas por color.
+
+- **Eliminar una fila en la captura de Horas extras** (icono de papelera por
+  fila). Si la fila nunca se guardó, solo se quita de la tabla (con "Deshacer").
+  Si ya está guardada, se confirma en un diálogo (colaborador, cédula, fecha,
+  horas y motivo opcional) y se elimina en Django: borrado lógico
+  (`deleted_at`/`deleted_by`), evento `overtime.deleted` en el historial y
+  auditoría. **El colaborador sigue en la base oficial.** Se respetan permisos
+  (registrar + equipo propio; el Asistente no elimina) y el período cerrado
+  (409; ahí corresponde la corrección de período cerrado). El diálogo es el
+  mismo que ya usaba la consulta de Horas extras (`OvertimeDeleteDialog.tsx`,
+  antes duplicado dentro de `OvertimeView.tsx`).
+- **Sin doble ejecución**: el borrado es condicional en la base (solo marca si
+  sigue vigente); un doble clic o un reintento recibe 404 sin evento ni alerta
+  extra, y el diálogo bloquea el segundo clic. Si otro usuario ya lo eliminó, la
+  fila se quita de la tabla con un aviso, sin error.
+- **Eliminar un colaborador de la base oficial** (acción separada, solo
+  Administrador, motivo obligatorio). Django la rechaza (409 `has_history`) si
+  la persona tiene días laborados u horas extras, aunque estén eliminados: se
+  conserva la historia y lo que corresponde es pasarla a Inactivo. Queda el
+  evento `collaborator.deleted` con la foto de los datos eliminados.
+- **Alertas administrativas** en la campana existente (`apps.notifications`, sin
+  sistema nuevo), persistidas y con `dedup_key` para no repetirse:
+  - **Roja — Eliminación**: al confirmarse la eliminación de un registro de
+    horas extras (edición ordinaria o corrección de período cerrado) y,
+    con un mensaje distinto, al eliminar un colaborador de la base.
+  - **Azul — Nuevo colaborador**: al crear uno desde el formulario y, en la
+    importación de la base, **un solo resumen** con los efectivamente creados
+    (origen, quién y cuándo). Las actualizaciones no generan alerta azul.
+  - Se envían solo después de confirmar la transacción: una operación fallida
+    o rechazada no alerta. El color nunca es la única señal: cada alerta lleva
+    icono y etiqueta de texto ("Eliminación" / "Nuevo colaborador").
+- **Base de datos:** `Notification.category` (migración
+  `notifications/0005_notification_category`) y `PendingNotification.category`/
+  `dedup_key` (migración `novedades/0005_pending_notification_category`), ambas
+  aditivas con valor por defecto.
+
+- **Archivos:** `backend/apps/notifications/{models,services,views}.py`,
+  `backend/apps/novedades/{models,services,excel,views}.py`, migraciones
+  nuevas, `src/app/api/notifications/route.ts`,
+  `src/components/NotificationBell.tsx`,
+  `src/components/novedades/{OvertimeDeleteDialog,OvertimeCapture,OvertimeView,CollaboratorsView}.tsx`.
+
+**Verificación:** 8 tests nuevos en
+`backend/apps/novedades/tests/test_deletions_alerts.py`, 1 en
+`apps/notifications/tests/test_notifications.py` (categoría + deduplicación),
+ajustes en `test_collaborator_import.py` (resumen azul solo de creados; sin
+alerta azul por actualizaciones); 5 tests nuevos en
+`src/__tests__/components/NovedadesDeletionAlerts.test.tsx` y el mapeo de
+`category` en `src/__tests__/api/notifications.test.ts`.
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
+## v1.168.0 — 2026-10-12
+
+**Tipo:** FEATURE / UX
+**Módulo:** Control Operativo de Novedades — Horas extras: relleno tipo Excel
+en la captura masiva.
+
+- **Controlador de relleno**: la celda activa muestra un cuadrito azul; al
+  arrastrarlo hacia abajo (o arriba) se resaltan las celdas destino y al soltar
+  se **copia** el valor (2 → 2, 2, 2; nunca una serie). Esc cancela el arrastre.
+- **Rellenar hacia abajo** (botón accesible y atajo **Ctrl+D**): copia la
+  primera celda del rango elegido con Mayús+clic / Mayús+↓; si no hay rango pero
+  hay filas marcadas, copia la celda activa en esas filas; si no, copia la celda
+  de arriba (como en Excel).
+- **Ctrl+C** copia un rango de una columna como texto para Excel; el pegado de
+  rangos ya existía.
+- Solo en columnas de captura: # HORAS EXTRAS, # HORAS SABADO, SABADO,
+  DOMINGO, FERIADO, TRABAJO REALIZADO, OBSERVACIONES. Nunca FECHA (tiene su
+  acción explícita) ni la identidad del colaborador. Las filas bloqueadas o de
+  un período cerrado se saltan y se informa cuántas.
+- El relleno solo cambia la tabla: las filas quedan "pendientes" y se guardan
+  con el botón Guardar habitual, en un único lote (`overtime/bulk`), con las
+  mismas validaciones y la misma protección contra duplicados. Aviso con
+  opción "Deshacer".
+
+- **Archivos:** `src/lib/novedadesCapture.ts` (`fillColumn`,
+  `copyColumnRange`, `isFillableColumn`),
+  `src/components/novedades/OvertimeCapture.tsx`.
+
+**Verificación:** 5 tests nuevos en `src/__tests__/novedadesCapture.test.ts`
+(copia sin serie, texto y marcas, filas bloqueadas, columnas no rellenables,
+registro existente queda como modificado, copia de rango). Probado en localhost:
+arrastre con resaltado (2, 2, 2, 2), Rellenar hacia abajo sobre filas marcadas,
+Mayús+↓ + Ctrl+D, Esc que cancela, y guardado de 4 filas en una sola solicitud.
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
+## v1.167.1 — 2026-10-12
+
+**Tipo:** UX / FIX
+**Módulo:** Control Operativo de Novedades — Días laborados: nombre completo y
+plantilla de importación.
+
+- **Nombre completo en la matriz.** Causa: la columna Empleado limitaba el
+  nombre a 150 px con `truncate` (puntos suspensivos), p. ej.
+  «ACOSTA ACOSTA MARC…». Ahora el nombre se muestra entero (la columna crece con
+  el nombre más largo, mínimo 240 px) y sigue fija al desplazar las fechas. El
+  dato ya venía completo de `Collaborator.full_name`; no se tocó la base.
+- **Plantilla con las fechas reales del período.** Encabezados
+  `Supervisor | Cargo | Cédula | Empleado | 23/09/2026 | … | 22/10/2026`, con
+  las fechas como texto dd/mm/aaaa (iguales en cualquier configuración regional
+  de Excel), sábados y domingos en amarillo, y una hoja «Instrucciones» que
+  explica qué va en cada celda (horas del día, 0–24, hasta 2 decimales; vacío =
+  no reportado; 0 = cero horas; fines de semana vacíos).
+- **Importación.** Además de fechas fuera del período, rechaza fechas repetidas
+  en los encabezados y una fila cuyo «Empleado» no tiene ninguna palabra en común
+  con el nombre de la cédula en la base (probable cédula equivocada); si solo
+  difiere en forma, se avisa y se usa el nombre de la base. Avisa (sin bloquear)
+  si faltan días hábiles del período. Se mantienen todas las validaciones
+  previas (existencia, ámbito, fines de semana, período cerrado).
+- El diálogo de importación muestra el rango real del período, las reglas de
+  valores y el enlace a la plantilla del período.
+
+- **Archivos:** `backend/apps/novedades/excel.py`,
+  `src/components/novedades/{WorkedDaysGrid,ImportDialog}.tsx`,
+  `src/components/novedades/types.ts`.
+
+**Verificación:** 6 tests nuevos en
+`backend/apps/novedades/tests/test_worked_days_template.py` (nombre completo,
+encabezados = fechas del período, plantilla rellenada que se importa, fechas
+fuera/repetidas, nombre ↔ cédula, fines de semana y período cerrado). Probado
+en localhost con un nombre de 52 caracteres.
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
+## v1.167.0 — 2026-10-12
+
+**Tipo:** FEATURE / FIX
+**Módulo:** Control Operativo de Novedades — importación de la Base de
+colaboradores.
+
+### El problema
+
+No existía una importación de la base: la única vía era importar Días laborados
+u Horas extras, que registran **novedades** y por eso exigen (con razón) que la
+persona ya exista. Una carga inicial respondía «La cédula no existe en la base
+de colaboradores (regístrela primero)» para cada fila.
+
+### La corrección
+
+- Nueva importación **Base de colaboradores → Importar base** (y plantilla
+  `CEDULA | NOMBRES COMPLETOS | REGIONAL | ÁREA | CARGO`). Reconoce también
+  «Cédula», «Empleado», «Nombre del colaborador», etc., e ignora otras columnas
+  —se puede cargar la base desde la planilla de Días laborados—.
+- Cada fila se clasifica como **Nuevo** (se crea), **Existente** (se informa;
+  con «actualizar» solo cambian nombre, regional, área y cargo) o **Inválido**
+  (cédula vacía/ilegible, nombre vacío, cédula repetida en el archivo, o cédula
+  de la base de otro supervisor —no se reasigna por importación—). Nunca se
+  modifican cédula, estado operativo, supervisor, usuarios ni permisos.
+- Cédula como texto; una cédula numérica de 9 dígitos (Excel perdió el 0
+  inicial) se completa a 10.
+- Vista previa con totales (procesadas, nuevos, existentes, a actualizar,
+  duplicados, inválidas) y detalle por fila; la confirmación revalida contra la
+  base actual, guarda cada fila en su propia transacción, no duplica (cédula
+  única + reconfirmar es idempotente) y envía una sola notificación resumen.
+- Las importaciones de Días laborados y Horas extras **siguen exigiendo** que el
+  colaborador exista; su mensaje ahora indica que se puede importar la base.
+- `ImportBatch`: nuevo tipo `COLLABORATORS` y período opcional (migración
+  `novedades.0004`).
+
+- **Archivos:** `backend/apps/novedades/{excel,models,serializers,views,urls}.py`,
+  migración `0004_collaborator_import`, `src/components/novedades/{ImportDialog,CollaboratorsView}.tsx`,
+  `src/components/novedades/types.ts`.
+
+**Verificación:** 9 tests nuevos en
+`backend/apps/novedades/tests/test_collaborator_import.py`; probado en localhost
+(carga con cédula numérica sin cero, duplicado, fila vacía y existente).
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
+## v1.166.1 — 2026-10-12
+
+**Tipo:** UX
+**Módulo:** Control Operativo de Novedades — Días laborados: se elimina la
+columna «Corte anterior».
+
+- Ya no se muestra en la matriz ni se pide en ningún paso. Tampoco aparece en
+  la exportación ni en la plantilla descargable (formato:
+  Supervisor | Cargo | Cédula | Empleado | una columna por fecha).
+- La importación ubica las columnas por su encabezado: un archivo del formato
+  anterior que todavía trae «Corte anterior» se importa igual y esa columna se
+  ignora sin error.
+- Era un texto calculado (el rango del período), no un dato guardado: no hay
+  migración ni cambio en registros. El período del 23 al 22 no cambia.
+
+- **Archivos:** `backend/apps/novedades/{excel,services,periods}.py`,
+  `src/components/novedades/{WorkedDaysGrid,ImportDialog}.tsx`,
+  `src/components/novedades/types.ts`, tests del módulo.
+
+**Verificación:** 3 tests nuevos en `backend/apps/novedades/tests/test_api.py`
+(archivo antiguo con la columna, columnas obligatorias faltantes, exportación y
+plantilla sin la columna) y 3 ajustados al formato nuevo.
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
+## v1.166.0 — 2026-10-12
+
+**Tipo:** FEATURE
+**Módulo:** Control Operativo de Novedades — captura masiva de Horas extras
+tipo Excel.
+
+### Qué cambia
+
+- **Captura masiva** (Horas extras → Captura masiva): fecha de trabajo
+  general, selector múltiple de colaboradores del equipo (búsqueda por
+  nombre/cédula/cargo/área, "seleccionar visibles"), una fila por persona con
+  cédula, nombre, regional, área y cargo de solo lectura, fecha editable por
+  fila, edición directa de celdas, navegación con flechas/Enter/Tab, pegado de
+  rangos desde Excel sobre las columnas editables, "Pegar desde Excel" de
+  filas completas (resueltas por cédula contra el equipo), cargar registros
+  existentes de una fecha para editarlos, aplicar fecha a seleccionadas,
+  quitar filas, resumen previo (nuevas, modificadas, válidas, con error,
+  posibles duplicados, bloqueadas) y estado por fila (texto + color).
+- **Guardado por lote** `POST /api/v1/novedades/overtime/bulk/`: valida todo el
+  lote, guarda cada fila válida en su propia transacción y devuelve el
+  resultado por fila (`created`/`updated`/`unchanged`/`error`/`duplicate`/
+  `conflict`/`locked`). Reintentar no duplica (una fila ya guardada con los
+  mismos valores vuelve como `unchanged`). Máximo 500 filas por solicitud; la
+  interfaz divide lotes mayores sola. La identidad nunca se toma del navegador.
+- **Restricción en base de datos**: índice único filtrado (colaborador, fecha)
+  sobre registros activos (migración `novedades.0003`).
+- **Importación de horas extras** reutiliza el mismo guardado por lote.
+- **Consolidado**: paginación (totales y exportación sobre el filtro completo),
+  rango de fechas, filtro por jornada (sábado/domingo/feriado), indicadores de
+  colaboradores con novedades y de supervisores con período cerrado/pendiente.
+- **Exportación**: cédula como texto (conserva ceros), neutraliza contenido que
+  Excel ejecutaría como fórmula, nombre con fecha de exportación, auditada.
+  Plantillas descargables de Horas extras y Días laborados.
+- **Días laborados**: un intento de registrar sábado/domingo por API queda
+  auditado. Aviso de cambios sin guardar al cambiar de pestaña, período o
+  supervisor.
+- **Historial**: filtro por rango de fechas.
+
+- **Archivos:** `backend/apps/novedades/{services,excel,views,urls,serializers,models}.py`,
+  migración `0003_overtime_active_unique`, `src/lib/novedadesCapture.ts`,
+  `src/components/novedades/{OvertimeCapture,OvertimeView,NovedadesModule,WorkedDaysGrid,HistoryView}.tsx`.
+
+**Verificación:** 16 tests nuevos en `backend/apps/novedades/tests/test_bulk.py`
+y 7 en `src/__tests__/novedadesCapture.test.ts`; flujo probado en localhost
+(selección múltiple, fila inválida conservada mientras la válida se guarda,
+edición de un registro guardado sin duplicarlo, verificado en la base).
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
+## v1.165.0 — 2026-10-12
+
+**Tipo:** FEATURE
+**Módulo:** Control Operativo de Novedades (nuevo) — días laborados, horas
+extras, cierres mensuales y repositorio de la operación, con permisos
+configurables (ver docs/AUDIT_LOG.md § 2026-10-12).
+
+### Qué incluye
+
+- **Base de colaboradores por supervisor**: alta inmediata sin aprobación
+  (cédula única; si pertenece a otro supervisor no se reasigna y se avisa al
+  Administrador), edición, estados Activo/Inactivo/Suspendido con motivo e
+  historial, reasignación solo por el Administrador.
+- **Días laborados**: matriz tipo Excel por período 23 → 22, columnas
+  Supervisor | Cargo | Corte anterior | Cédula | Empleado + una por fecha;
+  sábados y domingos en amarillo y bloqueados (también en API e importación);
+  vacío ≠ 0; control de concurrencia por versión; cambio de estado desde la
+  fila.
+- **Horas extras**: tabla con los 13 encabezados exactos; consolidado
+  nacional automático para el Asistente de Operaciones (solo lectura),
+  filtros (incluido supervisor), indicadores y exportación con 14 columnas
+  (SUPERVISOR después de CARGO); el supervisor histórico se conserva.
+- **Cierre individual por supervisor**: resumen previo (celdas pendientes
+  distintas de cero), confirmación explícita, bloqueo de edición ordinaria,
+  apertura del período siguiente con la misma base y sin copiar novedades;
+  atómico e idempotente. Correcciones posteriores solo por el Administrador,
+  con motivo y valor original conservado.
+- **Importación de Excel** en dos pasos (vista previa sin escribir, filas
+  válidas/inválidas/existentes, reporte de errores descargable, omitir o
+  actualizar existentes), sin duplicados al reimportar.
+- **Historial de registros** y **Repositorio mensual** con avance del cierre
+  nacional.
+- **Notificaciones al Administrador** (alta de colaborador, inactivación,
+  suspensión, novedades, importaciones, cierres; resumen en operaciones
+  masivas) con reintento si fallan
+  (`manage.py novedades_retry_notifications`).
+- **Ajustes → Permisos del módulo Control Operativo de Novedades**: permisos
+  configurables por rol, excepciones individuales (conceder/restringir, con
+  motivo y revocación), permisos efectivos por usuario e historial.
+- **Roles nuevos** Supervisor y Asistente de Operaciones: solo ven este
+  módulo (menú y `src/proxy.ts`).
+
+- **Archivos:** `backend/apps/novedades/` (nueva app + migraciones 0001/0002),
+  `backend/apps/permissions/catalog.py` (+ migración 0007),
+  `backend/config/settings/base.py`, `backend/config/api_v1_urls.py`,
+  `src/app/(protected)/control-operativo/page.tsx`,
+  `src/app/api/novedades/[...path]/route.ts`,
+  `src/lib/djangoNovedadesAdapter.ts`, `src/components/novedades/`,
+  `src/components/settings/NovedadesPermissionsSection.tsx`,
+  `src/components/settings/{ConfigCenter,registry}.tsx|ts`,
+  `src/lib/{roles,navLinks}.ts`, `src/proxy.ts`,
+  `src/components/shell/AppShell.tsx`.
+
+**Verificación:** 44 tests nuevos en `backend/apps/novedades/tests/` (períodos,
+colaboradores, días laborados, horas extras, cierre, correcciones, permisos,
+ámbito vía API, importación/exportación), 10 en
+`src/__tests__/api/novedades.test.ts` y
+`src/__tests__/proxyOperationalRoles.test.ts`, más 2 aserciones de
+`roles.test.ts` actualizadas (los roles operativos quedan fuera de la
+jerarquía de tareas) y 1 nueva. Probado en localhost con Supervisor, Asistente
+y Administrador de prueba.
+
+**Impacto:** requiere `manage.py migrate` (crea tablas y siembra los dos
+roles). No modifica permisos de otros módulos. Solo verificado en desarrollo.
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
 ## v1.164.1 — 2026-10-13
 
 **Tipo:** SECURITY

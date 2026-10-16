@@ -14,7 +14,15 @@ export type Role =
   | "ASISTENTE_GH"
   | "ASISTENTE_GH_ZS"
   | "TRABAJO_SOCIAL"
-  | "ASISTENTE_NOMINA";
+  | "ASISTENTE_NOMINA"
+  // Roles operativos del módulo Control Operativo de Novedades: solo ven ese
+  // módulo (ver isOperationalRole / getNavLinks / src/proxy.ts) y su
+  // autorización real la resuelve Django (apps/novedades/access.py).
+  | "SUPERVISOR_OPERACIONES"
+  | "ASISTENTE_OPERACIONES"
+  // Jefe de Operaciones: consulta la operación y depura Horas extras en su
+  // copia independiente (Horas depuradas); nunca edita las bases originales.
+  | "JEFE_OPERACIONES";
 
 export const ROLE_LEVEL: Record<Role, number> = {
   ADMINISTRADOR: 5,
@@ -28,6 +36,9 @@ export const ROLE_LEVEL: Record<Role, number> = {
   ASISTENTE_GH_ZS: 1,
   TRABAJO_SOCIAL: 1,
   ASISTENTE_NOMINA: 1,
+  SUPERVISOR_OPERACIONES: 1,
+  ASISTENTE_OPERACIONES: 1,
+  JEFE_OPERACIONES: 1,
 };
 
 export const ROLE_LABEL: Record<Role, string> = {
@@ -42,6 +53,9 @@ export const ROLE_LABEL: Record<Role, string> = {
   ASISTENTE_GH_ZS: "Asistente GH ZS",
   TRABAJO_SOCIAL: "Trabajo Social",
   ASISTENTE_NOMINA: "Asistente de Nómina",
+  SUPERVISOR_OPERACIONES: "Supervisor de Operaciones",
+  ASISTENTE_OPERACIONES: "Asistente de Operaciones",
+  JEFE_OPERACIONES: "Jefe de Operaciones",
 };
 
 // Roles whose tasks each role can see
@@ -58,6 +72,9 @@ export const VISIBLE_ROLES: Record<Role, Role[]> = {
     "ASISTENTE_GH_ZS",
     "TRABAJO_SOCIAL",
     "ASISTENTE_NOMINA",
+    "SUPERVISOR_OPERACIONES",
+    "ASISTENTE_OPERACIONES",
+    "JEFE_OPERACIONES",
   ],
   JEFE_NACIONAL: [
     "JEFE_NACIONAL",
@@ -95,6 +112,9 @@ export const VISIBLE_ROLES: Record<Role, Role[]> = {
   ASISTENTE_GH_ZS: ["ASISTENTE_GH_ZS"],
   TRABAJO_SOCIAL: ["TRABAJO_SOCIAL"],
   ASISTENTE_NOMINA: ["ASISTENTE_NOMINA"],
+  SUPERVISOR_OPERACIONES: ["SUPERVISOR_OPERACIONES"],
+  ASISTENTE_OPERACIONES: ["ASISTENTE_OPERACIONES"],
+  JEFE_OPERACIONES: ["JEFE_OPERACIONES"],
 };
 
 // Who gets notified (upward) when a task comment is made
@@ -110,6 +130,9 @@ export const NOTIFICATION_TARGETS: Record<Role, Role[]> = {
   ASISTENTE_GH_ZS: ["COORDINADOR_ZS"],
   TRABAJO_SOCIAL: ["ANALISTA_CC", "ANALISTA_SELECCION"],
   ASISTENTE_NOMINA: ["COORDINADOR_NACIONAL", "JEFE_NACIONAL"],
+  SUPERVISOR_OPERACIONES: [],
+  ASISTENTE_OPERACIONES: [],
+  JEFE_OPERACIONES: [],
 };
 
 export const CAN_CREATE_MEETINGS: Role[] = [
@@ -199,6 +222,16 @@ export function canViewOperationalRisk(role: Role): boolean {
 
 export const ALL_ROLES = Object.keys(ROLE_LABEL) as Role[];
 
+export const OPERATIONAL_ROLES: Role[] = ["SUPERVISOR_OPERACIONES", "ASISTENTE_OPERACIONES", "JEFE_OPERACIONES"];
+
+// Los roles operativos trabajan SOLO en Control Operativo de Novedades: no
+// participan de Tareas, Equipo, KPIs ni del resto de NEXO (pedido explícito).
+export function isOperationalRole(role: Role): boolean {
+  return OPERATIONAL_ROLES.includes(role);
+}
+
+export const NOVEDADES_HOME = "/control-operativo";
+
 // Módulo Proyectos: quién puede crear una iniciativa transversal — mismo
 // umbral que canViewTeam (nivel >= 2), reutilizado en vez de duplicar la
 // jerarquía. Los permisos específicos de un proyecto ya creado (que
@@ -216,7 +249,7 @@ export function canCreateProject(role: Role): boolean {
 // cualquier colaborador no-Administrador puede dejar/recibir notas de
 // cualquier otro colaborador no-Administrador.
 export function canUseDeskNotes(role: Role): boolean {
-  return role !== "ADMINISTRADOR";
+  return role !== "ADMINISTRADOR" && !isOperationalRole(role);
 }
 
 // ── Ejecutor vs. liderazgo (Sprint 0A) ───────────────────────────────────────
@@ -248,7 +281,7 @@ export function isLeadershipRole(role: Role): boolean {
   return ROLE_LEVEL[role] >= 4;
 }
 
-/** Roles cuya responsabilidad SÍ contempla ejecución de tareas — únicos destinos válidos de redistribución de trabajo y únicos sujetos de KPIs individuales de ejecución en vistas de equipo. */
+/** Roles cuya responsabilidad SÍ contempla ejecución de tareas — únicos destinos válidos de redistribución de trabajo y únicos sujetos de KPIs individuales de ejecución en vistas de equipo. Los roles operativos no ejecutan tareas (espejo de `is_executor_group` en Django). */
 export function isExecutorRole(role: Role): boolean {
-  return !isLeadershipRole(role);
+  return !isLeadershipRole(role) && !isOperationalRole(role);
 }

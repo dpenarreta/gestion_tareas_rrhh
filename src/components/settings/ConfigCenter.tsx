@@ -35,6 +35,9 @@ import SeguridadConfigSection from "@/components/settings/SeguridadConfigSection
 import DataConsentSection from "@/components/settings/DataConsentSection";
 import DataRequestsSection from "@/components/settings/DataRequestsSection";
 import RetentionPolicySection from "@/components/settings/RetentionPolicySection";
+import NovedadesPermissionsSection from "@/components/settings/NovedadesPermissionsSection";
+import CollaboratorNotificationsSection from "@/components/settings/CollaboratorNotificationsSection";
+import MovementPermissionsSection from "@/components/settings/MovementPermissionsSection";
 import NotificationRulesSection from "@/components/settings/NotificationRulesSection";
 import WelcomeMessageSection from "@/components/settings/WelcomeMessageSection";
 import SystemInfoSection from "@/components/settings/SystemInfoSection";
@@ -260,17 +263,28 @@ function ConfigCenterInner({ currentUserRole }: { currentUserRole: Role }) {
                   <ConfigSectionCard descriptor={d("retention-policy")!}>
                     <RetentionPolicySection />
                   </ConfigSectionCard>
+                  <ConfigSectionCard descriptor={d("novedades-permissions")!}>
+                    <NovedadesPermissionsSection />
+                  </ConfigSectionCard>
+                  <ConfigSectionCard descriptor={d("movement-visibility")!}>
+                    <MovementPermissionsSection />
+                  </ConfigSectionCard>
                   <ProximamenteCard
                     title="Permisos especiales por usuario"
-                    reason="Toda la autorización de Nexo es hoy por Role (sin excepciones individuales) — agregar overrides por usuario es una capa de autorización nueva, y el pedido original pide explícitamente no modificar la seguridad existente."
+                    reason="Fuera de Control Operativo de Novedades (que tiene sus propias excepciones individuales, arriba), la autorización de Nexo es por Role — extender overrides por usuario al resto de módulos es una capa de autorización nueva, y el pedido original pide no modificar la seguridad existente."
                   />
                 </>
               )}
 
               {category === "notificaciones" && (
-                <ConfigSectionCard descriptor={d("notification-rules")!}>
-                  <NotificationRulesSection />
-                </ConfigSectionCard>
+                <>
+                  <ConfigSectionCard descriptor={d("notification-rules")!}>
+                    <NotificationRulesSection />
+                  </ConfigSectionCard>
+                  <ConfigSectionCard descriptor={d("collaborator-notifications")!}>
+                    <CollaboratorNotificationsSection />
+                  </ConfigSectionCard>
+                </>
               )}
 
               {category === "parametros_globales" && <GlobalParamsSection />}

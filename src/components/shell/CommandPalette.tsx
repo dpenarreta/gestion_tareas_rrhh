@@ -6,16 +6,19 @@ import { Search } from "lucide-react";
 import type { Role } from "@/lib/roles";
 import { getNavLinks } from "@/lib/navLinks";
 
+const NO_PERMISSIONS: string[] = [];
+
 type Props = {
   role: Role;
+  permissions?: string[];
   open: boolean;
   onClose: () => void;
 };
 
-export default function CommandPalette({ role, open, onClose }: Props) {
+export default function CommandPalette({ role, permissions = NO_PERMISSIONS, open, onClose }: Props) {
   const router = useRouter();
   const [query, setQuery] = useState("");
-  const links = useMemo(() => getNavLinks(role), [role]);
+  const links = useMemo(() => getNavLinks(role, permissions), [role, permissions]);
   const filtered = links.filter((l) => l.label.toLowerCase().includes(query.toLowerCase()));
 
   useEffect(() => {

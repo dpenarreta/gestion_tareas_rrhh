@@ -13,10 +13,13 @@ import {
   StickyNote,
   Radar,
   ShieldCheck,
+  ClipboardList,
+  ArrowLeftRight,
   type LucideIcon,
 } from "lucide-react";
 import type { Role } from "@/lib/roles";
-import { canManageUsers, canViewTeam, canUseDeskNotes } from "@/lib/roles";
+import { canManageUsers, canViewTeam, canUseDeskNotes, isOperationalRole, NOVEDADES_HOME } from "@/lib/roles";
+import { hasAnyPermission } from "@/lib/permissions";
 
 export type NavSection = "general" | "gestion" | "inteligencia";
 
@@ -33,7 +36,40 @@ export const NAV_SECTION_LABELS: Record<NavSection, string> = {
   inteligencia: "Inteligencia",
 };
 
-export function getNavLinks(role: Role): NavLink[] {
+const NOVEDADES_LINK: NavLink = {
+  href: NOVEDADES_HOME,
+  label: "Control Operativo",
+  icon: ClipboardList,
+  section: "gestion",
+};
+
+export const MOVEMENTS_HOME = `${NOVEDADES_HOME}/ingresos-salidas`;
+export const MOVEMENT_PERMISSIONS = ["novedades.ingresos_ver", "novedades.salidas_ver"];
+
+const MOVEMENTS_LINK: NavLink = {
+  href: MOVEMENTS_HOME,
+  label: "Ingresos y Salidas",
+  icon: ArrowLeftRight,
+  section: "gestion",
+};
+
+// Ingresos y Salidas: permisos individuales que el Administrador concede en
+// Ajustes sin cambiar el rol. Visibilidad cosmética (permisos de la sesión);
+// la página y cada endpoint los revalidan en Django en cada solicitud.
+function canSeeMovements(role: Role, permissions: string[]): boolean {
+  return role === "ADMINISTRADOR" || hasAnyPermission(permissions, MOVEMENT_PERMISSIONS);
+}
+
+export function getNavLinks(role: Role, permissions: string[] = []): NavLink[] {
+  // Supervisores y Asistentes de Operaciones solo usan este módulo — el
+  // resto de rutas también se les bloquea en src/proxy.ts, no solo se ocultan.
+  if (isOperationalRole(role)) {
+    return [
+      { ...NOVEDADES_LINK, section: "general" },
+      ...(canSeeMovements(role, permissions) ? [{ ...MOVEMENTS_LINK, section: "general" as const }] : []),
+    ];
+  }
+
   const isLevel1 = !canViewTeam(role);
 
   const links: NavLink[] = [
@@ -71,6 +107,12 @@ export function getNavLinks(role: Role): NavLink[] {
   }
 
   if (role === "ADMINISTRADOR") {
+    // Visibilidad cosmética: la pantalla consulta los permisos efectivos a
+    // Django (`novedades.acceder`), que es quien realmente autoriza.
+    links.push(NOVEDADES_LINK);
+  }
+  if (canSeeMovements(role, permissions)) links.push(MOVEMENTS_LINK);
+  if (role === "ADMINISTRADOR") {
     links.push({ href: "/settings", label: "Ajustes", icon: Settings, section: "gestion" });
   }
 
@@ -86,9 +128,13 @@ export function getNavLinks(role: Role): NavLink[] {
 
 const EXTRA_TITLES: Record<string, string> = {
   "/profile": "Mi perfil",
+  [MOVEMENTS_HOME]: "Ingresos y Salidas",
 };
 
 export function getPageTitle(pathname: string, role: Role): string {
+  // Título exacto primero: Ingresos y Salidas vive bajo /control-operativo y
+  // sin esto tomaría el título del módulo.
+  if (EXTRA_TITLES[pathname]) return EXTRA_TITLES[pathname];
   const links = getNavLinks(role);
   const match = links.find((l) => pathname === l.href || pathname.startsWith(l.href + "/"));
   if (match) return match.label;

@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import type { Role } from "@/lib/roles";
+import { isOperationalRole, type Role } from "@/lib/roles";
 import Sidebar from "./Sidebar";
 import Topbar from "./Topbar";
 import CommandPalette from "./CommandPalette";
@@ -10,6 +10,8 @@ import NovaFab from "./NovaFab";
 
 type Props = {
   role: Role;
+  /** Codenames de la sesión (`session.permissions`): solo para mostrar enlaces. */
+  permissions?: string[];
   djangoUserId: string;
   userName: string;
   roleLabel: string;
@@ -19,7 +21,7 @@ type Props = {
 
 const SIDEBAR_COLLAPSED_KEY = "nexo-sidebar-collapsed";
 
-export default function AppShell({ role, djangoUserId, userName, roleLabel, onLogout, children }: Props) {
+export default function AppShell({ role, permissions = [], djangoUserId, userName, roleLabel, onLogout, children }: Props) {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -54,12 +56,14 @@ export default function AppShell({ role, djangoUserId, userName, roleLabel, onLo
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  const showNovaFab = pathname !== "/assistant";
+  // Los roles operativos solo usan Control Operativo: Gemini no está a su alcance.
+  const showNovaFab = pathname !== "/assistant" && !isOperationalRole(role);
 
   return (
     <div className="flex h-screen overflow-hidden bg-background">
       <Sidebar
         role={role}
+        permissions={permissions}
         collapsed={collapsed}
         onToggleCollapsed={toggleCollapsed}
         mobileOpen={mobileOpen}
@@ -79,7 +83,7 @@ export default function AppShell({ role, djangoUserId, userName, roleLabel, onLo
           <div className="max-w-[1280px] mx-auto px-[18px] sm:px-7 py-[26px]">{children}</div>
         </main>
       </div>
-      <CommandPalette role={role} open={paletteOpen} onClose={() => setPaletteOpen(false)} />
+      <CommandPalette role={role} permissions={permissions} open={paletteOpen} onClose={() => setPaletteOpen(false)} />
       {showNovaFab && <NovaFab />}
     </div>
   );

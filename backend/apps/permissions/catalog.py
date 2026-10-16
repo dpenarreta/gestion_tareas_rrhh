@@ -160,6 +160,31 @@ PERMISSION_CATALOG = {
             "comunicados.gestionar": "Publicar y eliminar comunicados",
         },
     },
+    # Control Operativo de Novedades (días laborados / horas extras). Qué
+    # permisos son configurables por rol o por excepción individual, y qué
+    # restricciones son obligatorias, lo decide `apps.novedades.access` —
+    # el ámbito de datos (equipo propio vs. nacional) NO es un permiso.
+    "novedades": {
+        "label": "Control Operativo de Novedades",
+        "description": "Días laborados, horas extras, cierres mensuales y repositorio de la operación.",
+        "permissions": {
+            "novedades.acceder": "Acceder al módulo Control Operativo de Novedades",
+            "novedades.colaboradores_gestionar": "Registrar colaboradores y cambiar su estado operativo",
+            "novedades.registrar": "Registrar y editar días laborados y horas extras en períodos abiertos",
+            "novedades.consolidado_ver": "Consultar el consolidado de horas extras y sus indicadores",
+            "novedades.historial_ver": "Consultar el historial de registros y el repositorio mensual",
+            "novedades.importar": "Importar información desde Excel",
+            "novedades.exportar": "Exportar información a Excel",
+            "novedades.cerrar_periodo": "Cerrar el período operativo",
+            "novedades.corregir_cerrado": "Corregir registros de un período cerrado (procedimiento auditado)",
+            "novedades.administrar": "Administrar el módulo con alcance nacional (todos los supervisores)",
+            "novedades.permisos_gestionar": "Administrar los permisos y excepciones del módulo",
+            "novedades.depurar": "Depurar horas extras en la base independiente de Horas depuradas",
+            "novedades.dias_editar": "Editar celdas de Días laborados",
+            "novedades.ingresos_ver": "Consultar la pestaña consolidada de Ingresos de colaboradores",
+            "novedades.salidas_ver": "Consultar la pestaña consolidada de Salidas de colaboradores",
+        },
+    },
 }
 
 

@@ -6,7 +6,11 @@ import {
   canCreateMeetings,
   canAccessReports,
   getVisibleRoles,
+  isOperationalRole,
+  isExecutorRole,
+  canUseDeskNotes,
 } from "@/lib/roles";
+import { getNavLinks } from "@/lib/navLinks";
 import type { Role } from "@/lib/roles";
 
 describe("ROLE_LEVEL", () => {
@@ -32,7 +36,9 @@ describe("getVisibleRoles", () => {
   it("JEFE_NACIONAL ve a todos los roles excepto a ADMINISTRADOR", () => {
     const visible = getVisibleRoles("JEFE_NACIONAL");
     expect(visible).not.toContain("ADMINISTRADOR");
-    const nonAdminRoles = ALL_ROLES.filter((r) => r !== "ADMINISTRADOR");
+    // Los roles operativos (Control Operativo de Novedades) no forman parte
+    // de la jerarquía de tareas: su ámbito lo decide ese módulo.
+    const nonAdminRoles = ALL_ROLES.filter((r) => r !== "ADMINISTRADOR" && !isOperationalRole(r));
     expect(visible.sort()).toEqual(nonAdminRoles.sort());
   });
 
@@ -44,9 +50,20 @@ describe("getVisibleRoles", () => {
   it("COORDINADOR_NACIONAL ve a todos los roles excepto Jefe Nacional y Administrador", () => {
     const visible = getVisibleRoles("COORDINADOR_NACIONAL");
     const expected = ALL_ROLES.filter(
-      (r) => r !== "JEFE_NACIONAL" && r !== "ADMINISTRADOR"
+      (r) => r !== "JEFE_NACIONAL" && r !== "ADMINISTRADOR" && !isOperationalRole(r)
     );
     expect(visible.sort()).toEqual(expected.sort());
+  });
+
+  it("los roles operativos solo se ven a sí mismos, solo ven Control Operativo y no usan el Escritorio", () => {
+    for (const role of ["SUPERVISOR_OPERACIONES", "ASISTENTE_OPERACIONES"] as Role[]) {
+      expect(getVisibleRoles(role)).toEqual([role]);
+      expect(getNavLinks(role).map((l) => l.href)).toEqual(["/control-operativo"]);
+      expect(canUseDeskNotes(role)).toBe(false);
+    }
+    expect(getVisibleRoles("ADMINISTRADOR")).toContain("SUPERVISOR_OPERACIONES");
+    expect(getNavLinks("ADMINISTRADOR").map((l) => l.href)).toContain("/control-operativo");
+    expect(getNavLinks("JEFE_NACIONAL").map((l) => l.href)).not.toContain("/control-operativo");
   });
 
   it("COORDINADOR_ZS solo ve su propio rol y Asistente GH ZS", () => {
@@ -148,5 +165,19 @@ describe("canAccessReports", () => {
         expect(canAccessReports(role)).toBe(false);
       }
     }
+  });
+});
+
+describe("isExecutorRole", () => {
+  it("excluye a los roles operativos: no ejecutan tareas (espejo de is_executor_group)", () => {
+    expect(isExecutorRole("SUPERVISOR_OPERACIONES")).toBe(false);
+    expect(isExecutorRole("ASISTENTE_OPERACIONES")).toBe(false);
+    expect(isExecutorRole("JEFE_OPERACIONES")).toBe(false);
+  });
+
+  it("mantiene ejecutores a los roles de tareas por debajo del nivel 4", () => {
+    expect(isExecutorRole("ASISTENTE_GH")).toBe(true);
+    expect(isExecutorRole("COORDINADOR_NACIONAL")).toBe(true);
+    expect(isExecutorRole("JEFE_NACIONAL")).toBe(false);
   });
 });

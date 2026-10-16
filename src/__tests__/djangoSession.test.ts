@@ -198,3 +198,44 @@ describe("djangoApiFetch — rotación del refresh token", () => {
     expect(store.get("nexo-django-refresh")).toBe("refresh-viejo");
   });
 });
+
+describe("djangoApiFetch — Django sin responder (ECONNREFUSED)", () => {
+  function refused(): TypeError {
+    // Forma real del error de Node 18+ (undici) cuando nadie escucha en el puerto.
+    const err = new TypeError("fetch failed");
+    (err as TypeError & { cause: unknown }).cause = {
+      errors: [{ code: "ECONNREFUSED" }, { code: "ECONNREFUSED" }],
+    };
+    return err;
+  }
+
+  it("lanza DjangoUnavailableError (no null: no es falta de sesión) y lo registra sin el token", async () => {
+    const { DjangoUnavailableError } = await import("@/lib/djangoSession");
+    store.set("nexo-django-access", "access-secreto");
+    fetchMock.mockRejectedValue(refused());
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(djangoApiFetch("/novedades/me/")).rejects.toBeInstanceOf(DjangoUnavailableError);
+    expect(fetchMock).toHaveBeenCalledTimes(1); // sin reintentos
+    const logged = JSON.stringify(log.mock.calls);
+    expect(logged).toContain("ECONNREFUSED");
+    expect(logged).toContain("/novedades/me/");
+    expect(logged).not.toContain("access-secreto");
+    log.mockRestore();
+  });
+
+  it("un timeout (AbortError) se sigue propagando igual que antes", async () => {
+    store.set("nexo-django-access", "access-valido");
+    const abort = new DOMException("The operation was aborted due to timeout", "TimeoutError");
+    fetchMock.mockRejectedValue(abort);
+    await expect(djangoApiFetch("/tasks/")).rejects.toBe(abort);
+  });
+
+  it("usa 127.0.0.1 por defecto: runserver no escucha en IPv6 (::1)", async () => {
+    store.set("nexo-django-access", "access-valido");
+    fetchMock.mockResolvedValue(jsonResponse(200, {}));
+    await djangoApiFetch("/tasks/");
+    const url = String(fetchMock.mock.calls[0][0]);
+    expect(url.startsWith(process.env.DJANGO_API_URL || "http://127.0.0.1:8000/api/v1")).toBe(true);
+  });
+});

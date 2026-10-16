@@ -23,11 +23,17 @@ class Notification(models.Model):
     forma correcta de portar ese mismo mecanismo sin sobrecargar
     `task_id`."""
 
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, related_name="notifications", on_delete=models.CASCADE)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, related_name="notifications", on_delete=models.CASCADE
+    )
     message = models.TextField()
     task_id = models.PositiveBigIntegerField(null=True, blank=True, db_index=True)
     task_title = models.CharField(max_length=255, null=True, blank=True)
     dedup_key = models.CharField(max_length=100, null=True, blank=True, db_index=True)
+    # Categoría visual opcional (la campana la pinta con color + icono + texto):
+    # "deletion" (rojo) y "new_collaborator" (azul) las usa Control Operativo de
+    # Novedades. Vacía = notificación común, se ve como siempre.
+    category = models.CharField(max_length=30, blank=True, default="")
     read = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
 

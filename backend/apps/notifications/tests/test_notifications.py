@@ -60,3 +60,10 @@ def test_notification_survives_task_deletion():
     # No hay FK real a Task -> nada que borrar en cascada, la notificación persiste.
     notification.refresh_from_db()
     assert notification.task_id == 999
+
+
+def test_notify_many_keeps_category_and_skips_repeated_dedup_key(user, other_user):
+    notify_many(users=[user], message="Eliminado", category="deletion", dedup_key="k:1")
+    notify_many(users=[user, other_user], message="Eliminado", category="deletion", dedup_key="k:1")
+    assert Notification.objects.filter(user=user, dedup_key="k:1").count() == 1
+    assert Notification.objects.get(user=other_user).category == "deletion"

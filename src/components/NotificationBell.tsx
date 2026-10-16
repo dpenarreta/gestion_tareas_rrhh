@@ -10,7 +10,31 @@ type Notification = {
   taskTitle: string | null;
   taskAssignedToId: string | null;
   read: boolean;
+  category?: string;
   createdAt: string;
+};
+
+// Alertas administrativas con categoría (Control Operativo de Novedades). El
+// color nunca es la única señal: cada una lleva icono y etiqueta de texto.
+const ALERT_STYLES: Record<string, { label: string; border: string; text: string; icon: string }> = {
+  deletion: {
+    label: "Eliminación",
+    border: "border-l-4 border-l-danger",
+    text: "text-danger",
+    icon: "M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3M4 7h16",
+  },
+  status_change: {
+    label: "Inactivo / Suspendido",
+    border: "border-l-4 border-l-danger",
+    text: "text-danger",
+    icon: "M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636",
+  },
+  new_collaborator: {
+    label: "Nuevo colaborador",
+    border: "border-l-4 border-l-blue-600 dark:border-l-blue-400",
+    text: "text-blue-700 dark:text-blue-300",
+    icon: "M18 9v6m3-3h-6M13 7a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z",
+  },
 };
 
 type Props = {
@@ -38,9 +62,14 @@ export default function NotificationBell({ currentUserId }: Props) {
     // Late sola cada 30s: se marca como de fondo para que no cuente como
     // actividad y no mantenga viva una sesión que nadie está usando (ver
     // `SESSION_IDLE_TIMEOUT_HOURS` en el backend).
-    const res = await fetch("/api/notifications", {
-      headers: { "X-Nexo-Background": "1" },
-    });
+    let res: Response;
+    try {
+      res = await fetch("/api/notifications", {
+        headers: { "X-Nexo-Background": "1" },
+      });
+    } catch {
+      return; // sin red: se reintenta en el próximo ciclo, sin error sin manejar
+    }
     if (res.ok) {
       const data = await res.json();
       setUnread(data.unreadCount);
@@ -115,11 +144,14 @@ export default function NotificationBell({ currentUserId }: Props) {
                 Sin notificaciones
               </div>
             )}
-            {notifications.map((n) => (
+            {notifications.map((n) => {
+              const alert = n.category ? ALERT_STYLES[n.category] : undefined;
+              return (
               <div
                 key={n.id}
                 onClick={() => handleClick(n)}
-                className={`px-4 py-3 transition-colors ${
+                data-alert={alert ? n.category : undefined}
+                className={`px-4 py-3 transition-colors ${alert ? alert.border : ""} ${
                   n.read
                     ? "bg-surface"
                     : "bg-primary-surface hover:brightness-95 dark:hover:brightness-125"
@@ -130,6 +162,14 @@ export default function NotificationBell({ currentUserId }: Props) {
                     <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-primary shrink-0" />
                   )}
                   <div className={!n.read ? "" : "pl-3.5"}>
+                    {alert && (
+                      <p className={`flex items-center gap-1 text-xs font-semibold mb-0.5 ${alert.text}`}>
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d={alert.icon} />
+                        </svg>
+                        {alert.label}
+                      </p>
+                    )}
                     <p className="text-sm text-title leading-snug">{n.message}</p>
                     {n.taskTitle && (
                       <p className="text-[13px] text-secondary mt-0.5 truncate">{n.taskTitle}</p>
@@ -138,7 +178,8 @@ export default function NotificationBell({ currentUserId }: Props) {
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}

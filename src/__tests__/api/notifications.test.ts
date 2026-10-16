@@ -9,8 +9,10 @@ import type { SessionPayload } from "@/lib/session";
 vi.mock("@/lib/session", () => ({ getSession: vi.fn() }));
 
 const djangoApiFetch = vi.fn();
+class DjangoUnavailableError extends Error {}
 vi.mock("@/lib/djangoSession", () => ({
   djangoApiFetch: (...args: unknown[]) => djangoApiFetch(...args),
+  DjangoUnavailableError,
 }));
 
 const { getSession } = await import("@/lib/session");
@@ -53,6 +55,20 @@ function djangoResponse(ok: boolean, data: unknown, status = ok ? 200 : 400) {
 describe("GET /api/notifications", () => {
   beforeEach(resetAll);
 
+  it("503 con JSON si Django no responde (la campana no rompe)", async () => {
+    mockSession({});
+    djangoApiFetch.mockRejectedValue(new DjangoUnavailableError("down"));
+    const res = await notificationsGET();
+    expect(res.status).toBe(503);
+  });
+
+  it("un error 5xx de Django no se presenta como sesión vencida", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(false, {}, 500));
+    const res = await notificationsGET();
+    expect(res.status).toBe(500);
+  });
+
   it("responde 401 si no hay sesión", async () => {
     mockSession(null);
     const res = await notificationsGET();
@@ -82,6 +98,17 @@ describe("GET /api/notifications", () => {
             created_at: "2026-08-21T12:00:00Z",
             task_assigned_to_id: 7,
           },
+          {
+            id: 2,
+            user_id: 7,
+            message: "Registro de horas extras eliminado",
+            task_id: null,
+            task_title: null,
+            read: false,
+            category: "deletion",
+            created_at: "2026-08-21T12:05:00Z",
+            task_assigned_to_id: null,
+          },
         ],
         unread_count: 3,
       })
@@ -98,8 +125,20 @@ describe("GET /api/notifications", () => {
           taskId: "42",
           taskTitle: "Tarea X",
           read: false,
+          category: "",
           createdAt: "2026-08-21T12:00:00Z",
           taskAssignedToId: "7",
+        },
+        {
+          id: "2",
+          userId: "7",
+          message: "Registro de horas extras eliminado",
+          taskId: null,
+          taskTitle: null,
+          read: false,
+          category: "deletion",
+          createdAt: "2026-08-21T12:05:00Z",
+          taskAssignedToId: null,
         },
       ],
       unreadCount: 3,

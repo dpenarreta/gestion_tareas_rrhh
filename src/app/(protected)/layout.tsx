@@ -72,6 +72,7 @@ export default async function ProtectedLayout({
     <ConsentGate initialAccepted={dataConsentAccepted}>
       <AppShell
         role={session.role}
+        permissions={session.permissions ?? []}
         // `""` si no se pudo resolver: la comparación de `NotificationBell`
         // simplemente nunca da "es mía", degradado sin romper la página.
         djangoUserId={djangoUserId !== null ? String(djangoUserId) : ""}
