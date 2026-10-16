@@ -37,6 +37,8 @@ import { ErrorBox, Label, TextArea, TextInput } from "./fields";
 import { PERM, type OvertimeMonth, type OvertimeRecord } from "./types";
 import type { ModuleContext } from "./NovedadesModule";
 import ImportDialog from "./ImportDialog";
+import { useDragFill } from "./useDragFill";
+import { dragTargets } from "@/lib/dragFill";
 import {
   AUTOSAVE_DEBOUNCE_MS,
   SYNC_LABEL,
@@ -131,8 +133,6 @@ export default function OvertimeCapture({
   // Celda activa y rango vertical (una columna) para el relleno tipo Excel.
   const [active, setActive] = useState<{ r: number; c: number } | null>(null);
   const [range, setRange] = useState<{ c: number; r1: number; r2: number } | null>(null);
-  const [drag, setDrag] = useState<{ c: number; from: number; to: number } | null>(null);
-  const dragRef = useRef<{ c: number; from: number; to: number } | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [pasteOpen, setPasteOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
@@ -152,6 +152,17 @@ export default function OvertimeCapture({
   const flushRef = useRef<() => void>(() => {});
   const [deleting, setDeleting] = useState<{ key: string; target: OvertimeDeleteTarget } | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
+  // Arrastre del controlador de relleno, con desplazamiento automático de la
+  // tabla (compartido con Días laborados): al soltar, copia la celda origen en
+  // el rango con las mismas reglas de `fill`.
+  const dragFill = useDragFill({
+    containerRef: tableRef,
+    onCommit: ({ col, from, to }) => {
+      fill(col, from, dragTargets(from, to));
+      setRange({ c: col, r1: from, r2: to });
+    },
+  });
+  const drag = dragFill.drag;
 
   // El Asistente de Operaciones también registra y corrige fechas pasadas
   // (decisión del 2026-10-13); el servidor revalida plazo, equipo y cierre.
@@ -346,42 +357,6 @@ export default function OvertimeCapture({
       return;
     }
     if (active.r > 0) fill(active.c, active.r - 1, [active.r]);
-  }
-
-  function startDrag(e: ReactMouseEvent, r: number, c: number) {
-    e.preventDefault();
-    e.stopPropagation();
-    dragRef.current = { c, from: r, to: r };
-    setDrag(dragRef.current);
-    const onMove = (ev: MouseEvent) => {
-      const el = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>("[data-row]");
-      if (!el || !dragRef.current) return;
-      const to = Number(el.dataset.row);
-      if (to !== dragRef.current.to) {
-        dragRef.current = { ...dragRef.current, to };
-        setDrag(dragRef.current);
-      }
-    };
-    const finish = (apply: boolean) => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-      window.removeEventListener("keydown", onKey);
-      const current = dragRef.current;
-      dragRef.current = null;
-      setDrag(null);
-      if (apply && current && current.to !== current.from) {
-        const targets = rangeRows({ r1: current.from, r2: current.to }).filter((i) => i !== current.from);
-        fill(current.c, current.from, targets);
-        setRange({ c: current.c, r1: current.from, r2: current.to });
-      }
-    };
-    const onUp = () => finish(true);
-    const onKey = (ev: globalThis.KeyboardEvent) => {
-      if (ev.key === "Escape") finish(false); // cancela el arrastre sin aplicar
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    window.addEventListener("keydown", onKey);
   }
 
   function onCellKeyDown(e: KeyboardEvent<HTMLInputElement>) {
@@ -773,8 +748,7 @@ export default function OvertimeCapture({
                       }
                       const field = col.field;
                       const error = row.errors[field];
-                      const inDrag =
-                        drag && drag.c === c && r >= Math.min(drag.from, drag.to) && r <= Math.max(drag.from, drag.to);
+                      const inDrag = dragFill.inDrag(r, c);
                       const inRange =
                         range && range.c === c && r >= Math.min(range.r1, range.r2) && r <= Math.max(range.r1, range.r2);
                       const isActive = active?.r === r && active?.c === c;
@@ -800,7 +774,7 @@ export default function OvertimeCapture({
                           tabIndex={-1}
                           aria-label="Arrastre hacia abajo para copiar el valor (Esc cancela)"
                           title="Arrastre para copiar este valor a otras filas"
-                          onMouseDown={(e) => startDrag(e, r, c)}
+                          onMouseDown={(e) => dragFill.start(e, r, c)}
                           className="absolute -bottom-1 -right-1 z-10 w-2.5 h-2.5 bg-primary border border-white cursor-crosshair"
                         />
                       ) : null;
