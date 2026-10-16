@@ -23,6 +23,8 @@ import StatusChangeDialog from "./StatusChangeDialog";
 import ClosePeriodDialog from "./ClosePeriodDialog";
 import ImportDialog from "./ImportDialog";
 import CorrectionDialog from "./CorrectionDialog";
+import { useDragFill } from "./useDragFill";
+import { dragTargets } from "@/lib/dragFill";
 
 type CellError = { collaboratorId: number; date: string; message: string };
 const cellKey = (collaboratorId: number, date: string) => `${collaboratorId}|${date}`;
@@ -46,6 +48,13 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
   const [importOpen, setImportOpen] = useState(false);
   const [correction, setCorrection] = useState<{ row: MatrixRow; date: string } | null>(null);
   const tableRef = useRef<HTMLDivElement>(null);
+  // Celda activa (para el controlador de relleno) y arrastre tipo Excel con
+  // desplazamiento automático, compartido con Horas extras.
+  const [active, setActive] = useState<{ r: number; c: number } | null>(null);
+  const dragFill = useDragFill({
+    containerRef: tableRef,
+    onCommit: ({ col, from, to }) => fillColumn(col, from, dragTargets(from, to)),
+  });
 
   // Guardado automático: lo que la persona escribe se conserva aquí (y en el
   // respaldo local) hasta que el servidor lo confirma. Una sola petición en
@@ -245,6 +254,98 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
     const key = cellKey(row.collaboratorId, date);
     if (key in drafts) return drafts[key];
     return row.cells[date]?.hours ?? "";
+  }
+
+  /** Misma regla que deshabilita el input: fin de semana, fila no editable,
+   * plazo vencido o fecha futura (ya resuelto por el servidor para este
+   * usuario), celda de otro equipo, o colaborador no activo sin valor previo.
+   * El servidor vuelve a validar cada celda al guardar. */
+  function cellBlocked(row: MatrixRow, c: WorkedDaysMatrix["columns"][number]): boolean {
+    const rowEditable = row.editable ?? matrix?.editable ?? false;
+    const hasValue = (row.cells[c.date]?.hours ?? null) !== null;
+    const outOfTerm = c.deadlineState === "future" || c.deadlineState === "expired";
+    return (
+      c.isWeekend ||
+      !rowEditable ||
+      outOfTerm ||
+      Boolean(row.cells[c.date]?.otherTeam) ||
+      (row.status !== "ACTIVE" && !hasValue)
+    );
+  }
+
+  /** Relleno (arrastre): COPIA el valor de la celda origen en las filas
+   * destino de la misma fecha (nunca una serie). Cada destino pasa por
+   * `cellBlocked`: las bloqueadas no se tocan y se informan. Los cambios
+   * entran como borradores y se guardan en UN solo envío con el guardado
+   * automático habitual (lo que el servidor rechace queda marcado en rojo). */
+  function fillColumn(colIndex: number, sourceIndex: number, targets: number[]) {
+    const column = matrix?.columns[colIndex];
+    const source = rows[sourceIndex];
+    if (!column || !source) return;
+    const value = valueOf(source, column.date);
+    const before: Record<string, string | undefined> = {};
+    const changes: Record<string, string> = {};
+    const originals: Record<string, string> = {};
+    let skipped = 0;
+    for (const i of targets) {
+      const row = rows[i];
+      if (!row) continue;
+      if (cellBlocked(row, column)) {
+        skipped++;
+        continue;
+      }
+      if (valueOf(row, column.date) === value) continue;
+      const key = cellKey(row.collaboratorId, column.date);
+      before[key] = key in drafts ? drafts[key] : undefined;
+      originals[key] = row.cells[column.date]?.hours ?? "";
+      changes[key] = value;
+    }
+    const filled = Object.keys(changes).length;
+    if (!filled && !skipped) {
+      showToast("Las celdas de destino ya tienen ese valor.", "info");
+      return;
+    }
+    const apply = (values: Record<string, string | undefined>) =>
+      setDrafts((prev) => {
+        const next = { ...prev };
+        for (const [key, v] of Object.entries(values)) {
+          if (v === undefined || v === originals[key]) delete next[key];
+          else next[key] = v;
+        }
+        return next;
+      });
+    apply(changes);
+    setCellErrors((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => !(k in changes))));
+    if (filled) schedule(AUTOSAVE_DEBOUNCE_MS);
+    // Deshacer llega casi siempre DESPUÉS del autoguardado (el aviso dura más
+    // que AUTOSAVE_DEBOUNCE_MS): para entonces ya no hay borrador que quitar.
+    // Se vuelve a escribir el valor previo como borrador para que el guardado
+    // automático lo envíe; solo se omite donde el servidor ya lo tiene y no
+    // hay un envío en curso que todavía lo vaya a pisar.
+    const undo = () => {
+      const current = matrixRef.current;
+      setDrafts((prev) => {
+        const next = { ...prev };
+        for (const key of Object.keys(changes)) {
+          const desired = before[key] ?? originals[key];
+          const [cid, date] = key.split("|");
+          const saved = current?.rows.find((r) => r.collaboratorId === Number(cid))?.cells[date]?.hours ?? "";
+          if (desired === saved && !inFlight.current) delete next[key];
+          else next[key] = desired;
+        }
+        return next;
+      });
+      schedule(AUTOSAVE_DEBOUNCE_MS);
+    };
+    showToast(
+      `${formatDate(column.date)}: valor copiado en ${filled} fila(s)` +
+        (skipped ? `; ${skipped} bloqueada(s) sin cambios` : "") +
+        ". Se guarda automáticamente.",
+      skipped ? "warning" : "success",
+      filled
+        ? { label: "Deshacer", onClick: undo }
+        : undefined,
+    );
   }
 
   function onCellChange(row: MatrixRow, date: string, raw: string) {
@@ -451,10 +552,9 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
             </thead>
             <tbody>
               {rows.map((row, r) => {
-                const rowEditable = row.editable ?? matrix.editable;
                 const canCorrect = canCorrectClosed && (row.periodStatus ?? matrix.period.status) === "CLOSED";
                 return (
-                  <tr key={row.collaboratorId} className="group">
+                  <tr key={row.collaboratorId} data-row={r} className="group">
                     <td className="border-b border-r border-border px-2 py-1 whitespace-nowrap text-secondary">
                       {row.supervisorName ?? matrix.supervisor?.name}
                     </td>
@@ -485,16 +585,11 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
                       const value = valueOf(row, c.date);
                       const dirty = key in drafts;
                       const error = cellErrors[key];
-                      const hasValue = (row.cells[c.date]?.hours ?? null) !== null;
                       const otherTeam = row.cells[c.date]?.otherTeam;
-                      // Plazo por fecha ya resuelto por el servidor para este usuario.
-                      const outOfTerm = c.deadlineState === "future" || c.deadlineState === "expired";
-                      const blocked =
-                        c.isWeekend ||
-                        !rowEditable ||
-                        outOfTerm ||
-                        Boolean(otherTeam) ||
-                        (row.status !== "ACTIVE" && !hasValue);
+                      const blocked = cellBlocked(row, c);
+                      const inDrag = dragFill.inDrag(r, ci);
+                      const showHandle =
+                        active?.r === r && active?.c === ci && !dragFill.drag && !blocked && value.trim() !== "";
                       if (canCorrect && !c.isWeekend) {
                         return (
                           <td key={c.date} className="border-b border-r border-border p-0 text-center">
@@ -511,8 +606,14 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
                       return (
                         <td
                           key={c.date}
-                          className={`border-b border-r border-border p-0 ${c.isWeekend ? "bg-yellow-200" : ""} ${
-                            error ? "bg-danger/[.15]" : dirty ? "bg-warning/[.18]" : ""
+                          className={`relative border-b border-r border-border p-0 ${c.isWeekend ? "bg-yellow-200" : ""} ${
+                            inDrag
+                              ? "bg-primary-surface outline outline-1 outline-dashed outline-primary -outline-offset-1"
+                              : error
+                                ? "bg-danger/[.15]"
+                                : dirty
+                                  ? "bg-warning/[.18]"
+                                  : ""
                           }`}
                           title={
                             error ??
@@ -539,11 +640,24 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
                             onChange={(e) => onCellChange(row, c.date, e.target.value)}
                             onBlur={() => schedule(150)}
                             onKeyDown={onKeyDown}
-                            onFocus={(e) => e.target.select()}
+                            onFocus={(e) => {
+                              setActive({ r, c: ci });
+                              e.target.select();
+                            }}
                             className={`w-full h-7 px-1 text-center bg-transparent focus:outline-none focus:ring-2 focus:ring-primary focus:ring-inset ${
                               c.isWeekend ? "cursor-not-allowed text-yellow-900" : blocked ? "cursor-not-allowed text-secondary" : "text-title"
                             }`}
                           />
+                          {showHandle && (
+                            <span
+                              role="button"
+                              tabIndex={-1}
+                              aria-label={`Arrastre para copiar ${value} a otras filas (Esc cancela)`}
+                              title="Arrastre para copiar este valor a otras filas"
+                              onMouseDown={(e) => dragFill.start(e, r, ci)}
+                              className="absolute -bottom-1 -right-1 z-10 w-2.5 h-2.5 bg-primary border border-white cursor-crosshair"
+                            />
+                          )}
                         </td>
                       );
                     })}

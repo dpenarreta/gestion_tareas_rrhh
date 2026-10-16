@@ -23,6 +23,84 @@
 
 ---
 
+## v1.181.1 — 2026-10-16
+
+**Tipo:** FIX
+**Módulo:** Control Operativo de Novedades — Arrastre tipo Excel (v1.181.0):
+deshacer en Días laborados y arrastre hacia arriba bajo el encabezado fijo.
+
+- **«Deshacer» no revertía nada una vez guardado (Días laborados).** El aviso
+  con «Deshacer» dura 7 s y el relleno se guarda solo a los 1,2 s
+  (`AUTOSAVE_DEBOUNCE_MS`); deshacer solo restauraba el estado previo de los
+  borradores («sin borrador»), así que pasado el autoguardado la pantalla y el
+  servidor conservaban los valores copiados, sin ningún aviso. Ahora deshacer
+  vuelve a escribir el valor previo como borrador y el guardado automático lo
+  envía; solo se omite donde el servidor ya tiene ese valor y no hay un envío
+  en curso.
+- **Arrastrar hacia arriba no extendía el rango.** El encabezado de las dos
+  tablas es fijo (`sticky top-0`) dentro del contenedor que se desplaza: con el
+  puntero en el borde superior, `elementFromPoint` devolvía la celda del
+  encabezado y el rango se quedaba en la última fila vista, aunque la tabla
+  siguiera subiendo. `useDragFill` usa `elementsFromPoint` (toda la pila bajo
+  el punto) y toma la primera fila, que es la que el encabezado tapa.
+- **Archivos:** `src/components/novedades/WorkedDaysGrid.tsx`,
+  `src/components/novedades/useDragFill.ts`,
+  `src/__tests__/components/DragFill.test.tsx`.
+
+**Verificación:** 2 tests nuevos en `DragFill.test.tsx` (encabezado fijo que
+tapa filas al subir; deshacer después del autoguardado con un servidor que
+conserva lo guardado). Los dos fallan con el código de v1.181.0 y pasan con
+el arreglo. `tsc` sin errores, ESLint sin observaciones en los archivos
+tocados, Vitest 1349/1349. El test simulado previo de «rellena hacia arriba»
+no lo detectaba porque su `elementFromPoint` nunca devolvía el encabezado.
+
+**Autor:** dpenarreta + Claude Code.
+
+---
+
+## v1.181.0 — 2026-10-16
+
+**Tipo:** UX / REFACTOR
+**Módulo:** Control Operativo de Novedades — Arrastre tipo Excel con
+desplazamiento automático (Días laborados y Horas extras).
+
+- **Causa de la limitación en Horas extras:** el arrastre solo actualizaba el
+  rango al mover el mouse (`elementFromPoint` bajo el cursor) y nada
+  desplazaba el contenedor de la tabla; con el puntero en el borde no había más
+  movimiento posible, y fuera de la tabla el rango se congelaba en la última
+  fila visible.
+- **Mecanismo compartido** `useDragFill` (`src/components/novedades/useDragFill.ts`)
+  + cálculo puro `src/lib/dragFill.ts`: mientras se arrastra, un ciclo por
+  cuadro desplaza el **contenedor de la tabla** (nunca la página) cuando el
+  puntero está a menos de 48 px de un borde —o fuera de él—, con velocidad
+  progresiva (más rápido cuanto más cerca del borde, tope 22 px/cuadro), en
+  vertical y horizontal, y vuelve a calcular la fila de destino con el puntero
+  llevado al borde interior: el rango sigue a las filas que van apareciendo.
+  Termina al soltar; Escape o perder el foco de la ventana lo cancelan.
+- **Horas extras:** reutiliza su relleno existente (`fillColumn`, copia exacta,
+  celdas bloqueadas informadas, «Deshacer»); solo se reemplazó el seguimiento
+  del puntero por el mecanismo compartido.
+- **Días laborados:** nuevo controlador de relleno en la celda activa editable
+  con valor. Copia el valor exacto (sin series) en la misma fecha, sobre celdas
+  vacías o con valor; cada destino pasa por la misma regla que deshabilita la
+  celda (`cellBlocked`: fin de semana, plazo/fecha futura según el usuario
+  —incluido el permiso «Editar celdas de Días laborados»—, otro equipo,
+  inactivo sin valor, fila no editable) y las bloqueadas se informan sin
+  tocarlas. Los cambios entran como borradores y salen en UN envío con el
+  guardado automático habitual: el servidor revalida cada celda y lo rechazado
+  queda marcado en rojo (nunca «Guardado»). Aviso con «Deshacer».
+- Sin dependencias nuevas.
+
+- **Archivos:** `src/lib/dragFill.ts`, `src/components/novedades/useDragFill.ts`,
+  `src/components/novedades/{OvertimeCapture,WorkedDaysGrid}.tsx`.
+
+**Verificación:** `src/__tests__/lib/dragFill.test.ts` (8),
+`src/__tests__/components/DragFill.test.tsx` (5: hacia abajo y arriba más
+allá de lo visible, horizontal, Escape, bloqueadas, un solo envío, rechazo del
+servidor, Horas extras) y `backend/apps/novedades/tests/test_drag_fill_batch.py`
+(3: lote validado celda por celda, sobrescritura con historial).
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
 ## v1.180.1 — 2026-10-16
 
 **Tipo:** FIX
