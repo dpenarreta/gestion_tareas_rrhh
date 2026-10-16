@@ -1169,6 +1169,68 @@ roles). No modifica permisos de otros módulos. Solo verificado en desarrollo.
 **Autor:** Anthony Jácome (dirección de producto) + Claude Code.
 
 ---
+## v1.164.1 — 2026-10-13
+
+**Tipo:** SECURITY
+**Módulo:** Correo saliente — el envío nunca funcionó porque la contraseña SMTP
+jamás se configuró, y un fixture de test se parecía a la real
+(ver docs/AUDIT_LOG.md § 2026-10-13).
+
+### El correo no llegaba por una razón distinta a la documentada
+
+Desde v1.156.1 el sistema avisaba, correctamente, que `EMAIL_HOST_PASSWORD`
+contenía un carácter no-ASCII, y la solución documentada era *«cambiá la
+contraseña del buzón por una sin tildes»*. Esa indicación apuntaba al lugar
+equivocado.
+
+El valor en `backend/.env` del servidor era el **texto de ejemplo sin
+reemplazar**: una cadena entre ángulos, con un espacio en el medio, de la forma
+`<xx yyyyyyyyyy>`. La `ñ` que el sistema reportaba era la de la palabra
+«contraseña» del propio placeholder. Nunca hubo una credencial que autenticar.
+
+Cómo se descartó que fuera un problema de codificación: el RFC 4616 especifica
+que SASL PLAIN usa UTF-8 mientras Python fuerza ASCII, así que si el servidor
+aceptaba UTF-8 el arreglo habría sido de código. Se probaron las 3
+codificaciones plausibles (UTF-8, latin-1, cp1252) × 2 mecanismos (PLAIN y
+LOGIN): **las 6 fallaron con `535 Incorrect authentication data`**. También se
+descartaron los clásicos del parseo de `.env` (comillas incluidas en el valor,
+espacios al final, `\r`, comentario pegado).
+
+Con la credencial real cargada en el `.env` del servidor, `manage.py check`
+pasa sin advertencias y el envío de prueba a una dirección de otro dominio fue
+aceptado por el servidor. **Nada de esto es un cambio de código**: la
+configuración vive solo en el servidor.
+
+### El fixture de test se parecía a la contraseña real
+
+`test_credenciales_ascii_no_advierten` usaba como valor de ejemplo una cadena
+que comparte **los primeros 9 de los 10 caracteres** de la contraseña real del
+buzón de notificaciones. Estaba committeada y pusheada desde `ebb7f6c`
+(v1.156.1), en un repositorio cuya visibilidad no está confirmada y que ya
+contiene IPs internas. El test solo necesita *alguna* cadena con símbolos ASCII
+poco habituales: el valor concreto es irrelevante, y ahora es inventado.
+
+**El historial de git conserva el valor anterior**, así que esto reduce la
+exposición pero no la elimina: lo único que la cierra del todo es **rotar la
+contraseña del buzón** — pendiente, depende de quien lo administra.
+
+- **Archivos:** `backend/apps/core/tests/test_email_checks.py` (commit
+  `fca4ff1`, ya en `main`).
+
+### Pendiente relacionado, no corregido
+
+- El texto de la advertencia `nexo.email.W008` sigue diciendo «cambiá la
+  contraseña del buzón», que es la indicación que desvió el diagnóstico durante
+  semanas. El check debería además detectar un valor con forma de placeholder
+  (entre `<>`, con espacios) y decirlo con todas las letras.
+- `FRONTEND_URL` apunta a `http://10.0.2.33:4080`, la IP interna: el enlace de
+  recuperación funciona dentro de la red pero no desde afuera.
+
+**Verificación:** 32 tests de `apps/core/tests/test_email_checks.py` en verde
+tras el cambio de fixture. Envío real confirmado contra el servidor SMTP de
+producción (`235 Authentication succeeded` + mensaje aceptado para el
+destinatario). Se verificó que no queda ninguna coincidencia de la credencial
+en los archivos versionados del repositorio.
 
 ## v1.164.0 — 2026-10-02
 
