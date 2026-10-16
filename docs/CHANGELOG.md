@@ -23,6 +23,48 @@
 
 ---
 
+## v1.180.1 — 2026-10-16
+
+**Tipo:** FIX
+**Módulo:** Jerarquía de roles (`apps.hierarchy.services`) — los roles
+operativos de Control Operativo de Novedades dejan de contarse como equipo y
+como ejecutores de tareas.
+
+- **Síntoma (detectado en la revisión del PR #2, antes del merge):** el
+  ADMINISTRADOR habría visto a todo Supervisor, Asistente y Jefe de
+  Operaciones como colaborador sin tareas en Equipo, alertas y subutilización
+  de equipo, KPIs de equipo/capacidad/ejecutivo, Riesgo Operativo, Reportes
+  ejecutivos y el Dashboard — con 140 h esperadas al mes, bajando los
+  promedios del equipo y disparando alertas de subutilización.
+- **Causa:** las migraciones `novedades/0002` y `0009` dan al ADMINISTRADOR
+  visibilidad (`RoleVisibility`) sobre los 3 roles operativos, pero el
+  `ROLE_LEVEL` de Django no los incluye: caían en el nivel 0 por defecto y
+  `is_executor_group` (`< 4`) los trataba como ejecutores.
+- **Corrección:**
+  - `OPERATIONAL_ROLES` / `is_operational_group` en Django, réplica de
+    `OPERATIONAL_ROLES` de `src/lib/roles.ts`.
+  - `get_subordinate_groups` excluye los roles operativos (cubre Equipo,
+    `team-alerts`, `team-subutilization` y los KPIs de equipo) e
+    `is_executor_group` los devuelve como no ejecutores (cubre Dashboard y
+    Reportes).
+  - `get_visible_groups` no cambia: la gestión de usuarios los sigue viendo,
+    así el ADMINISTRADOR administra esas cuentas igual que antes.
+  - `isExecutorRole` (TS) excluye también los roles operativos, por paridad.
+- **Archivos:** `backend/apps/hierarchy/services.py`, `src/lib/roles.ts`,
+  `backend/apps/hierarchy/tests/test_services.py`,
+  `src/__tests__/roles.test.ts`.
+
+**Verificación:** 4 tests nuevos en `apps/hierarchy/tests/test_services.py`
+(cada rol operativo no es ejecutor; el ADMINISTRADOR los ve pero no son su
+equipo) y 2 en `src/__tests__/roles.test.ts`. `tsc` sin errores, Vitest
+1334/1334, `ruff`/`isort` y `black` sobre `services.py` sin observaciones. La
+suite de pytest no se corrió en esta sesión: su base de pruebas se crearía en
+el SQL Server de producción — pendiente de correr en un entorno de pruebas.
+
+**Autor:** dpenarreta + Claude Code.
+
+---
+
 ## v1.180.0 — 2026-10-16
 
 **Tipo:** FEATURE / SECURITY / DATABASE

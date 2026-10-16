@@ -7,6 +7,7 @@ import {
   canAccessReports,
   getVisibleRoles,
   isOperationalRole,
+  isExecutorRole,
   canUseDeskNotes,
 } from "@/lib/roles";
 import { getNavLinks } from "@/lib/navLinks";
@@ -164,5 +165,19 @@ describe("canAccessReports", () => {
         expect(canAccessReports(role)).toBe(false);
       }
     }
+  });
+});
+
+describe("isExecutorRole", () => {
+  it("excluye a los roles operativos: no ejecutan tareas (espejo de is_executor_group)", () => {
+    expect(isExecutorRole("SUPERVISOR_OPERACIONES")).toBe(false);
+    expect(isExecutorRole("ASISTENTE_OPERACIONES")).toBe(false);
+    expect(isExecutorRole("JEFE_OPERACIONES")).toBe(false);
+  });
+
+  it("mantiene ejecutores a los roles de tareas por debajo del nivel 4", () => {
+    expect(isExecutorRole("ASISTENTE_GH")).toBe(true);
+    expect(isExecutorRole("COORDINADOR_NACIONAL")).toBe(true);
+    expect(isExecutorRole("JEFE_NACIONAL")).toBe(false);
   });
 });

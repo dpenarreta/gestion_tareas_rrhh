@@ -18,8 +18,10 @@ from apps.hierarchy.services import (
     can_view_team,
     get_subordinate_executor_groups,
     get_subordinate_groups,
+    get_visible_groups,
     is_executor_group,
     is_leadership,
+    is_operational_group,
     role_level,
 )
 from apps.users.models import User
@@ -139,3 +141,29 @@ def test_get_subordinate_executor_groups_excludes_leadership():
 def test_get_subordinate_executor_groups_empty_without_group():
     user = User.objects.create_user(username="nogroup3", email="nogroup3@example.com", password="Sup3r-Secr3t!")
     assert get_subordinate_executor_groups(user) == []
+
+
+# --- Roles operativos de Control Operativo de Novedades ----------------------
+
+
+@pytest.mark.parametrize(
+    "name", ["SUPERVISOR_OPERACIONES", "ASISTENTE_OPERACIONES", "JEFE_OPERACIONES"]
+)
+def test_operational_groups_are_not_executors(name):
+    """No están en `ROLE_LEVEL`: sin la exclusión explícita caerían en el
+    nivel 0 por defecto y `< 4` los volvería ejecutores."""
+    group = Group.objects.get(name=name)
+    assert is_operational_group(group)
+    assert not is_executor_group(group)
+
+
+def test_administrador_team_excludes_operational_roles():
+    """El ADMINISTRADOR los ve (RoleVisibility, para gestionar sus cuentas)
+    pero no son su equipo: no aparecen en Equipo, alertas de equipo ni KPIs."""
+    admin = _user_with_group("admin_ops", "ADMINISTRADOR")
+    operational = {"SUPERVISOR_OPERACIONES", "ASISTENTE_OPERACIONES", "JEFE_OPERACIONES"}
+
+    assert operational <= {g.name for g in get_visible_groups(admin)}
+    assert not operational & {g.name for g in get_subordinate_groups(admin)}
+    assert not operational & {g.name for g in get_subordinate_executor_groups(admin)}
+    assert "ASISTENTE_GH" in {g.name for g in get_subordinate_executor_groups(admin)}
