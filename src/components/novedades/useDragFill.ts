@@ -46,13 +46,26 @@ export function useDragFill({
   const rowAt = useCallback(
     (p: Point): number | null => {
       const container = containerRef.current;
-      if (!container || typeof document.elementFromPoint !== "function") return null;
+      if (!container) return null;
       const box = container.getBoundingClientRect();
       const { x, y } = clampToBox(p, box);
-      const el = document.elementFromPoint(x, y)?.closest<HTMLElement>(`[${rowAttr}]`);
-      if (!el || !container.contains(el)) return null; // encabezado fijo u otra tabla
-      const row = Number(el.getAttribute(rowAttr));
-      return Number.isFinite(row) ? row : null;
+      // El encabezado es fijo (sticky) DENTRO del contenedor: en el borde
+      // superior, `elementFromPoint` devuelve su celda y no la fila que tapa.
+      // `elementsFromPoint` da toda la pila bajo el punto; se toma la primera
+      // fila, así el rango sigue a las filas que aparecen al subir.
+      const hits =
+        typeof document.elementsFromPoint === "function"
+          ? document.elementsFromPoint(x, y)
+          : typeof document.elementFromPoint === "function"
+            ? [document.elementFromPoint(x, y)]
+            : [];
+      for (const hit of hits) {
+        const el = hit?.closest<HTMLElement>(`[${rowAttr}]`);
+        if (!el || !container.contains(el)) continue; // encabezado u otra tabla
+        const row = Number(el.getAttribute(rowAttr));
+        if (Number.isFinite(row)) return row;
+      }
+      return null;
     },
     [containerRef, rowAttr],
   );
