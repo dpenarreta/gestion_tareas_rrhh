@@ -224,3 +224,19 @@ describe("Horas extras — guardado automático", () => {
     expect(screen.queryByRole("button", { name: /^Guardar/ })).not.toBeInTheDocument();
   });
 });
+
+describe("deadlineError — permiso «Editar celdas de Días laborados»", () => {
+  const base = {
+    today: "2026-10-12",
+    canBypassDeadline: false,
+    workedDays: { hours: 48, earliestOpenDate: "2026-10-08", canBypass: true },
+    overtime: { hours: 48, earliestOpenDate: "2026-10-08", canBypass: false },
+  };
+
+  it("levanta el plazo solo en Días laborados, nunca fechas futuras", async () => {
+    const { deadlineError } = await import("@/lib/novedadesAutosave");
+    expect(deadlineError("2026-10-07", base, "workedDays")).toBeNull();
+    expect(deadlineError("2026-10-07", base, "overtime")).toMatch(/plazo de esta fecha venció/);
+    expect(deadlineError("2026-10-13", base, "workedDays")).toMatch(/Fecha futura/);
+  });
+});

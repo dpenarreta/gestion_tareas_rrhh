@@ -41,8 +41,10 @@ export function isRetryable(status: number): boolean {
 export type DeadlineRules = {
   today: string;
   canBypassDeadline: boolean;
-  workedDays: { hours: number; earliestOpenDate: string };
-  overtime: { hours: number; earliestOpenDate: string };
+  /** `canBypass`: plazo vencido editable para ESTE tipo (rol, o el permiso
+   * "Editar celdas de Días laborados" solo en Días laborados). */
+  workedDays: { hours: number; earliestOpenDate: string; canBypass?: boolean };
+  overtime: { hours: number; earliestOpenDate: string; canBypass?: boolean };
 };
 
 /** Error de plazo para una fecha (aaaa-mm-dd), con la misma regla que el
@@ -54,7 +56,8 @@ export function deadlineError(
 ): string | null {
   if (!rules || !date) return null;
   if (date > rules.today) return "Fecha futura: no se registran novedades por adelantado.";
-  if (!rules.canBypassDeadline && date < rules[kind].earliestOpenDate) {
+  const canBypass = rules[kind].canBypass ?? rules.canBypassDeadline;
+  if (!canBypass && date < rules[kind].earliestOpenDate) {
     return "El plazo de esta fecha venció: solicite la corrección al Asistente de Operaciones o al Administrador.";
   }
   return null;

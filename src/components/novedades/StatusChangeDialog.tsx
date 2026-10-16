@@ -30,7 +30,13 @@ export default function StatusChangeDialog({ collaborator, onClose, onDone }: Pr
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const needsReason = status !== "ACTIVE";
-  const isExit = collaborator.status === "ACTIVE" && status === "INACTIVE";
+  // Activo → Inactivo y Activo → Suspendido envían su correo (contenido distinto).
+  const mailKind =
+    collaborator.status === "ACTIVE" && status === "INACTIVE"
+      ? "de salida"
+      : collaborator.status === "ACTIVE" && status === "SUSPENDED"
+        ? "de suspensión"
+        : null;
 
   async function submit() {
     setSaving(true);
@@ -80,7 +86,7 @@ export default function StatusChangeDialog({ collaborator, onClose, onDone }: Pr
         {needsReason && (
           <p className="text-xs text-secondary">
             El historial y las horas ya registradas se conservan. Se notificará al Administrador de inmediato.
-            {isExit && " Además se enviará por correo la notificación de salida con el detalle de Días laborados del período."}
+            {mailKind && ` Además se enviará por correo la notificación ${mailKind} con el detalle de Días laborados del período.`}
           </p>
         )}
         <ErrorBox message={error} />

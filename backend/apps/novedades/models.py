@@ -586,7 +586,8 @@ class CollaboratorNotificationRecipient(models.Model):
 
     class Kind(models.TextChoices):
         ENTRY = "ENTRY", "Ingreso"
-        EXIT = "EXIT", "Salida"
+        # Una sola lista para Inactivo y Suspendido (cambios de estado).
+        EXIT = "EXIT", "Cambio de estado"
 
     class Area(models.TextChoices):
         OPERACIONES = "OPERACIONES", "Operaciones"

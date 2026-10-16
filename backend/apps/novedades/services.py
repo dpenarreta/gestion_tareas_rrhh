@@ -876,11 +876,12 @@ class CollaboratorService:
                     category=ALERT_STATUS_CHANGE,
                     dedup_key=f"novedades:status-change:{status_change.pk}",
                 )
-            if (
-                previous == Collaborator.Status.ACTIVE
-                and new_status == Collaborator.Status.INACTIVE
+            if previous == Collaborator.Status.ACTIVE and new_status in (
+                Collaborator.Status.INACTIVE,
+                Collaborator.Status.SUSPENDED,
             ):
-                # Correo de salida: el evento se registra en la MISMA
+                # Correo de cambio de estado (Activo → Inactivo o Suspendido;
+                # ninguna otra transición): el evento se registra en la MISMA
                 # transacción que el cambio (si el cambio falla, no hay
                 # evento) y el envío corre después de confirmarla.
                 collaborator.exit_notification_event = ExitNotificationService.register(
@@ -1123,7 +1124,8 @@ class WorkedDayService:
             )
             label = deadline_label(deadline)
             if now >= deadline:
-                return ("late" if acc.can_bypass_deadline else "expired"), label
+                late_ok = acc.can_bypass_deadline_for(RecordDeadlineService.WORKED_DAYS)
+                return ("late" if late_ok else "expired"), label
             return "", label
 
         columns = []
@@ -1464,7 +1466,7 @@ class WorkedDayService:
                         "date": day,
                         "old": old,
                         "new": value,
-                        "reason": RecordDeadlineService.LATE_REASON if late else "",
+                        "reason": RecordDeadlineService.late_reason(acc) if late else "",
                     }
                 )
             if changes:
@@ -1584,6 +1586,14 @@ class RecordDeadlineService:
         "(lunes a viernes sin feriados), hora de Ecuador (UTC-5)."
     )
     LATE_REASON = "Registro fuera de plazo (excepción de Asistente/Administrador)"
+    LATE_REASON_PERMISSION = "Corrección fuera de plazo (permiso «Editar celdas de Días laborados»)"
+
+    @staticmethod
+    def late_reason(acc: NovedadesAccess) -> str:
+        """Motivo que queda en el historial de una escritura fuera de plazo."""
+        if acc.can_bypass_deadline:
+            return RecordDeadlineService.LATE_REASON
+        return RecordDeadlineService.LATE_REASON_PERMISSION
 
     @staticmethod
     def window_start(day: date) -> datetime:
@@ -1624,7 +1634,7 @@ class RecordDeadlineService:
         expired = (now or timezone.now()) >= deadline
         if not expired:
             return False
-        if acc.can_bypass_deadline:
+        if acc.can_bypass_deadline_for(kind):
             return True
         raise NovedadesError(
             f"El plazo para registrar {day:%d/%m/%Y} venció el {deadline_label(deadline)}. "
@@ -1656,6 +1666,7 @@ class RecordDeadlineService:
             "mode": RecordDeadlineService.MODE,
             **{
                 kind: {
+                    "can_bypass": acc.can_bypass_deadline_for(kind),
                     "hours": RecordDeadlineService.hours_for(kind, today()),
                     "earliest_open_date": RecordDeadlineService.earliest_open_date(
                         kind, holidays=holidays
@@ -3911,7 +3922,9 @@ def _normalize_email(value) -> str:
 
 
 RecipientKind = CollaboratorNotificationRecipient.Kind
+# Nombre técnico (auditoría) y nombre de la lista (mensajes) por tipo.
 KIND_LABELS = {RecipientKind.ENTRY: "ingreso", RecipientKind.EXIT: "salida"}
+LIST_NAMES = {RecipientKind.ENTRY: "ingresos", RecipientKind.EXIT: "cambios de estado"}
 
 
 class NotificationRecipientService:
@@ -3951,7 +3964,7 @@ class NotificationRecipientService:
             duplicate = duplicate.exclude(pk=exclude_pk)
         if duplicate.exists():
             raise NovedadesError(
-                f"{email} ya está en la lista de {KIND_LABELS[kind]}s.",
+                f"{email} ya está en la lista de {LIST_NAMES[kind]}.",
                 code="duplicate",
                 status=409,
                 details={"email": "Duplicado."},
@@ -4020,7 +4033,7 @@ class NotificationRecipientService:
                 )
         except IntegrityError as exc:  # dos altas simultáneas de la misma dirección
             raise NovedadesError(
-                f"{email} ya está en la lista de {KIND_LABELS[kind]}s.",
+                f"{email} ya está en la lista de {LIST_NAMES[kind]}.",
                 code="duplicate",
                 status=409,
             ) from exc
@@ -4061,7 +4074,7 @@ class NotificationRecipientService:
                 r.save()
         except IntegrityError as exc:
             raise NovedadesError(
-                f"{r.email} ya está en la lista de {KIND_LABELS[r.kind]}s.",
+                f"{r.email} ya está en la lista de {LIST_NAMES[r.kind]}.",
                 code="duplicate",
                 status=409,
             ) from exc
@@ -4212,7 +4225,7 @@ class CollaboratorMailService:
     @staticmethod
     def subject(kind: str, snapshot: dict) -> str:
         name = " ".join(str(snapshot["collaborator"]["full_name"]).split())  # sin saltos de línea
-        title = CollaboratorMailService.handler(kind).SUBJECT
+        title = CollaboratorMailService.handler(kind).subject_title(snapshot)
         return f"{settings.SYSTEM_NAME.upper()} | {title} — {name}"
 
     @staticmethod
@@ -4405,8 +4418,20 @@ class ExitNotificationService:
 
     MODEL = CollaboratorExitNotification
     RELATED = ("collaborator", "supervisor", "changed_by", "period")
-    SUBJECT = "Notificación de salida de colaborador"
     NO_RECIPIENTS = CollaboratorMailService.NO_RECIPIENTS
+
+    @staticmethod
+    def is_suspension(s: dict) -> bool:
+        # Las copias anteriores a la suspensión (2026-10-16) no guardan el código.
+        return s.get("new_status_code") == Collaborator.Status.SUSPENDED or (
+            "new_status_code" not in s and s.get("new_status") == "Suspendido"
+        )
+
+    @staticmethod
+    def subject_title(s: dict) -> str:
+        if ExitNotificationService.is_suspension(s):
+            return "Notificación de suspensión de colaborador"
+        return "Notificación de salida de colaborador"
 
     @staticmethod
     def build_snapshot_for(
@@ -4420,6 +4445,7 @@ class ExitNotificationService:
             "changed_at_label": business_stamp(changed_at),
             "previous_status": labels[previous],
             "new_status": labels[new],
+            "new_status_code": new,
         }
 
     @staticmethod
@@ -4438,8 +4464,9 @@ class ExitNotificationService:
     def content(s: dict) -> dict:
         system = settings.SYSTEM_NAME.upper()
         c = s["collaborator"]
+        suspension = ExitNotificationService.is_suspension(s)
         return {
-            "title": "Notificación de salida de colaborador",
+            "title": ExitNotificationService.subject_title(s),
             "header_line": (
                 f"Cambio registrado el {s['changed_at_label']} · Período operativo "
                 f"{s['period']['label']} ({s['period']['start_date']} al {s['period']['end_date']})"
@@ -4463,8 +4490,12 @@ class ExitNotificationService:
             ],
             "footer": (
                 f"Mensaje automático de {system}. Describe el cambio de estado registrado en el "
-                "sistema; no constituye por sí mismo constancia de una terminación laboral ni de "
-                "trámites asociados."
+                "sistema; no indica su motivo ni constituye por sí mismo una sanción, la "
+                "suspensión formal de la relación laboral ni trámites asociados."
+                if suspension
+                else f"Mensaje automático de {system}. Describe el cambio de estado registrado en "
+                "el sistema; no constituye por sí mismo constancia de una terminación laboral ni "
+                "de trámites asociados."
             ),
         }
 
@@ -4518,6 +4549,7 @@ class ExitNotificationService:
         c = event.collaborator
         sent = event.status == CollaboratorExitNotification.Status.SENT
         delivered = sum(1 for r in _recipient_summary(event) if r["status"] == "SENT")
+        what = "suspensión" if event.new_status == Collaborator.Status.SUSPENDED else "salida"
         EventService.log(
             actor=event.changed_by,
             action="exit_notification.sent" if sent else "exit_notification.failed",
@@ -4528,9 +4560,9 @@ class ExitNotificationService:
             target_label=f"{c.full_name} ({c.cedula})",
             field="exit_notification",
             new_value=(
-                f"Correo de salida enviado a {delivered} destinatario(s)"
+                f"Correo de {what} enviado a {delivered} destinatario(s)"
                 if sent
-                else f"Correo de salida no enviado (intento {event.attempts}): {event.last_error}"
+                else f"Correo de {what} no enviado (intento {event.attempts}): {event.last_error}"
             ),
         )
 
@@ -4584,7 +4616,10 @@ class EntryNotificationService:
 
     MODEL = CollaboratorEntryNotification
     RELATED = ("collaborator", "supervisor", "created_by", "period")
-    SUBJECT = "Notificación de ingreso de nuevo colaborador"
+
+    @staticmethod
+    def subject_title(s: dict) -> str:
+        return "Notificación de ingreso de nuevo colaborador"
 
     @staticmethod
     def register(collaborator, actor) -> CollaboratorEntryNotification:

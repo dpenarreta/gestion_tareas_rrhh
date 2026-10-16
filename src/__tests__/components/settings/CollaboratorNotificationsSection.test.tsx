@@ -62,6 +62,23 @@ async function open() {
 }
 
 describe("CollaboratorNotificationsSection", () => {
+  it("distingue en el historial una suspensión de un paso a Inactivo", async () => {
+    const exitEvent = (id: number, newStatus: string) => ({
+      ...ENTRY_EVENT, id, kind: "EXIT", newStatus, firstDay: null, secondDay: null, status: "SENT", statusLabel: "Enviado", lastError: "",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) =>
+        String(url).includes("recipients")
+          ? json(200, config([recipient(1, "EXIT", "th@empresa.com")]))
+          : json(200, [exitEvent(1, "SUSPENDED"), exitEvent(2, "INACTIVE")]),
+      ),
+    );
+    await open();
+    expect(await screen.findByText("Suspensión")).toBeInTheDocument();
+    expect(screen.getByText("Inactivo")).toBeInTheDocument();
+  });
+
   it("muestra dos listas independientes y agrega a la lista de ingresos", async () => {
     const posts: unknown[] = [];
     let recipients = [recipient(1, "EXIT", "jefatura@empresa.com")];
@@ -81,7 +98,7 @@ describe("CollaboratorNotificationsSection", () => {
     );
     await open();
     const entry = await screen.findByRole("region", { name: /Destinatarios de notificaciones de ingreso/ });
-    const exit = screen.getByRole("region", { name: /Destinatarios de notificaciones de salida/ });
+    const exit = screen.getByRole("region", { name: /Destinatarios de cambios de estado \(Inactivo y Suspendido\)/ });
     expect(within(exit).getByText("jefatura@empresa.com")).toBeInTheDocument();
     expect(within(entry).queryByText("jefatura@empresa.com")).not.toBeInTheDocument();
     expect(within(entry).getByText(/Sin destinatarios activos/)).toBeInTheDocument();
@@ -125,6 +142,18 @@ describe("CollaboratorNotificationsSection", () => {
     await open();
     expect(await screen.findByText(/Solo el Administrador/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Agregar" })).not.toBeInTheDocument();
+  });
+});
+
+describe("StatusChangeDialog — notificación de suspensión", () => {
+  it("Activo → Suspendido anuncia el correo de suspensión", async () => {
+    render(
+      <ToastProvider>
+        <StatusChangeDialog collaborator={{ id: 3, fullName: "Ana Pérez", status: "ACTIVE" }} onClose={vi.fn()} onDone={vi.fn()} />
+      </ToastProvider>,
+    );
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "SUSPENDED" } });
+    expect(screen.getByText(/se enviará por correo la notificación de suspensión/)).toBeInTheDocument();
   });
 });
 

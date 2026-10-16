@@ -23,6 +23,61 @@
 
 ---
 
+## v1.180.0 — 2026-10-16
+
+**Tipo:** FEATURE / SECURITY / DATABASE
+**Módulo:** Control Operativo de Novedades — Notificación de suspensión,
+destinatarios de cambios de estado y permiso «Editar celdas de Días laborados».
+
+- **Correo de suspensión.** Activo → Suspendido envía su propio correo
+  («NEXO | Notificación de suspensión de colaborador — …», con mensaje y pie
+  propios: no indica el motivo ni lo presenta como sanción o suspensión formal)
+  a la misma lista que el paso a Inactivo. Mismo evento persistente
+  (`CollaboratorExitNotification`), misma tabla de Días laborados, mismo
+  envío por destinatario, reintentos y control de duplicados. Ninguna otra
+  transición notifica (desde Suspendido o desde Inactivo, no).
+- **Lista B = «cambios de estado».** En Ajustes → Notificaciones de
+  colaboradores, la lista de salidas pasa a llamarse «Destinatarios de cambios
+  de estado (Inactivo y Suspendido)»; conserva sus direcciones. El historial
+  distingue Ingreso, Inactivo y Suspensión. Migración `novedades/0012`
+  (solo la etiqueta del tipo).
+- **Permiso «Editar celdas de Días laborados»** (`novedades.dias_editar`,
+  migración `permissions/0010`). Decisión del usuario: quien lo tiene corrige
+  celdas vacías y con valor de su propio alcance **aunque haya vencido el plazo
+  por fecha** (p. ej. un Supervisor cambia 8 → 7 de la semana pasada). Se
+  administra en Ajustes → Permisos del módulo (por rol o como excepción
+  individual, con motivo, revocación y auditoría). Configurable para Supervisor
+  y Asistente; no disponible para el Jefe de Operaciones. Sigue exigiendo
+  `registrar` y nunca habilita otros equipos, períodos cerrados, fines de
+  semana, fechas futuras ni Horas extras. El Asistente conserva lo que ya tenía
+  por su rol. Cada corrección queda en el historial con valor anterior y nuevo
+  y el motivo «Corrección fuera de plazo (permiso…)»; la pantalla marca la
+  columna como «fuera de plazo» editable.
+- **Rol ADMINISTRADOR:** la migración `permissions/0011` le siembra
+  `novedades.dias_editar` y también `novedades.ingresos_ver` /
+  `novedades.salidas_ver` (v1.177.0), que habían quedado sin sembrar: el rol
+  debe tener todo el catálogo explícito en la base (regla de `0004`). Lo
+  detectó la prueba `test_administrador_receives_every_catalog_codename`.
+- **Ingresos (sin cambios):** se verificó el correo de nuevo ingreso
+  (formulario e importación `NUEVO INGRESO` de v1.179.0, segundo día válido,
+  dos períodos); no se modificó.
+
+- **Archivos:** `backend/apps/novedades/{access,services,models}.py`,
+  `backend/apps/permissions/catalog.py`, migraciones `novedades/0012`,
+  `permissions/0010` y `permissions/0011`, `src/lib/novedadesAutosave.ts`,
+  `src/components/novedades/StatusChangeDialog.tsx`,
+  `src/components/settings/{CollaboratorNotificationsSection.tsx,registry.ts}`,
+  `docs/RAT.md`.
+
+**Verificación:** `test_worked_days_edit_permission.py` (9 tests),
+`test_exit_notifications.py` (+3 de suspensión; la prueba de transiciones
+que no notifican se reescribió porque Activo → Suspendido ahora sí notifica),
+`CollaboratorNotificationsSection.test.tsx` y `NovedadesAutosave.test.tsx`.
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
 ## v1.179.0 — 2026-10-16
 
 **Tipo:** FEATURE

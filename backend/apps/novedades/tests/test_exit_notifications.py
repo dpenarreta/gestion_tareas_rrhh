@@ -210,15 +210,81 @@ def test_repeating_the_request_does_not_send_twice(client_for, supervisor, team)
 
 
 @pytest.mark.parametrize(
-    "path",
-    [("ACTIVE", "SUSPENDED"), ("SUSPENDED", "INACTIVE"), ("SUSPENDED", "ACTIVE")],
+    "start, target",
+    [
+        ("SUSPENDED", "INACTIVE"),
+        ("SUSPENDED", "ACTIVE"),
+        ("INACTIVE", "ACTIVE"),
+        ("INACTIVE", "SUSPENDED"),
+    ],
 )
-def test_other_transitions_do_not_notify(supervisor, team, path):
+def test_other_transitions_do_not_notify(supervisor, team, start, target):
+    """Solo Activo → Inactivo y Activo → Suspendido notifican (2026-10-16)."""
     ana, _ = team
-    for status in path:
-        CollaboratorService.change_status(access(supervisor), ana.pk, status, "Motivo")
+    Collaborator.objects.filter(pk=ana.pk).update(status=start)  # punto de partida
+    CollaboratorService.change_status(access(supervisor), ana.pk, target, "Motivo")
+    assert Collaborator.objects.get(pk=ana.pk).status == target
     assert not CollaboratorExitNotification.objects.exists()
     assert mail.outbox == []
+
+
+# ── Activo → Suspendido (2026-10-16): misma lista, contenido propio ───────────
+
+
+def test_suspension_sends_its_own_mail_to_the_status_change_list(client_for, supervisor, team):
+    ana, _ = team
+    response = client_for(supervisor).post(
+        f"{BASE}/collaborators/{ana.pk}/status/",
+        {"status": "SUSPENDED", "reason": "Permiso sin goce"},
+        format="json",
+    )
+    assert response.status_code == 200
+    assert response.json()["exit_notification"]["status"] == "SENT"
+    event = CollaboratorExitNotification.objects.get()
+    assert (event.previous_status, event.new_status) == ("ACTIVE", "SUSPENDED")
+    assert sorted(m.to[0] for m in mail.outbox) == [
+        "operaciones@example.com",
+        "talento@example.com",
+    ]
+    msg = mail.outbox[0]
+    assert msg.subject == "NEXO | Notificación de suspensión de colaborador — Ana Pérez"
+    html = msg.alternatives[0][0]
+    assert "Notificación de suspensión de colaborador" in html
+    assert "Suspendido" in html and "no indica su motivo" in html
+    assert "Permiso sin goce" not in html  # el motivo nunca va en el correo
+    assert "terminación laboral" not in html  # no es el texto de la salida
+    # Misma tabla de Días laborados que la salida.
+    assert event.snapshot["total"] == "15.5" and len(event.snapshot["columns"]) == 30
+
+
+def test_inactive_and_suspended_mails_are_different(supervisor, team):
+    ana, beto = team
+    CollaboratorService.change_status(access(supervisor), ana.pk, "INACTIVE", "Salida")
+    CollaboratorService.change_status(access(supervisor), beto.pk, "SUSPENDED", "Revisión")
+    subjects = {m.subject for m in mail.outbox}
+    assert subjects == {
+        "NEXO | Notificación de salida de colaborador — Ana Pérez",
+        "NEXO | Notificación de suspensión de colaborador — Beto Ríos",
+    }
+
+
+def test_suspension_same_status_failure_and_retry(client_for, admin, supervisor, team, monkeypatch):
+    ana, _ = team
+    _smtp_down(monkeypatch)
+    CollaboratorService.change_status(access(supervisor), ana.pk, "SUSPENDED", "Revisión")
+    assert Collaborator.objects.get(pk=ana.pk).status == "SUSPENDED"  # el cambio se conserva
+    event = CollaboratorExitNotification.objects.get()
+    assert event.status == "FAILED"
+    # Guardar el mismo estado otra vez no crea otro evento.
+    CollaboratorService.change_status(access(supervisor), ana.pk, "SUSPENDED", "Revisión")
+    assert CollaboratorExitNotification.objects.count() == 1
+    monkeypatch.setattr(EmailMultiAlternatives, "send", REAL_SEND)
+    result = client_for(admin).post(
+        f"{BASE}/collaborator-notifications/events/EXIT/{event.pk}/retry/"
+    )
+    assert result.json()["status"] == "SENT" and len(mail.outbox) == 2
+    ExitNotificationService.retry_pending()
+    assert len(mail.outbox) == 2  # sin duplicados
 
 
 def test_editing_other_fields_does_not_notify(supervisor, team):

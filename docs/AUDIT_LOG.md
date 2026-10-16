@@ -15,6 +15,39 @@
 
 ---
 
+## 2026-10-16 — Correo de suspensión y permiso para corregir Días laborados fuera de plazo
+
+**Cómo apareció:** pedido explícito: notificar también Activo → Suspendido a
+los destinatarios de cambios de estado, y un permiso configurable para editar
+celdas de Días laborados.
+
+**Lo que había (verificado):** el backend no distingue entre editar una celda
+vacía o con valor; lo que limita es `registrar`, el equipo y el plazo por
+fecha (48 h hábiles). El Supervisor no corrige vencido el plazo; el Asistente y
+el Administrador sí, por rol. El Jefe de Operaciones solo consulta.
+
+**Decisiones del usuario:** el permiso permite corregir FUERA DE PLAZO dentro
+del propio alcance (no da edición a quien hoy solo consulta); el Asistente
+conserva su comportamiento por rol.
+
+**Alternativas consideradas:**
+- *Un permiso que también habilite a quien solo consulta (Jefe).* Descartado
+  por el usuario.
+- *Una pantalla nueva de permisos.* Descartado: el módulo ya tiene permisos
+  por rol y excepciones individuales auditadas en Ajustes; el permiso nuevo se
+  administra ahí.
+- *Una lista nueva para suspensiones.* Descartado: el pedido usa los mismos
+  destinatarios de cambios de estado; se reutiliza la lista de salidas.
+
+**Decisión técnica:** `novedades.dias_editar` en el catálogo y en la matriz
+de roles; `NovedadesAccess.can_bypass_deadline_for(kind)` levanta el plazo
+solo para Días laborados, en el único punto que lo valida
+(`RecordDeadlineService.check`, usado por la edición, la importación y la
+pantalla). La suspensión reutiliza el evento y el motor de la salida con
+asunto y contenido propios.
+
+---
+
 ## 2026-10-15 — Correo de ingreso al segundo día válido y listas separadas
 
 **Cómo apareció:** pedido explícito de notificar por correo el ingreso de

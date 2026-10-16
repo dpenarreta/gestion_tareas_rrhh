@@ -331,6 +331,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-10-16: Suspension y permiso de edicion (v1.180.0)
 - 2026-10-16: Columna nuevo ingreso en la importacion (v1.179.0)
 - 2026-10-15: Notificacion de ingreso de colaboradores (v1.178.0)
 - 2026-10-14: Ingresos y salidas con permisos por usuario (v1.177.0)

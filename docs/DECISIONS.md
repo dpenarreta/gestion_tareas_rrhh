@@ -8,6 +8,8 @@
 
 | Decisión | Motivo técnico | Detalle completo |
 |---|---|---|
+| Activo → Suspendido envía su propio correo a la lista de cambios de estado (la misma de Inactivo); ninguna otra transición notifica (2026-10-16) | Pedido del usuario; mismo evento, envío y reintentos que la salida | [AUDIT_LOG § 2026-10-16](AUDIT_LOG.md) |
+| Permiso «Editar celdas de Días laborados»: corrige fuera de plazo dentro del propio alcance, solo Días laborados; el Asistente conserva su rol (2026-10-16) | Decisión del usuario; se administra con los permisos y excepciones del módulo ya existentes | [AUDIT_LOG § 2026-10-16](AUDIT_LOG.md) |
 | La importación de la base marca nuevos ingresos con la columna `NUEVO INGRESO` (X o vacía; otro valor rechaza la fila), solo en altas (2026-10-16) | Decisión del usuario; mantiene la marca explícita y nunca reclasifica a un colaborador existente | [AUDIT_LOG § 2026-10-15](AUDIT_LOG.md) |
 | Correo de ingreso solo para altas marcadas «nuevo ingreso», al segundo día con horas > 0 (2026-10-15) | NEXO no distingue de otro modo un ingreso real de la carga de un equipo existente; sin envíos retroactivos ni por importación | [AUDIT_LOG § 2026-10-15](AUDIT_LOG.md) |
 | Listas de destinatarios independientes (ingreso / salida) y un correo por destinatario con estado propio (2026-10-15) | Reintentos sin repetir a quien ya lo recibió; una dirección puede estar en ambas listas | [AUDIT_LOG § 2026-10-15](AUDIT_LOG.md) |

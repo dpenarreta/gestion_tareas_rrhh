@@ -48,6 +48,11 @@ CORREGIR = "novedades.corregir_cerrado"
 ADMINISTRAR = "novedades.administrar"
 PERMISOS = "novedades.permisos_gestionar"
 DEPURAR = "novedades.depurar"
+# Editar celdas de Días laborados (2026-10-16): corrige celdas vacías o con
+# valor de su propio alcance AUNQUE haya vencido el plazo por fecha. No da
+# REGISTRAR, ni otros equipos, ni períodos cerrados, fines de semana o fechas
+# futuras: solo levanta el plazo, y solo en Días laborados.
+DIAS_EDITAR = "novedades.dias_editar"
 
 ALL_CODENAMES = (
     ACCEDER,
@@ -62,6 +67,7 @@ ALL_CODENAMES = (
     ADMINISTRAR,
     PERMISOS,
     DEPURAR,
+    DIAS_EDITAR,
 )
 
 # Solo para usuarios fuera de los roles operativos (p. ej. ADMINISTRADOR).
@@ -84,6 +90,7 @@ ROLE_MATRIX = {
         ADMINISTRAR: "unavailable",
         PERMISOS: "unavailable",
         DEPURAR: "unavailable",
+        DIAS_EDITAR: "configurable",
     },
     ASSISTANT_ROLE: {
         ACCEDER: "configurable",
@@ -100,6 +107,8 @@ ROLE_MATRIX = {
         ADMINISTRAR: "unavailable",
         PERMISOS: "unavailable",
         DEPURAR: "unavailable",
+        # Ya corrige fuera de plazo por su rol; concederlo no cambia eso.
+        DIAS_EDITAR: "configurable",
     },
     # Consulta (Días laborados y Horas extras originales) y depuración.
     # Nada que escriba en las bases originales está disponible.
@@ -116,6 +125,7 @@ ROLE_MATRIX = {
         ADMINISTRAR: "unavailable",
         PERMISOS: "unavailable",
         DEPURAR: "mandatory",
+        DIAS_EDITAR: "unavailable",
     },
 }
 
@@ -254,6 +264,14 @@ class NovedadesAccess:
         """Puede registrar o corregir una fecha cuyo plazo ya venció (queda
         auditado). Nunca habilita fechas futuras ni meses/períodos cerrados."""
         return self.national_write or self.is_assistant
+
+    def can_bypass_deadline_for(self, kind: str) -> bool:
+        """Plazo vencido por tipo de registro: además de la excepción por rol,
+        el permiso "Editar celdas de Días laborados" lo levanta SOLO para Días
+        laborados (`kind == "worked_days"`, ver RecordDeadlineService)."""
+        if self.can_bypass_deadline:
+            return True
+        return kind == "worked_days" and self.can(DIAS_EDITAR)
 
     def as_dict(self) -> dict:
         return {

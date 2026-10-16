@@ -36,6 +36,7 @@ type MailEvent = {
   changedBy: string;
   changedAt: string;
   createdAt: string;
+  newStatus: string;
   firstDay: string | null;
   secondDay: string | null;
   period: string;
@@ -49,14 +50,17 @@ type MailEvent = {
 
 const KIND_TITLE: Record<Kind, string> = {
   ENTRY: "A. Destinatarios de notificaciones de ingreso",
-  EXIT: "B. Destinatarios de notificaciones de salida",
+  EXIT: "B. Destinatarios de cambios de estado (Inactivo y Suspendido)",
 };
 const KIND_HELP: Record<Kind, string> = {
   ENTRY:
     "Reciben el correo cuando un colaborador registrado como nuevo ingreso alcanza su segundo día laborado en Días laborados.",
-  EXIT: "Reciben el correo cuando un colaborador pasa de Activo a Inactivo.",
+  EXIT: "Reciben el correo cuando un colaborador pasa de Activo a Inactivo o de Activo a Suspendido (cada caso con su propio asunto y contenido).",
 };
-const KIND_SHORT: Record<Kind, string> = { ENTRY: "Ingreso", EXIT: "Salida" };
+const KIND_SHORT: Record<Kind, string> = { ENTRY: "Ingreso", EXIT: "Cambio de estado" };
+const LIST_NAME: Record<Kind, string> = { ENTRY: "ingresos", EXIT: "cambios de estado" };
+const EVENT_LABEL = (e: { kind: Kind; newStatus: string }) =>
+  e.kind === "ENTRY" ? "Ingreso" : e.newStatus === "SUSPENDED" ? "Suspensión" : "Inactivo";
 const STATUS_VARIANT: Record<MailStatus, "neutral" | "warning" | "info" | "success" | "danger"> = {
   WAITING: "neutral",
   PENDING: "warning",
@@ -167,7 +171,7 @@ export default function CollaboratorNotificationsSection() {
                     {events.map((e) => (
                       <tr key={`${e.kind}-${e.id}`} className="border-t border-border align-top">
                         <td className="px-3 py-2">
-                          <Badge variant={e.kind === "ENTRY" ? "info" : "neutral"}>{KIND_SHORT[e.kind]}</Badge>
+                          <Badge variant={e.kind === "ENTRY" ? "info" : e.newStatus === "SUSPENDED" ? "warning" : "neutral"}>{EVENT_LABEL(e)}</Badge>
                         </td>
                         <td className="px-3 py-2 whitespace-nowrap">
                           {e.kind === "ENTRY" ? (
@@ -264,7 +268,7 @@ function RecipientList({
     }
     setEmail("");
     setArea("");
-    onChanged(`Destinatario ${result.data.email} agregado a ${KIND_SHORT[kind].toLowerCase()}s.`);
+    onChanged(`Destinatario ${result.data.email} agregado a la lista de ${LIST_NAME[kind]}.`);
   }
 
   async function update(id: number, changes: Partial<{ email: string; area: string; isActive: boolean }>) {
@@ -299,7 +303,7 @@ function RecipientList({
       <p className="text-xs text-secondary">{KIND_HELP[kind]}</p>
       {active === 0 && (
         <p className="text-xs text-warning">
-          Sin destinatarios activos: los eventos se registran, pero ningún correo de {KIND_SHORT[kind].toLowerCase()} se
+          Sin destinatarios activos: los eventos se registran, pero ningún correo de {LIST_NAME[kind]} se
           envía hasta configurar al menos uno (luego puede reintentarlos desde «Últimos envíos»).
         </p>
       )}

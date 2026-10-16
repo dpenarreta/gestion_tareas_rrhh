@@ -180,6 +180,7 @@ PERMISSION_CATALOG = {
             "novedades.administrar": "Administrar el módulo con alcance nacional (todos los supervisores)",
             "novedades.permisos_gestionar": "Administrar los permisos y excepciones del módulo",
             "novedades.depurar": "Depurar horas extras en la base independiente de Horas depuradas",
+            "novedades.dias_editar": "Editar celdas de Días laborados",
             "novedades.ingresos_ver": "Consultar la pestaña consolidada de Ingresos de colaboradores",
             "novedades.salidas_ver": "Consultar la pestaña consolidada de Salidas de colaboradores",
         },
