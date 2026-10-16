@@ -8,6 +8,7 @@
 
 | Decisión | Motivo técnico | Detalle completo |
 |---|---|---|
+| La importación de la base marca nuevos ingresos con la columna `NUEVO INGRESO` (X o vacía; otro valor rechaza la fila), solo en altas (2026-10-16) | Decisión del usuario; mantiene la marca explícita y nunca reclasifica a un colaborador existente | [AUDIT_LOG § 2026-10-15](AUDIT_LOG.md) |
 | Correo de ingreso solo para altas marcadas «nuevo ingreso», al segundo día con horas > 0 (2026-10-15) | NEXO no distingue de otro modo un ingreso real de la carga de un equipo existente; sin envíos retroactivos ni por importación | [AUDIT_LOG § 2026-10-15](AUDIT_LOG.md) |
 | Listas de destinatarios independientes (ingreso / salida) y un correo por destinatario con estado propio (2026-10-15) | Reintentos sin repetir a quien ya lo recibió; una dirección puede estar en ambas listas | [AUDIT_LOG § 2026-10-15](AUDIT_LOG.md) |
 | Ingresos y Salidas: página propia de solo lectura sobre los registros existentes (altas, reingresos y cambios a Inactivo), con fechas rotuladas como de registro en NEXO (2026-10-14) | NEXO no guarda fechas formales de ingreso o salida laboral; no se duplica la información ni se da acceso al resto del módulo | [AUDIT_LOG § 2026-10-14](AUDIT_LOG.md) |

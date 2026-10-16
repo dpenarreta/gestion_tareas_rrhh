@@ -268,6 +268,8 @@ export type ImportBatch = {
     warnings?: { row: number; column?: string; message: string }[];
     // Importación de la base de colaboradores
     toUpdate?: number;
+    /** Altas marcadas con X en la columna NUEVO INGRESO (importación de la base). */
+    newHires?: number;
     unchanged?: number;
     duplicatesInFile?: number;
     ignoredColumns?: string[];

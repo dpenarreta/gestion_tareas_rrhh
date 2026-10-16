@@ -35,7 +35,7 @@ const TEMPLATE_HINT: Record<Kind, string> = {
   OVERTIME:
     "FECHA | CEDULA | NOMBRE DEL COLABORADOR | REGIONAL | ÁREA | CARGO | # HORAS EXTRAS | # HORAS SABADO | SABADO | DOMINGO | FERIADO | TRABAJO REALIZADO | OBSERVACIONES",
   COLLABORATORS:
-    "CEDULA | NOMBRES COMPLETOS | REGIONAL | ÁREA | CARGO (también se reconocen «Cédula», «Empleado», «Nombre del colaborador»; otras columnas se ignoran)",
+    "CEDULA | NOMBRES COMPLETOS | REGIONAL | ÁREA | CARGO | NUEVO INGRESO (X si es un nuevo ingreso, vacía si no; también se reconocen «Cédula», «Empleado», «Nombre del colaborador»; otras columnas se ignoran)",
 };
 
 const ROW_STATUS: Record<string, { text: string; variant: "info" | "warning" | "neutral" }> = {
@@ -104,6 +104,7 @@ export default function ImportDialog({ kind, period, supervisorId, supervisorNam
           ["Nuevos", batch.summary.newItems, "text-primary"],
           ["Existentes", batch.summary.existingItems, "text-title"],
           ["Se actualizarían", batch.summary.toUpdate, "text-warning"],
+          ["Nuevos ingresos (X)", batch.summary.newHires, "text-primary"],
           ["Duplicados en el archivo", batch.summary.duplicatesInFile, "text-danger"],
           ["Filas inválidas", batch.summary.invalidRows, "text-danger"],
         ]

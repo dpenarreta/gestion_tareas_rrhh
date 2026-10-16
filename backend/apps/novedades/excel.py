@@ -38,6 +38,7 @@ from .models import (
 from .periods import WEEKDAY_NAMES_ES, MonthKey, PeriodKey, is_weekend
 from .services import (
     ALERT_NEW_COLLABORATOR,
+    EntryNotificationService,
     EventService,
     NotificationService,
     NovedadesError,
@@ -1107,7 +1108,15 @@ class ImportService:
 
 # ── Importación de la base de colaboradores ───────────────────────────────────
 
-COLLABORATOR_TEMPLATE_HEADERS = ["CEDULA", "NOMBRES COMPLETOS", "REGIONAL", "ÁREA", "CARGO"]
+COLLABORATOR_TEMPLATE_HEADERS = [
+    "CEDULA",
+    "NOMBRES COMPLETOS",
+    "REGIONAL",
+    "ÁREA",
+    "CARGO",
+    "NUEVO INGRESO",
+]
+NEW_HIRE_HEADER = "NUEVO INGRESO"
 # Sinónimos aceptados por columna (comparados sin tildes ni mayúsculas), para
 # poder cargar la base desde las planillas que la operación ya usa —incluida
 # la de Días laborados (columna "Empleado")—. Cualquier otra columna se ignora.
@@ -1127,7 +1136,23 @@ COLLABORATOR_HEADER_ALIASES = {
     "regional": {"REGIONAL"},
     "area": {"AREA"},
     "cargo": {"CARGO"},
+    "new_hire": {NEW_HIRE_HEADER},
 }
+
+
+def parse_new_hire_mark(value) -> bool | None:
+    """Columna NUEVO INGRESO: «X» (sin distinguir mayúsculas ni espacios al
+    inicio o al final) = nuevo ingreso; vacía o solo espacios = no. Cualquier
+    otro valor devuelve None (inválido): nunca se interpreta como nuevo
+    ingreso."""
+    text = "" if value is None else str(value).strip()
+    if not text:
+        return False
+    if text.upper() == "X":
+        return True
+    return None
+
+
 # Campos que una importación puede actualizar en un colaborador existente.
 # Nunca: cédula, estado operativo, supervisor asignado, ni nada de usuarios,
 # roles o permisos (el colaborador operativo no es un usuario de NEXO).
@@ -1190,7 +1215,7 @@ class CollaboratorImportService:
         ws.title = "Colaboradores"
         ws.append(COLLABORATOR_TEMPLATE_HEADERS)
         _style_header(ws, len(COLLABORATOR_TEMPLATE_HEADERS))
-        for idx, width in enumerate([16, 36, 18, 20, 24], start=1):
+        for idx, width in enumerate([16, 36, 18, 20, 24, 16], start=1):
             ws.column_dimensions[get_column_letter(idx)].width = width
         for r in range(2, 1002):
             _text_cell(ws, r, 1)  # cédula como texto: conserva el cero inicial
@@ -1325,10 +1350,41 @@ class CollaboratorImportService:
                     }
                 )
                 continue
-            rows.append({"row": offset, "cedula": cedula, "full_name": full_name, **values})
+            new_hire = parse_new_hire_mark(cell("new_hire"))
+            if new_hire is None:
+                errors.append(
+                    {
+                        "row": offset,
+                        "column": NEW_HIRE_HEADER,
+                        "message": f"Valor no válido «{str(cell('new_hire')).strip()[:30]}»: "
+                        "escriba X si es un nuevo ingreso o deje la celda vacía.",
+                    }
+                )
+                continue
+            rows.append(
+                {
+                    "row": offset,
+                    "cedula": cedula,
+                    "full_name": full_name,
+                    **values,
+                    "new_hire": new_hire,
+                }
+            )
 
         planned, conflicts = CollaboratorImportService._classify(supervisor, rows)
         errors.extend(conflicts)
+        # La marca solo clasifica ALTAS nuevas: en un colaborador que ya existe
+        # no cambia nada (ni la X ni la celda vacía), y se avisa.
+        warnings = [
+            {
+                "row": p["row"],
+                "column": NEW_HIRE_HEADER,
+                "message": f"{p['full_name']} ya existe en la base: la marca de nuevo "
+                "ingreso no cambia su clasificación.",
+            }
+            for p in planned
+            if p["status"] != "NEW" and p.get("new_hire")
+        ]
         summary = {
             "total_rows": data_rows,
             "new_items": sum(1 for p in planned if p["status"] == "NEW"),
@@ -1338,6 +1394,8 @@ class CollaboratorImportService:
             "duplicates_in_file": duplicates,
             "invalid_rows": len({e["row"] for e in errors}),
             "valid_rows": len(planned),
+            "new_hires": sum(1 for p in planned if p["status"] == "NEW" and p.get("new_hire")),
+            "warnings": warnings,
             "ignored_columns": ignored,
             "supervisor_id": supervisor.pk,
             "supervisor_name": user_display(supervisor),
@@ -1366,12 +1424,16 @@ class CollaboratorImportService:
             acc, batch.summary.get("supervisor_id")
         )
         rows = [
-            {k: r[k] for k in ("row", "cedula", "full_name", "regional", "area", "cargo")}
+            {
+                **{k: r[k] for k in ("row", "cedula", "full_name", "regional", "area", "cargo")},
+                "new_hire": bool(r.get("new_hire")),
+            }
             for r in batch.rows
         ]
         planned, conflicts = CollaboratorImportService._classify(supervisor, rows)
         current = PeriodService.ensure_current(supervisor)
         created, updated, unchanged, rejected = [], 0, 0, list(conflicts)
+        new_hires = 0
         for item in planned:
             try:
                 with transaction.atomic():
@@ -1404,6 +1466,11 @@ class CollaboratorImportService:
                             context=context,
                             audit=False,
                         )
+                        if item["new_hire"]:
+                            # Solo deja el ingreso EN ESPERA: el correo sale al
+                            # registrarse su segundo día válido, nunca al importar.
+                            EntryNotificationService.register(collaborator, acc.user)
+                            new_hires += 1
                         created.append(collaborator)
                     elif item["status"] == "EXISTING" and strategy == "update":
                         collaborator = Collaborator.objects.select_for_update().get(
@@ -1446,6 +1513,7 @@ class CollaboratorImportService:
         batch.summary = {
             **batch.summary,
             "created": len(created),
+            "new_hires": new_hires,
             "updated": updated,
             "skipped": unchanged,
             "rejected": len({e["row"] for e in rejected}),

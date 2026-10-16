@@ -241,3 +241,143 @@ def test_missing_required_columns_and_template(client_for, admin, supervisor):
     assert [c.value for c in ws[1]] == COLLABORATOR_TEMPLATE_HEADERS
     assert ws.cell(row=2, column=1).number_format == "@"
     assert ImportBatch.objects.count() == 0
+
+
+# ── Columna NUEVO INGRESO (2026-10-16) ────────────────────────────────────────
+# X (sin distinguir mayúsculas ni espacios) = nuevo ingreso; vacía = no; otro
+# valor = fila rechazada. Solo clasifica ALTAS: en un existente no cambia nada.
+# El correo nunca sale al importar: el ingreso queda en espera del 2.º día.
+
+NEW_HIRE_HEADER = [*HEADER, "NUEVO INGRESO"]
+
+
+def test_template_has_the_exact_new_hire_header():
+    from apps.novedades.excel import CollaboratorImportService
+
+    ws = openpyxl.load_workbook(io.BytesIO(CollaboratorImportService.template())).active
+    assert [c.value for c in ws[1]][-1] == "NUEVO INGRESO"
+
+
+def test_new_hire_column_values(client_for, admin, supervisor):
+    from django.core import mail
+
+    from apps.novedades.models import CollaboratorEntryNotification
+
+    _grant_import(admin, supervisor)
+    client = client_for(supervisor)
+    rows = [
+        NEW_HIRE_HEADER,
+        ["0102030401", "Ana X Mayus", "", "", "", "X"],
+        ["0102030402", "Beto x minus", "", "", "", "x"],
+        ["0102030403", "Carla Espacios", "", "", "", "  x  "],
+        ["0102030404", "Dani Vacia", "", "", "", None],
+        ["0102030405", "Eva Solo Espacios", "", "", "", "   "],
+        ["0102030406", "Fede Si", "", "", "", "Sí"],
+        ["0102030407", "Gina Uno", "", "", "", 1],
+        ["0102030408", "Hugo XX", "", "", "", "XX"],
+    ]
+    preview = _preview(client, rows)
+    assert preview.status_code == 201, preview.json()
+    body = preview.json()
+    bad = {e["row"]: e for e in body["errors"]}
+    # Inválidos: rechazados con mensaje claro, nunca tomados como nuevo ingreso.
+    assert set(bad) == {7, 8, 9}
+    assert all(e["column"] == "NUEVO INGRESO" and "escriba X" in e["message"] for e in bad.values())
+    assert body["summary"]["new_items"] == 5 and body["summary"]["new_hires"] == 3
+
+    confirmed = _confirm(client, body["id"]).json()["summary"]
+    assert confirmed["created"] == 5 and confirmed["new_hires"] == 3
+    marked = set(
+        CollaboratorEntryNotification.objects.values_list("collaborator__cedula", flat=True)
+    )
+    assert marked == {"0102030401", "0102030402", "0102030403"}
+    assert set(CollaboratorEntryNotification.objects.values_list("status", flat=True)) == {
+        "WAITING"
+    }
+    assert not Collaborator.objects.filter(
+        cedula__in=["0102030406", "0102030407", "0102030408"]
+    ).exists()
+    assert not [m for m in mail.outbox if "ingreso" in m.subject]  # nunca al importar
+
+
+def test_reimport_never_changes_existing_classification(client_for, admin, supervisor):
+    from apps.novedades.models import CollaboratorEntryNotification
+
+    _grant_import(admin, supervisor)
+    client = client_for(supervisor)
+    first = _preview(
+        client,
+        [
+            NEW_HIRE_HEADER,
+            ["0102030401", "Ana Nueva", "", "", "", "X"],
+            ["0102030402", "Beto Antiguo", "", "", "", None],
+        ],
+    ).json()
+    _confirm(client, first["id"])
+    ana_event = CollaboratorEntryNotification.objects.get(collaborator__cedula="0102030401")
+
+    # Reimportar: Ana con celda vacía NO pierde su marca; Beto con X NO la gana.
+    again = _preview(
+        client,
+        [
+            NEW_HIRE_HEADER,
+            ["0102030401", "Ana Nueva", "Sierra", "", "", None],
+            ["0102030402", "Beto Antiguo", "", "", "", "X"],
+        ],
+    ).json()
+    assert again["summary"]["new_hires"] == 0
+    warnings = again["summary"]["warnings"]
+    assert [w["row"] for w in warnings] == [3] and "no cambia su clasificación" in warnings[0][
+        "message"
+    ]
+    for strategy in ("update", "update"):  # confirmar dos veces tampoco duplica
+        _confirm(client, again["id"], strategy)
+    assert list(CollaboratorEntryNotification.objects.values_list("pk", flat=True)) == [
+        ana_event.pk
+    ]
+    assert (
+        Collaborator.objects.get(cedula="0102030401").regional == "Sierra"
+    )  # el resto sí se actualiza
+
+
+def test_files_without_the_column_still_import_as_not_new_hire(client_for, admin, supervisor):
+    from apps.novedades.models import CollaboratorEntryNotification
+
+    _grant_import(admin, supervisor)
+    client = client_for(supervisor)
+    body = _preview(client, [HEADER, ["0102030401", "Ana Sin Columna", "", "", ""]]).json()
+    assert body["errors"] == [] and body["summary"]["new_hires"] == 0
+    _confirm(client, body["id"])
+    assert Collaborator.objects.filter(cedula="0102030401").exists()
+    assert not CollaboratorEntryNotification.objects.exists()
+
+
+def test_imported_new_hire_mails_on_second_valid_day(client_for, admin, supervisor):
+    from django.core import mail
+
+    from apps.novedades.models import (
+        CollaboratorEntryNotification,
+        CollaboratorNotificationRecipient,
+    )
+    from apps.novedades.periods import PeriodKey
+    from apps.novedades.services import WorkedDayService
+
+    CollaboratorNotificationRecipient.objects.create(
+        kind="ENTRY", email="ops@example.com", created_by=admin, updated_by=admin
+    )
+    _grant_import(admin, supervisor)
+    client = client_for(supervisor)
+    body = _preview(
+        client, [NEW_HIRE_HEADER, ["0102030401", "Ana Importada", "", "", "", "X"]]
+    ).json()
+    _confirm(client, body["id"])
+    ana = Collaborator.objects.get(cedula="0102030401")
+    for day in (date(2026, 10, 8), date(2026, 10, 9)):
+        WorkedDayService.save_cells(
+            access(supervisor),
+            PeriodKey(2026, 10),
+            supervisor,
+            [{"collaborator_id": ana.pk, "date": day, "hours": "8"}],
+        )
+    assert CollaboratorEntryNotification.objects.get(collaborator=ana).status == "SENT"
+    assert [m.to for m in mail.outbox if "ingreso" in m.subject] == [["ops@example.com"]]

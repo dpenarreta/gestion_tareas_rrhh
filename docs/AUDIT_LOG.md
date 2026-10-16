@@ -51,8 +51,14 @@ motor de la salida, generalizado (`CollaboratorMailService`), con estado por
 destinatario guardado tras cada envío.
 
 **Limitaciones:** la marca solo se pone en el alta (no se puede agregar
-después); un alta importada nunca genera el correo; si se borran horas tras el
-envío, el correo ya enviado no se corrige.
+después); si se borran horas tras el envío, el correo ya enviado no se corrige.
+
+**Actualización 2026-10-16 (decisión del usuario):** la importación de la base
+también marca nuevos ingresos, con la columna `NUEVO INGRESO` (`X` = sí,
+vacía = no, otro valor = fila rechazada). La protección se mantiene porque la
+marca sigue siendo explícita y solo aplica a ALTAS: en un colaborador que ya
+existe no cambia nada, así que reimportar la base no genera correos. Ver
+CHANGELOG § v1.179.0.
 
 ---
 

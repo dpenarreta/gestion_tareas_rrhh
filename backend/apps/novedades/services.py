@@ -624,8 +624,8 @@ class CollaboratorInput:
     regional: str = ""
     area: str = ""
     cargo: str = ""
-    # Marca del formulario de alta: dispara el correo de ingreso al segundo
-    # día válido. Las importaciones nunca la ponen (cargan equipos existentes).
+    # Marca de nuevo ingreso (casilla del formulario de alta; en la importación,
+    # columna NUEVO INGRESO con X): dispara el correo al segundo día válido.
     is_new_hire: bool = False
 
 
@@ -4568,10 +4568,12 @@ class EntryNotificationService:
     """Correo de INGRESO de un colaborador nuevo (pedido del 2026-10-15).
 
     Reglas (decisiones del usuario):
-    - Solo para altas por formulario marcadas como "nuevo ingreso": esa marca
-      es lo único que distingue un ingreso real de la carga de un equipo que
-      ya trabajaba. Importaciones, reactivaciones y colaboradores existentes
-      nunca generan este correo (no hay envíos retroactivos).
+    - Solo para altas marcadas como "nuevo ingreso" (casilla del formulario o,
+      desde el 2026-10-16, columna NUEVO INGRESO con X en la importación de la
+      base): esa marca es lo único que distingue un ingreso real de la carga
+      de un equipo que ya trabajaba. Altas sin marca, reactivaciones y
+      colaboradores existentes nunca generan este correo (no hay envíos
+      retroactivos); una X en una fila de alguien que ya existe no cambia nada.
     - Día válido = fecha con horas > 0 en Días laborados (vacío y 0 no
       cuentan). Cada fecha cuenta una vez: editarla no suma días.
     - Se dispara al guardarse (ya confirmado en la base) el SEGUNDO día válido,

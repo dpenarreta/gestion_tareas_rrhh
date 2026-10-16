@@ -23,6 +23,44 @@
 
 ---
 
+## v1.179.0 — 2026-10-16
+
+**Tipo:** FEATURE
+**Módulo:** Control Operativo de Novedades — Importación de la base de
+colaboradores (nuevo ingreso).
+
+- **Columna `NUEVO INGRESO`** en la plantilla descargable y en el importador
+  de la base: `X` (sin distinguir mayúsculas ni espacios al inicio o al
+  final) marca el alta como nuevo ingreso; celda vacía o solo con espacios =
+  no. Cualquier otro valor (`Sí`, `1`, `XX`…) rechaza la fila con un
+  mensaje claro: nunca se interpreta como nuevo ingreso. Sin listas
+  desplegables. Un archivo sin la columna se importa como antes (sin marca).
+- **Solo clasifica altas nuevas.** En un colaborador que ya existe, ni la `X`
+  ni la celda vacía cambian su clasificación; si trae `X`, la vista previa lo
+  avisa. Reimportar o confirmar dos veces no crea otro evento.
+- **El correo no sale al importar:** el alta marcada queda «En espera» y la
+  notificación se envía, como en el formulario, al registrarse su segundo día
+  válido en Días laborados.
+- La vista previa muestra «Nuevos ingresos (X)»; la confirmación lo suma al
+  resumen (`new_hires`). El formulario manual conserva su casilla, por
+  defecto No.
+- Cambia la regla de v1.178.0 («las importaciones nunca generan el correo»),
+  por decisión del usuario.
+
+- **Archivos:** `backend/apps/novedades/excel.py` (`parse_new_hire_mark`,
+  plantilla, vista previa y confirmación), `services.py` y `models.py`
+  (comentarios), `src/components/novedades/{ImportDialog.tsx,types.ts}`.
+
+**Verificación:** `backend/apps/novedades/tests/test_collaborator_import.py`
+(5 tests nuevos: encabezado exacto; X, x, espacios, vacía y valores
+inválidos; reimportación de existentes; archivo sin la columna; correo al
+segundo día de un alta importada) y
+`src/__tests__/components/ImportDialogNewHire.test.tsx`.
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
 ## v1.178.0 — 2026-10-15
 
 **Tipo:** FEATURE / DATABASE / SECURITY

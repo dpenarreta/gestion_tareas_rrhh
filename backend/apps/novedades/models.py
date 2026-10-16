@@ -663,8 +663,9 @@ class CollaboratorExitNotification(models.Model):
 class CollaboratorEntryNotification(models.Model):
     """Evento de INGRESO de un colaborador y estado de su correo.
 
-    Se crea solo al dar de alta a alguien marcado como "nuevo ingreso" (nunca
-    para colaboradores existentes ni por importación): esa marca es la que
+    Se crea solo al dar de alta a alguien marcado como "nuevo ingreso"
+    (formulario o columna NUEVO INGRESO de la importación; nunca para
+    colaboradores existentes): esa marca es la que
     distingue un ingreso real de la carga de un equipo que ya trabajaba. Queda
     "En espera" hasta el SEGUNDO día válido (horas > 0) en Días laborados.
     Uno por alta (1 a 1 con el colaborador): repetir guardados o importaciones
