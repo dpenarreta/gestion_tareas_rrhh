@@ -281,7 +281,7 @@ export function isLeadershipRole(role: Role): boolean {
   return ROLE_LEVEL[role] >= 4;
 }
 
-/** Roles cuya responsabilidad SÍ contempla ejecución de tareas — únicos destinos válidos de redistribución de trabajo y únicos sujetos de KPIs individuales de ejecución en vistas de equipo. */
+/** Roles cuya responsabilidad SÍ contempla ejecución de tareas — únicos destinos válidos de redistribución de trabajo y únicos sujetos de KPIs individuales de ejecución en vistas de equipo. Los roles operativos no ejecutan tareas (espejo de `is_executor_group` en Django). */
 export function isExecutorRole(role: Role): boolean {
-  return !isLeadershipRole(role);
+  return !isLeadershipRole(role) && !isOperationalRole(role);
 }

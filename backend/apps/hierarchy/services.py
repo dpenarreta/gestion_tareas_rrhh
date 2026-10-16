@@ -108,12 +108,28 @@ def can_view_team(user) -> bool:
     return role_level(user) >= 2
 
 
+# Roles operativos de Control Operativo de Novedades — réplica de
+# `OPERATIONAL_ROLES` (`src/lib/roles.ts`). Trabajan solo en ese módulo: no
+# tienen tareas, así que no son "equipo" de nadie en Tareas/Analytics/
+# Reportes. Siguen en `get_visible_groups` (RoleVisibility del
+# ADMINISTRADOR) porque la gestión de usuarios los necesita visibles.
+OPERATIONAL_ROLES: frozenset[str] = frozenset(
+    {"SUPERVISOR_OPERACIONES", "ASISTENTE_OPERACIONES", "JEFE_OPERACIONES"}
+)
+
+
+def is_operational_group(group: Group | None) -> bool:
+    return group is not None and group.name in OPERATIONAL_ROLES
+
+
 def get_subordinate_groups(user) -> list[Group]:
-    """Grupos visibles para `user` EXCLUYENDO su propio grupo —
-    equivalente a `getSubordinateRoles`/`VISIBLE_ROLES[role].filter(r =>
-    r !== role)`."""
+    """Grupos visibles para `user` EXCLUYENDO su propio grupo y los roles
+    operativos — equivalente a `getSubordinateRoles`/`VISIBLE_ROLES[role]
+    .filter(r => r !== role)`. Sin la exclusión, el ADMINISTRADOR vería a
+    supervisores/asistentes/jefe de operaciones como colaboradores sin
+    tareas en Equipo, alertas y subutilización de equipo."""
     own = get_role_group(user)
-    return [g for g in get_visible_groups(user) if g != own]
+    return [g for g in get_visible_groups(user) if g != own and not is_operational_group(g)]
 
 
 # ── Ejecutor vs. liderazgo (Sprint 0A, ver docs/AUDIT_LOG.md §
@@ -127,8 +143,10 @@ def get_subordinate_groups(user) -> list[Group]:
 # `isLeadershipRole`/`isExecutorRole` (`src/lib/roles.ts`).
 def is_executor_group(group: Group | None) -> bool:
     """`ROLE_LEVEL < 4` — réplica de `isExecutorRole`. `None` (sin
-    grupo) nunca es ejecutor, mismo criterio defensivo que `role_level`."""
-    if group is None:
+    grupo) nunca es ejecutor, mismo criterio defensivo que `role_level`.
+    Los roles operativos tampoco: no ejecutan tareas, y como no están en
+    `ROLE_LEVEL` caerían en el 0 por defecto y pasarían el umbral."""
+    if group is None or is_operational_group(group):
         return False
     return ROLE_LEVEL.get(group.name, 0) < 4
 
