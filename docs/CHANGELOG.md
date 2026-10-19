@@ -23,6 +23,53 @@
 
 ---
 
+## v1.182.0 — 2026-10-16
+
+**Tipo:** FEATURE / DATABASE / SECURITY
+**Módulo:** Control Operativo de Novedades — Retiro de colaboradores de Días
+laborados y corrección administrativa de cédulas.
+
+- **Retirar de Días laborados** (Administrador, con motivo y confirmación):
+  eliminación LÓGICA, decisión del usuario. El colaborador deja de aparecer en
+  Días laborados desde el período que contiene la fecha del retiro (tabla,
+  exportación, plantilla y resumen de cierre) y no admite nuevas celdas
+  (edición, arrastre ni importación: código `removed`). **No se borra nada**:
+  registro maestro, días ya registrados, horas extras, historial y auditoría
+  se conservan; los períodos anteriores lo siguen mostrando; no cambia su
+  estado ni envía el correo de salida. Se puede **restaurar**. Acción
+  «Retirar» en la fila de Días laborados y «Retirar/Restaurar en Días
+  laborados» en la Base de colaboradores, con insignia «Retirado de Días
+  laborados». La eliminación definitiva existente (solo sin historia) no cambia.
+- **Corregir cédula** (Administrador, con motivo): clic en la cédula de la fila
+  de Días laborados o el campo habilitado en el formulario de edición de la Base
+  de colaboradores. Mismas reglas del alta (normalización, 6–20 caracteres
+  alfanuméricos), rechazo de duplicados indicando a quién pertenece, sin tocar
+  nombre, cargo ni supervisor. Todas las relaciones usan el id interno del
+  colaborador, así que días, horas extras e historial siguen asociados; las
+  copias históricas (Horas depuradas, correos enviados) conservan la cédula de
+  su momento. Los Supervisores siguen sin poder cambiarla.
+- **Auditoría:** `collaborator.removed_from_worked_days` /
+  `collaborator.restored_to_worked_days` (motivo y cuántos días y horas
+  extras se conservan) y `collaborator.cedula_changed` (anterior, nueva,
+  motivo), en el historial del módulo y la auditoría general.
+- **Migración `novedades/0013`** (no destructiva): tres campos opcionales en
+  el colaborador (fecha, autor y motivo del retiro).
+- **Endpoints** (solo Administrador; 403 para los demás roles):
+  `collaborators/<id>/remove-worked-days/`,
+  `collaborators/<id>/restore-worked-days/`, `collaborators/<id>/cedula/`.
+
+- **Archivos:** `backend/apps/novedades/{models,services,serializers,views,urls}.py`,
+  migración `0013`, `src/components/novedades/CollaboratorAdminDialogs.tsx`
+  (nuevo), `src/components/novedades/{WorkedDaysGrid,CollaboratorsView}.tsx`,
+  `src/components/novedades/types.ts`.
+
+**Verificación:** `backend/apps/novedades/tests/test_worked_days_admin.py`
+(16) y `src/__tests__/components/CollaboratorAdmin.test.tsx` (6).
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
 ## v1.181.0 — 2026-10-16
 
 **Tipo:** UX / REFACTOR

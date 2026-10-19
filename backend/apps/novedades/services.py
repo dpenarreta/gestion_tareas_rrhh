@@ -186,6 +186,24 @@ def normalize_cedula(value) -> str:
     return text
 
 
+def removed_cutoff(key: PeriodKey) -> datetime:
+    """Fin (exclusivo, UTC) del período `key`: un colaborador retirado de Días
+    laborados ANTES de ese instante no aparece en ese período ni en los
+    siguientes; en los anteriores sigue como estaba."""
+    return business_range(key.start_date, key.end_date)[1]
+
+
+def without_removed(qs, key: PeriodKey, prefix: str = ""):
+    """Excluye a los retirados de Días laborados (eliminación lógica) de la
+    tabla, el resumen de cierre y la validación de ese período."""
+    return qs.exclude(**{f"{prefix}worked_days_removed_at__lt": removed_cutoff(key)})
+
+
+def is_removed_in(collaborator, key: PeriodKey) -> bool:
+    removed = collaborator.worked_days_removed_at
+    return removed is not None and removed < removed_cutoff(key)
+
+
 # ── Historial y notificaciones ────────────────────────────────────────────────
 
 
@@ -450,12 +468,15 @@ class PeriodService:
         if not acc.can_read_supervisor(supervisor.pk):
             raise _forbidden()
         period = PeriodService.get_period(key)
-        collaborators = Collaborator.objects.filter(
-            Q(
-                current_supervisor=supervisor,
-                status__in=[Collaborator.Status.ACTIVE, Collaborator.Status.SUSPENDED],
-            )
-            | Q(worked_days__period=period, worked_days__supervisor=supervisor)
+        collaborators = without_removed(
+            Collaborator.objects.filter(
+                Q(
+                    current_supervisor=supervisor,
+                    status__in=[Collaborator.Status.ACTIVE, Collaborator.Status.SUSPENDED],
+                )
+                | Q(worked_days__period=period, worked_days__supervisor=supervisor)
+            ),
+            key,
         ).distinct()
         active_ids = set(
             collaborators.filter(status=Collaborator.Status.ACTIVE).values_list("pk", flat=True)
@@ -468,7 +489,9 @@ class PeriodService:
             ).values_list("pk", flat=True)
         )
         workdays = [d for d in key.dates() if not is_weekend(d)]
-        days = WorkedDay.objects.filter(period=period, supervisor=supervisor)
+        days = without_removed(
+            WorkedDay.objects.filter(period=period, supervisor=supervisor), key, "collaborator__"
+        )
         filled = days.filter(hours__isnull=False)
         any_filled = set(
             WorkedDay.objects.filter(
@@ -889,6 +912,178 @@ class CollaboratorService:
                 )
         return collaborator
 
+    # ── Administración: retiro lógico y corrección de cédula (2026-10-16) ──
+    @staticmethod
+    def _admin_collaborator(acc: NovedadesAccess, collaborator_id, reason: str, what: str):
+        """Solo el Administrador del módulo (mismo criterio que eliminar de la
+        base), con motivo obligatorio."""
+        if not acc.national_write or not acc.can(perms.COLABORADORES):
+            raise _forbidden(f"Solo el Administrador puede {what}.")
+        reason = (reason or "").strip()
+        if not reason:
+            raise NovedadesError("Indique el motivo.", details={"reason": ["Obligatorio."]})
+        collaborator = (
+            Collaborator.objects.select_related("current_supervisor")
+            .filter(pk=collaborator_id)
+            .first()
+        )
+        if collaborator is None:
+            raise _not_found("Colaborador no encontrado.")
+        return collaborator, reason[:500]
+
+    @staticmethod
+    def remove_from_worked_days(
+        acc: NovedadesAccess, collaborator_id, reason: str, *, context=None
+    ):
+        """Eliminación LÓGICA de Días laborados: deja de aparecer desde el
+        período en curso. No borra al colaborador ni sus días, horas extras,
+        historial o auditoría; no cambia su estado (no hay correo de salida)."""
+        collaborator, reason = CollaboratorService._admin_collaborator(
+            acc, collaborator_id, reason, "retirar colaboradores de Días laborados"
+        )
+        now = timezone.now()
+        with transaction.atomic():
+            # Condicional: dos solicitudes simultáneas no lo retiran dos veces.
+            changed = Collaborator.objects.filter(
+                pk=collaborator.pk, worked_days_removed_at__isnull=True
+            ).update(
+                worked_days_removed_at=now,
+                worked_days_removed_by=acc.user,
+                worked_days_removed_reason=reason,
+                updated_at=now,
+            )
+            if not changed:
+                raise NovedadesError(
+                    f"{collaborator.full_name} ya está retirado de Días laborados.",
+                    code="already_removed",
+                    status=409,
+                )
+            kept_days = collaborator.worked_days.exclude(hours__isnull=True).count()
+            kept_overtime = collaborator.overtime_records.filter(deleted_at__isnull=True).count()
+            period = CollaboratorService._event_period(collaborator.current_supervisor)
+            EventService.log(
+                actor=acc.user,
+                action="collaborator.removed_from_worked_days",
+                supervisor=collaborator.current_supervisor,
+                period=period,
+                target_type="collaborator",
+                target_id=collaborator.pk,
+                target_label=f"{collaborator.full_name} ({collaborator.cedula})",
+                field="worked_days",
+                old_value="En Días laborados",
+                new_value=(
+                    f"Retirado de Días laborados desde {period.key.label if period else 'el período en curso'} "
+                    f"(eliminación lógica: se conservan {kept_days} día(s) registrado(s) y "
+                    f"{kept_overtime} registro(s) de horas extras)"
+                ),
+                reason=reason,
+                context=context,
+            )
+        collaborator.refresh_from_db()
+        return collaborator
+
+    @staticmethod
+    def restore_to_worked_days(acc: NovedadesAccess, collaborator_id, reason: str, *, context=None):
+        collaborator, reason = CollaboratorService._admin_collaborator(
+            acc, collaborator_id, reason, "restaurar colaboradores en Días laborados"
+        )
+        with transaction.atomic():
+            changed = Collaborator.objects.filter(
+                pk=collaborator.pk, worked_days_removed_at__isnull=False
+            ).update(
+                worked_days_removed_at=None,
+                worked_days_removed_by=None,
+                worked_days_removed_reason="",
+                updated_at=timezone.now(),
+            )
+            if not changed:
+                raise NovedadesError(
+                    f"{collaborator.full_name} no está retirado de Días laborados.",
+                    code="not_removed",
+                    status=409,
+                )
+            EventService.log(
+                actor=acc.user,
+                action="collaborator.restored_to_worked_days",
+                supervisor=collaborator.current_supervisor,
+                period=CollaboratorService._event_period(collaborator.current_supervisor),
+                target_type="collaborator",
+                target_id=collaborator.pk,
+                target_label=f"{collaborator.full_name} ({collaborator.cedula})",
+                field="worked_days",
+                old_value="Retirado de Días laborados",
+                new_value="En Días laborados",
+                reason=reason,
+                context=context,
+            )
+        collaborator.refresh_from_db()
+        return collaborator
+
+    @staticmethod
+    def change_cedula(
+        acc: NovedadesAccess, collaborator_id, new_cedula, reason: str, *, context=None
+    ):
+        """Corrección administrativa de la cédula. Todas las relaciones usan el
+        id interno del colaborador, así que basta con cambiar este campo; las
+        copias históricas (Horas depuradas, correos ya enviados) conservan la
+        cédula de su momento a propósito. Mismas reglas que el alta."""
+        collaborator, reason = CollaboratorService._admin_collaborator(
+            acc, collaborator_id, reason, "corregir cédulas"
+        )
+        cedula = normalize_cedula(new_cedula)
+        if not cedula or len(cedula) < 6 or len(cedula) > 20 or not cedula.isalnum():
+            raise NovedadesError(
+                "Cédula inválida: entre 6 y 20 caracteres, solo letras y números.",
+                details={"cedula": ["Cédula inválida."]},
+            )
+        if cedula == collaborator.cedula:
+            raise NovedadesError("La cédula nueva es igual a la actual.", code="unchanged")
+        duplicate = (
+            Collaborator.objects.select_related("current_supervisor").filter(cedula=cedula).first()
+        )
+        if duplicate is not None:
+            raise NovedadesError(
+                f"La cédula {cedula} ya pertenece a {duplicate.full_name} (base de "
+                f"{user_display(duplicate.current_supervisor)}): no se guardó el cambio.",
+                code="duplicate",
+                status=409,
+                details={"cedula": ["Duplicada."]},
+            )
+        old = collaborator.cedula
+        try:
+            with transaction.atomic():
+                changed = Collaborator.objects.filter(pk=collaborator.pk, cedula=old).update(
+                    cedula=cedula, updated_at=timezone.now()
+                )
+                if not changed:
+                    raise NovedadesError(
+                        "La cédula cambió mientras la editaba; recargue e intente de nuevo.",
+                        code="conflict",
+                        status=409,
+                    )
+                EventService.log(
+                    actor=acc.user,
+                    action="collaborator.cedula_changed",
+                    supervisor=collaborator.current_supervisor,
+                    period=CollaboratorService._event_period(collaborator.current_supervisor),
+                    target_type="collaborator",
+                    target_id=collaborator.pk,
+                    target_label=f"{collaborator.full_name} ({cedula})",
+                    field="cedula",
+                    old_value=old,
+                    new_value=cedula,
+                    reason=reason,
+                    context=context,
+                )
+        except IntegrityError as exc:  # otra solicitud registró esa cédula entretanto
+            raise NovedadesError(
+                f"La cédula {cedula} acaba de registrarse para otro colaborador.",
+                code="duplicate",
+                status=409,
+            ) from exc
+        collaborator.refresh_from_db()
+        return collaborator
+
     @staticmethod
     def reassign(
         acc: NovedadesAccess, collaborator_id, new_supervisor_id, reason: str, *, context=None
@@ -1098,12 +1293,15 @@ class WorkedDayService:
         )
 
         collaborators = list(
-            Collaborator.objects.filter(
-                Q(
-                    current_supervisor=supervisor,
-                    status__in=[Collaborator.Status.ACTIVE, Collaborator.Status.SUSPENDED],
-                )
-                | Q(worked_days__period=period, worked_days__supervisor=supervisor)
+            without_removed(
+                Collaborator.objects.filter(
+                    Q(
+                        current_supervisor=supervisor,
+                        status__in=[Collaborator.Status.ACTIVE, Collaborator.Status.SUSPENDED],
+                    )
+                    | Q(worked_days__period=period, worked_days__supervisor=supervisor)
+                ),
+                key,
             )
             .distinct()
             .order_by("full_name")
@@ -1241,6 +1439,12 @@ class WorkedDayService:
     ) -> Decimal | None:
         if not key.contains(day):
             raise NovedadesError(f"La fecha {day:%d/%m/%Y} no pertenece al período {key.label}.")
+        if is_removed_in(collaborator, key):
+            raise NovedadesError(
+                f"{collaborator.full_name} fue retirado de Días laborados: no admite registros "
+                "en este período (el Administrador puede restaurarlo).",
+                code="removed",
+            )
         if is_weekend(day):
             raise NovedadesError(
                 f"{day:%d/%m/%Y} es {WEEKDAY_NAMES_ES[day.weekday()].lower()}: las columnas de sábado y "

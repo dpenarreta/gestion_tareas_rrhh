@@ -23,6 +23,7 @@ import StatusChangeDialog from "./StatusChangeDialog";
 import ClosePeriodDialog from "./ClosePeriodDialog";
 import ImportDialog from "./ImportDialog";
 import CorrectionDialog from "./CorrectionDialog";
+import { CedulaDialog, WorkedDaysRemovalDialog } from "./CollaboratorAdminDialogs";
 import { useDragFill } from "./useDragFill";
 import { dragTargets } from "@/lib/dragFill";
 
@@ -51,6 +52,10 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
   // Celda activa (para el controlador de relleno) y arrastre tipo Excel con
   // desplazamiento automático, compartido con Horas extras.
   const [active, setActive] = useState<{ r: number; c: number } | null>(null);
+  // Acciones del Administrador sobre una fila: retirar de Días laborados o
+  // corregir la cédula (Django vuelve a exigirlo en cada solicitud).
+  const [adminAction, setAdminAction] = useState<{ kind: "remove" | "cedula"; row: MatrixRow } | null>(null);
+  const isAdmin = ctx.me.nationalWrite && ctx.can(PERM.colaboradores);
   const dragFill = useDragFill({
     containerRef: tableRef,
     onCommit: ({ col, from, to }) => fillColumn(col, from, dragTargets(from, to)),
@@ -545,7 +550,20 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
                       {row.supervisorName ?? matrix.supervisor?.name}
                     </td>
                     <td className="border-b border-r border-border px-2 py-1 whitespace-nowrap">{row.cargo}</td>
-                    <td className="sticky left-0 z-10 bg-surface border-b border-r border-border px-2 py-1 font-mono w-[96px] min-w-[96px]">{row.cedula}</td>
+                    <td className="sticky left-0 z-10 bg-surface border-b border-r border-border px-2 py-1 font-mono w-[96px] min-w-[96px]">
+                      {isAdmin ? (
+                        <button
+                          className="font-mono hover:text-primary hover:underline"
+                          title="Corregir cédula (Administrador)"
+                          aria-label={`Corregir cédula de ${row.fullName}`}
+                          onClick={() => setAdminAction({ kind: "cedula", row })}
+                        >
+                          {row.cedula}
+                        </button>
+                      ) : (
+                        row.cedula
+                      )}
+                    </td>
                     <td className="sticky left-[96px] z-10 bg-surface border-b border-r border-border px-2 py-1 min-w-[240px]">
                       {/* Nombre completo, sin recortar: la columna crece con el
                           nombre más largo y las fechas se recorren con el
@@ -562,6 +580,16 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
                             title="Cambiar estado operativo"
                           >
                             Estado
+                          </button>
+                        )}
+                        {isAdmin && (
+                          <button
+                            onClick={() => setAdminAction({ kind: "remove", row })}
+                            className={`${canManageCollaborators && row.isCurrentMember && isOpen ? "" : "ml-auto "}text-[10px] text-danger hover:underline opacity-0 group-hover:opacity-100 focus:opacity-100`}
+                            title="Retirar de Días laborados (Administrador; no borra información)"
+                            aria-label={`Retirar a ${row.fullName} de Días laborados`}
+                          >
+                            Retirar
                           </button>
                         )}
                       </div>
@@ -656,6 +684,26 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
         </div>
       )}
 
+      {adminAction?.kind === "remove" && (
+        <WorkedDaysRemovalDialog
+          collaborator={{ id: adminAction.row.collaboratorId, fullName: adminAction.row.fullName, cedula: adminAction.row.cedula }}
+          onClose={() => setAdminAction(null)}
+          onDone={() => {
+            setAdminAction(null);
+            load();
+          }}
+        />
+      )}
+      {adminAction?.kind === "cedula" && (
+        <CedulaDialog
+          collaborator={{ id: adminAction.row.collaboratorId, fullName: adminAction.row.fullName, cedula: adminAction.row.cedula }}
+          onClose={() => setAdminAction(null)}
+          onDone={() => {
+            setAdminAction(null);
+            load();
+          }}
+        />
+      )}
       {statusTarget && (
         <StatusChangeDialog
           collaborator={{ id: statusTarget.collaboratorId, fullName: statusTarget.fullName, status: statusTarget.status }}
