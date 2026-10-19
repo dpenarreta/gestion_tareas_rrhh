@@ -67,6 +67,38 @@ laborados y corrección administrativa de cédulas.
 (16) y `src/__tests__/components/CollaboratorAdmin.test.tsx` (6).
 
 **Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+## v1.181.1 — 2026-10-16
+
+**Tipo:** FIX
+**Módulo:** Control Operativo de Novedades — Arrastre tipo Excel (v1.181.0):
+deshacer en Días laborados y arrastre hacia arriba bajo el encabezado fijo.
+
+- **«Deshacer» no revertía nada una vez guardado (Días laborados).** El aviso
+  con «Deshacer» dura 7 s y el relleno se guarda solo a los 1,2 s
+  (`AUTOSAVE_DEBOUNCE_MS`); deshacer solo restauraba el estado previo de los
+  borradores («sin borrador»), así que pasado el autoguardado la pantalla y el
+  servidor conservaban los valores copiados, sin ningún aviso. Ahora deshacer
+  vuelve a escribir el valor previo como borrador y el guardado automático lo
+  envía; solo se omite donde el servidor ya tiene ese valor y no hay un envío
+  en curso.
+- **Arrastrar hacia arriba no extendía el rango.** El encabezado de las dos
+  tablas es fijo (`sticky top-0`) dentro del contenedor que se desplaza: con el
+  puntero en el borde superior, `elementFromPoint` devolvía la celda del
+  encabezado y el rango se quedaba en la última fila vista, aunque la tabla
+  siguiera subiendo. `useDragFill` usa `elementsFromPoint` (toda la pila bajo
+  el punto) y toma la primera fila, que es la que el encabezado tapa.
+- **Archivos:** `src/components/novedades/WorkedDaysGrid.tsx`,
+  `src/components/novedades/useDragFill.ts`,
+  `src/__tests__/components/DragFill.test.tsx`.
+
+**Verificación:** 2 tests nuevos en `DragFill.test.tsx` (encabezado fijo que
+tapa filas al subir; deshacer después del autoguardado con un servidor que
+conserva lo guardado). Los dos fallan con el código de v1.181.0 y pasan con
+el arreglo. `tsc` sin errores, ESLint sin observaciones en los archivos
+tocados, Vitest 1349/1349. El test simulado previo de «rellena hacia arriba»
+no lo detectaba porque su `elementFromPoint` nunca devolvía el encabezado.
+
+**Autor:** dpenarreta + Claude Code.
 
 ---
 

@@ -322,19 +322,33 @@ export default function WorkedDaysGrid({ ctx, supervisorId }: { ctx: ModuleConte
     apply(changes);
     setCellErrors((prev) => Object.fromEntries(Object.entries(prev).filter(([k]) => !(k in changes))));
     if (filled) schedule(AUTOSAVE_DEBOUNCE_MS);
+    // Deshacer llega casi siempre DESPUÉS del autoguardado (el aviso dura más
+    // que AUTOSAVE_DEBOUNCE_MS): para entonces ya no hay borrador que quitar.
+    // Se vuelve a escribir el valor previo como borrador para que el guardado
+    // automático lo envíe; solo se omite donde el servidor ya lo tiene y no
+    // hay un envío en curso que todavía lo vaya a pisar.
+    const undo = () => {
+      const current = matrixRef.current;
+      setDrafts((prev) => {
+        const next = { ...prev };
+        for (const key of Object.keys(changes)) {
+          const desired = before[key] ?? originals[key];
+          const [cid, date] = key.split("|");
+          const saved = current?.rows.find((r) => r.collaboratorId === Number(cid))?.cells[date]?.hours ?? "";
+          if (desired === saved && !inFlight.current) delete next[key];
+          else next[key] = desired;
+        }
+        return next;
+      });
+      schedule(AUTOSAVE_DEBOUNCE_MS);
+    };
     showToast(
       `${formatDate(column.date)}: valor copiado en ${filled} fila(s)` +
         (skipped ? `; ${skipped} bloqueada(s) sin cambios` : "") +
         ". Se guarda automáticamente.",
       skipped ? "warning" : "success",
       filled
-        ? {
-            label: "Deshacer",
-            onClick: () => {
-              apply(before);
-              schedule(AUTOSAVE_DEBOUNCE_MS);
-            },
-          }
+        ? { label: "Deshacer", onClick: undo }
         : undefined,
     );
   }

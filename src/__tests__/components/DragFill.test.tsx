@@ -316,3 +316,76 @@ describe("Horas extras — arrastre más allá de lo visible", () => {
     expect(pageScroll).not.toHaveBeenCalled();
   });
 });
+
+describe("Días laborados — encabezado fijo y deshacer después del autoguardado", () => {
+  it("al subir, el rango sigue a las filas tapadas por el encabezado fijo", async () => {
+    mockGridServer({ 25: "7" });
+    const container = await renderGrid();
+    // Como un navegador: el encabezado (sticky) tapa los primeros 40 px del
+    // contenedor. `elementFromPoint` devuelve su celda; `elementsFromPoint`
+    // devuelve además la fila que queda debajo.
+    const HEADER_H = 40;
+    const header = container.querySelector<HTMLElement>("thead th")!;
+    const rowCell = document.elementFromPoint.bind(document);
+    const inHeader = (y: number) => y < TOP + HEADER_H;
+    document.elementFromPoint = ((x: number, y: number) =>
+      inHeader(y) ? header : rowCell(x, y)) as typeof document.elementFromPoint;
+    document.elementsFromPoint = ((x: number, y: number) =>
+      inHeader(y) ? [header, rowCell(x, y)!] : [rowCell(x, y)!]) as typeof document.elementsFromPoint;
+    try {
+      container.scrollTop = 20 * ROW_H;
+      fireEvent.focus(screen.getByLabelText("Persona 25 09/10/2026"));
+      const handle = await screen.findByRole("button", { name: /Arrastre para copiar 7/ });
+      fireEvent.mouseDown(handle, { clientX: 200, clientY: yOfRow(25, container.scrollTop) });
+      fireEvent.mouseMove(window, { clientX: 200, clientY: TOP - 30 }); // por encima del contenedor
+      runFrames(60);
+      expect(container.scrollTop).toBe(0);
+      fireEvent.mouseUp(window);
+      // Las 25 filas por encima (menos las 2 bloqueadas), no solo las visibles
+      // bajo el encabezado al empezar.
+      expect(await screen.findByText(/valor copiado en 23 fila\(s\); 2 bloqueada\(s\)/)).toBeInTheDocument();
+      expect(screen.getByLabelText("Persona 00 09/10/2026")).toHaveValue("7");
+    } finally {
+      delete (document as { elementsFromPoint?: unknown }).elementsFromPoint;
+    }
+  });
+
+  it("Deshacer revierte el relleno aunque ya se haya guardado", async () => {
+    // Servidor con estado: lo guardado vuelve en la próxima carga.
+    const store: Record<number, string | null> = { 6: "7" };
+    const saves: { cells: { collaboratorId: number; hours: string | null }[] }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          const body = JSON.parse(String(init.body));
+          saves.push(body);
+          for (const c of body.cells) store[c.collaboratorId - 100] = c.hours;
+          return json(200, { saved: body.cells.length });
+        }
+        return json(200, matrix({ ...store }));
+      }),
+    );
+    await renderGrid();
+    fireEvent.focus(screen.getByLabelText("Persona 06 09/10/2026"));
+    const handle = await screen.findByRole("button", { name: /Arrastre para copiar 7/ });
+    fireEvent.mouseDown(handle, { clientX: 200, clientY: yOfRow(6) });
+    fireEvent.mouseMove(window, { clientX: 200, clientY: yOfRow(8) });
+    fireEvent.mouseUp(window);
+    const undo = await screen.findByRole("button", { name: "Deshacer" });
+
+    // Primero se guarda el relleno (el aviso sigue visible)...
+    await waitFor(() => expect(saves).toHaveLength(1), { timeout: 4000 });
+    expect(saves[0].cells.map((c) => c.hours)).toEqual(["7", "7"]);
+    await waitFor(() => expect(store[8]).toBe("7"));
+
+    // ...y recién después se deshace: vuelve a guardar los valores previos.
+    fireEvent.click(undo);
+    await waitFor(() => expect(saves).toHaveLength(2), { timeout: 4000 });
+    expect(saves[1].cells.map((c) => [c.collaboratorId, c.hours])).toEqual([
+      [107, null],
+      [108, null],
+    ]);
+    await waitFor(() => expect(screen.getByLabelText("Persona 08 09/10/2026")).toHaveValue(""));
+  });
+});
