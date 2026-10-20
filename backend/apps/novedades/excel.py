@@ -40,8 +40,10 @@ from .services import (
     ALERT_NEW_COLLABORATOR,
     EntryNotificationService,
     EventService,
+    HolidayCalendar,
     NotificationService,
     NovedadesError,
+    OvertimeDayPermissionService,
     OvertimeMonthService,
     OvertimeService,
     PeriodService,
@@ -779,6 +781,12 @@ class ImportService:
     @staticmethod
     def _parse_overtime(acc, key: PeriodKey, rows):
         deadline_holidays = get_holiday_set()
+        calendar = HolidayCalendar(key.start_date, key.end_date)
+        day_allowed = (
+            OvertimeDayPermissionService.allowed_for(acc.user.pk)
+            if OvertimeDayPermissionService.applies_to(acc)
+            else None
+        )
         header = [_norm(h) for h in rows[0][: len(OVERTIME_HEADERS)]]
         if header != [_norm(h) for h in OVERTIME_HEADERS]:
             raise NovedadesError(
@@ -851,6 +859,12 @@ class ImportService:
             except NovedadesError as exc:
                 errors.append({"row": offset, "column": "FECHA", "message": exc.message})
                 continue
+            day_error = OvertimeDayPermissionService.error_for(
+                acc, d, calendar.is_holiday(d, collaborator.regional), day_allowed
+            )
+            if day_error:
+                errors.append({"row": offset, "column": "FECHA", "message": day_error})
+                continue
             try:
                 overtime = parse_hours(row[6], field_label="# HORAS EXTRAS") or Decimal("0")
                 saturday = parse_hours(row[7], field_label="# HORAS SABADO") or Decimal("0")
@@ -861,6 +875,16 @@ class ImportService:
                 errors.append(
                     {"row": offset, "column": "# HORAS EXTRAS", "message": "Sin horas registradas."}
                 )
+                continue
+            # Datos en una columna no autorizada para el Supervisor: la fila se
+            # rechaza indicando la columna (no se ignora el valor en silencio).
+            denied = OvertimeDayPermissionService.column_errors(
+                acc, {"overtime_hours": overtime, "saturday_hours": saturday}, allowed=day_allowed
+            )
+            if denied:
+                for field, message in denied.items():
+                    column = "# HORAS EXTRAS" if field == "overtime_hours" else "# HORAS SABADO"
+                    errors.append({"row": offset, "column": column, "message": message})
                 continue
             flags = {}
             bad_flag = False

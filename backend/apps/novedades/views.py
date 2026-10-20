@@ -37,6 +37,7 @@ from .serializers import (
     OverrideCreateSerializer,
     OverrideRevokeSerializer,
     OvertimeCorrectionSerializer,
+    OvertimeDayPermissionSerializer,
     OvertimeRecordSerializer,
     OvertimeSettingsSerializer,
     OvertimeWriteSerializer,
@@ -58,6 +59,7 @@ from .services import (
     MovementService,
     NotificationRecipientService,
     NovedadesError,
+    OvertimeDayPermissionService,
     OvertimeMonthService,
     OvertimeService,
     PeriodService,
@@ -158,6 +160,9 @@ class MeView(NovedadesView):
         # Plazo por fecha de trabajo ya calculado por el servidor (la pantalla
         # no recalcula reglas: solo bloquea lo que aquí se informa).
         data["deadline_rules"] = RecordDeadlineService.rules(self.access)
+        # Tipos de día que el Supervisor puede registrar en Horas extras (la
+        # pantalla avisa; el servidor revalida en cada guardado e importación).
+        data["overtime_day_rules"] = OvertimeDayPermissionService.rules(self.access)
         data["user"] = {"id": request.user.pk, "name": user_display(request.user)}
         return Response(data)
 
@@ -694,6 +699,21 @@ class RolePermissionView(NovedadesView):
         data = self.validated(RolePermissionSerializer)
         PermissionAdminService.set_role_permission(self.access, **data, context=self.context)
         return Response(PermissionAdminService.config(self.access))
+
+
+class OvertimeDayPermissionListView(NovedadesView):
+    def get(self, request):
+        return Response(OvertimeDayPermissionService.matrix(self.access))
+
+
+class OvertimeDayPermissionDetailView(NovedadesView):
+    def patch(self, request, supervisor_id):
+        data = self.validated(OvertimeDayPermissionSerializer)
+        return Response(
+            OvertimeDayPermissionService.update(
+                self.access, supervisor_id, dict(data), context=self.context
+            )
+        )
 
 
 class OperationalUsersView(NovedadesView):

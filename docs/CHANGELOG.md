@@ -23,6 +23,121 @@
 
 ---
 
+## v1.183.1 — 2026-10-20
+
+**Tipo:** FIX
+**Módulo:** Control Operativo de Novedades — Horas extras de sábados,
+domingos y feriados para supervisores sin permiso de días laborables.
+
+**Causa:** las filas válidas de sábado escritas a mano se guardaban bien; lo que
+quedaba bloqueado eran filas que traían un valor en `# HORAS EXTRAS`, columna
+oculta para ese supervisor: borradores guardados en el equipo antes de que se le
+retirara el permiso y filas completas pegadas desde Excel (donde el hábito era
+cargar las horas de fin de semana en esa columna). Al estar oculta, el error
+«Columna # HORAS EXTRAS no autorizada…» no se podía corregir. Además, el pegado
+aceptaba fechas inexistentes (`10/17/2026`, mes/día, se convertía en
+`2026-17-10`) que comparadas como texto parecían **fechas futuras**, y una fecha
+ilegible caía en silencio en la fecha por defecto. En el servidor, el reenvío de
+una fila ya guardada se evaluaba contra el permiso actual antes de reconocerse
+como guardada.
+
+- **Captura:** una fila con valor en la columna oculta muestra la acción
+  «Quitar # HORAS EXTRAS» (o «# HORAS SABADO») para vaciarla y guardarla; las
+  filas pegadas con horas en una columna no autorizada no se agregan y se
+  informa cuántas y por qué; las fechas no válidas se informan (use dd/mm/aaaa)
+  y la fila no se agrega.
+- **Fechas:** solo se aceptan fechas reales; las futuras siguen bloqueadas (la
+  fecha validada es la misma que se guarda; el «hoy» es el del día de negocio).
+- **Backend:** la regla de columna se evalúa después de reconocer un reintento
+  de algo ya guardado. Una columna oculta vacía o en 0 nunca es un error; con
+  valor, se sigue rechazando en captura, pegado, importación y API.
+- El consolidado y la exportación del Asistente de Operaciones no cambian.
+
+- **Archivos:** `src/lib/novedadesCapture.ts`, `src/components/novedades/OvertimeCapture.tsx`,
+  `backend/apps/novedades/services.py`.
+
+**Verificación:** `backend/apps/novedades/tests/test_overtime_day_permissions.py`
+(24; 4 nuevos de regresión) y `src/__tests__/components/OvertimeColumns.test.tsx`
+(10; 3 nuevos).
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
+## v1.183.0 — 2026-10-20
+
+**Tipo:** FEATURE / SECURITY / DATABASE
+**Módulo:** Control Operativo de Novedades — Permisos de Horas extras por tipo
+de día para cada Supervisor, y feriados locales por regional (ver
+docs/AUDIT_LOG.md § 2026-10-20).
+
+- **Matriz en Ajustes → Seguridad** («Horas extras por tipo de día —
+  Supervisores», solo Administrador): por cada Supervisor de Operaciones, Sí/No
+  independiente para días laborables, sábados, domingos y feriados. Cada
+  cambio se guarda al momento y rige para los registros siguientes; lo ya
+  registrado no se modifica ni deja de consultarse.
+- **Tipo de día por la fecha real** (no por las casillas Sábado/Domingo/Feriado
+  del registro). Un feriado en sábado o domingo exige **ambos** permisos; un
+  feriado entre semana, solo el de feriado.
+- **Dónde se valida (backend):** alta y edición individual, guardado masivo
+  (la fila no autorizada vuelve con su error y el resto se guarda), vista
+  previa de la importación de Excel y su confirmación (que pasa por el
+  guardado masivo), y mover un registro desde o hacia una fecha no
+  autorizada. Código `day_not_allowed` (403) con el mensaje «No cuenta con
+  permiso para registrar horas extras en …».
+- **Interfaz:** `me.overtime_day_rules` (permisos del Supervisor y feriados del
+  año anterior al siguiente); el formulario y la captura masiva avisan y no
+  envían la fila. El servidor revalida siempre.
+- **A quién aplica:** solo a lo que registra el propio Supervisor. El Asistente
+  de Operaciones sigue validando y corrigiendo como hasta ahora y el
+  Administrador queda exento (decisión del usuario).
+- **Valores iniciales:** sin configuración = todo en No (un supervisor nuevo no
+  registra hasta que el Administrador lo habilite). Los supervisores que ya
+  existían al migrar quedan con los cuatro en Sí (decisión del usuario), para
+  no frenar la operación.
+- **Auditoría:** `overtime.day_permissions_changed` en el historial del módulo y
+  en la auditoría general: Administrador, supervisor, permisos anteriores y
+  nuevos, fecha y hora. Un cambio sin efecto no genera evento.
+- **Columnas de horas según permisos** (decisión del usuario): `# HORAS
+  EXTRAS` corresponde a días laborables y `# HORAS SABADO` a sábados, domingos
+  y feriados. En la captura masiva y en el formulario individual del
+  Supervisor se oculta la columna que no tiene autorizada (el pegado sobre la
+  tabla se reparte entre las columnas visibles). El backend rechaza horas en
+  esa columna al crear, editar, guardar en lote e importar (código
+  `column_not_allowed`; en la importación, la fila se rechaza indicando la
+  columna, sin ignorar el valor). Un valor ya registrado que no cambia se
+  conserva aunque el permiso se haya retirado después. El consolidado y la
+  exportación del Asistente de Operaciones mantienen todas las columnas y
+  encabezados; la columna queda vacía (0) si no hay información, sin trasladar
+  horas de una a otra.
+- **Feriados locales** (Ajustes → Feriados): alcance Nacional o Local +
+  regional (como figura en la base de colaboradores). El local solo cuenta en
+  Horas extras para colaboradores de esa regional (también para la marca
+  automática «Feriado»); días hábiles, plazos, Analytics y Permisos siguen
+  usando solo los nacionales (`get_holiday_set`, `GET /settings/holidays/` sin
+  `scope=all`). Días laborados mantiene el calendario nacional.
+- **Migraciones:** `configuration/0007` (alcance y regional del feriado; único
+  por fecha y regional) y `novedades/0014` (tabla de permisos + siembra de los
+  supervisores existentes). No destructivas.
+
+- **Archivos:** `backend/apps/novedades/{models,services,excel,views,urls,serializers}.py`,
+  migraciones, `backend/apps/configuration/{models,services,views,serializers}.py`,
+  `backend/apps/analytics/capacity_forecast.py`, `src/lib/{novedadesAutosave,novedadesCapture}.ts`,
+  `src/components/novedades/{OvertimeFormDialog,OvertimeCapture,types}.tsx`,
+  `src/components/settings/{OvertimeDayPermissionsSection,HolidaysSection,ConfigCenter}.tsx`,
+  `src/components/settings/registry.ts`, `src/app/api/settings/holidays/route.ts`.
+
+**Verificación:** `backend/apps/novedades/tests/test_overtime_day_permissions.py`
+(20, incluye los escenarios del caso José Andaluz: laborables No; sábados,
+domingos y feriados Sí), `src/__tests__/components/OvertimeDayPermissions.test.tsx` (6),
+`src/__tests__/components/OvertimeColumns.test.tsx` (7) y
+`src/__tests__/api/settings-holidays.test.ts` (2 nuevos). Los supervisores de
+los fixtures de prueba se crean autorizados, como los existentes al migrar.
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
 ## v1.182.0 — 2026-10-16
 
 **Tipo:** FEATURE / DATABASE / SECURITY

@@ -1,4 +1,4 @@
-import type { DeadlineRules } from "@/lib/novedadesAutosave";
+import type { DeadlineRules, OvertimeDayRules } from "@/lib/novedadesAutosave";
 
 // Formas camelCase que devuelve `/api/novedades/*` (ya adaptadas desde
 // Django por `src/lib/djangoNovedadesAdapter.ts`).
@@ -24,6 +24,8 @@ export type NovedadesMe = {
   user: { id: number; name: string };
   /** Plazo de registro por fecha (lo calcula Django). */
   deadlineRules?: DeadlineRules;
+  /** Tipos de día que el Supervisor puede registrar en Horas extras. */
+  overtimeDayRules?: OvertimeDayRules;
 };
 
 export type PeriodOption = {

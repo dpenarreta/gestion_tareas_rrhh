@@ -1,4 +1,11 @@
-import { deadlineError, type DeadlineRules } from "@/lib/novedadesAutosave";
+import {
+  HOUR_COLUMN_DENIED,
+  deadlineError,
+  hourColumnAccess,
+  overtimeDayError,
+  type DeadlineRules,
+  type OvertimeDayRules,
+} from "@/lib/novedadesAutosave";
 // Lógica pura de la captura masiva de Horas extras (Control Operativo de
 // Novedades). La validación de acá es una AYUDA para que la persona corrija
 // antes de guardar; la autoridad es Django (`OvertimeService.bulk_save`), que
@@ -128,17 +135,31 @@ export function validateRow(
   period: { startDate: string; endDate: string },
   duplicateKeys: Set<string>,
   deadline?: DeadlineRules,
+  dayRules?: OvertimeDayRules,
 ): CaptureRow["errors"] {
   const errors: CaptureRow["errors"] = {};
   const late = deadlineError(row.date, deadline, "overtime");
+  const dayDenied = overtimeDayError(row.date, row.regional, dayRules);
   if (!row.date) errors.date = "La fecha es obligatoria.";
   else if (row.date < period.startDate || row.date > period.endDate) errors.date = "Fuera del período seleccionado.";
   else if (late) errors.date = late;
+  else if (dayDenied) errors.date = dayDenied;
   else if (duplicateKeys.has(`${row.collaboratorId}|${row.date}`)) errors.date = "Persona y fecha repetidas en la tabla.";
   const oe = hoursError(row.overtimeHours);
   const se = hoursError(row.saturdayHours);
   if (oe) errors.overtimeHours = oe;
   if (se) errors.saturdayHours = se;
+  // Columna no autorizada con datos (llegados por pegado o respaldo local):
+  // se rechaza con su motivo, nunca se descarta en silencio. Solo en filas
+  // nuevas: lo ya registrado se conserva aunque el permiso cambie después.
+  if (row.id === null) {
+    const access = hourColumnAccess(dayRules);
+    for (const field of ["overtimeHours", "saturdayHours"] as const) {
+      if (!access[field] && row[field].trim() !== "" && Number(row[field].replace(",", ".")) !== 0) {
+        errors[field] = HOUR_COLUMN_DENIED[field];
+      }
+    }
+  }
   if (!oe && !se) {
     const total = Number(row.overtimeHours.replace(",", ".") || 0) + Number(row.saturdayHours.replace(",", ".") || 0);
     if (total <= 0) errors.overtimeHours = "Registre horas extras o de sábado.";
@@ -170,10 +191,19 @@ export function parseFlag(value: string): boolean | null {
 export function parseDateText(value: string): string | null {
   const v = value.trim();
   let m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(v);
-  if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
-  m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(v);
-  if (m) return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
-  return null;
+  let parts: [number, number, number] | null = m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+  if (!parts) {
+    m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(v);
+    if (m) parts = [Number(m[3]), Number(m[2]), Number(m[1])];
+  }
+  if (!parts) return null;
+  const [y, mo, d] = parts;
+  // Solo fechas que existen: un "10/17/2026" (mes/día) no es una fecha en
+  // dd/mm/aaaa; antes se convertía en "2026-17-10", que comparado como texto
+  // parecía una fecha futura y bloqueaba la fila con un motivo equivocado.
+  const check = new Date(Date.UTC(y, mo - 1, d));
+  if (check.getUTCFullYear() !== y || check.getUTCMonth() !== mo - 1 || check.getUTCDate() !== d) return null;
+  return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
 /** Texto tabulado del portapapeles (Excel) → matriz de celdas. */
@@ -192,8 +222,12 @@ export function applyPaste(
   startCol: number,
   block: string[][],
   editable: (row: CaptureRow) => boolean,
+  hiddenColumns: ReadonlySet<number> = new Set(),
 ): { rows: CaptureRow[]; invalid: number; skippedRows: number } {
   const next = rows.map((r) => ({ ...r }));
+  // Pegado sobre la tabla: cada valor va a la siguiente columna visible (la
+  // que ve quien pega), no a una oculta por permisos.
+  const targets = CAPTURE_COLUMNS.map((_, i) => i).filter((i) => i >= startCol && !hiddenColumns.has(i));
   let invalid = 0;
   let skippedRows = 0;
   block.forEach((cells, i) => {
@@ -204,7 +238,7 @@ export function applyPaste(
     }
     if (!editable(row)) return;
     cells.forEach((raw, j) => {
-      const column = CAPTURE_COLUMNS[startCol + j];
+      const column = CAPTURE_COLUMNS[targets[j] ?? -1];
       if (!column?.field) return;
       const value = raw.trim();
       if (column.kind === "flag") {
@@ -230,10 +264,11 @@ export function rowsFromPastedTable(
   text: string,
   team: CollaboratorRef[],
   fallbackDate: string,
-): { rows: CaptureRow[]; unknown: string[] } {
+): { rows: CaptureRow[]; unknown: string[]; invalidDates: string[] } {
   const byCedula = new Map(team.map((c) => [c.cedula, c]));
   const rows: CaptureRow[] = [];
   const unknown: string[] = [];
+  const invalidDates: string[] = [];
   for (const cells of parseClipboard(text)) {
     if (cells.length < 2 || /CEDULA/i.test(cells[1] ?? "")) continue;
     const cedula = (cells[1] ?? "").trim().replace(/[\s-]/g, "");
@@ -242,12 +277,17 @@ export function rowsFromPastedTable(
       if (cedula) unknown.push(cedula);
       continue;
     }
-    const date = parseDateText(cells[0] ?? "") ?? fallbackDate;
+    const rawDate = (cells[0] ?? "").trim();
+    const date = rawDate ? parseDateText(rawDate) : fallbackDate;
+    if (date === null) {
+      invalidDates.push(rawDate);
+      continue;
+    }
     const row = rowFromCollaborator(collaborator, date);
     const pasted = applyPaste([row], 0, 0, [cells], () => true);
     rows.push(pasted.rows[0]);
   }
-  return { rows, unknown };
+  return { rows, unknown, invalidDates };
 }
 
 export type CaptureSummary = {

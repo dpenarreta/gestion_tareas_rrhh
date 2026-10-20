@@ -250,6 +250,15 @@ export const SETTINGS_REGISTRY: SettingDescriptor[] = [
     configKeys: [],
   },
   {
+    id: "overtime-day-permissions",
+    label: "Horas extras por tipo de día — Supervisores",
+    description:
+      "Matriz por Supervisor de Operaciones: autoriza (Sí/No) el registro de horas extras en días laborables, sábados, domingos y feriados, por separado. Se valida al crear, editar e importar; los cambios quedan auditados y no alteran lo ya registrado.",
+    keywords: ["horas extras", "supervisor", "sábado", "domingo", "feriado", "laborable", "fin de semana", "permisos", "operaciones", "novedades", "importación"],
+    category: "seguridad",
+    configKeys: [],
+  },
+  {
     id: "movement-visibility",
     label: "Permisos de visibilidad — Ingresos y Salidas",
     description:

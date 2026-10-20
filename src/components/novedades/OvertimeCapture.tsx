@@ -46,6 +46,8 @@ import {
   pendingStore,
   retryDelay,
   type SyncState,
+  HOUR_COLUMN_DENIED,
+  hourColumnAccess,
 } from "@/lib/novedadesAutosave";
 import OvertimeDeleteDialog, { type OvertimeDeleteTarget } from "./OvertimeDeleteDialog";
 
@@ -180,17 +182,30 @@ export default function OvertimeCapture({
       .then((r) => r.ok && setTeam(r.data));
   }, [supervisorId]);
 
+  // Columnas de horas que este Supervisor no puede capturar: no se muestran
+  // (Django rechaza igual cualquier valor que llegue por otra vía).
+  const columnAccess = useMemo(() => hourColumnAccess(ctx.me.overtimeDayRules), [ctx.me.overtimeDayRules]);
+  const hiddenColumns = useMemo(() => {
+    const access = columnAccess;
+    return new Set(
+      CAPTURE_COLUMNS.flatMap((col, i) =>
+        (col.field === "overtimeHours" && !access.overtimeHours) || (col.field === "saturdayHours" && !access.saturdayHours)
+          ? [i]
+          : [],
+      ),
+    );
+  }, [columnAccess]);
   const dupKeys = useMemo(() => duplicateKeysOf(rows), [rows]);
   // Validación en vivo (ayuda): solo para filas con cambios pendientes.
   const validated = useMemo(
     () =>
       rows.map((r) => {
         if (!period || !r.dirty || r.state === "locked") return r;
-        const local = validateRow(r, period, dupKeys, ctx.me.deadlineRules);
+        const local = validateRow(r, period, dupKeys, ctx.me.deadlineRules, ctx.me.overtimeDayRules);
         const server = r.state === "error" ? r.errors : {};
         return { ...r, errors: { ...server, ...local } };
       }),
-    [rows, period, dupKeys, ctx.me.deadlineRules],
+    [rows, period, dupKeys, ctx.me.deadlineRules, ctx.me.overtimeDayRules],
   );
   const summary = useMemo(() => summarize(validated, dupKeys), [validated, dupKeys]);
   const pendingCount = validated.filter((r) => r.dirty).length;
@@ -410,7 +425,7 @@ export default function OvertimeCapture({
     if (!text.includes("\t") && !text.includes("\n")) return;
     e.preventDefault();
     const block = text.replace(/\r/g, "").split("\n").filter((l, i, a) => !(i === a.length - 1 && l === "")).map((l) => l.split("\t"));
-    const result = applyPaste(rows, rowIndex, colIndex, block, editable);
+    const result = applyPaste(rows, rowIndex, colIndex, block, editable, hiddenColumns);
     setRows(result.rows.map((r, i) => (r.dirty && rows[i] && JSON.stringify(r) !== JSON.stringify(rows[i]) ? touched(r) : r)));
     const notes = [
       result.invalid ? `${result.invalid} valor(es) no reconocidos (use números, SI/NO y fechas dd/mm/aaaa)` : "",
@@ -433,7 +448,7 @@ export default function OvertimeCapture({
         r.dirty &&
         r.state !== "locked" &&
         r.state !== "error" &&
-        Object.keys(validateRow(r, period, dups, ctx.me.deadlineRules)).length === 0,
+        Object.keys(validateRow(r, period, dups, ctx.me.deadlineRules, ctx.me.overtimeDayRules)).length === 0,
     );
   }
 
@@ -693,7 +708,7 @@ export default function OvertimeCapture({
                   />
                 </th>
                 <th className="sticky top-0 z-20 bg-surface2 border-b border-r border-border px-2 py-2 text-left text-secondary font-semibold">Estado</th>
-                {CAPTURE_COLUMNS.map((c) => (
+                {CAPTURE_COLUMNS.map((c, i) => hiddenColumns.has(i) ? null : (
                   <th
                     key={c.header}
                     className={`sticky top-0 z-20 border-b border-r border-border px-2 py-2 text-left font-semibold whitespace-nowrap ${
@@ -735,8 +750,23 @@ export default function OvertimeCapture({
                     </td>
                     <td className="border-b border-r border-border px-2 whitespace-nowrap" title={Object.values(row.errors).join(" · ")}>
                       <Badge variant={STATE_LABEL[st].variant}>{STATE_LABEL[st].text}</Badge>
+                      {canEdit &&
+                        (["overtimeHours", "saturdayHours"] as const)
+                          .filter((f) => !columnAccess[f] && row.errors[f] === HOUR_COLUMN_DENIED[f])
+                          .map((f) => (
+                            <button
+                              key={f}
+                              type="button"
+                              className="ml-1 text-[11px] text-primary hover:underline"
+                              title={HOUR_COLUMN_DENIED[f]}
+                              onClick={() => update(row.key, { [f]: "" })}
+                            >
+                              Quitar {f === "overtimeHours" ? "# HORAS EXTRAS" : "# HORAS SABADO"}
+                            </button>
+                          ))}
                     </td>
                     {CAPTURE_COLUMNS.map((col, c) => {
+                      if (hiddenColumns.has(c)) return null;
                       const base = "border-b border-r border-border p-0";
                       if (!col.field) {
                         const value = [null, row.cedula, row.fullName, row.regional, row.area, row.cargo][c];
@@ -893,14 +923,33 @@ export default function OvertimeCapture({
           team={team}
           fallbackDate={defaultDate}
           onClose={() => setPasteOpen(false)}
-          onAdd={(newRows, unknown) => {
+          onAdd={(pasted, unknown, invalidDates) => {
             setPasteOpen(false);
+            // Horas en una columna no autorizada: la fila no se agrega y se
+            // dice por qué (no se descarta el valor en silencio ni se mueve).
+            const denied = pasted.filter(
+              (r) =>
+                (!columnAccess.overtimeHours && Number(r.overtimeHours.replace(",", ".") || 0) !== 0) ||
+                (!columnAccess.saturdayHours && Number(r.saturdayHours.replace(",", ".") || 0) !== 0),
+            );
+            const newRows = pasted.filter((r) => !denied.includes(r));
             setRows((prev) => [...prev, ...newRows]);
-            showToast(
+            const notes = [
               unknown.length
-                ? `${newRows.length} fila(s) agregadas. Cédulas que no son de su equipo: ${unknown.slice(0, 5).join(", ")}${unknown.length > 5 ? "…" : ""}`
-                : `${newRows.length} fila(s) agregadas.`,
-              unknown.length ? "warning" : "success",
+                ? `Cédulas que no son de su equipo: ${unknown.slice(0, 5).join(", ")}${unknown.length > 5 ? "…" : ""}`
+                : "",
+              invalidDates.length
+                ? `${invalidDates.length} fila(s) con fecha no válida (use dd/mm/aaaa): ${invalidDates.slice(0, 3).join(", ")}`
+                : "",
+              denied.length
+                ? `${denied.length} fila(s) rechazadas: ${
+                    !columnAccess.overtimeHours ? HOUR_COLUMN_DENIED.overtimeHours : HOUR_COLUMN_DENIED.saturdayHours
+                  }`
+                : "",
+            ].filter(Boolean);
+            showToast(
+              notes.length ? `${newRows.length} fila(s) agregadas. ${notes.join(" · ")}` : `${newRows.length} fila(s) agregadas.`,
+              notes.length ? "warning" : "success",
             );
           }}
         />
@@ -1035,7 +1084,7 @@ function PasteDialog({
   team: CollaboratorRef[];
   fallbackDate: string;
   onClose: () => void;
-  onAdd: (rows: CaptureRow[], unknown: string[]) => void;
+  onAdd: (rows: CaptureRow[], unknown: string[], invalidDates: string[]) => void;
 }) {
   const [text, setText] = useState("");
   return (
@@ -1056,7 +1105,7 @@ function PasteDialog({
             disabled={!text.trim()}
             onClick={() => {
               const result = rowsFromPastedTable(text, team, fallbackDate);
-              onAdd(result.rows.map((r) => ({ ...r, key: newRowKey() })), result.unknown);
+              onAdd(result.rows.map((r) => ({ ...r, key: newRowKey() })), result.unknown, result.invalidDates);
             }}
           >
             Agregar a la tabla

@@ -162,6 +162,16 @@ urlpatterns = [
         views.EffectivePermissionsView.as_view(),
         name="novedades-permissions-effective",
     ),
+    path(
+        "permissions/overtime-days/",
+        views.OvertimeDayPermissionListView.as_view(),
+        name="novedades-overtime-day-permissions",
+    ),
+    path(
+        "permissions/overtime-days/<int:supervisor_id>/",
+        views.OvertimeDayPermissionDetailView.as_view(),
+        name="novedades-overtime-day-permission",
+    ),
     path("permissions/overrides/", views.OverrideListView.as_view(), name="novedades-overrides"),
     path(
         "permissions/overrides/<int:pk>/revoke/",

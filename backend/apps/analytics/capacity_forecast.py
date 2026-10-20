@@ -125,7 +125,9 @@ def compute_team_capacity_forecast(*, user_ids: list[int], now: datetime) -> dic
     hours_per_day = get_effective_horas_efectivas(now)
     workday_end_hour = get_effective_workday_end_hour(now)
     holidays = get_holiday_set()
-    holidays_this_year_count = Holiday.objects.filter(year=today.year).count()
+    holidays_this_year_count = Holiday.objects.filter(
+        year=today.year, scope=Holiday.Scope.NATIONAL
+    ).count()
     leave_records = list(
         LeaveRecord.objects.filter(user_id__in=user_ids, date__gte=month_start, date__lte=month_end).only(
             "user_id", "type", "date", "is_full_day", "duration_minutes"

@@ -433,7 +433,14 @@ class RoleCompatibilityView(generics.GenericAPIView):
 
 
 def _serialize_holiday(h: Holiday) -> dict:
-    return {"id": h.id, "date": h.date.isoformat(), "name": h.name, "year": h.year}
+    return {
+        "id": h.id,
+        "date": h.date.isoformat(),
+        "name": h.name,
+        "year": h.year,
+        "scope": h.scope,
+        "regional": h.regional,
+    }
 
 
 class HolidayListView(generics.GenericAPIView):
@@ -453,6 +460,10 @@ class HolidayListView(generics.GenericAPIView):
     def get(self, request):
         year = request.query_params.get("year")
         queryset = Holiday.objects.all()
+        # Por defecto solo los nacionales: los consumidores de días hábiles
+        # (Analytics, Permisos) no deben contar los locales. Ajustes pide todos.
+        if request.query_params.get("scope") != "all":
+            queryset = queryset.filter(scope=Holiday.Scope.NATIONAL)
         if year:
             queryset = queryset.filter(year=year)
         return Response([_serialize_holiday(h) for h in queryset.order_by("date")])
@@ -463,14 +474,25 @@ class HolidayListView(generics.GenericAPIView):
 
         serializer = self.get_serializer(data=request.data)
         if not serializer.is_valid():
-            return Response({"error": "Faltan campos requeridos"}, status=400)
+            errors = serializer.errors.get("non_field_errors")
+            return Response(
+                {"error": errors[0] if errors else "Faltan campos requeridos"}, status=400
+            )
 
-        date = serializer.validated_data["date"]
-        if Holiday.objects.filter(date=date).exists():
-            return Response({"error": "Ya existe un feriado registrado en esa fecha"}, status=409)
+        data = serializer.validated_data
+        date, regional = data["date"], data["regional"]
+        if Holiday.objects.filter(date=date, regional__iexact=regional).exists():
+            where = f" para la regional {regional}" if regional else ""
+            return Response(
+                {"error": f"Ya existe un feriado registrado en esa fecha{where}"}, status=409
+            )
 
         holiday = Holiday.objects.create(
-            date=date, name=serializer.validated_data["name"].strip(), year=date.year
+            date=date,
+            name=data["name"].strip(),
+            year=date.year,
+            scope=data["scope"],
+            regional=regional,
         )
         return Response(_serialize_holiday(holiday), status=201)
 

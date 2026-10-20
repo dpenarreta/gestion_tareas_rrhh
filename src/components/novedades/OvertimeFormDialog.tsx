@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Modal, ModalHeader } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
+import { hourColumnAccess, overtimeDayError } from "@/lib/novedadesAutosave";
 import { novedadesApi } from "./api";
 import { ErrorBox, Label, SelectInput, TextArea, TextInput } from "./fields";
 import type { Collaborator, OvertimeRecord } from "./types";
@@ -42,6 +43,18 @@ export default function OvertimeFormDialog({ ctx, record, onClose, onSaved }: Pr
     [collaborators, collaboratorId],
   );
 
+  // Tipo de día no autorizado para este Supervisor: se avisa y no se envía
+  // (Django lo rechaza igual). Un registro ya existente se puede ver, no editar.
+  const dayDenied = overtimeDayError(
+    record?.date ?? date,
+    record?.regional ?? selected?.regional,
+    ctx.me.overtimeDayRules,
+  );
+
+  // Columnas de horas no autorizadas para este Supervisor: no se muestran ni
+  // se envían (en una edición, el valor ya registrado se conserva tal cual).
+  const columns = hourColumnAccess(ctx.me.overtimeDayRules);
+
   function onDateChange(value: string) {
     setDate(value);
     // Sugerencia según el día; el supervisor puede ajustarla.
@@ -52,7 +65,15 @@ export default function OvertimeFormDialog({ ctx, record, onClose, onSaved }: Pr
   async function submit() {
     setSaving(true);
     setError(null);
-    const values = { overtimeHours, saturdayHours, isSaturday, isSunday, isHoliday, workDone, observations };
+    const values = {
+      ...(columns.overtimeHours ? { overtimeHours } : {}),
+      ...(columns.saturdayHours ? { saturdayHours } : {}),
+      isSaturday,
+      isSunday,
+      isHoliday,
+      workDone,
+      observations,
+    };
     const result = record
       ? await novedadesApi.patch(`overtime/${record.id}`, { ...values, version: record.version })
       : await novedadesApi.post("overtime", { ...values, collaboratorId, date });
@@ -98,14 +119,18 @@ export default function OvertimeFormDialog({ ctx, record, onClose, onSaved }: Pr
           </div>
         )}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 items-end">
-          <label>
-            <Label># Horas extras</Label>
-            <TextInput value={overtimeHours} onChange={(e) => setOvertimeHours(e.target.value)} inputMode="decimal" />
-          </label>
-          <label>
-            <Label># Horas sábado</Label>
-            <TextInput value={saturdayHours} onChange={(e) => setSaturdayHours(e.target.value)} inputMode="decimal" />
-          </label>
+          {columns.overtimeHours && (
+            <label>
+              <Label># Horas extras</Label>
+              <TextInput value={overtimeHours} onChange={(e) => setOvertimeHours(e.target.value)} inputMode="decimal" />
+            </label>
+          )}
+          {columns.saturdayHours && (
+            <label>
+              <Label># Horas sábado</Label>
+              <TextInput value={saturdayHours} onChange={(e) => setSaturdayHours(e.target.value)} inputMode="decimal" />
+            </label>
+          )}
           {(
             [
               ["Sábado", isSaturday, setIsSaturday],
@@ -126,12 +151,12 @@ export default function OvertimeFormDialog({ ctx, record, onClose, onSaved }: Pr
           <Label>Observaciones</Label>
           <TextArea value={observations} onChange={(e) => setObservations(e.target.value)} maxLength={1000} />
         </label>
-        <ErrorBox message={error} />
+        <ErrorBox message={error ?? dayDenied} />
         <div className="flex justify-end gap-2">
           <Button variant="secondary" onClick={onClose} disabled={saving}>
             Cancelar
           </Button>
-          <Button onClick={submit} loading={saving} disabled={!record && (!collaboratorId || !date)}>
+          <Button onClick={submit} loading={saving} disabled={!!dayDenied || (!record && (!collaboratorId || !date))}>
             Guardar
           </Button>
         </div>

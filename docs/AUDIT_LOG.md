@@ -15,6 +15,52 @@
 
 ---
 
+## 2026-10-20 — Horas extras: permisos por tipo de día para cada Supervisor y feriados locales
+
+**Cómo apareció:** pedido explícito de controlar qué supervisores registran
+horas extras en días laborables, sábados, domingos y feriados, con validación
+en interfaz, backend e importación, y feriados nacionales y locales.
+
+**Lo que había (verificado):** los permisos de Novedades son por rol
+(`ROLE_MATRIX`) y por excepción individual (`PermissionOverride`), sin
+dimensión de tipo de día. El calendario de feriados era uno solo (fecha
+única) y lo consumen días hábiles, plazos y todo Analytics.
+
+**Decisiones del usuario:** aplica solo al Supervisor (el Asistente de
+Operaciones valida y no se ve afectado); los supervisores existentes quedan con
+todo en Sí y los nuevos con todo en No; los feriados locales se definen por
+regional.
+
+**Alternativas consideradas:**
+- *Cuatro permisos del catálogo (`novedades.*`) por usuario.* Descartado: un
+  Sí/No por supervisor y tipo de día es una matriz de configuración, no una
+  facultad; mezclarla con el catálogo la habría expuesto en Roles y Permisos
+  para cualquier rol.
+- *Usar las casillas Sábado/Domingo/Feriado del registro.* Descartado: las
+  edita quien registra; el pedido exige la fecha real.
+- *Feriados locales en el mismo calendario para todo.* Descartado: habría
+  cambiado los días hábiles de todo NEXO y las métricas de Analytics.
+
+**Decisión técnica:** `OvertimeDayPermission` (uno por supervisor; sin fila =
+todo en No) y `OvertimeDayPermissionService` como única regla, aplicada en
+alta, edición, guardado masivo e importación; `HolidayCalendar` resuelve
+nacionales + locales de la regional del colaborador. `Holiday` suma `scope` y
+`regional` (único por fecha y regional) y todos los consumidores previos
+filtran a nacionales.
+
+**Columnas (mismo día, ajuste del pedido):** `# HORAS EXTRAS` se habilita con
+el permiso de días laborables y `# HORAS SABADO` con el de sábados, domingos o
+feriados (decisión del usuario). La captura del Supervisor oculta la columna
+no autorizada; el consolidado nacional del Asistente conserva siempre su
+estructura completa.
+
+**Impacto:** lo registrado no cambia. La regla corre en el servidor; la
+interfaz solo anticipa el mensaje.
+
+**Aprobado por:** Anthony Jácome.
+
+---
+
 ## 2026-10-16 — Retiro lógico de Días laborados y corrección de cédulas
 
 **Cómo apareció:** pedido explícito: que el Administrador pueda eliminar
