@@ -3217,19 +3217,6 @@ class OvertimeService:
             if errors:
                 fail(row, "error", errors)
                 continue
-            column_errors = OvertimeDayPermissionService.column_errors(
-                acc,
-                values,
-                (
-                    {f: getattr(record, f) for f in OvertimeDayPermissionService.COLUMNS}
-                    if record
-                    else None
-                ),
-                day_allowed,
-            )
-            if column_errors:
-                fail(row, "error", column_errors)
-                continue
             dup_key = (collaborator.pk, day)
             if dup_key in seen_keys:
                 fail(
@@ -3296,6 +3283,19 @@ class OvertimeService:
                         "date": f"Ya existe un registro de {collaborator.full_name} el {day:%d/%m/%Y}; edítelo en lugar de crear otro."
                     },
                 )
+                continue
+            column_errors = OvertimeDayPermissionService.column_errors(
+                acc,
+                values,
+                (
+                    {f: getattr(record, f) for f in OvertimeDayPermissionService.COLUMNS}
+                    if record
+                    else None
+                ),
+                day_allowed,
+            )
+            if column_errors:
+                fail(row, "error", column_errors)
                 continue
             plan.append(
                 (

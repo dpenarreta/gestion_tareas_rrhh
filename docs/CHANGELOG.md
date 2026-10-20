@@ -23,6 +23,47 @@
 
 ---
 
+## v1.183.1 — 2026-10-20
+
+**Tipo:** FIX
+**Módulo:** Control Operativo de Novedades — Horas extras de sábados,
+domingos y feriados para supervisores sin permiso de días laborables.
+
+**Causa:** las filas válidas de sábado escritas a mano se guardaban bien; lo que
+quedaba bloqueado eran filas que traían un valor en `# HORAS EXTRAS`, columna
+oculta para ese supervisor: borradores guardados en el equipo antes de que se le
+retirara el permiso y filas completas pegadas desde Excel (donde el hábito era
+cargar las horas de fin de semana en esa columna). Al estar oculta, el error
+«Columna # HORAS EXTRAS no autorizada…» no se podía corregir. Además, el pegado
+aceptaba fechas inexistentes (`10/17/2026`, mes/día, se convertía en
+`2026-17-10`) que comparadas como texto parecían **fechas futuras**, y una fecha
+ilegible caía en silencio en la fecha por defecto. En el servidor, el reenvío de
+una fila ya guardada se evaluaba contra el permiso actual antes de reconocerse
+como guardada.
+
+- **Captura:** una fila con valor en la columna oculta muestra la acción
+  «Quitar # HORAS EXTRAS» (o «# HORAS SABADO») para vaciarla y guardarla; las
+  filas pegadas con horas en una columna no autorizada no se agregan y se
+  informa cuántas y por qué; las fechas no válidas se informan (use dd/mm/aaaa)
+  y la fila no se agrega.
+- **Fechas:** solo se aceptan fechas reales; las futuras siguen bloqueadas (la
+  fecha validada es la misma que se guarda; el «hoy» es el del día de negocio).
+- **Backend:** la regla de columna se evalúa después de reconocer un reintento
+  de algo ya guardado. Una columna oculta vacía o en 0 nunca es un error; con
+  valor, se sigue rechazando en captura, pegado, importación y API.
+- El consolidado y la exportación del Asistente de Operaciones no cambian.
+
+- **Archivos:** `src/lib/novedadesCapture.ts`, `src/components/novedades/OvertimeCapture.tsx`,
+  `backend/apps/novedades/services.py`.
+
+**Verificación:** `backend/apps/novedades/tests/test_overtime_day_permissions.py`
+(24; 4 nuevos de regresión) y `src/__tests__/components/OvertimeColumns.test.tsx`
+(10; 3 nuevos).
+
+**Autor:** Anthony Jácome (dirección de producto) + Claude Code.
+
+---
+
 ## v1.183.0 — 2026-10-20
 
 **Tipo:** FEATURE / SECURITY / DATABASE

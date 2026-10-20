@@ -480,3 +480,114 @@ def test_assistant_consolidated_and_export_keep_full_structure(
     headers = [c.value for c in next(sheet.iter_rows(min_row=1, max_row=1))]
     assert headers[: len(OVERTIME_EXPORT_HEADERS)] == OVERTIME_EXPORT_HEADERS
     assert OvertimeDayPermissionService.rules(access(assistant))["restricted"] is False
+
+
+# ── Regresión: supervisor laborables No; sábados, domingos y feriados Sí ─────
+
+
+@pytest.fixture
+def weekend_supervisor(admin, restricted_supervisor):
+    _set(admin, restricted_supervisor, saturday=True, sunday=True, holiday=True)
+    return restricted_supervisor
+
+
+def test_weekend_supervisor_saves_saturday_sunday_and_holiday_rows_in_bulk(weekend_supervisor):
+    """Las filas llegan con `# HORAS EXTRAS` vacía o en 0 (la estructura completa
+    de la captura): eso no es un error de autorización."""
+    Holiday.objects.create(date=FRI, name="Feriado", year=2026)
+    people = [_collab(weekend_supervisor, f"01020304{i:02d}") for i in range(1, 6)]
+    rows = _bulk(
+        weekend_supervisor,
+        {
+            "client_key": "sat",
+            "collaborator_id": people[0].pk,
+            "date": SAT,
+            "overtime_hours": "",
+            "saturday_hours": "4",
+            "is_saturday": True,
+        },
+        {
+            "client_key": "sun",
+            "collaborator_id": people[1].pk,
+            "date": SUN,
+            "overtime_hours": "0",
+            "saturday_hours": "3",
+            "is_sunday": True,
+        },
+        {
+            "client_key": "hol",
+            "collaborator_id": people[2].pk,
+            "date": FRI,
+            "overtime_hours": None,
+            "saturday_hours": "2",
+        },
+        {"client_key": "mon", "collaborator_id": people[3].pk, "date": MON, "overtime_hours": "2"},
+        {
+            "client_key": "val",
+            "collaborator_id": people[4].pk,
+            "date": SAT,
+            "overtime_hours": "5",
+            "saturday_hours": "",
+        },
+    )
+    assert [rows[k]["status"] for k in ("sat", "sun", "hol")] == ["created"] * 3
+    assert "días laborables" in rows["mon"]["errors"]["date"]  # 2. lunes a viernes no
+    assert "no autorizada" in rows["val"]["errors"]["overtime_hours"]  # 7. valor en columna oculta
+    saved = {r.date: r for r in OvertimeRecord.objects.all()}
+    assert saved[SAT].saturday_hours == 4 and saved[SAT].overtime_hours == 0  # sin trasladar horas
+
+
+def test_future_dates_stay_blocked_for_the_weekend_supervisor(weekend_supervisor):
+    collaborator = _collab(weekend_supervisor)
+    next_saturday = date(2026, 10, 17)  # hoy en los tests es el lunes 12/10
+    rows = _bulk(
+        weekend_supervisor,
+        {
+            "client_key": "f",
+            "collaborator_id": collaborator.pk,
+            "date": next_saturday,
+            "saturday_hours": "4",
+        },
+    )
+    assert rows["f"]["status"] in ("error", "locked")
+    assert "futura" in rows["f"]["errors"]["date"].lower()
+    assert not OvertimeRecord.objects.exists()
+
+
+def test_retry_of_a_saved_row_is_recognized_after_a_permission_change(admin, supervisor):
+    """Reenvío (respuesta perdida) de una fila ya guardada cuando el permiso
+    cambió entretanto: se reconoce como guardada, no como no autorizada."""
+    collaborator = _collab(supervisor)
+    row = {
+        "client_key": "r",
+        "collaborator_id": collaborator.pk,
+        "date": SAT,
+        "overtime_hours": "2",
+    }
+    assert _bulk(supervisor, row)["r"]["status"] == "created"
+    _set(admin, supervisor, weekday=False)
+    assert _bulk(supervisor, row)["r"]["status"] == "unchanged"
+    assert OvertimeRecord.objects.count() == 1
+
+
+def test_import_with_empty_unauthorized_column_is_valid(client_for, admin, weekend_supervisor):
+    PermissionAdminService.create_override(
+        access(admin),
+        user_id=weekend_supervisor.pk,
+        codename=perms.IMPORTAR,
+        effect="GRANT",
+        reason="Carga",
+    )
+    _collab(weekend_supervisor, "0102030405")
+    _collab(weekend_supervisor, "0102030406")
+    empty = [SAT, "0102030405", "Ana", "", "", "", None, 4, "SI", "NO", "NO", "Carga", ""]
+    zero = [SUN, "0102030406", "Luis", "", "", "", 0, 3, "NO", "SI", "NO", "Carga", ""]
+    client = client_for(weekend_supervisor)
+    body = client.post(
+        f"{BASE}/imports/preview/",
+        {"kind": "OVERTIME", "period": "2026-10", "file": _xlsx([OVERTIME_HEADERS, empty, zero])},
+        format="multipart",
+    ).json()
+    assert body["summary"]["valid_rows"] == 2 and body["summary"]["invalid_rows"] == 0
+    client.post(f"{BASE}/imports/{body['id']}/confirm/", {"strategy": "skip"}, format="json")
+    assert OvertimeRecord.objects.count() == 2

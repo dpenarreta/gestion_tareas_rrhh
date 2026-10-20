@@ -191,10 +191,19 @@ export function parseFlag(value: string): boolean | null {
 export function parseDateText(value: string): string | null {
   const v = value.trim();
   let m = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(v);
-  if (m) return `${m[1]}-${m[2].padStart(2, "0")}-${m[3].padStart(2, "0")}`;
-  m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(v);
-  if (m) return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
-  return null;
+  let parts: [number, number, number] | null = m ? [Number(m[1]), Number(m[2]), Number(m[3])] : null;
+  if (!parts) {
+    m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(v);
+    if (m) parts = [Number(m[3]), Number(m[2]), Number(m[1])];
+  }
+  if (!parts) return null;
+  const [y, mo, d] = parts;
+  // Solo fechas que existen: un "10/17/2026" (mes/día) no es una fecha en
+  // dd/mm/aaaa; antes se convertía en "2026-17-10", que comparado como texto
+  // parecía una fecha futura y bloqueaba la fila con un motivo equivocado.
+  const check = new Date(Date.UTC(y, mo - 1, d));
+  if (check.getUTCFullYear() !== y || check.getUTCMonth() !== mo - 1 || check.getUTCDate() !== d) return null;
+  return `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
 }
 
 /** Texto tabulado del portapapeles (Excel) → matriz de celdas. */
@@ -255,10 +264,11 @@ export function rowsFromPastedTable(
   text: string,
   team: CollaboratorRef[],
   fallbackDate: string,
-): { rows: CaptureRow[]; unknown: string[] } {
+): { rows: CaptureRow[]; unknown: string[]; invalidDates: string[] } {
   const byCedula = new Map(team.map((c) => [c.cedula, c]));
   const rows: CaptureRow[] = [];
   const unknown: string[] = [];
+  const invalidDates: string[] = [];
   for (const cells of parseClipboard(text)) {
     if (cells.length < 2 || /CEDULA/i.test(cells[1] ?? "")) continue;
     const cedula = (cells[1] ?? "").trim().replace(/[\s-]/g, "");
@@ -267,12 +277,17 @@ export function rowsFromPastedTable(
       if (cedula) unknown.push(cedula);
       continue;
     }
-    const date = parseDateText(cells[0] ?? "") ?? fallbackDate;
+    const rawDate = (cells[0] ?? "").trim();
+    const date = rawDate ? parseDateText(rawDate) : fallbackDate;
+    if (date === null) {
+      invalidDates.push(rawDate);
+      continue;
+    }
     const row = rowFromCollaborator(collaborator, date);
     const pasted = applyPaste([row], 0, 0, [cells], () => true);
     rows.push(pasted.rows[0]);
   }
-  return { rows, unknown };
+  return { rows, unknown, invalidDates };
 }
 
 export type CaptureSummary = {

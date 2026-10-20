@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ToastProvider } from "@/components/ui/Toast";
 import OvertimeCapture from "@/components/novedades/OvertimeCapture";
 import OvertimeFormDialog from "@/components/novedades/OvertimeFormDialog";
@@ -190,5 +190,66 @@ describe("captura de Horas extras según permisos", () => {
     );
     expect(await screen.findByText("# Horas sábado")).toBeInTheDocument();
     expect(screen.queryByText("# Horas extras")).not.toBeInTheDocument();
+  });
+});
+
+
+describe("regresión: supervisor laborables No; sábados, domingos y feriados Sí", () => {
+  it("una fecha inexistente (mes/día) no se interpreta como fecha futura", async () => {
+    const { parseDateText, rowsFromPastedTable } = await import("@/lib/novedadesCapture");
+    expect(parseDateText("10/17/2026")).toBeNull();
+    expect(parseDateText("31/02/2026")).toBeNull();
+    expect(parseDateText("17/10/2026")).toBe("2026-10-17");
+    expect(parseDateText("2026-10-10")).toBe("2026-10-10");
+    const team = [{ id: 5, cedula: "0102030405", fullName: "Ana Pérez", regional: "", area: "", cargo: "" }];
+    const result = rowsFromPastedTable("10/17/2026\t0102030405\tAna\t\t\t\t\t4", team, "2026-10-12");
+    expect(result.rows).toHaveLength(0);
+    expect(result.invalidDates).toEqual(["10/17/2026"]);
+  });
+
+  it("una fila de sábado con # HORAS EXTRAS vacía es válida; con valor se rechaza", () => {
+    const period = { startDate: "2026-10-01", endDate: "2026-10-31" };
+    const saturday = baseRow({ date: "2026-10-10", isSaturday: true, isSunday: false, overtimeHours: "", saturdayHours: "4" });
+    expect(validateRow(saturday, period, new Set(), undefined, JOSE)).toEqual({});
+    expect(validateRow({ ...saturday, overtimeHours: "0" }, period, new Set(), undefined, JOSE)).toEqual({});
+    expect(validateRow({ ...saturday, overtimeHours: "3" }, period, new Set(), undefined, JOSE).overtimeHours).toMatch(/no autorizada/);
+    const monday = baseRow({ date: "2026-10-12", isSunday: false, saturdayHours: "4" });
+    expect(validateRow(monday, period, new Set(), undefined, JOSE).date).toMatch(/días laborables/);
+  });
+
+  it("un borrador con valor en la columna oculta se puede vaciar y entonces se guarda", async () => {
+    window.localStorage.setItem(
+      "nexo:novedades:pendiente:horas|2026-10|6|6",
+      JSON.stringify({
+        savedAt: Date.now(),
+        value: [{ ...baseRow({ key: "d", date: "2026-10-10", isSaturday: true, isSunday: false, overtimeHours: "2", saturdayHours: "4" }), rev: 1 }],
+      }),
+    );
+    const bodies: { rows: { clientKey: string; overtimeHours: string }[] }[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (String(url).includes("overtime/bulk")) {
+          const body = JSON.parse(String(init?.body));
+          bodies.push(body);
+          return json(200, {
+            summary: { created: 1, updated: 0, unchanged: 0, errors: 0 },
+            rows: body.rows.map((r: { clientKey: string }) => ({ clientKey: r.clientKey, status: "created", errors: {}, recordId: 3, version: 1 })),
+          });
+        }
+        return json(200, []);
+      }),
+    );
+    render(
+      <ToastProvider>
+        <OvertimeCapture ctx={ctxWith(JOSE)} supervisorId={6} month={month} />
+      </ToastProvider>,
+    );
+    const clear = await screen.findByRole("button", { name: "Quitar # HORAS EXTRAS" });
+    await new Promise((r) => setTimeout(r, 1200));
+    expect(bodies).toHaveLength(0); // bloqueado mientras tenga el valor no autorizado
+    fireEvent.click(clear);
+    await waitFor(() => expect(bodies).toHaveLength(1), { timeout: 4000 });
+    expect(bodies[0].rows[0]).toMatchObject({ clientKey: "d", overtimeHours: "" });
   });
 });
