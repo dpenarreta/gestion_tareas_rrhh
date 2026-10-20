@@ -136,10 +136,38 @@ describe("POST /api/settings/holidays", () => {
     expect(res.status).toBe(201);
     expect(djangoApiFetch).toHaveBeenCalledWith("/settings/holidays/", {
       method: "POST",
-      body: JSON.stringify({ date: "2026-08-10", name: "Primer Grito de Independencia" }),
+      // Sin alcance explícito, nacional (feriados locales desde 2026-10-20).
+      body: JSON.stringify({ date: "2026-08-10", name: "Primer Grito de Independencia", scope: "NATIONAL", regional: "" }),
     });
     const body = await res.json();
     expect(body).toEqual({ id: "9", date: "2026-08-10", name: "Primer Grito de Independencia", year: 2026 });
+  });
+
+  it("reenvía el alcance local y la regional", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(
+      djangoResponse(true, { id: 10, date: "2026-11-10", name: "Fundación", year: 2026, scope: "LOCAL", regional: "Costa" }),
+    );
+    const res = await holidaysPOST(jsonRequest({ date: "2026-11-10", name: "Fundación", scope: "LOCAL", regional: " Costa " }));
+    expect(res.status).toBe(201);
+    expect(djangoApiFetch).toHaveBeenCalledWith("/settings/holidays/", {
+      method: "POST",
+      body: JSON.stringify({ date: "2026-11-10", name: "Fundación", scope: "LOCAL", regional: "Costa" }),
+    });
+  });
+});
+
+describe("GET /api/settings/holidays con feriados locales", () => {
+  beforeEach(resetAll);
+
+  it("solo pide los locales cuando se solicita scope=all (Ajustes)", async () => {
+    mockSession({});
+    djangoApiFetch.mockResolvedValue(djangoResponse(true, []));
+    await holidaysGET(getRequest("http://localhost/api/settings/holidays?year=2026&scope=all"));
+    expect(djangoApiFetch).toHaveBeenCalledWith("/settings/holidays/?year=2026&scope=all");
+    djangoApiFetch.mockClear();
+    await holidaysGET(getRequest("http://localhost/api/settings/holidays?year=2026&scope=otro"));
+    expect(djangoApiFetch).toHaveBeenCalledWith("/settings/holidays/?year=2026");
   });
 });
 

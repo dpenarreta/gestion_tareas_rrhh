@@ -38,6 +38,7 @@ import RetentionPolicySection from "@/components/settings/RetentionPolicySection
 import NovedadesPermissionsSection from "@/components/settings/NovedadesPermissionsSection";
 import CollaboratorNotificationsSection from "@/components/settings/CollaboratorNotificationsSection";
 import MovementPermissionsSection from "@/components/settings/MovementPermissionsSection";
+import OvertimeDayPermissionsSection from "@/components/settings/OvertimeDayPermissionsSection";
 import NotificationRulesSection from "@/components/settings/NotificationRulesSection";
 import WelcomeMessageSection from "@/components/settings/WelcomeMessageSection";
 import SystemInfoSection from "@/components/settings/SystemInfoSection";
@@ -265,6 +266,9 @@ function ConfigCenterInner({ currentUserRole }: { currentUserRole: Role }) {
                   </ConfigSectionCard>
                   <ConfigSectionCard descriptor={d("novedades-permissions")!}>
                     <NovedadesPermissionsSection />
+                  </ConfigSectionCard>
+                  <ConfigSectionCard descriptor={d("overtime-day-permissions")!}>
+                    <OvertimeDayPermissionsSection />
                   </ConfigSectionCard>
                   <ConfigSectionCard descriptor={d("movement-visibility")!}>
                     <MovementPermissionsSection />

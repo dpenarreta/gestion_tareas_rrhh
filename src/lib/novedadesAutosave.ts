@@ -63,6 +63,67 @@ export function deadlineError(
   return null;
 }
 
+/** Permisos por tipo de día del Supervisor en Horas extras (`me.overtimeDayRules`). */
+export type OvertimeDayKind = "weekday" | "saturday" | "sunday" | "holiday";
+export type OvertimeDayRules = {
+  restricted: boolean;
+  allowed: Record<OvertimeDayKind, boolean> | null;
+  /** Nacionales (`regional` vacía) y locales (regional normalizada en minúsculas). */
+  holidays: { date: string; regional: string }[];
+};
+
+const DAY_LABEL: Record<OvertimeDayKind, string> = {
+  weekday: "días laborables",
+  saturday: "sábados",
+  sunday: "domingos",
+  holiday: "feriados",
+};
+
+const regionalKey = (value: string | null | undefined) => (value ?? "").toLowerCase().split(/\s+/).filter(Boolean).join(" ");
+
+/**
+ * Réplica de `OvertimeDayPermissionService` (Django) para avisar antes de
+ * guardar; el servidor revalida siempre. Un feriado en sábado o domingo exige
+ * ambos permisos; un feriado entre semana, solo el de feriado.
+ */
+export function overtimeDayError(
+  date: string,
+  regional: string | null | undefined,
+  rules: OvertimeDayRules | undefined,
+): string | null {
+  if (!rules?.restricted || !rules.allowed || !date) return null;
+  const key = regionalKey(regional);
+  const holiday = rules.holidays.some((h) => h.date === date && (h.regional === "" || h.regional === key));
+  const weekday = new Date(`${date}T12:00:00`).getDay();
+  const kinds: OvertimeDayKind[] = [];
+  if (weekday === 6) kinds.push("saturday");
+  else if (weekday === 0) kinds.push("sunday");
+  else if (!holiday) kinds.push("weekday");
+  if (holiday) kinds.push("holiday");
+  const missing = kinds.filter((k) => !rules.allowed![k]);
+  if (!missing.length) return null;
+  const [y, m, d] = date.split("-");
+  return `No cuenta con permiso para registrar horas extras en ${missing.map((k) => DAY_LABEL[k]).join(" ni ")} (${d}/${m}/${y}). Solicítelo al Administrador.`;
+}
+
+/**
+ * Columnas de horas que el Supervisor puede capturar (2026-10-20, decisión del
+ * usuario): # HORAS EXTRAS corresponde a días laborables y # HORAS SABADO a
+ * sábados, domingos y feriados. Sin restricción (Asistente, Administrador),
+ * ambas. Ocultarlas en la captura no las quita del modelo, del consolidado
+ * nacional ni de las exportaciones.
+ */
+export function hourColumnAccess(rules: OvertimeDayRules | undefined): { overtimeHours: boolean; saturdayHours: boolean } {
+  if (!rules?.restricted || !rules.allowed) return { overtimeHours: true, saturdayHours: true };
+  const a = rules.allowed;
+  return { overtimeHours: a.weekday, saturdayHours: a.saturday || a.sunday || a.holiday };
+}
+
+export const HOUR_COLUMN_DENIED: Record<"overtimeHours" | "saturdayHours", string> = {
+  overtimeHours: "Columna # HORAS EXTRAS no autorizada: su usuario no registra horas extras en días laborables.",
+  saturdayHours: "Columna # HORAS SABADO no autorizada: su usuario no registra horas en sábados, domingos ni feriados.",
+};
+
 const STORE_PREFIX = "nexo:novedades:pendiente:";
 const STORE_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 

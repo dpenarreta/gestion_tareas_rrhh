@@ -13,12 +13,27 @@ class Holiday(BaseModel):
     sincroniza con el catálogo real de Postgres, que sigue sirviendo la
     pantalla de Ajustes real (sin cutover de `route.ts`)."""
 
-    date = models.DateField(unique=True)
+    class Scope(models.TextChoices):
+        NATIONAL = "NATIONAL", "Nacional"
+        LOCAL = "LOCAL", "Local"
+
+    date = models.DateField()
     name = models.CharField(max_length=255)
     year = models.PositiveSmallIntegerField(db_index=True)
+    # Feriados locales (2026-10-20): solo cuentan para los colaboradores de
+    # esa regional en Horas extras. Días hábiles, Analytics y plazos siguen
+    # usando únicamente los nacionales (`get_holiday_set`).
+    scope = models.CharField(max_length=8, choices=Scope.choices, default=Scope.NATIONAL)
+    regional = models.CharField(max_length=100, blank=True)
 
     class Meta:
         ordering = ["date"]
+        constraints = [
+            # Un nacional por fecha (regional vacía) y un local por fecha y regional.
+            models.UniqueConstraint(
+                fields=["date", "regional"], name="configuration_holiday_date_regional"
+            )
+        ]
 
     def __str__(self) -> str:
         return f"{self.date} — {self.name}"

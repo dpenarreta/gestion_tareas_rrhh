@@ -46,6 +46,7 @@ import {
   pendingStore,
   retryDelay,
   type SyncState,
+  hourColumnAccess,
 } from "@/lib/novedadesAutosave";
 import OvertimeDeleteDialog, { type OvertimeDeleteTarget } from "./OvertimeDeleteDialog";
 
@@ -180,17 +181,29 @@ export default function OvertimeCapture({
       .then((r) => r.ok && setTeam(r.data));
   }, [supervisorId]);
 
+  // Columnas de horas que este Supervisor no puede capturar: no se muestran
+  // (Django rechaza igual cualquier valor que llegue por otra vía).
+  const hiddenColumns = useMemo(() => {
+    const access = hourColumnAccess(ctx.me.overtimeDayRules);
+    return new Set(
+      CAPTURE_COLUMNS.flatMap((col, i) =>
+        (col.field === "overtimeHours" && !access.overtimeHours) || (col.field === "saturdayHours" && !access.saturdayHours)
+          ? [i]
+          : [],
+      ),
+    );
+  }, [ctx.me.overtimeDayRules]);
   const dupKeys = useMemo(() => duplicateKeysOf(rows), [rows]);
   // Validación en vivo (ayuda): solo para filas con cambios pendientes.
   const validated = useMemo(
     () =>
       rows.map((r) => {
         if (!period || !r.dirty || r.state === "locked") return r;
-        const local = validateRow(r, period, dupKeys, ctx.me.deadlineRules);
+        const local = validateRow(r, period, dupKeys, ctx.me.deadlineRules, ctx.me.overtimeDayRules);
         const server = r.state === "error" ? r.errors : {};
         return { ...r, errors: { ...server, ...local } };
       }),
-    [rows, period, dupKeys, ctx.me.deadlineRules],
+    [rows, period, dupKeys, ctx.me.deadlineRules, ctx.me.overtimeDayRules],
   );
   const summary = useMemo(() => summarize(validated, dupKeys), [validated, dupKeys]);
   const pendingCount = validated.filter((r) => r.dirty).length;
@@ -410,7 +423,7 @@ export default function OvertimeCapture({
     if (!text.includes("\t") && !text.includes("\n")) return;
     e.preventDefault();
     const block = text.replace(/\r/g, "").split("\n").filter((l, i, a) => !(i === a.length - 1 && l === "")).map((l) => l.split("\t"));
-    const result = applyPaste(rows, rowIndex, colIndex, block, editable);
+    const result = applyPaste(rows, rowIndex, colIndex, block, editable, hiddenColumns);
     setRows(result.rows.map((r, i) => (r.dirty && rows[i] && JSON.stringify(r) !== JSON.stringify(rows[i]) ? touched(r) : r)));
     const notes = [
       result.invalid ? `${result.invalid} valor(es) no reconocidos (use números, SI/NO y fechas dd/mm/aaaa)` : "",
@@ -433,7 +446,7 @@ export default function OvertimeCapture({
         r.dirty &&
         r.state !== "locked" &&
         r.state !== "error" &&
-        Object.keys(validateRow(r, period, dups, ctx.me.deadlineRules)).length === 0,
+        Object.keys(validateRow(r, period, dups, ctx.me.deadlineRules, ctx.me.overtimeDayRules)).length === 0,
     );
   }
 
@@ -693,7 +706,7 @@ export default function OvertimeCapture({
                   />
                 </th>
                 <th className="sticky top-0 z-20 bg-surface2 border-b border-r border-border px-2 py-2 text-left text-secondary font-semibold">Estado</th>
-                {CAPTURE_COLUMNS.map((c) => (
+                {CAPTURE_COLUMNS.map((c, i) => hiddenColumns.has(i) ? null : (
                   <th
                     key={c.header}
                     className={`sticky top-0 z-20 border-b border-r border-border px-2 py-2 text-left font-semibold whitespace-nowrap ${
@@ -737,6 +750,7 @@ export default function OvertimeCapture({
                       <Badge variant={STATE_LABEL[st].variant}>{STATE_LABEL[st].text}</Badge>
                     </td>
                     {CAPTURE_COLUMNS.map((col, c) => {
+                      if (hiddenColumns.has(c)) return null;
                       const base = "border-b border-r border-border p-0";
                       if (!col.field) {
                         const value = [null, row.cedula, row.fullName, row.regional, row.area, row.cargo][c];

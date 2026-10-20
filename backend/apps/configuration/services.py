@@ -848,7 +848,9 @@ def set_config_value(key: str, value: str, actor) -> None:
 
 
 def get_holiday_set() -> set[date]:
-    return set(Holiday.objects.values_list("date", flat=True))
+    """Feriados NACIONALES: los locales (por regional) solo aplican a Horas
+    extras de Control Operativo y no alteran días hábiles ni Analytics."""
+    return set(Holiday.objects.filter(scope=Holiday.Scope.NATIONAL).values_list("date", flat=True))
 
 
 def is_business_day(d: date) -> bool:
@@ -905,7 +907,9 @@ def expected_base_hours_for_range(
     total = 0.0
     cursor = start
     while cursor <= end:
-        month_end = date(cursor.year, cursor.month, calendar.monthrange(cursor.year, cursor.month)[1])
+        month_end = date(
+            cursor.year, cursor.month, calendar.monthrange(cursor.year, cursor.month)[1]
+        )
         segment_end = min(end, month_end)
         segment_days = count_business_days(cursor, segment_end, holidays)
         if segment_days:

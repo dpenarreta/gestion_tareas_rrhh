@@ -14,6 +14,8 @@ type Holiday = {
   date: string;
   name: string;
   year: number;
+  scope: "NATIONAL" | "LOCAL";
+  regional: string;
 };
 
 function formatHolidayDate(iso: string) {
@@ -30,6 +32,8 @@ export default function HolidaysSection() {
   const [loading, setLoading] = useState(true);
   const [newDate, setNewDate] = useState("");
   const [newName, setNewName] = useState("");
+  const [newScope, setNewScope] = useState<"NATIONAL" | "LOCAL">("NATIONAL");
+  const [newRegional, setNewRegional] = useState("");
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +42,7 @@ export default function HolidaysSection() {
   const load = useCallback(async (y: number) => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/settings/holidays?year=${y}`);
+      const res = await fetch(`/api/settings/holidays?year=${y}&scope=all`);
       if (res.ok) setHolidays(await res.json());
     } finally {
       setLoading(false);
@@ -52,13 +56,17 @@ export default function HolidaysSection() {
       setError("La fecha y el nombre del feriado son obligatorios");
       return;
     }
+    if (newScope === "LOCAL" && !newRegional.trim()) {
+      setError("Un feriado local requiere la regional");
+      return;
+    }
     setError(null);
     setCreating(true);
     try {
       const res = await fetch("/api/settings/holidays", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: newDate, name: newName.trim() }),
+        body: JSON.stringify({ date: newDate, name: newName.trim(), scope: newScope, regional: newScope === "LOCAL" ? newRegional.trim() : "" }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -66,6 +74,7 @@ export default function HolidaysSection() {
       } else {
         setNewDate("");
         setNewName("");
+        setNewRegional("");
         if (data.year === year) setHolidays((prev) => [...prev, data].sort((a, b) => a.date.localeCompare(b.date)));
       }
     } catch {
@@ -95,7 +104,8 @@ export default function HolidaysSection() {
         </div>
       )}
       <p className="text-xs text-secondary">
-        Los feriados se excluyen del cálculo de días laborables junto a sábados y domingos.
+        Los feriados nacionales se excluyen del cálculo de días laborables junto a sábados y domingos. Los locales
+        solo cuentan para los colaboradores de esa regional en Horas extras (Control Operativo) y no alteran Analytics.
       </p>
 
       <div className="flex flex-wrap items-end gap-2 border border-border rounded-lg p-3">
@@ -118,6 +128,30 @@ export default function HolidaysSection() {
             className="w-full border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
           />
         </div>
+        <div className="space-y-1">
+          <label className="block text-[10px] font-semibold text-secondary uppercase tracking-wide">Alcance</label>
+          <select
+            value={newScope}
+            onChange={(e) => setNewScope(e.target.value as "NATIONAL" | "LOCAL")}
+            className="border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+          >
+            <option value="NATIONAL">Nacional</option>
+            <option value="LOCAL">Local</option>
+          </select>
+        </div>
+        {newScope === "LOCAL" && (
+          <div className="space-y-1 min-w-[160px]">
+            <label className="block text-[10px] font-semibold text-secondary uppercase tracking-wide">Regional</label>
+            <input
+              type="text"
+              value={newRegional}
+              onChange={(e) => setNewRegional(e.target.value)}
+              placeholder="Como figura en la base de colaboradores"
+              maxLength={100}
+              className="w-full border border-border rounded-lg px-3 py-2 text-sm text-title bg-surface focus:outline-none focus:ring-2 focus:ring-primary"
+            />
+          </div>
+        )}
         <Button onClick={handleCreate} disabled={creating}>
           {creating ? "Agregando…" : "Agregar feriado"}
         </Button>
@@ -155,6 +189,7 @@ export default function HolidaysSection() {
               <TableRow>
                 <Th>Fecha</Th>
                 <Th>Nombre</Th>
+                <Th>Alcance</Th>
                 <Th className="text-right">Acción</Th>
               </TableRow>
             </TableHead>
@@ -163,6 +198,7 @@ export default function HolidaysSection() {
                 <TableRow key={h.id}>
                   <Td className="text-title font-medium">{formatHolidayDate(h.date)}</Td>
                   <Td className="text-secondary">{h.name}</Td>
+                  <Td className="text-secondary">{h.scope === "LOCAL" ? `Local · ${h.regional}` : "Nacional"}</Td>
                   <Td className="text-right">
                     <button
                       onClick={() => setPendingDelete(h)}

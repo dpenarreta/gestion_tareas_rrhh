@@ -8,6 +8,12 @@
 
 | Decisión | Motivo técnico | Detalle completo |
 |---|---|---|
+| Horas extras por tipo de día: matriz Sí/No por Supervisor (laborable, sábado, domingo, feriado), no permisos del catálogo (2026-10-20) | Es configuración por persona y día, no una facultad de rol; solo la edita el Administrador y queda auditada | [AUDIT_LOG § 2026-10-20](AUDIT_LOG.md) |
+| La restricción por tipo de día solo aplica a lo que registra el Supervisor; Asistente de Operaciones y Administrador no se ven afectados (2026-10-20) | Decisión del usuario: el Asistente es el rol que valida | [AUDIT_LOG § 2026-10-20](AUDIT_LOG.md) |
+| Supervisores existentes sembrados con todo en Sí; los nuevos nacen con todo en No (2026-10-20) | Decisión del usuario; no frenar la operación al desplegar y cumplir «desactivado por defecto» para lo nuevo | `novedades/0014` |
+| Columnas de Horas extras por permiso: # HORAS EXTRAS = días laborables; # HORAS SABADO = sábados, domingos y feriados (2026-10-20) | Decisión del usuario; la captura del Supervisor oculta la columna no autorizada, el consolidado y la exportación nacional nunca cambian de estructura | `OvertimeDayPermissionService.COLUMNS` / `hourColumnAccess` |
+| Un feriado en sábado o domingo exige ambos permisos; entre semana, solo el de feriado (2026-10-20) | Pedido explícito: prevalece la restricción más específica | `OvertimeDayPermissionService.required_kinds` |
+| Feriados locales por regional: solo cuentan en Horas extras; días hábiles y Analytics siguen con los nacionales (2026-10-20) | Evita cambiar métricas y plazos de todo NEXO por un feriado de una regional | [AUDIT_LOG § 2026-10-20](AUDIT_LOG.md) |
 | Retirar de Días laborados es una eliminación lógica (conserva todo, restaurable) y la cédula la corrige solo el Administrador con motivo (2026-10-16) | Decisión del usuario; la cédula no es referencia entre tablas, así que corregirla no rompe relaciones | [AUDIT_LOG § 2026-10-16](AUDIT_LOG.md) |
 | Activo → Suspendido envía su propio correo a la lista de cambios de estado (la misma de Inactivo); ninguna otra transición notifica (2026-10-16) | Pedido del usuario; mismo evento, envío y reintentos que la salida | [AUDIT_LOG § 2026-10-16](AUDIT_LOG.md) |
 | Permiso «Editar celdas de Días laborados»: corrige fuera de plazo dentro del propio alcance, solo Días laborados; el Asistente conserva su rol (2026-10-16) | Decisión del usuario; se administra con los permisos y excepciones del módulo ya existentes | [AUDIT_LOG § 2026-10-16](AUDIT_LOG.md) |

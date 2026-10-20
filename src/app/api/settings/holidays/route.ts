@@ -5,7 +5,7 @@ import { djangoApiFetch, extractDjangoFlatErrorMessage } from "@/lib/djangoSessi
 const DJANGO_SESSION_REQUIRED_MESSAGE =
   "Tu sesión no tiene aún acceso a este módulo. Cierra sesión y volvé a iniciar sesión.";
 
-type DjangoHoliday = { id: number; date: string; name: string; year: number };
+type DjangoHoliday = { id: number; date: string; name: string; year: number; scope: "NATIONAL" | "LOCAL"; regional: string };
 
 function toNexoShape(h: DjangoHoliday) {
   return { ...h, id: String(h.id) };
@@ -19,7 +19,12 @@ export async function GET(request: NextRequest) {
   if (!session) return NextResponse.json({ error: "No autenticado" }, { status: 401 });
 
   const year = request.nextUrl.searchParams.get("year");
-  const query = year ? `?year=${encodeURIComponent(year)}` : "";
+  // `scope=all` incluye los feriados locales (solo los pide Ajustes): el resto
+  // de consumidores cuenta días hábiles con los nacionales.
+  const params = new URLSearchParams();
+  if (year) params.set("year", year);
+  if (request.nextUrl.searchParams.get("scope") === "all") params.set("scope", "all");
+  const query = params.size ? `?${params.toString()}` : "";
 
   const response = await djangoApiFetch(`/settings/holidays/${query}`);
   if (!response) {
@@ -47,14 +52,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Cuerpo de la solicitud inválido" }, { status: 400 });
   }
 
-  const { date, name } = body as { date?: string; name?: string };
+  const { date, name, scope, regional } = body as { date?: string; name?: string; scope?: string; regional?: string };
   if (!date || !name?.trim()) {
     return NextResponse.json({ error: "Faltan campos requeridos" }, { status: 400 });
   }
 
   const response = await djangoApiFetch("/settings/holidays/", {
     method: "POST",
-    body: JSON.stringify({ date, name: name.trim() }),
+    body: JSON.stringify({ date, name: name.trim(), scope: scope ?? "NATIONAL", regional: regional?.trim() ?? "" }),
   });
   if (!response) {
     return NextResponse.json({ error: DJANGO_SESSION_REQUIRED_MESSAGE }, { status: 401 });

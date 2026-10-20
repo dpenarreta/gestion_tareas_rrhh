@@ -78,6 +78,17 @@ class HolidayCreateSerializer(serializers.Serializer):
 
     date = serializers.DateField()
     name = serializers.CharField(allow_blank=False)
+    scope = serializers.ChoiceField(
+        choices=["NATIONAL", "LOCAL"], required=False, default="NATIONAL"
+    )
+    regional = serializers.CharField(max_length=100, required=False, allow_blank=True, default="")
+
+    def validate(self, attrs):
+        regional = attrs.get("regional", "").strip()
+        if attrs["scope"] == "LOCAL" and not regional:
+            raise serializers.ValidationError("Un feriado local requiere la regional.")
+        attrs["regional"] = regional if attrs["scope"] == "LOCAL" else ""
+        return attrs
 
 
 class LeaveRecordCreateSerializer(serializers.Serializer):

@@ -720,3 +720,25 @@ class CollaboratorEntryNotification(models.Model):
 
     class Meta:
         ordering = ["-created_at", "-id"]
+
+
+class OvertimeDayPermission(models.Model):
+    """Qué tipos de día puede registrar cada Supervisor de Operaciones en
+    Horas extras (2026-10-20). Sin fila = todo en No: una autorización nueva
+    nace desactivada hasta que el Administrador la configure. Los supervisores
+    existentes al crear la tabla se sembraron con todo en Sí (decisión del
+    usuario), para no frenar la operación al desplegar. Solo restringe lo que
+    registra el propio Supervisor; el Asistente de Operaciones y el
+    Administrador no se ven afectados."""
+
+    supervisor = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="overtime_day_permission"
+    )
+    weekday = models.BooleanField(default=False)
+    saturday = models.BooleanField(default=False)
+    sunday = models.BooleanField(default=False)
+    holiday = models.BooleanField(default=False)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    updated_at = models.DateTimeField(auto_now=True)

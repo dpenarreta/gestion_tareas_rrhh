@@ -367,3 +367,12 @@ class OverrideCreateSerializer(serializers.Serializer):
 
 class OverrideRevokeSerializer(serializers.Serializer):
     reason = serializers.CharField(max_length=500, required=False, allow_blank=True, default="")
+
+
+class OvertimeDayPermissionSerializer(serializers.Serializer):
+    """Sí/No por tipo de día; se envían solo los que cambian."""
+
+    weekday = serializers.BooleanField(required=False)
+    saturday = serializers.BooleanField(required=False)
+    sunday = serializers.BooleanField(required=False)
+    holiday = serializers.BooleanField(required=False)

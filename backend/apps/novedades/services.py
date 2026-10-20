@@ -49,6 +49,7 @@ from .models import (
     ImportBatch,
     NovedadEvent,
     OperationalPeriod,
+    OvertimeDayPermission,
     OvertimeDepuration,
     OvertimeMonthClose,
     OvertimeRecord,
@@ -2253,13 +2254,15 @@ class OvertimeMonthService:
                 deleted_at__isnull=True,
             ).select_related("collaborator")
         )
-        holidays = get_holiday_set()
+        calendar = HolidayCalendar(month.start_date, month.end_date)
         issues: list[dict] = []
         seen: dict[tuple, int] = {}
         for r in records:
             label = f"{r.collaborator.full_name} ({r.collaborator.cedula}) {r.date:%d/%m/%Y}"
             data = {f: getattr(r, f) for f in OVERTIME_FIELDS}
-            _, errors = OvertimeService.row_values(data, r.date, is_holiday_day=r.date in holidays)
+            _, errors = OvertimeService.row_values(
+                data, r.date, is_holiday_day=calendar.is_holiday(r.date, r.collaborator.regional)
+            )
             for field, message in errors.items():
                 issues.append(
                     {
@@ -2442,6 +2445,270 @@ class OvertimeMonthService:
         }
 
 
+class HolidayCalendar:
+    """Feriados para Horas extras: nacionales para todos y locales solo para
+    los colaboradores de su regional (comparación sin mayúsculas ni espacios
+    sobrantes). Se carga una vez por operación para no consultar fila a fila."""
+
+    def __init__(self, start: date, end: date):
+        self.national: set[date] = set()
+        self.local: dict[date, set[str]] = {}
+        for h in Holiday.objects.filter(date__gte=start, date__lte=end).only(
+            "date", "scope", "regional"
+        ):
+            if h.scope == Holiday.Scope.LOCAL:
+                self.local.setdefault(h.date, set()).add(_regional_key(h.regional))
+            else:
+                self.national.add(h.date)
+
+    @classmethod
+    def for_day(cls, day: date) -> "HolidayCalendar":
+        return cls(day, day)
+
+    def is_holiday(self, day: date, regional: str = "") -> bool:
+        return day in self.national or _regional_key(regional) in self.local.get(day, set())
+
+    def as_list(self) -> list[dict]:
+        rows = [{"date": d.isoformat(), "regional": ""} for d in sorted(self.national)]
+        rows += [
+            {"date": d.isoformat(), "regional": r}
+            for d, rs in sorted(self.local.items())
+            for r in sorted(rs)
+        ]
+        return rows
+
+
+def _regional_key(value) -> str:
+    return " ".join(str(value or "").lower().split())
+
+
+class OvertimeDayPermissionService:
+    """Permisos por tipo de día para que un Supervisor registre Horas extras
+    (2026-10-20). Restringe SOLO lo que registra el propio Supervisor: el
+    Asistente de Operaciones valida y corrige como hasta ahora, y el
+    Administrador queda exento. Se aplica al crear, editar, guardar en lote e
+    importar (vista previa y confirmación), nunca a la consulta ni a los
+    registros ya existentes, que no se modifican."""
+
+    KINDS = ("weekday", "saturday", "sunday", "holiday")
+    LABELS = {
+        "weekday": "días laborables",
+        "saturday": "sábados",
+        "sunday": "domingos",
+        "holiday": "feriados",
+    }
+
+    @staticmethod
+    def required_kinds(day: date, is_holiday: bool) -> list[str]:
+        """Tipo de día según la fecha real. Un feriado que cae en sábado o
+        domingo exige AMBOS permisos (el del día de la semana y el de feriado);
+        un feriado entre semana exige solo el de feriado."""
+        weekday = day.weekday()
+        kinds = []
+        if weekday == 5:
+            kinds.append("saturday")
+        elif weekday == 6:
+            kinds.append("sunday")
+        elif not is_holiday:
+            kinds.append("weekday")
+        if is_holiday:
+            kinds.append("holiday")
+        return kinds
+
+    @staticmethod
+    def applies_to(acc: NovedadesAccess) -> bool:
+        return acc.is_supervisor and not acc.national_write
+
+    @staticmethod
+    def allowed_for(supervisor_id) -> dict[str, bool]:
+        row = OvertimeDayPermission.objects.filter(supervisor_id=supervisor_id).first()
+        if row is None:
+            return {k: False for k in OvertimeDayPermissionService.KINDS}
+        return {k: getattr(row, k) for k in OvertimeDayPermissionService.KINDS}
+
+    @staticmethod
+    def error_for(acc: NovedadesAccess, day: date, is_holiday: bool, allowed=None) -> str | None:
+        """Mensaje si el Supervisor no puede registrar en esa fecha; None si puede."""
+        if not OvertimeDayPermissionService.applies_to(acc):
+            return None
+        allowed = (
+            allowed
+            if allowed is not None
+            else OvertimeDayPermissionService.allowed_for(acc.user.pk)
+        )
+        missing = [
+            k
+            for k in OvertimeDayPermissionService.required_kinds(day, is_holiday)
+            if not allowed[k]
+        ]
+        if not missing:
+            return None
+        labels = " ni ".join(OvertimeDayPermissionService.LABELS[k] for k in missing)
+        return (
+            f"No cuenta con permiso para registrar horas extras en {labels} "
+            f"({day:%d/%m/%Y}). Solicítelo al Administrador."
+        )
+
+    # Columna de horas ↔ tipos de día que la habilitan (decisión del usuario,
+    # 2026-10-20): # HORAS EXTRAS es de días laborables y # HORAS SABADO de
+    # sábados, domingos y feriados. Ocultar o rechazar una columna en la
+    # captura no la quita del modelo, del consolidado ni de las exportaciones.
+    COLUMNS = {
+        "overtime_hours": ("weekday",),
+        "saturday_hours": ("saturday", "sunday", "holiday"),
+    }
+    COLUMN_DENIED = {
+        "overtime_hours": "Columna # HORAS EXTRAS no autorizada: su usuario no registra horas extras en días laborables.",
+        "saturday_hours": "Columna # HORAS SABADO no autorizada: su usuario no registra horas en sábados, domingos ni feriados.",
+    }
+
+    @staticmethod
+    def column_access(acc: NovedadesAccess, allowed=None) -> dict[str, bool]:
+        if not OvertimeDayPermissionService.applies_to(acc):
+            return {f: True for f in OvertimeDayPermissionService.COLUMNS}
+        allowed = (
+            allowed
+            if allowed is not None
+            else OvertimeDayPermissionService.allowed_for(acc.user.pk)
+        )
+        return {
+            f: any(allowed[k] for k in kinds)
+            for f, kinds in OvertimeDayPermissionService.COLUMNS.items()
+        }
+
+    @staticmethod
+    def column_errors(
+        acc: NovedadesAccess, values: dict, previous: dict | None = None, allowed=None
+    ) -> dict:
+        """Horas en una columna no autorizada. Un valor ya registrado que no
+        cambia se conserva (el registro histórico no se altera porque el
+        permiso haya cambiado después)."""
+        access = OvertimeDayPermissionService.column_access(acc, allowed)
+        errors = {}
+        for field, ok in access.items():
+            value = values.get(field) or 0
+            if ok or not value:
+                continue
+            if previous is not None and previous.get(field) == value:
+                continue
+            errors[field] = OvertimeDayPermissionService.COLUMN_DENIED[field]
+        return errors
+
+    @staticmethod
+    def check_columns(acc: NovedadesAccess, values: dict, previous: dict | None = None) -> None:
+        errors = OvertimeDayPermissionService.column_errors(acc, values, previous)
+        if errors:
+            raise NovedadesError(
+                next(iter(errors.values())),
+                code="column_not_allowed",
+                status=403,
+                details={"fields": errors},
+            )
+
+    @staticmethod
+    def check(acc: NovedadesAccess, day: date, is_holiday: bool) -> None:
+        message = OvertimeDayPermissionService.error_for(acc, day, is_holiday)
+        if message:
+            raise NovedadesError(
+                message, code="day_not_allowed", status=403, details={"date": [message]}
+            )
+
+    @staticmethod
+    def rules(acc: NovedadesAccess) -> dict:
+        """Lo que la pantalla necesita para avisar antes de guardar (el
+        servidor revalida siempre): si aplica, qué tipos de día tiene y los
+        feriados del año anterior al siguiente."""
+        if not OvertimeDayPermissionService.applies_to(acc):
+            return {"restricted": False, "allowed": None, "holidays": []}
+        year = today().year
+        calendar = HolidayCalendar(date(year - 1, 1, 1), date(year + 1, 12, 31))
+        return {
+            "restricted": True,
+            "allowed": OvertimeDayPermissionService.allowed_for(acc.user.pk),
+            "holidays": calendar.as_list(),
+        }
+
+    # ── Administración (solo Administrador) ──
+    @staticmethod
+    def _check_admin(acc: NovedadesAccess) -> None:
+        if not (acc.national_write and acc.can(perms.PERMISOS)):
+            raise _forbidden("Solo el Administrador configura los permisos por tipo de día.")
+
+    @staticmethod
+    def matrix(acc: NovedadesAccess) -> list[dict]:
+        OvertimeDayPermissionService._check_admin(acc)
+        rows = {
+            p.supervisor_id: p for p in OvertimeDayPermission.objects.select_related("updated_by")
+        }
+        out = []
+        for s in (
+            User.objects.filter(groups__name=perms.SUPERVISOR_ROLE)
+            .order_by("first_name", "last_name", "username")
+            .distinct()
+        ):
+            row = rows.get(s.pk)
+            out.append(
+                {
+                    "supervisor": {"id": s.pk, "name": user_display(s), "is_active": s.is_active},
+                    "permissions": {
+                        k: bool(row and getattr(row, k)) for k in OvertimeDayPermissionService.KINDS
+                    },
+                    "configured": row is not None,
+                    "updated_by": user_display(row.updated_by) if row else "",
+                    "updated_at": row.updated_at if row else None,
+                }
+            )
+        return out
+
+    @staticmethod
+    def update(acc: NovedadesAccess, supervisor_id, changes: dict, *, context=None) -> dict:
+        OvertimeDayPermissionService._check_admin(acc)
+        supervisor = User.objects.filter(
+            pk=supervisor_id, groups__name=perms.SUPERVISOR_ROLE
+        ).first()
+        if supervisor is None:
+            raise _not_found("Supervisor no encontrado.")
+        unknown = set(changes) - set(OvertimeDayPermissionService.KINDS)
+        if unknown or not changes or not all(isinstance(v, bool) for v in changes.values()):
+            raise NovedadesError("Indique Sí o No para cada tipo de día.")
+        with transaction.atomic():
+            row, _ = OvertimeDayPermission.objects.select_for_update().get_or_create(
+                supervisor=supervisor
+            )
+            before = {k: getattr(row, k) for k in OvertimeDayPermissionService.KINDS}
+            after = {**before, **changes}
+            if after != before:
+                for k, v in after.items():
+                    setattr(row, k, v)
+                row.updated_by = acc.user
+                row.save()
+
+                def describe(values):
+                    return ", ".join(
+                        f"{OvertimeDayPermissionService.LABELS[k]}: {'Sí' if values[k] else 'No'}"
+                        for k in OvertimeDayPermissionService.KINDS
+                    )
+
+                # Aplica a los registros posteriores: lo ya registrado no se toca.
+                EventService.log(
+                    actor=acc.user,
+                    action="overtime.day_permissions_changed",
+                    supervisor=supervisor,
+                    target_type="supervisor",
+                    target_id=supervisor.pk,
+                    target_label=user_display(supervisor),
+                    field="overtime_day_permissions",
+                    old_value=describe(before),
+                    new_value=describe(after),
+                    context=context,
+                )
+        return next(
+            r
+            for r in OvertimeDayPermissionService.matrix(acc)
+            if r["supervisor"]["id"] == supervisor.pk
+        )
+
+
 class OvertimeService:
     @staticmethod
     def queryset_for(acc: NovedadesAccess):
@@ -2535,7 +2802,7 @@ class OvertimeService:
         if errors:
             return None, errors
         if is_holiday_day is None:
-            is_holiday_day = Holiday.objects.filter(date=day).exists()
+            is_holiday_day = Holiday.objects.filter(date=day, scope=Holiday.Scope.NATIONAL).exists()
 
         def flag(name, default):
             return bool(data[name]) if data.get(name) is not None else default
@@ -2551,8 +2818,8 @@ class OvertimeService:
         }, {}
 
     @staticmethod
-    def _clean_values(data: dict, day: date) -> dict:
-        values, errors = OvertimeService.row_values(data, day)
+    def _clean_values(data: dict, day: date, *, is_holiday_day: bool | None = None) -> dict:
+        values, errors = OvertimeService.row_values(data, day, is_holiday_day=is_holiday_day)
         if errors:
             raise NovedadesError(next(iter(errors.values())), details={"fields": errors})
         return values
@@ -2584,7 +2851,10 @@ class OvertimeService:
         # `period` sigue apuntando al corte 23 → 22 de la fecha (dato de
         # referencia del modelo); el mes de Horas extras sale de `date`.
         legacy_period = PeriodService.get_period(period_for_date(day))
-        values = OvertimeService._clean_values(data, day)
+        is_holiday = HolidayCalendar.for_day(day).is_holiday(day, collaborator.regional)
+        OvertimeDayPermissionService.check(acc, day, is_holiday)
+        values = OvertimeService._clean_values(data, day, is_holiday_day=is_holiday)
+        OvertimeDayPermissionService.check_columns(acc, values)
         duplicate = OvertimeRecord.objects.filter(
             collaborator=collaborator, date=day, deleted_at__isnull=True
         ).first()
@@ -2656,9 +2926,16 @@ class OvertimeService:
             )
         OvertimeMonthService.assert_writable(record.supervisor, record.date)
         late = RecordDeadlineService.check(acc, RecordDeadlineService.OVERTIME, record.date)
+        is_holiday = HolidayCalendar.for_day(record.date).is_holiday(
+            record.date, record.collaborator.regional
+        )
+        OvertimeDayPermissionService.check(acc, record.date, is_holiday)
         merged = {f: getattr(record, f) for f in OVERTIME_FIELDS}
         merged.update({k: v for k, v in data.items() if k in OVERTIME_FIELDS})
-        values = OvertimeService._clean_values(merged, record.date)
+        values = OvertimeService._clean_values(merged, record.date, is_holiday_day=is_holiday)
+        OvertimeDayPermissionService.check_columns(
+            acc, values, {f: getattr(record, f) for f in OvertimeDayPermissionService.COLUMNS}
+        )
         changed = {f: (getattr(record, f), v) for f, v in values.items() if getattr(record, f) != v}
         if not changed:
             return record
@@ -2812,10 +3089,12 @@ class OvertimeService:
                 deleted_at__isnull=True,
             )
         }
-        holidays = set(
-            Holiday.objects.filter(date__gte=key.start_date, date__lte=key.end_date).values_list(
-                "date", flat=True
-            )
+        calendar = HolidayCalendar(key.start_date, key.end_date)
+        # Permisos por tipo de día del Supervisor que guarda (una consulta).
+        day_allowed = (
+            OvertimeDayPermissionService.allowed_for(acc.user.pk)
+            if OvertimeDayPermissionService.applies_to(acc)
+            else None
         )
         supervisor_ids = {c.current_supervisor_id for c in collaborators.values()} | {
             r.supervisor_id for r in by_id.values()
@@ -2921,9 +3200,35 @@ class OvertimeService:
                     },
                 )
                 continue
-            values, errors = OvertimeService.row_values(row, day, is_holiday_day=day in holidays)
+            is_holiday = calendar.is_holiday(day, collaborator.regional)
+            day_error = OvertimeDayPermissionService.error_for(acc, day, is_holiday, day_allowed)
+            if record is not None and record.date != day and not day_error:
+                # Mover un registro desde una fecha no autorizada también lo es.
+                day_error = OvertimeDayPermissionService.error_for(
+                    acc,
+                    record.date,
+                    calendar.is_holiday(record.date, collaborator.regional),
+                    day_allowed,
+                )
+            if day_error:
+                fail(row, "error", {"date": day_error})
+                continue
+            values, errors = OvertimeService.row_values(row, day, is_holiday_day=is_holiday)
             if errors:
                 fail(row, "error", errors)
+                continue
+            column_errors = OvertimeDayPermissionService.column_errors(
+                acc,
+                values,
+                (
+                    {f: getattr(record, f) for f in OvertimeDayPermissionService.COLUMNS}
+                    if record
+                    else None
+                ),
+                day_allowed,
+            )
+            if column_errors:
+                fail(row, "error", column_errors)
                 continue
             dup_key = (collaborator.pk, day)
             if dup_key in seen_keys:

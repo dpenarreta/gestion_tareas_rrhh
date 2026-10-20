@@ -7,6 +7,7 @@ from rest_framework.test import APIClient
 
 from apps.notifications.models import Notification
 from apps.novedades.access import NovedadesAccess
+from apps.novedades.models import OvertimeDayPermission
 from apps.users.models import User
 
 TODAY = date(2026, 10, 12)  # período vigente: Octubre 2026 (23/09 → 22/10)
@@ -54,14 +55,31 @@ def admin(db):
     return _user("admin", "ADMINISTRADOR", superuser=True)
 
 
+def _authorized_supervisor(username):
+    """Supervisor con los cuatro permisos por tipo de día en Sí, como los que
+    ya existían al crear esa configuración (migración `novedades/0014`). Uno
+    creado después nace con todo en No: ver `restricted_supervisor`."""
+    user = _user(username, "SUPERVISOR_OPERACIONES")
+    OvertimeDayPermission.objects.create(
+        supervisor=user, weekday=True, saturday=True, sunday=True, holiday=True
+    )
+    return user
+
+
 @pytest.fixture
 def supervisor(db):
-    return _user("sup1", "SUPERVISOR_OPERACIONES")
+    return _authorized_supervisor("sup1")
 
 
 @pytest.fixture
 def supervisor2(db):
-    return _user("sup2", "SUPERVISOR_OPERACIONES")
+    return _authorized_supervisor("sup2")
+
+
+@pytest.fixture
+def restricted_supervisor(db):
+    """Supervisor nuevo, sin ninguna autorización por tipo de día."""
+    return _user("sup3", "SUPERVISOR_OPERACIONES")
 
 
 @pytest.fixture
