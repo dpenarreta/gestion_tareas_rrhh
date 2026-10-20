@@ -15,6 +15,39 @@
 
 ---
 
+## 2026-10-16 — Retiro lógico de Días laborados y corrección de cédulas
+
+**Cómo apareció:** pedido explícito: que el Administrador pueda eliminar
+colaboradores de Días laborados y corregir cédulas ya registradas por un
+Supervisor.
+
+**Lo que había (verificado):** la eliminación existente borra el registro
+maestro y solo procede si el colaborador nunca tuvo días ni horas extras. La
+cédula es única en `Collaborator` pero ninguna tabla la usa como referencia
+(todas apuntan al id interno); nadie podía editarla después del alta.
+
+**Decisiones del usuario:** el retiro desde Días laborados es una eliminación
+LÓGICA que conserva todo y se puede restaurar; la cédula se corrige desde la
+tabla y desde la Base de colaboradores.
+
+**Alternativas consideradas:**
+- *Borrar sus días del período abierto.* Descartado por el usuario: perdería
+  información registrada.
+- *Pasarlo a Inactivo.* Descartado: cambia su estado y dispara el correo de
+  salida, que no corresponde a un retiro administrativo.
+- *Restringir el retiro a quienes no tienen información.* Ya existe como
+  eliminación definitiva; no resuelve el caso con historia.
+
+**Decisión técnica:** `worked_days_removed_at/by/reason` en el colaborador;
+un único criterio (`without_removed` / `is_removed_in`) excluye al retirado de
+los períodos que terminan después del retiro en la matriz y el resumen de
+cierre, y la validación de cada celda lo rechaza (cubre edición, arrastre e
+importación). La cédula se cambia con una actualización condicional, las
+mismas reglas del alta y control de duplicados (también por la restricción
+única de la base).
+
+---
+
 ## 2026-10-16 — Correo de suspensión y permiso para corregir Días laborados fuera de plazo
 
 **Cómo apareció:** pedido explícito: notificar también Activo → Suspendido a

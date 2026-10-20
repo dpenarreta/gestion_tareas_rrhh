@@ -14,6 +14,7 @@ import { PERM, STATUS_LABEL, type Collaborator, type CollaboratorStatus } from "
 import type { ModuleContext } from "./NovedadesModule";
 import StatusChangeDialog from "./StatusChangeDialog";
 import ImportDialog from "./ImportDialog";
+import { CedulaDialog, WorkedDaysRemovalDialog } from "./CollaboratorAdminDialogs";
 
 type History = {
   statuses: { previousStatus: CollaboratorStatus; newStatus: CollaboratorStatus; changedBy: string; reason: string; createdAt: string }[];
@@ -37,6 +38,8 @@ export default function CollaboratorsView({ ctx }: { ctx: ModuleContext }) {
   const [reassigning, setReassigning] = useState<Collaborator | null>(null);
   const [importOpen, setImportOpen] = useState(false);
   const [removing, setRemoving] = useState<Collaborator | null>(null);
+  // Administrador: retirar/restaurar en Días laborados y corregir cédula.
+  const [adminAction, setAdminAction] = useState<{ kind: "remove" | "restore" | "cedula"; collaborator: Collaborator } | null>(null);
 
   const canManage = ctx.can(PERM.colaboradores) && !ctx.me.isAssistant;
 
@@ -140,6 +143,15 @@ export default function CollaboratorsView({ ctx }: { ctx: ModuleContext }) {
                   <td className="border-b border-border px-3 py-2 text-secondary">{c.supervisorName}</td>
                   <td className="border-b border-border px-3 py-2">
                     <Badge variant={STATUS_VARIANT[c.status]}>{STATUS_LABEL[c.status]}</Badge>
+                    {c.workedDaysRemovedAt && (
+                      <Badge
+                        variant="neutral"
+                        className="ml-1"
+                        title={`Retirado por ${c.workedDaysRemovedBy || "el Administrador"} el ${formatDateTime(c.workedDaysRemovedAt)}${c.workedDaysRemovedReason ? ` · ${c.workedDaysRemovedReason}` : ""}`}
+                      >
+                        Retirado de Días laborados
+                      </Badge>
+                    )}
                   </td>
                   <td className="border-b border-border px-3 py-2 whitespace-nowrap text-right space-x-2">
                     <button className="text-xs text-primary hover:underline" onClick={() => openHistory(c)}>
@@ -161,9 +173,20 @@ export default function CollaboratorsView({ ctx }: { ctx: ModuleContext }) {
                       </button>
                     )}
                     {ctx.me.nationalWrite && canManage && (
-                      <button className="text-xs text-danger hover:underline" onClick={() => setRemoving(c)}>
-                        Eliminar
-                      </button>
+                      <>
+                        <button className="text-xs text-primary hover:underline" onClick={() => setAdminAction({ kind: "cedula", collaborator: c })}>
+                          Cédula
+                        </button>
+                        <button
+                          className="text-xs text-primary hover:underline"
+                          onClick={() => setAdminAction({ kind: c.workedDaysRemovedAt ? "restore" : "remove", collaborator: c })}
+                        >
+                          {c.workedDaysRemovedAt ? "Restaurar en Días laborados" : "Retirar de Días laborados"}
+                        </button>
+                        <button className="text-xs text-danger hover:underline" onClick={() => setRemoving(c)}>
+                          Eliminar
+                        </button>
+                      </>
                     )}
                   </td>
                 </tr>
@@ -196,6 +219,27 @@ export default function CollaboratorsView({ ctx }: { ctx: ModuleContext }) {
           onClose={() => setImportOpen(false)}
           onImported={() => {
             setImportOpen(false);
+            load();
+          }}
+        />
+      )}
+      {adminAction && adminAction.kind !== "cedula" && (
+        <WorkedDaysRemovalDialog
+          collaborator={adminAction.collaborator}
+          restore={adminAction.kind === "restore"}
+          onClose={() => setAdminAction(null)}
+          onDone={() => {
+            setAdminAction(null);
+            load();
+          }}
+        />
+      )}
+      {adminAction?.kind === "cedula" && (
+        <CedulaDialog
+          collaborator={adminAction.collaborator}
+          onClose={() => setAdminAction(null)}
+          onDone={() => {
+            setAdminAction(null);
             load();
           }}
         />
@@ -296,10 +340,26 @@ function CollaboratorForm({
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const pickSupervisor = !collaborator && ctx.me.nationalWrite;
+  // Corrección de cédula de un colaborador ya registrado: solo el
+  // Administrador, con motivo; va por su propio endpoint auditado.
+  const canFixCedula = Boolean(collaborator) && ctx.me.nationalWrite && ctx.can(PERM.colaboradores);
+  const cedulaChanged = Boolean(collaborator) && values.cedula.trim() !== collaborator?.cedula;
+  const [cedulaReason, setCedulaReason] = useState("");
 
   async function submit() {
     setSaving(true);
     setError(null);
+    if (collaborator && cedulaChanged) {
+      const fixed = await novedadesApi.post(`collaborators/${collaborator.id}/cedula`, {
+        cedula: values.cedula,
+        reason: cedulaReason,
+      });
+      if (!fixed.ok) {
+        setSaving(false);
+        setError(fixed.error); // no se guardó nada: corrija y vuelva a intentar
+        return;
+      }
+    }
     const result = collaborator
       ? await novedadesApi.patch(`collaborators/${collaborator.id}`, {
           fullName: values.fullName,
@@ -337,7 +397,7 @@ function CollaboratorForm({
       <ModalHeader title={collaborator ? "Editar colaborador" : "Agregar colaborador"} onClose={onClose} />
       <div className="p-5 space-y-3">
         <div className="grid sm:grid-cols-2 gap-3">
-          {field("cedula", "Cédula", Boolean(collaborator))}
+          {field("cedula", "Cédula", Boolean(collaborator) && !canFixCedula)}
           {field("fullName", "Nombres completos")}
           {field("regional", "Regional")}
           {field("area", "Área")}
@@ -355,6 +415,12 @@ function CollaboratorForm({
             </label>
           )}
         </div>
+        {cedulaChanged && (
+          <label className="block">
+            <Label hint="obligatorio">Motivo de la corrección de cédula</Label>
+            <TextArea value={cedulaReason} onChange={(e) => setCedulaReason(e.target.value)} maxLength={500} />
+          </label>
+        )}
         {!collaborator && (
           <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
             <input type="checkbox" className="mt-0.5" checked={isNewHire} onChange={(e) => setIsNewHire(e.target.checked)} />
@@ -378,7 +444,11 @@ function CollaboratorForm({
           <Button variant="secondary" onClick={onClose} disabled={saving}>
             Cancelar
           </Button>
-          <Button onClick={submit} loading={saving} disabled={!values.cedula.trim() || !values.fullName.trim()}>
+          <Button
+            onClick={submit}
+            loading={saving}
+            disabled={!values.cedula.trim() || !values.fullName.trim() || (cedulaChanged && !cedulaReason.trim())}
+          >
             Guardar
           </Button>
         </div>

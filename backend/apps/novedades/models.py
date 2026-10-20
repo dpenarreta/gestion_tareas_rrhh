@@ -47,6 +47,19 @@ class Collaborator(BaseModel):
         on_delete=models.PROTECT,
         related_name="novedades_collaborators_created",
     )
+    # Retiro de Días laborados (2026-10-16, decisión del usuario): eliminación
+    # LÓGICA hecha por el Administrador. Deja de aparecer en Días laborados
+    # desde el período que contiene esta fecha; sus días, horas extras,
+    # historial y auditoría se conservan, y se puede restaurar.
+    worked_days_removed_at = models.DateTimeField(null=True, blank=True)
+    worked_days_removed_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    worked_days_removed_reason = models.CharField(max_length=500, blank=True)
 
     class Meta:
         ordering = ["full_name"]

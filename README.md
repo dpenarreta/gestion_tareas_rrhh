@@ -331,6 +331,7 @@ Proyecto en desarrollo activo. Los módulos de Tareas, Equipo, KPIs/Analytics, N
 
 _Se actualiza automáticamente en cada commit vía el hook `.githooks/post-commit` (configurado por `npm install`, ver `scripts/setup-git-hooks.js`). Cada línea nueva se agrega arriba, con la fecha y el asunto del commit. Los commits `chore:` y `docs:` se omiten por ser mantenimiento, no cambios de producto._
 
+- 2026-10-19: Retiro de colaboradores y correccion de cedulas (v1.182.0)
 - 2026-10-16: fix(novedades): deshacer tras autoguardado y arrastre bajo encabezado fijo (v1.181.1)
 - 2026-10-16: Arrastre tipo Excel con desplazamiento automatico (v1.181.0)
 - 2026-10-16: fix(jerarquia): roles operativos fuera del equipo y de los ejecutores (v1.180.1)

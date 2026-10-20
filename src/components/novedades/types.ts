@@ -141,6 +141,10 @@ export type Collaborator = {
   supervisorName: string;
   createdAt: string;
   updatedAt: string;
+  /** Retiro lógico de Días laborados (Administrador): null = está en Días laborados. */
+  workedDaysRemovedAt?: string | null;
+  workedDaysRemovedBy?: string;
+  workedDaysRemovedReason?: string;
 };
 
 export type OvertimeRecord = {

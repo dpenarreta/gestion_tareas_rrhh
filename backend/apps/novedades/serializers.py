@@ -26,11 +26,19 @@ class CollaboratorSerializer(serializers.ModelSerializer):
             "supervisor_name",
             "created_at",
             "updated_at",
+            "worked_days_removed_at",
+            "worked_days_removed_by",
+            "worked_days_removed_reason",
         ]
         read_only_fields = fields
 
+    worked_days_removed_by = serializers.SerializerMethodField()
+
     def get_supervisor_name(self, obj) -> str:
         return user_display(obj.current_supervisor)
+
+    def get_worked_days_removed_by(self, obj) -> str:
+        return user_display(obj.worked_days_removed_by)
 
 
 class CollaboratorCreateSerializer(serializers.Serializer):
@@ -53,6 +61,18 @@ class CollaboratorUpdateSerializer(serializers.Serializer):
 
 class StatusChangeSerializer(serializers.Serializer):
     status = serializers.ChoiceField(choices=Collaborator.Status.choices)
+    reason = serializers.CharField(max_length=500, required=False, allow_blank=True, default="")
+
+
+class ReasonSerializer(serializers.Serializer):
+    """Retiro y restauración en Días laborados: solo el motivo (obligatorio,
+    lo exige el servicio)."""
+
+    reason = serializers.CharField(max_length=500, required=False, allow_blank=True, default="")
+
+
+class CedulaChangeSerializer(serializers.Serializer):
+    cedula = serializers.CharField(max_length=40, allow_blank=True)
     reason = serializers.CharField(max_length=500, required=False, allow_blank=True, default="")
 
 

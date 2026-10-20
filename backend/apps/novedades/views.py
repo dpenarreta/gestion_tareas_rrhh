@@ -23,6 +23,7 @@ from .periods import month_for_date, parse_month_code, parse_period_code, period
 from .permissions import CanAccessNovedades
 from .serializers import (
     BulkOvertimeSerializer,
+    CedulaChangeSerializer,
     CloseSerializer,
     CollaboratorCreateSerializer,
     CollaboratorSerializer,
@@ -39,6 +40,7 @@ from .serializers import (
     OvertimeRecordSerializer,
     OvertimeSettingsSerializer,
     OvertimeWriteSerializer,
+    ReasonSerializer,
     ReassignSerializer,
     RolePermissionSerializer,
     SaveCellsSerializer,
@@ -261,6 +263,37 @@ class CollaboratorStatusView(NovedadesView):
             event.refresh_from_db(fields=["status"])
             body["exit_notification"] = {"id": event.pk, "status": event.status}
         return Response(body)
+
+
+class CollaboratorRemoveWorkedDaysView(NovedadesView):
+    """Retiro lógico de Días laborados (solo Administrador; ver servicio)."""
+
+    def post(self, request, pk):
+        data = self.validated(ReasonSerializer)
+        collaborator = CollaboratorService.remove_from_worked_days(
+            self.access, pk, data["reason"], context=self.context
+        )
+        return Response(CollaboratorSerializer(collaborator).data)
+
+
+class CollaboratorRestoreWorkedDaysView(NovedadesView):
+    def post(self, request, pk):
+        data = self.validated(ReasonSerializer)
+        collaborator = CollaboratorService.restore_to_worked_days(
+            self.access, pk, data["reason"], context=self.context
+        )
+        return Response(CollaboratorSerializer(collaborator).data)
+
+
+class CollaboratorCedulaView(NovedadesView):
+    """Corrección administrativa de la cédula (solo Administrador)."""
+
+    def post(self, request, pk):
+        data = self.validated(CedulaChangeSerializer)
+        collaborator = CollaboratorService.change_cedula(
+            self.access, pk, data["cedula"], data["reason"], context=self.context
+        )
+        return Response(CollaboratorSerializer(collaborator).data)
 
 
 class CollaboratorReassignView(NovedadesView):

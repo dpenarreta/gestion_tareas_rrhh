@@ -28,6 +28,21 @@ urlpatterns = [
         name="novedades-collaborator-status",
     ),
     path(
+        "collaborators/<int:pk>/remove-worked-days/",
+        views.CollaboratorRemoveWorkedDaysView.as_view(),
+        name="novedades-collaborator-remove-worked-days",
+    ),
+    path(
+        "collaborators/<int:pk>/restore-worked-days/",
+        views.CollaboratorRestoreWorkedDaysView.as_view(),
+        name="novedades-collaborator-restore-worked-days",
+    ),
+    path(
+        "collaborators/<int:pk>/cedula/",
+        views.CollaboratorCedulaView.as_view(),
+        name="novedades-collaborator-cedula",
+    ),
+    path(
         "collaborators/<int:pk>/reassign/",
         views.CollaboratorReassignView.as_view(),
         name="novedades-collaborator-reassign",
